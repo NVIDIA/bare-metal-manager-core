@@ -1306,6 +1306,7 @@ pub async fn create_test_env_with_overrides(
         ipmi_tool.clone(),
         credential_provider.clone(),
         Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        config.site_explorer.firmware_inventory_cache_interval,
     ));
 
     let reachability_params = ReachabilityParams {
@@ -1481,6 +1482,7 @@ pub async fn create_test_env_with_overrides(
             bmc_proxy: Arc::new(Default::default()),
             allow_changing_bmc_proxy: None,
             reset_rate_limit: Duration::hours(1),
+            firmware_inventory_cache_interval: Duration::hours(12),
             admin_segment_type_non_dpu: Arc::new(false.into()),
             allocate_secondary_vtep_ip: true,
             create_power_shelves: Arc::new(true.into()),

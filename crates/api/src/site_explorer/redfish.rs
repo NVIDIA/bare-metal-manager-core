@@ -14,6 +14,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use chrono::{Duration, Utc};
 use forge_network::deserialize_input_mac_to_address;
 use forge_secrets::credentials::Credentials;
 use libredfish::model::oem::nvidia_dpu::NicMode;
@@ -238,6 +239,8 @@ impl RedfishClient {
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
         boot_interface_mac: Option<MacAddress>,
+        previous_report: Option<&EndpointExplorationReport>,
+        firmware_inventory_cache_interval: Duration,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let client = self
             .create_authenticated_redfish_client(bmc_ip_address, credentials)
@@ -258,9 +261,33 @@ impl RedfishClient {
         let chassis = fetch_chassis(client.as_ref())
             .await
             .map_err(map_redfish_error)?;
-        let service = fetch_service(client.as_ref())
-            .await
-            .map_err(map_redfish_error)?;
+
+        // For Vikings, reuse cached firmware inventory if within cache interval.
+        // This avoids their known BMC instability issues when fetching expensive endpoints like FirmwareInventory.
+        let (service, last_firmware_inventory_fetch) = match previous_report.filter(|prev| {
+            service_root.vendor() == Some(RedfishVendor::AMI)
+                && !prev.service.is_empty()
+                && prev
+                    .last_firmware_inventory_fetch
+                    .map_or(true, |fetched_at| {
+                        // If timestamp is None (legacy data), use cache. Otherwise check interval.
+                        Utc::now().signed_duration_since(fetched_at)
+                            < firmware_inventory_cache_interval
+                    })
+        }) {
+            // Use cached data. If timestamp was None (legacy), set it to now to start the timer.
+            Some(prev) => (
+                prev.service.clone(),
+                Some(prev.last_firmware_inventory_fetch.unwrap_or_else(Utc::now)),
+            ),
+            None => {
+                let service = fetch_service(client.as_ref())
+                    .await
+                    .map_err(map_redfish_error)?;
+                (service, Some(Utc::now()))
+            }
+        };
+
         let machine_setup_status = fetch_machine_setup_status(client.as_ref(), boot_interface_mac)
             .await
             .inspect_err(|error| tracing::warn!(%error, "Failed to fetch machine setup status."))
@@ -291,6 +318,7 @@ impl RedfishClient {
             systems: vec![system],
             chassis,
             service,
+            last_firmware_inventory_fetch,
             vendor,
             versions: HashMap::default(),
             model: None,

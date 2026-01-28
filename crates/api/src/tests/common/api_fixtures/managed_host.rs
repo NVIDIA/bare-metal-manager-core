@@ -315,6 +315,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                     },
                 ],
             }],
+            last_firmware_inventory_fetch: None,
             machine_id: None,
             versions: Default::default(),
             model: None,

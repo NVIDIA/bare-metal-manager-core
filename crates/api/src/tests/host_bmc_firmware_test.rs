@@ -411,6 +411,7 @@ fn build_exploration_report(
                 },
             ],
         }],
+        last_firmware_inventory_fetch: None,
         machine_id,
         versions: HashMap::default(),
         model: None,

@@ -1207,6 +1207,16 @@ pub struct SiteExplorerConfig {
     pub reset_rate_limit: Duration,
 
     #[serde(
+        default = "SiteExplorerConfig::default_firmware_inventory_cache_interval",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    /// Interval to cache firmware inventory.
+    /// When set, firmware inventory from the previous report is reused if fetched
+    /// within this interval. Default: 12 hours.
+    pub firmware_inventory_cache_interval: Duration,
+
+    #[serde(
         default = "SiteExplorerConfig::default_admin_segment_type_non_dpu",
         deserialize_with = "deserialize_arc_atomic_bool",
         serialize_with = "serialize_arc_atomic_bool"
@@ -1279,6 +1289,7 @@ impl Default for SiteExplorerConfig {
             bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
             allow_changing_bmc_proxy: None,
             reset_rate_limit: Self::default_reset_rate_limit(),
+            firmware_inventory_cache_interval: Self::default_firmware_inventory_cache_interval(),
             admin_segment_type_non_dpu: Self::default_admin_segment_type_non_dpu(),
             allocate_secondary_vtep_ip: false,
             create_power_shelves: Arc::new(true.into()),
@@ -1332,6 +1343,10 @@ impl SiteExplorerConfig {
 
     pub const fn default_reset_rate_limit() -> Duration {
         Duration::hours(1)
+    }
+
+    pub const fn default_firmware_inventory_cache_interval() -> Duration {
+        Duration::hours(12)
     }
 
     pub fn default_admin_segment_type_non_dpu() -> Arc<AtomicBool> {
@@ -2879,6 +2894,7 @@ mod tests {
                 bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(1),
+                firmware_inventory_cache_interval: Duration::hours(12),
                 admin_segment_type_non_dpu: Arc::new(false.into()),
                 allocate_secondary_vtep_ip: false,
                 create_power_shelves: Arc::new(true.into()),
@@ -3041,6 +3057,7 @@ mod tests {
                 bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(2),
+                firmware_inventory_cache_interval: Duration::hours(12),
                 admin_segment_type_non_dpu: Arc::new(false.into()),
                 allocate_secondary_vtep_ip: false,
                 create_power_shelves: Arc::new(true.into()),
@@ -3307,6 +3324,7 @@ mod tests {
                 bmc_proxy: crate::dynamic_settings::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(2),
+                firmware_inventory_cache_interval: Duration::hours(12),
                 admin_segment_type_non_dpu: Arc::new(false.into()),
                 allocate_secondary_vtep_ip: false,
                 create_power_shelves: Arc::new(true.into()),

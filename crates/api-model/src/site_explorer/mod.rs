@@ -67,6 +67,10 @@ pub struct EndpointExplorationReport {
     /// `Service` reported by Redfish
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub service: Vec<Service>,
+    /// Timestamp of when the firmware inventory (service) was last fetched.
+    /// Used for caching firmware inventory fetches.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_firmware_inventory_fetch: Option<DateTime<Utc>>,
     /// If the endpoint is a BMC that belongs to a Machine and enough data is
     /// available to calculate the `MachineId`, this field contains the `MachineId`
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -718,6 +722,7 @@ impl EndpointExplorationReport {
             systems: Vec::new(),
             chassis: Vec::new(),
             service: Vec::new(),
+            last_firmware_inventory_fetch: None,
             vendor: None,
             machine_id: None,
             versions: HashMap::default(),
@@ -2078,6 +2083,7 @@ mod tests {
                     inventories: vec![],
                 },
             ],
+            last_firmware_inventory_fetch: None,
             machine_id: None,
             versions: HashMap::default(),
             model: None,
@@ -2148,6 +2154,7 @@ mod tests {
                     inventories: vec![],
                 },
             ],
+            last_firmware_inventory_fetch: None,
             machine_id: None,
             versions: HashMap::default(),
             model: None,

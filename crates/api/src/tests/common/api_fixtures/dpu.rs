@@ -225,6 +225,7 @@ impl From<DpuConfig> for EndpointExplorationReport {
                     },
                 ],
             }],
+            last_firmware_inventory_fetch: None,
             versions: Default::default(),
             model: None,
             machine_setup_status: None,

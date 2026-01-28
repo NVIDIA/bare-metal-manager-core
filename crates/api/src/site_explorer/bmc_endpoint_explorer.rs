@@ -14,6 +14,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use chrono::Duration as ChronoDuration;
 use forge_secrets::credentials::{CredentialProvider, Credentials};
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
@@ -46,6 +47,7 @@ pub struct BmcEndpointExplorer {
     credential_client: CredentialClient,
     mutex: Arc<Mutex<()>>,
     rotate_switch_nvos_credentials: Arc<AtomicBool>,
+    firmware_inventory_cache_interval: ChronoDuration,
 }
 
 impl BmcEndpointExplorer {
@@ -54,6 +56,7 @@ impl BmcEndpointExplorer {
         ipmi_tool: Arc<dyn IPMITool>,
         credential_provider: Arc<dyn CredentialProvider>,
         rotate_switch_nvos_credentials: Arc<AtomicBool>,
+        firmware_inventory_cache_interval: ChronoDuration,
     ) -> Self {
         Self {
             redfish_client: RedfishClient::new(redfish_client_pool),
@@ -61,6 +64,7 @@ impl BmcEndpointExplorer {
             credential_client: CredentialClient::new(credential_provider),
             mutex: Arc::new(Mutex::new(())),
             rotate_switch_nvos_credentials,
+            firmware_inventory_cache_interval,
         }
     }
 
@@ -153,9 +157,17 @@ impl BmcEndpointExplorer {
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
         boot_interface_mac: Option<MacAddress>,
+        previous_report: Option<&EndpointExplorationReport>,
+        firmware_inventory_cache_interval: ChronoDuration,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         self.redfish_client
-            .generate_exploration_report(bmc_ip_address, credentials, boot_interface_mac)
+            .generate_exploration_report(
+                bmc_ip_address,
+                credentials,
+                boot_interface_mac,
+                previous_report,
+                firmware_inventory_cache_interval,
+            )
             .await
     }
 
@@ -248,8 +260,14 @@ impl BmcEndpointExplorer {
         self.set_bmc_root_credentials(bmc_mac_address, &bmc_credentials)
             .await?;
 
-        self.generate_exploration_report(bmc_ip_address, bmc_credentials, None)
-            .await
+        self.generate_exploration_report(
+            bmc_ip_address,
+            bmc_credentials,
+            None,
+            None,
+            self.firmware_inventory_cache_interval,
+        )
+        .await
     }
 
     // Handle switch NVOS admin credentials setup
@@ -674,7 +692,13 @@ impl EndpointExplorer for BmcEndpointExplorer {
         let report = match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
                 match self
-                    .generate_exploration_report(bmc_ip_address, credentials, boot_interface_mac)
+                    .generate_exploration_report(
+                        bmc_ip_address,
+                        credentials,
+                        boot_interface_mac,
+                        last_report,
+                        self.firmware_inventory_cache_interval,
+                    )
                     .await
                 {
                     Ok(report) => report,
