@@ -702,13 +702,13 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     .await
                 {
                     Ok(report) => report,
-                    // BMCs (HPEs currently) can return intermittent 401 errors even with valid credentials.
+                    // BMCs (HPE and AMI/Viking) can return intermittent 401 errors even with valid credentials.
                     // Allow up to MAX_AUTH_RETRIES before escalating to regular Unauthorized.
                     Err(EndpointExplorationError::Unauthorized {
                         details,
                         response_body,
                         response_code,
-                    }) if vendor == RedfishVendor::Hpe => {
+                    }) if vendor == RedfishVendor::Hpe || vendor == RedfishVendor::AMI => {
                         const MAX_AUTH_RETRIES: u32 = 3;
 
                         let previous_count = last_report
