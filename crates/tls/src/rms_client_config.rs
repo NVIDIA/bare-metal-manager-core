@@ -71,6 +71,7 @@ pub fn rms_root_ca_path(
     // Second config file
     if let Some(file_config) = file_config
         && let Some(rms_root_ca_path) = file_config.rms_root_ca_path.as_ref()
+        && Path::new(rms_root_ca_path).exists()
     {
         return rms_root_ca_path.clone();
     }
