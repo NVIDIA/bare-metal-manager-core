@@ -47,6 +47,7 @@ carbide-tls = { path = "../tls" }
 carbide-version = { path = "../version" }
 carbide-utils = { path = "../utils" }
 carbide-uuid = { path = "../uuid" }
+logfmt = { path = "../logfmt" }
 
 [build-dependencies]
 carbide-version = { path = "../version" }
