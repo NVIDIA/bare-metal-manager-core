@@ -99,8 +99,8 @@ pub async fn delete_bmc(c: DeleteBMCredential, api_client: &ApiClient) -> Carbid
 }
 
 pub async fn add_uefi(c: AddUefiCredential, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let mut password = password_validator(c.password.clone())?;
-    if c.password.is_empty() {
+    let mut password = password_validator(c.password)?;
+    if password.is_empty() {
         password = Credentials::generate_password_no_special_char();
     }
 

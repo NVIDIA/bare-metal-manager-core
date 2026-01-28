@@ -25,3 +25,24 @@ pub(crate) fn get_nice_labels_from_rpc_metadata(metadata: Option<&Metadata>) -> 
         })
         .unwrap_or_default()
 }
+
+pub(crate) fn parse_rpc_labels(labels: Vec<String>) -> Vec<rpc::forge::Label> {
+    labels
+        .into_iter()
+        .map(|label| match label.split_once(':') {
+            Some((k, v)) => rpc::forge::Label {
+                key: k.trim().to_string(),
+                value: Some(v.trim().to_string()),
+            },
+            None => rpc::forge::Label {
+                key: if label.contains(char::is_whitespace) {
+                    label.trim().to_string()
+                } else {
+                    // avoid allocations on the happy path
+                    label
+                },
+                value: None,
+            },
+        })
+        .collect()
+}

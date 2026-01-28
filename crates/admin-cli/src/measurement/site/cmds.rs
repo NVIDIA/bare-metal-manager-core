@@ -39,7 +39,7 @@ use crate::rpc::ApiClient;
 /// dispatch matches + dispatches the correct command
 /// for this subcommand.
 pub async fn dispatch(
-    cmd: &CmdSite,
+    cmd: CmdSite,
     cli: &mut global::cmds::CliData<'_, '_>,
 ) -> CarbideCliResult<()> {
     match cmd {
@@ -130,9 +130,9 @@ pub async fn dispatch(
 }
 
 /// Import imports a serialized SiteModel back into the database.
-pub async fn import(grpc_conn: &ApiClient, import: &Import) -> CarbideCliResult<ImportResult> {
+pub async fn import(grpc_conn: &ApiClient, import: Import) -> CarbideCliResult<ImportResult> {
     // Prepare.
-    let reader = BufReader::new(File::open(import.path.clone())?);
+    let reader = BufReader::new(File::open(import.path)?);
     let site_model: SiteModel = serde_json::from_reader(reader)?;
 
     // Request.
@@ -151,7 +151,7 @@ pub async fn import(grpc_conn: &ApiClient, import: &Import) -> CarbideCliResult<
 
 /// Export grabs all of the data needed to build a SiteModel.
 /// Summary is explicitly set to false so all data is serialized.
-pub async fn export(grpc_conn: &ApiClient, _export: &Export) -> CarbideCliResult<SiteModel> {
+pub async fn export(grpc_conn: &ApiClient, _export: Export) -> CarbideCliResult<SiteModel> {
     // Prepare.
     // Force != summarized output, so all keys
     // accompany the serialized data.
@@ -166,7 +166,7 @@ pub async fn export(grpc_conn: &ApiClient, _export: &Export) -> CarbideCliResult
 /// approve_machine is used to approve a trusted machine by machine ID.
 pub async fn approve_machine(
     grpc_conn: &ApiClient,
-    approve: &ApproveMachine,
+    approve: ApproveMachine,
 ) -> CarbideCliResult<MeasurementApprovedMachineRecord> {
     // Prepare.
     let approval_type: MeasurementApprovedTypePb = approve.approval_type.into();
@@ -175,8 +175,8 @@ pub async fn approve_machine(
     let request = AddMeasurementTrustedMachineRequest {
         machine_id: approve.machine_id.to_string(),
         approval_type: approval_type.into(),
-        pcr_registers: approve.pcr_registers.clone().unwrap_or_default(),
-        comments: approve.comments.clone().unwrap_or_default(),
+        pcr_registers: approve.pcr_registers.unwrap_or_default(),
+        comments: approve.comments.unwrap_or_default(),
     };
 
     // Response.
@@ -191,7 +191,7 @@ pub async fn approve_machine(
 /// by its approval ID.
 pub async fn remove_machine_by_approval_id(
     grpc_conn: &ApiClient,
-    by_approval_id: &RemoveMachineByApprovalId,
+    by_approval_id: RemoveMachineByApprovalId,
 ) -> CarbideCliResult<MeasurementApprovedMachineRecord> {
     // Request.
     let request = RemoveMeasurementTrustedMachineRequest {
@@ -217,7 +217,7 @@ pub async fn remove_machine_by_approval_id(
 /// by its machine ID.
 pub async fn remove_machine_by_machine_id(
     grpc_conn: &ApiClient,
-    by_machine_id: &RemoveMachineByMachineId,
+    by_machine_id: RemoveMachineByMachineId,
 ) -> CarbideCliResult<MeasurementApprovedMachineRecord> {
     // Request
     let request = RemoveMeasurementTrustedMachineRequest {
@@ -249,9 +249,9 @@ pub async fn list_machines(
             .list_measurement_trusted_machines()
             .await?
             .approval_records
-            .iter()
+            .into_iter()
             .map(|record| {
-                MeasurementApprovedMachineRecord::try_from(record.clone())
+                MeasurementApprovedMachineRecord::try_from(record)
                     .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
             })
             .collect::<CarbideCliResult<Vec<MeasurementApprovedMachineRecord>>>()?,
@@ -261,7 +261,7 @@ pub async fn list_machines(
 /// approve_profile is used to approve a trusted profile by profile ID.
 pub async fn approve_profile(
     grpc_conn: &ApiClient,
-    approve: &ApproveProfile,
+    approve: ApproveProfile,
 ) -> CarbideCliResult<MeasurementApprovedProfileRecord> {
     // Request.
     let approval_type: MeasurementApprovedTypePb = approve.approval_type.into();
@@ -284,7 +284,7 @@ pub async fn approve_profile(
 /// by its approval ID.
 pub async fn remove_profile_by_approval_id(
     grpc_conn: &ApiClient,
-    by_approval_id: &RemoveProfileByApprovalId,
+    by_approval_id: RemoveProfileByApprovalId,
 ) -> CarbideCliResult<MeasurementApprovedProfileRecord> {
     // Request.
     let request = RemoveMeasurementTrustedProfileRequest {
@@ -310,7 +310,7 @@ pub async fn remove_profile_by_approval_id(
 /// by its profile ID.
 pub async fn remove_profile_by_profile_id(
     grpc_conn: &ApiClient,
-    by_profile_id: &RemoveProfileByProfileId,
+    by_profile_id: RemoveProfileByProfileId,
 ) -> CarbideCliResult<MeasurementApprovedProfileRecord> {
     // Request.
     let request = RemoveMeasurementTrustedProfileRequest {
@@ -342,9 +342,9 @@ pub async fn list_profiles(
             .list_measurement_trusted_profiles()
             .await?
             .approval_records
-            .iter()
+            .into_iter()
             .map(|record| {
-                MeasurementApprovedProfileRecord::try_from(record.clone())
+                MeasurementApprovedProfileRecord::try_from(record)
                     .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
             })
             .collect::<CarbideCliResult<Vec<MeasurementApprovedProfileRecord>>>()?,
@@ -358,7 +358,7 @@ pub async fn list_profiles(
 pub struct MeasurementApprovedMachineRecordList(Vec<MeasurementApprovedMachineRecord>);
 
 impl ToTable for MeasurementApprovedMachineRecordList {
-    fn to_table(&self) -> eyre::Result<String> {
+    fn into_table(self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
         table.add_row(prettytable::row![
             "approval_id",
@@ -367,12 +367,12 @@ impl ToTable for MeasurementApprovedMachineRecordList {
             "ts",
             "comments",
         ]);
-        for rec in self.0.iter() {
-            let pcr_registers: String = match rec.pcr_registers.clone() {
+        for rec in self.0 {
+            let pcr_registers: String = match rec.pcr_registers {
                 Some(pcr_registers) => pcr_registers,
                 None => "".to_string(),
             };
-            let comments: String = match rec.comments.clone() {
+            let comments: String = match rec.comments {
                 Some(comments) => comments,
                 None => "".to_string(),
             };
@@ -396,7 +396,7 @@ impl ToTable for MeasurementApprovedMachineRecordList {
 pub struct MeasurementApprovedProfileRecordList(Vec<MeasurementApprovedProfileRecord>);
 
 impl ToTable for MeasurementApprovedProfileRecordList {
-    fn to_table(&self) -> eyre::Result<String> {
+    fn into_table(self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
         table.add_row(prettytable::row![
             "approval_id",
@@ -405,12 +405,12 @@ impl ToTable for MeasurementApprovedProfileRecordList {
             "ts",
             "comments",
         ]);
-        for rec in self.0.iter() {
-            let pcr_registers: String = match rec.pcr_registers.clone() {
+        for rec in self.0 {
+            let pcr_registers: String = match rec.pcr_registers {
                 Some(pcr_registers) => pcr_registers,
                 None => "".to_string(),
             };
-            let comments: String = match rec.comments.clone() {
+            let comments: String = match rec.comments {
                 Some(comments) => comments,
                 None => "".to_string(),
             };

@@ -7,6 +7,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::borrow::Cow;
 use std::fmt::Write;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
@@ -88,12 +89,9 @@ fn convert_external_config_to_nice_format(
             .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
 
         let details = vec![
-            ("Name", config.name.clone()),
-            (
-                "Description",
-                config.description.unwrap_or_default().clone(),
-            ),
-            ("Version", config.version.clone()),
+            ("Name", config.name),
+            ("Description", config.description.unwrap_or_default()),
+            ("Version", config.version),
             ("TimeStamp", timestamp),
             ("Config", config_string),
         ];
@@ -118,7 +116,7 @@ fn convert_external_config_to_nice_table(
 
     for config in configs {
         table.add_row(row![
-            config.name.clone(),
+            config.name,
             config.description.unwrap_or_default(),
             config.version,
             config.timestamp.unwrap_or_default(),
@@ -201,7 +199,7 @@ fn convert_runs_to_nice_table(runs: forgerpc::MachineValidationRunList) -> Box<T
                 ),
             );
         table.add_row(row![
-            run.validation_id.clone().unwrap_or_default(),
+            run.validation_id.unwrap_or_default(),
             run.machine_id.unwrap_or_default(),
             run.start_time.unwrap_or_default(),
             end_time,
@@ -243,10 +241,8 @@ async fn show_results(
         Err(e) => return Err(e),
     };
 
-    if args.test_name.is_some() {
-        results
-            .results
-            .retain(|x| x.name == args.test_name.clone().unwrap_or_default())
+    if let Some(test_name) = args.test_name {
+        results.results.retain(|x| x.name == test_name)
     }
     if json {
         println!("{}", serde_json::to_string_pretty(&results)?);
@@ -268,10 +264,8 @@ async fn show_results_details(
         Ok(results) => results,
         Err(e) => return Err(e),
     };
-    if args.test_name.is_some() {
-        results
-            .results
-            .retain(|x| x.name == args.test_name.clone().unwrap_or_default())
+    if let Some(test_name) = args.test_name {
+        results.results.retain(|x| x.name == test_name)
     }
     if json {
         println!("{}", serde_json::to_string_pretty(&results)?);
@@ -299,7 +293,7 @@ fn convert_results_to_nice_table(results: forgerpc::MachineValidationResultList)
 
     for result in results.results {
         table.add_row(row![
-            result.validation_id.clone().unwrap_or_default(),
+            result.validation_id.unwrap_or_default(),
             result.name,
             result.context,
             result.exit_code,
@@ -323,9 +317,15 @@ fn convert_to_nice_format(
     let data = vec![
         (
             "ID",
-            first.validation_id.clone().unwrap_or_default().to_string(),
+            Cow::Owned(
+                first
+                    .validation_id
+                    .as_ref()
+                    .map(|id| id.to_string())
+                    .unwrap_or_default(),
+            ),
         ),
-        ("CONTEXT", first.context.clone()),
+        ("CONTEXT", Cow::Borrowed(first.context.as_str())),
     ];
     for (key, value) in data {
         writeln!(&mut lines, "{key:<width$}: {value}")?;
@@ -337,12 +337,12 @@ fn convert_to_nice_format(
             "\t------------------------------------------------------------------------"
         )?;
         let details = vec![
-            ("Name", result.name.clone()),
-            ("Description", result.description.clone()),
-            ("Command", result.command.clone()),
-            ("Args", result.args.clone()),
-            ("StdOut", result.std_out.clone()),
-            ("StdErr", result.std_err.clone()),
+            ("Name", result.name),
+            ("Description", result.description),
+            ("Command", result.command),
+            ("Args", result.args),
+            ("StdOut", result.std_out),
+            ("StdErr", result.std_err),
             ("ExitCode", result.exit_code.to_string()),
             (
                 "StartTime",

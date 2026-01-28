@@ -99,7 +99,7 @@ impl TryFrom<CandidateMachinePb> for CandidateMachine {
 
 #[cfg(feature = "cli")]
 impl ToTable for CandidateMachine {
-    fn to_table(&self) -> eyre::Result<String> {
+    fn into_table(self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
         let journal_table = match &self.journal {
             Some(journal) => journal.to_nested_prettytable(),

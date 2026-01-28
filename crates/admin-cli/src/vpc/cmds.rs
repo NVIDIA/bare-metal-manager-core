@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
+use std::borrow::Cow;
 use std::fmt::Write;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
@@ -54,13 +54,7 @@ async fn show_vpcs(
     label_value: Option<String>,
 ) -> CarbideCliResult<()> {
     let all_vpcs = match api_client
-        .get_all_vpcs(
-            tenant_org_id.clone(),
-            name.clone(),
-            page_size,
-            label_key,
-            label_value,
-        )
+        .get_all_vpcs(tenant_org_id, name, page_size, label_key, label_value)
         .await
     {
         Ok(all_vpcs) => all_vpcs,
@@ -135,7 +129,7 @@ fn convert_vpcs_to_nice_table(vpcs: forgerpc::VpcList) -> Box<Table> {
                 .iter()
                 .map(|label| {
                     let key = &label.key;
-                    let value = label.value.clone().unwrap_or_default();
+                    let value = label.value.as_deref().unwrap_or_default();
                     format!("\"{key}:{value}\"")
                 })
                 .collect::<Vec<_>>()
@@ -150,30 +144,36 @@ fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
     let width = 25;
     let mut lines = String::new();
 
-    let data = vec![
-        ("ID", vpc.id.unwrap_or_default().to_string()),
-        ("NAME", vpc.name.clone()),
-        ("TENANT ORG", vpc.tenant_organization_id.clone()),
+    let data: Vec<(&'static str, Cow<str>)> = vec![
+        ("ID", vpc.id.unwrap_or_default().to_string().into()),
+        ("NAME", vpc.name.as_str().into()),
+        ("TENANT ORG", vpc.tenant_organization_id.as_str().into()),
         (
             "NETWORK SECURITY GROUP",
-            vpc.network_security_group_id().to_string(),
+            vpc.network_security_group_id().into(),
         ),
-        ("VERSION", vpc.version.clone()),
-        ("CREATED", vpc.created.unwrap_or_default().to_string()),
-        ("UPDATED", vpc.updated.unwrap_or_default().to_string()),
+        ("VERSION", vpc.version.as_str().into()),
+        (
+            "CREATED",
+            vpc.created.unwrap_or_default().to_string().into(),
+        ),
+        (
+            "UPDATED",
+            vpc.updated.unwrap_or_default().to_string().into(),
+        ),
         (
             "DELETED",
             match vpc.deleted {
-                Some(ts) => ts.to_string(),
-                None => "".to_string(),
+                Some(ts) => ts.to_string().into(),
+                None => "".into(),
             },
         ),
+        ("TENANT KEYSET", vpc.tenant_keyset_id().into()),
+        ("VNI", format!("{}", vpc.vni.unwrap_or_default()).into()),
         (
-            "TENANT KEYSET",
-            vpc.tenant_keyset_id.clone().unwrap_or_default(),
+            "DPA_VNI",
+            format!("{}", vpc.dpa_vni.unwrap_or_default()).into(),
         ),
-        ("VNI", format!("{}", vpc.vni.unwrap_or_default())),
-        ("DPA_VNI", format!("{}", vpc.dpa_vni.unwrap_or_default())),
         (
             "NW VIRTUALIZATION",
             forgerpc::VpcVirtualizationType::try_from(
@@ -181,7 +181,7 @@ fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
             )
             .unwrap_or_default()
             .as_str_name()
-            .to_string(),
+            .into(),
         ),
     ];
 

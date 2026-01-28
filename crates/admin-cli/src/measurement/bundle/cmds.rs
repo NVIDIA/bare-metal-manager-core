@@ -28,7 +28,6 @@ use ::rpc::protos::measured_boot::{
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::measured_boot::MeasurementBundleId;
 use measured_boot::bundle::MeasurementBundle;
-use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::MeasurementBundleRecord;
 use serde::Serialize;
 
@@ -42,7 +41,7 @@ use crate::rpc::ApiClient;
 /// dispatch matches + dispatches the correct command for
 /// the `bundle` subcommand (e.g. create, delete, set-state).
 pub async fn dispatch(
-    cmd: &CmdBundle,
+    cmd: CmdBundle,
     cli: &mut global::cmds::CliData<'_, '_>,
 ) -> CarbideCliResult<()> {
     match cmd {
@@ -123,7 +122,7 @@ pub async fn dispatch(
 /// profile w/ the provided profile ID.
 pub async fn create_for_id(
     grpc_conn: &ApiClient,
-    create: &Create,
+    create: Create,
 ) -> CarbideCliResult<MeasurementBundle> {
     // Prepare.
     let state: MeasurementBundleStatePb = match create.state {
@@ -133,9 +132,9 @@ pub async fn create_for_id(
 
     // Request.
     let request = CreateMeasurementBundleRequest {
-        name: Some(create.name.clone()),
+        name: Some(create.name),
         profile_id: Some(create.profile_id),
-        pcr_values: PcrRegisterValue::to_pb_vec(&create.values),
+        pcr_values: create.values.into_iter().map(Into::into).collect(),
         state: state.into(),
     };
 
@@ -147,7 +146,7 @@ pub async fn create_for_id(
 }
 
 /// delete deletes a measurement bundle with the provided ID.
-pub async fn delete(grpc_conn: &ApiClient, delete: &Delete) -> CarbideCliResult<MeasurementBundle> {
+pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<MeasurementBundle> {
     // Request.
     let request = DeleteMeasurementBundleRequest {
         selector: Some(delete_measurement_bundle_request::Selector::BundleId(
@@ -163,32 +162,32 @@ pub async fn delete(grpc_conn: &ApiClient, delete: &Delete) -> CarbideCliResult<
 }
 
 /// rename renames a measurement bundle with the provided name or ID.
-pub async fn rename(grpc_conn: &ApiClient, rename: &Rename) -> CarbideCliResult<MeasurementBundle> {
+pub async fn rename(grpc_conn: &ApiClient, rename: Rename) -> CarbideCliResult<MeasurementBundle> {
     // Prepare.
-    let selector = match get_identifier(rename)? {
+    let selector = match get_identifier(&rename)? {
         IdentifierType::ForId => {
-            let bundle_id = MeasurementBundleId::from_str(&rename.identifier.clone())
+            let bundle_id = MeasurementBundleId::from_str(&rename.identifier)
                 .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))?;
             Some(rename_measurement_bundle_request::Selector::BundleId(
                 bundle_id,
             ))
         }
         IdentifierType::ForName => Some(rename_measurement_bundle_request::Selector::BundleName(
-            rename.identifier.clone(),
+            rename.identifier,
         )),
-        IdentifierType::Detect => match MeasurementBundleId::from_str(&rename.identifier.clone()) {
+        IdentifierType::Detect => match MeasurementBundleId::from_str(&rename.identifier) {
             Ok(bundle_id) => Some(rename_measurement_bundle_request::Selector::BundleId(
                 bundle_id,
             )),
             Err(_) => Some(rename_measurement_bundle_request::Selector::BundleName(
-                rename.identifier.clone(),
+                rename.identifier,
             )),
         },
     };
 
     // Request.
     let request = RenameMeasurementBundleRequest {
-        new_bundle_name: rename.new_bundle_name.clone(),
+        new_bundle_name: rename.new_bundle_name,
         selector,
     };
 
@@ -202,32 +201,30 @@ pub async fn rename(grpc_conn: &ApiClient, rename: &Rename) -> CarbideCliResult<
 /// set_state updates the state of the bundle (e.g. active, obsolete, retired).
 pub async fn set_state(
     grpc_conn: &ApiClient,
-    set_state: &SetState,
+    set_state: SetState,
 ) -> CarbideCliResult<MeasurementBundle> {
     // Prepare.
     let state: MeasurementBundleStatePb = set_state.state.into();
 
-    let selector = match get_identifier(set_state)? {
+    let selector = match get_identifier(&set_state)? {
         IdentifierType::ForId => {
-            let bundle_id = MeasurementBundleId::from_str(&set_state.identifier.clone())
+            let bundle_id = MeasurementBundleId::from_str(&set_state.identifier)
                 .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))?;
             Some(update_measurement_bundle_request::Selector::BundleId(
                 bundle_id,
             ))
         }
         IdentifierType::ForName => Some(update_measurement_bundle_request::Selector::BundleName(
-            set_state.identifier.clone(),
+            set_state.identifier,
         )),
-        IdentifierType::Detect => {
-            match MeasurementBundleId::from_str(&set_state.identifier.clone()) {
-                Ok(bundle_id) => Some(update_measurement_bundle_request::Selector::BundleId(
-                    bundle_id,
-                )),
-                Err(_) => Some(update_measurement_bundle_request::Selector::BundleName(
-                    set_state.identifier.clone(),
-                )),
-            }
-        }
+        IdentifierType::Detect => match MeasurementBundleId::from_str(&set_state.identifier) {
+            Ok(bundle_id) => Some(update_measurement_bundle_request::Selector::BundleId(
+                bundle_id,
+            )),
+            Err(_) => Some(update_measurement_bundle_request::Selector::BundleName(
+                set_state.identifier,
+            )),
+        },
     };
 
     // Request.
@@ -246,33 +243,33 @@ pub async fn set_state(
 /// show_by_id dumps all info about a bundle for the given ID or name.
 pub async fn show_by_id_or_name(
     grpc_conn: &ApiClient,
-    show: &Show,
+    show: Show,
 ) -> CarbideCliResult<MeasurementBundle> {
+    let identifier_type = get_identifier(&show)?;
     // Prepare.
     let identifier = show
         .identifier
-        .as_ref()
         .ok_or(CarbideCliError::GenericError(String::from(
             "identifier expected to be set here",
         )))?;
 
-    let selector = match get_identifier(show)? {
+    let selector = match identifier_type {
         IdentifierType::ForId => {
-            let bundle_id = MeasurementBundleId::from_str(&identifier.clone())
+            let bundle_id = MeasurementBundleId::from_str(&identifier)
                 .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))?;
             Some(show_measurement_bundle_request::Selector::BundleId(
                 bundle_id,
             ))
         }
         IdentifierType::ForName => Some(show_measurement_bundle_request::Selector::BundleName(
-            identifier.clone(),
+            identifier,
         )),
-        IdentifierType::Detect => match MeasurementBundleId::from_str(&identifier.clone()) {
+        IdentifierType::Detect => match MeasurementBundleId::from_str(&identifier) {
             Ok(bundle_id) => Some(show_measurement_bundle_request::Selector::BundleId(
                 bundle_id,
             )),
             Err(_) => Some(show_measurement_bundle_request::Selector::BundleName(
-                identifier.clone(),
+                identifier,
             )),
         },
     };
@@ -290,7 +287,7 @@ pub async fn show_by_id_or_name(
 /// show_all dumps all info about all bundles.
 pub async fn show_all(
     grpc_conn: &ApiClient,
-    _get_by_id: &Show,
+    _get_by_id: Show,
 ) -> CarbideCliResult<MeasurementBundleList> {
     Ok(MeasurementBundleList(
         grpc_conn
@@ -298,9 +295,9 @@ pub async fn show_all(
             .show_measurement_bundles()
             .await?
             .bundles
-            .iter()
+            .into_iter()
             .map(|bundle| {
-                MeasurementBundle::try_from(bundle.clone())
+                MeasurementBundle::try_from(bundle)
                     .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
             })
             .collect::<CarbideCliResult<Vec<MeasurementBundle>>>()?,
@@ -315,9 +312,9 @@ pub async fn list(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementBundleRe
             .list_measurement_bundles()
             .await?
             .bundles
-            .iter()
+            .into_iter()
             .map(|rec| {
-                MeasurementBundleRecord::try_from(rec.clone())
+                MeasurementBundleRecord::try_from(rec)
                     .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
             })
             .collect::<CarbideCliResult<Vec<MeasurementBundleRecord>>>()?,
@@ -328,32 +325,30 @@ pub async fn list(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementBundleRe
 /// bundle ID or bundle name.
 pub async fn list_machines(
     grpc_conn: &ApiClient,
-    list_machines: &ListMachines,
+    list_machines: ListMachines,
 ) -> CarbideCliResult<MachineIdList> {
     // Prepare.
-    let selector = match get_identifier(list_machines)? {
+    let selector = match get_identifier(&list_machines)? {
         IdentifierType::ForId => {
-            let bundle_id = MeasurementBundleId::from_str(&list_machines.identifier.clone())
+            let bundle_id = MeasurementBundleId::from_str(&list_machines.identifier)
                 .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))?;
             Some(list_measurement_bundle_machines_request::Selector::BundleId(bundle_id))
         }
         IdentifierType::ForName => Some(
             list_measurement_bundle_machines_request::Selector::BundleName(
-                list_machines.identifier.clone(),
+                list_machines.identifier,
             ),
         ),
-        IdentifierType::Detect => {
-            match MeasurementBundleId::from_str(&list_machines.identifier.clone()) {
-                Ok(bundle_id) => {
-                    Some(list_measurement_bundle_machines_request::Selector::BundleId(bundle_id))
-                }
-                Err(_) => Some(
-                    list_measurement_bundle_machines_request::Selector::BundleName(
-                        list_machines.identifier.clone(),
-                    ),
-                ),
+        IdentifierType::Detect => match MeasurementBundleId::from_str(&list_machines.identifier) {
+            Ok(bundle_id) => {
+                Some(list_measurement_bundle_machines_request::Selector::BundleId(bundle_id))
             }
-        }
+            Err(_) => Some(
+                list_measurement_bundle_machines_request::Selector::BundleName(
+                    list_machines.identifier,
+                ),
+            ),
+        },
     };
 
     // Request.
@@ -377,7 +372,7 @@ pub async fn list_machines(
 
 pub async fn find_closest_match(
     grpc_conn: &ApiClient,
-    args: &FindClosestMatch,
+    args: FindClosestMatch,
 ) -> CarbideCliResult<Option<MeasurementBundle>> {
     // At the moment, the request only contains report id
     // but this can be expanded to contain journal id also
@@ -407,7 +402,7 @@ pub async fn find_closest_match(
 pub struct MeasurementBundleRecordList(Vec<MeasurementBundleRecord>);
 
 impl ToTable for MeasurementBundleRecordList {
-    fn to_table(&self) -> eyre::Result<String> {
+    fn into_table(self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
         table.add_row(prettytable::row![
             Fg->"bundle_id",
@@ -438,7 +433,7 @@ pub struct MeasurementBundleList(Vec<MeasurementBundle>);
 // When `bundle show` gets called (for all entries), and the output format
 // is the default table view, this gets used to print a pretty table.
 impl ToTable for MeasurementBundleList {
-    fn to_table(&self) -> eyre::Result<String> {
+    fn into_table(self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
         table.add_row(prettytable::row!["bundle_id", "details", "values"]);
         for bundle in self.0.iter() {

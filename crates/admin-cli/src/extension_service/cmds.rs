@@ -43,10 +43,10 @@ pub async fn handle_create(
             }
 
             Some(::rpc::forge::DpuExtensionServiceCredential {
-                registry_url: args.registry_url.clone().unwrap_or_default(),
+                registry_url: args.registry_url.unwrap_or_default(),
                 r#type: Some(Type::UsernamePassword(rpc::forge::UsernamePassword {
-                    username: args.username.clone().unwrap_or_default(),
-                    password: args.password.clone().unwrap_or_default(),
+                    username: args.username.unwrap_or_default(),
+                    password: args.password.unwrap_or_default(),
                 })),
             })
         } else {
@@ -98,10 +98,10 @@ pub async fn handle_update(
             }
 
             Some(::rpc::forge::DpuExtensionServiceCredential {
-                registry_url: args.registry_url.clone().unwrap(),
+                registry_url: args.registry_url.unwrap(),
                 r#type: Some(Type::UsernamePassword(rpc::forge::UsernamePassword {
-                    username: args.username.clone().unwrap(),
-                    password: args.password.clone().unwrap(),
+                    username: args.username.unwrap(),
+                    password: args.password.unwrap(),
                 })),
             })
         } else {
@@ -143,7 +143,7 @@ pub async fn handle_delete(
     api_client
         .0
         .delete_dpu_extension_service(DeleteDpuExtensionServiceRequest {
-            service_id: args.service_id.clone(),
+            service_id: args.service_id,
             versions: args.versions,
         })
         .await?;

@@ -14,6 +14,8 @@ use clap::{ArgGroup, Parser};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
+use crate::metadata::parse_rpc_labels;
+
 #[derive(Parser, Debug)]
 pub enum Cmd {
     #[clap(about = "Show expected switch")]
@@ -90,30 +92,24 @@ pub struct AddExpectedSwitch {
     pub rack_id: Option<String>,
 }
 
-impl AddExpectedSwitch {
-    pub fn metadata(&self) -> Result<::rpc::forge::Metadata, eyre::Report> {
-        let mut labels = Vec::new();
-        if let Some(list) = &self.labels {
-            for label in list {
-                let label = match label.split_once(':') {
-                    Some((k, v)) => rpc::forge::Label {
-                        key: k.trim().to_string(),
-                        value: Some(v.trim().to_string()),
-                    },
-                    None => rpc::forge::Label {
-                        key: label.trim().to_string(),
-                        value: None,
-                    },
-                };
-                labels.push(label);
-            }
-        }
-
-        Ok(::rpc::forge::Metadata {
-            name: self.meta_name.clone().unwrap_or_default(),
-            description: self.meta_description.clone().unwrap_or_default(),
+impl From<AddExpectedSwitch> for rpc::forge::ExpectedSwitch {
+    fn from(value: AddExpectedSwitch) -> Self {
+        let labels = parse_rpc_labels(value.labels.unwrap_or_default());
+        let metadata = rpc::forge::Metadata {
+            name: value.meta_name.unwrap_or_default(),
+            description: value.meta_description.unwrap_or_default(),
             labels,
-        })
+        };
+        Self {
+            bmc_mac_address: value.bmc_mac_address.to_string(),
+            bmc_username: value.bmc_username,
+            bmc_password: value.bmc_password,
+            switch_serial_number: value.switch_serial_number,
+            metadata: Some(metadata),
+            rack_id: value.rack_id,
+            nvos_username: value.nvos_username,
+            nvos_password: value.nvos_password,
+        }
     }
 }
 
@@ -209,31 +205,6 @@ impl UpdateExpectedSwitch {
             return Err("One of the following options must be specified: bmc-user-name and bmc-password or switch-serial-number or nvos-username and nvos-password".to_string());
         }
         Ok(())
-    }
-
-    pub fn metadata(&self) -> Result<::rpc::forge::Metadata, eyre::Report> {
-        let mut labels = Vec::new();
-        if let Some(list) = &self.labels {
-            for label in list {
-                let label = match label.split_once(':') {
-                    Some((k, v)) => rpc::forge::Label {
-                        key: k.trim().to_string(),
-                        value: Some(v.trim().to_string()),
-                    },
-                    None => rpc::forge::Label {
-                        key: label.trim().to_string(),
-                        value: None,
-                    },
-                };
-                labels.push(label);
-            }
-        }
-
-        Ok(::rpc::forge::Metadata {
-            name: self.meta_name.clone().unwrap_or_default(),
-            description: self.meta_description.clone().unwrap_or_default(),
-            labels,
-        })
     }
 }
 

@@ -43,7 +43,7 @@ fn convert_tenants_to_table(tenants: &[forgerpc::Tenant]) -> CarbideCliResult<Bo
             .iter()
             .map(|label| {
                 let key = &label.key;
-                let value = label.value.clone().unwrap_or_default();
+                let value = label.value.as_deref().unwrap_or_default();
                 format!("\"{key}:{value}\"")
             })
             .collect::<Vec<_>>();
@@ -138,7 +138,7 @@ pub async fn update(
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let id = args.tenant_org.clone();
+    let id = args.tenant_org;
 
     let tenant = api_client
         .0
