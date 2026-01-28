@@ -18,7 +18,7 @@ use mac_address::MacAddress;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::operating_system::Variant;
 use rpc::forge::{
-    ConfigSetting, ExpectedMachine, IpxeOperatingSystem, MachineType, MachinesByIdsRequest,
+    ConfigSetting, ExpectedMachine, InlineIpxe, MachineType, MachinesByIdsRequest,
     OperatingSystem, PxeInstructions, SetDynamicConfigRequest,
 };
 use rpc::protos::forge_api_client::ForgeApiClient;
@@ -330,7 +330,7 @@ impl ApiClient {
         let instance_config = rpc::InstanceConfig {
             tenant: Some(tenant_config),
             os: Some(OperatingSystem {
-                variant: Some(Variant::Ipxe(IpxeOperatingSystem {
+                variant: Some(Variant::Ipxe(InlineIpxe {
                     ipxe_script: "Non-existing-ipxe".to_string(),
                     user_data: None,
                 })),

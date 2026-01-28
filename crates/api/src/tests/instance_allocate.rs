@@ -196,7 +196,7 @@ async fn test_zero_dpu_instance_allocation_explicit_network_config(
                     run_provisioning_instructions_on_every_boot: false,
                     user_data: None,
                     variant: Some(forge::operating_system::Variant::Ipxe(
-                        forge::IpxeOperatingSystem {
+                        forge::InlineIpxe {
                             ipxe_script: "exit".to_string(),
                             user_data: None,
                         },
@@ -291,7 +291,7 @@ async fn test_zero_dpu_instance_allocation_no_network_config(
                     run_provisioning_instructions_on_every_boot: false,
                     user_data: None,
                     variant: Some(forge::operating_system::Variant::Ipxe(
-                        forge::IpxeOperatingSystem {
+                        forge::InlineIpxe {
                             ipxe_script: "exit".to_string(),
                             user_data: None,
                         },
@@ -387,7 +387,7 @@ async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
                     run_provisioning_instructions_on_every_boot: false,
                     user_data: None,
                     variant: Some(forge::operating_system::Variant::Ipxe(
-                        forge::IpxeOperatingSystem {
+                        forge::InlineIpxe {
                             ipxe_script: "exit".to_string(),
                             user_data: None,
                         },
@@ -514,7 +514,7 @@ async fn test_reject_single_dpu_instance_allocation_no_network_config(
                     run_provisioning_instructions_on_every_boot: false,
                     user_data: None,
                     variant: Some(forge::operating_system::Variant::Ipxe(
-                        forge::IpxeOperatingSystem {
+                        forge::InlineIpxe {
                             ipxe_script: "exit".to_string(),
                             user_data: None,
                         },
@@ -574,7 +574,7 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
                     run_provisioning_instructions_on_every_boot: false,
                     user_data: None,
                     variant: Some(forge::operating_system::Variant::Ipxe(
-                        forge::IpxeOperatingSystem {
+                        forge::InlineIpxe {
                             ipxe_script: "exit".to_string(),
                             user_data: None,
                         },
@@ -719,7 +719,7 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
                     run_provisioning_instructions_on_every_boot: false,
                     user_data: None,
                     variant: Some(forge::operating_system::Variant::Ipxe(
-                        forge::IpxeOperatingSystem {
+                        forge::InlineIpxe {
                             ipxe_script: "exit".to_string(),
                             user_data: None,
                         },
@@ -779,7 +779,7 @@ async fn test_single_dpu_instance_allocation(
                     run_provisioning_instructions_on_every_boot: false,
                     user_data: None,
                     variant: Some(forge::operating_system::Variant::Ipxe(
-                        forge::IpxeOperatingSystem {
+                        forge::InlineIpxe {
                             ipxe_script: "exit".to_string(),
                             user_data: None,
                         },
