@@ -361,6 +361,7 @@ impl InternalRBACRules {
         x.perm("UpdateOsImage", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateRackFirmware", vec![ForgeAdminCLI]);
         x.perm("DeleteRackFirmware", vec![ForgeAdminCLI]);
+        x.perm("FindRackStateHistories", vec![ForgeAdminCLI, Machineatron]);
         x.perm("ListRackFirmware", vec![ForgeAdminCLI]);
         x.perm("GetRackFirmware", vec![ForgeAdminCLI]);
         x.perm("ApplyRackFirmware", vec![ForgeAdminCLI]);
