@@ -1178,10 +1178,18 @@ impl PreingestionManagerStatic {
         redfish_client: &dyn libredfish::Redfish,
         endpoint: &ExploredEndpoint,
     ) -> bool {
-        if let Err(e) = redfish_client.power(SystemPowerControl::ForceOff).await {
-            tracing::warn!("Could not turn off power on {}: {e}", endpoint.address);
-            return false;
+        match redfish_client.power(SystemPowerControl::ForceOff).await {
+            Ok(()) => {}
+            Err(e) if matches!(e, RedfishError::UnnecessaryOperation) => {
+                // ignore because it is already off
+                tracing::debug!("Power off not needed on {}: {e}", endpoint.address);
+            }
+            Err(e) => {
+                tracing::warn!("Could not turn off power on {}: {e}", endpoint.address);
+                return false;
+            }
         }
+
         let status = match redfish_client.get_power_state().await {
             Ok(status) => status,
             Err(e) => {
@@ -1214,10 +1222,19 @@ impl PreingestionManagerStatic {
             );
             return false;
         }
-        if let Err(e) = redfish_client.power(SystemPowerControl::On).await {
-            tracing::warn!("Could not turn on power on {}: {e}", endpoint.address);
-            return false;
+
+        match redfish_client.power(SystemPowerControl::On).await {
+            Ok(()) => {}
+            Err(e) if matches!(e, RedfishError::UnnecessaryOperation) => {
+                // ignore because it is already on
+                tracing::debug!("Power on not needed on {}: {e}", endpoint.address);
+            }
+            Err(e) => {
+                tracing::warn!("Could not turn on power on {}: {e}", endpoint.address);
+                return false;
+            }
         }
+
         let status = match redfish_client.get_power_state().await {
             Ok(status) => status,
             Err(e) => {

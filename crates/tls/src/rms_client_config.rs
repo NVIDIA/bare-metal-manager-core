@@ -1,7 +1,7 @@
 use std::env;
 use std::path::Path;
 
-use crate::client_config::ClientCert;
+use crate::client_config::{ClientCert, FileConfig};
 use crate::default as tls_default;
 
 // No file support for now
@@ -59,10 +59,21 @@ pub fn rms_client_cert_info(
     None
 }
 
-pub fn rms_root_ca_path(rms_root_ca_path: Option<String>) -> String {
+pub fn rms_root_ca_path(
+    rms_root_ca_path: Option<String>,
+    file_config: Option<&FileConfig>,
+) -> String {
     // First from command line, second env var.
     if let Some(rms_root_ca_path) = rms_root_ca_path {
         return rms_root_ca_path;
+    }
+
+    // Second config file
+    if let Some(file_config) = file_config
+        && let Some(rms_root_ca_path) = file_config.rms_root_ca_path.as_ref()
+        && Path::new(rms_root_ca_path).exists()
+    {
+        return rms_root_ca_path.clone();
     }
 
     // this is the location for most k8s pods
@@ -85,10 +96,11 @@ pub fn rms_root_ca_path(rms_root_ca_path: Option<String>) -> String {
 
     panic!(
         r###"Unknown RMS Root CA path. Set (will be read in same sequence.)
-           1. Pass as argument to rms_root_ca_path() or
-           2. a file existing at "/var/run/secrets/spiffe.io/ca.crt" or
-           3. a file existing at "{}" or
-           4. a file existing at "$REPO_ROOT/dev/certs/localhost/ca.crt"."###,
+           1. Use --rms-root-ca-path CLI option or RMS_ROOT_CA_PATH env var, or
+           2. add rms_root_ca_path in $HOME/.config/carbide_api_cli.json, or
+           3. a file existing at "/var/run/secrets/spiffe.io/ca.crt" or
+           4. a file existing at "{}" or
+           5. a file existing at "$REPO_ROOT/dev/certs/localhost/ca.crt"."###,
         tls_default::ROOT_CA
     )
 }

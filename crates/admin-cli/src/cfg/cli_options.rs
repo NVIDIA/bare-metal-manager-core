@@ -75,6 +75,24 @@ pub struct CliOptions {
     )]
     pub client_key_path: Option<String>,
 
+    #[clap(long, env = "RMS_API_URL")]
+    #[clap(help = "RMS API URL. Default to RMS_API_URL environment variable.")]
+    pub rms_api_url: Option<String>,
+
+    #[clap(long, env = "RMS_ROOT_CA_PATH")]
+    #[clap(help = "RMS Root CA path. Default to RMS_ROOT_CA_PATH environment variable.")]
+    pub rms_root_ca_path: Option<String>,
+
+    #[clap(long, env = "RMS_CLIENT_CERT_PATH")]
+    #[clap(
+        help = "RMS client certificate path. Default to RMS_CLIENT_CERT_PATH environment variable."
+    )]
+    pub rms_client_cert_path: Option<String>,
+
+    #[clap(long, env = "RMS_CLIENT_KEY_PATH")]
+    #[clap(help = "RMS client key path. Default to RMS_CLIENT_KEY_PATH environment variable.")]
+    pub rms_client_key_path: Option<String>,
+
     #[clap(short, long, num_args(0..), default_value = "0")]
     pub debug: u8,
 
