@@ -1249,15 +1249,25 @@ enum PrefixMatchType {
 message VpcPrefix {
   common.VpcPrefixId id = 1;
   string prefix = 2; // Deprecated, use config instead
-  string name = 3; // Deprecated, use config instead
-  common.VpcId vpc_id = 4; // Deprecated, use config instead
-  // UUID tenant_prefix_id = 5;
+  string name = 3; // Deprecated, use metadata instead
+  common.VpcId vpc_id = 4;
+  reserved 5; // tenant_prefix_id
   uint32 total_31_segments = 6; // Deprecated, use status instead
   uint32 available_31_segments = 7; // Deprecated, use status instead
 
-  VpcPrefixConfiguration config = 8;
+  VpcPrefixConfig config = 8;
   VpcPrefixStatus status = 9;
   Metadata metadata = 10;
+}
+
+message VpcPrefixConfig {
+  // IPv4 or IPv6 prefix in CIDR notation
+  string prefix = 1;
+}
+
+message VpcPrefixStatus {
+  uint32 total_31_segments = 1;
+  uint32 available_31_segments = 2;
 }
 
 message VpcPrefixCreationRequest {
@@ -1265,9 +1275,9 @@ message VpcPrefixCreationRequest {
   // IPv4 or IPv6 prefix in CIDR notation
   string prefix = 2; // Deprecated, use config instead
   string name = 3; // Deprecated, use config instead
-  common.VpcId vpc_id = 4; // Deprecated, use config instead
-    // common.UUID tenant_prefix_id = 5;
-  VpcPrefixConfiguration config = 6;
+  common.VpcId vpc_id = 4;
+  reserved 5; // tenant_prefix_id
+  VpcPrefixConfig config = 6;
   Metadata metadata = 7;
 }
 
@@ -1302,8 +1312,8 @@ message VpcPrefixUpdateRequest {
   // 2. It is not larger than its containing site prefix.
   // 3. It contains all of its associated network segment prefixes.
   optional string prefix = 2; // Deprecated, use config instead
-  optional string name = 3;  // Deprecated, use config instead
-  VpcPrefixConfiguration config = 4;
+  optional string name = 3;  // Deprecated, use metadata instead
+  VpcPrefixConfig config = 4;
   Metadata metadata = 5;
 }
 

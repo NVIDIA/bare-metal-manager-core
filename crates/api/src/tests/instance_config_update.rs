@@ -567,9 +567,20 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
     let vpc_id = get_vpc_fixture_id(&env).await;
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
         id: None,
-        prefix: ip_prefix.into(),
-        name: "Test VPC prefix".into(),
+        prefix: String::new(),
+        name: String::new(),
         vpc_id: Some(vpc_id),
+        config: Some(rpc::forge::VpcPrefixConfig {
+            prefix: ip_prefix.into(),
+        }),
+        metadata: Some(rpc::forge::Metadata {
+            name: "Test VPC prefix".into(),
+            description: String::from("some description"),
+            labels: vec![rpc::forge::Label {
+                key: "example_key".into(),
+                value: Some("example_value".into()),
+            }],
+        }),
     };
     let request = Request::new(new_vpc_prefix);
     let response = env
@@ -690,9 +701,20 @@ async fn test_update_instance_config_vpc_prefix_network_update(
     let vpc_id = get_vpc_fixture_id(&env).await;
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
         id: None,
-        prefix: ip_prefix.into(),
-        name: "Test VPC prefix".into(),
+        prefix: String::new(),
+        name: String::new(),
         vpc_id: Some(vpc_id),
+        config: Some(rpc::forge::VpcPrefixConfig {
+            prefix: ip_prefix.into(),
+        }),
+        metadata: Some(rpc::forge::Metadata {
+            name: "Test VPC prefix".into(),
+            description: String::from("some description"),
+            labels: vec![rpc::forge::Label {
+                key: "example_key".into(),
+                value: Some("example_value".into()),
+            }],
+        }),
     };
     let request = Request::new(new_vpc_prefix);
     let response = env
@@ -873,9 +895,20 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
     let vpc_id = get_vpc_fixture_id(&env).await;
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
         id: None,
-        prefix: ip_prefix.into(),
-        name: "Test VPC prefix".into(),
+        prefix: String::new(),
+        name: String::new(),
         vpc_id: Some(vpc_id),
+        config: Some(rpc::forge::VpcPrefixConfig {
+            prefix: ip_prefix.into(),
+        }),
+        metadata: Some(rpc::forge::Metadata {
+            name: "Test VPC prefix".into(),
+            description: String::from("some description"),
+            labels: vec![rpc::forge::Label {
+                key: "example_key".into(),
+                value: Some("example_value".into()),
+            }],
+        }),
     };
     let request = Request::new(new_vpc_prefix);
     let response = env
@@ -1009,9 +1042,20 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
     let vpc_id = get_vpc_fixture_id(&env).await;
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
         id: None,
-        prefix: ip_prefix.into(),
-        name: "Test VPC prefix".into(),
+        prefix: String::new(),
+        name: String::new(),
         vpc_id: Some(vpc_id),
+        config: Some(rpc::forge::VpcPrefixConfig {
+            prefix: ip_prefix.into(),
+        }),
+        metadata: Some(rpc::forge::Metadata {
+            name: "Test VPC prefix".into(),
+            description: String::from("some description"),
+            labels: vec![rpc::forge::Label {
+                key: "example_key".into(),
+                value: Some("example_value".into()),
+            }],
+        }),
     };
     let request = Request::new(new_vpc_prefix);
     let response = env
@@ -1157,9 +1201,20 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
     let vpc_id = get_vpc_fixture_id(&env).await;
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
         id: None,
-        prefix: ip_prefix.into(),
-        name: "Test VPC prefix".into(),
+        prefix: String::new(),
+        name: String::new(),
         vpc_id: Some(vpc_id),
+        config: Some(rpc::forge::VpcPrefixConfig {
+            prefix: ip_prefix.into(),
+        }),
+        metadata: Some(rpc::forge::Metadata {
+            name: "Test VPC prefix".into(),
+            description: String::from("some description"),
+            labels: vec![rpc::forge::Label {
+                key: "example_key".into(),
+                value: Some("example_value".into()),
+            }],
+        }),
     };
     let request = Request::new(new_vpc_prefix);
     let response = env
@@ -1172,9 +1227,20 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
     let ip_prefix1 = "192.0.5.0/25";
     let new_vpc_prefix1 = rpc::forge::VpcPrefixCreationRequest {
         id: None,
-        prefix: ip_prefix1.into(),
-        name: "Test VPC prefix1".into(),
+        prefix: String::new(),
+        name: String::new(),
         vpc_id: Some(vpc_id),
+        config: Some(rpc::forge::VpcPrefixConfig {
+            prefix: ip_prefix1.into(),
+        }),
+        metadata: Some(rpc::forge::Metadata {
+            name: "Test VPC prefix1".into(),
+            description: String::from("some description"),
+            labels: vec![rpc::forge::Label {
+                key: "example_key".into(),
+                value: Some("example_value".into()),
+            }],
+        }),
     };
     let request1 = Request::new(new_vpc_prefix1);
     let response1 = env

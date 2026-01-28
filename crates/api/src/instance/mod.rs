@@ -205,23 +205,23 @@ pub async fn allocate_network(
                     let vpc_prefix_id = &VpcPrefixId::from(*vpc_prefix_id);
                     let (vpc_id, vpc_prefix, last_used_prefix) = {
                         if let Some(vpc) = vpc_prefixes.get(vpc_prefix_id) {
-                            let prefix = match vpc.prefix {
+                            let prefix = match vpc.config.prefix {
                                 ipnetwork::IpNetwork::V4(ipv4_network) => ipv4_network,
                                 ipnetwork::IpNetwork::V6(_) => {
                                     return Err(CarbideError::internal(format!(
                                         "IPv6 prefix: {} with prefix id {} is not supported.",
-                                        vpc.prefix, vpc_prefix_id
+                                        vpc.config.prefix, vpc_prefix_id
                                     )));
                                 }
                             };
 
-                            let last_used_prefix = if let Some(x) = vpc.last_used_prefix {
+                            let last_used_prefix = if let Some(x) = vpc.status.last_used_prefix {
                                 match x {
                                     ipnetwork::IpNetwork::V4(ipv4_network) => Some(ipv4_network),
                                     ipnetwork::IpNetwork::V6(_) => {
                                         return Err(CarbideError::internal(format!(
                                             "IPv6 prefix: {} with prefix id {} is not supported.",
-                                            vpc.prefix, vpc_prefix_id
+                                            vpc.config.prefix, vpc_prefix_id
                                         )));
                                     }
                                 }
@@ -243,7 +243,7 @@ pub async fn allocate_network(
                             .await?;
                     interface.network_segment_id = Some(ns_id);
                     vpc_prefixes.entry(*vpc_prefix_id).and_modify(|x| {
-                        x.last_used_prefix = Some(IpNetwork::V4(prefix));
+                        x.status.last_used_prefix = Some(IpNetwork::V4(prefix));
                     });
                 }
             }
@@ -252,7 +252,7 @@ pub async fn allocate_network(
 
     // Update last used prefixes here.
     for vpc_prefix in vpc_prefixes.values() {
-        let Some(last_used_prefix) = vpc_prefix.last_used_prefix else {
+        let Some(last_used_prefix) = vpc_prefix.status.last_used_prefix else {
             continue;
         };
         db::vpc_prefix::update_last_used_prefix(txn, &vpc_prefix.id, last_used_prefix).await?;
