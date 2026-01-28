@@ -84,7 +84,9 @@ pub struct CliOptions {
     pub rms_root_ca_path: Option<String>,
 
     #[clap(long, env = "RMS_CLIENT_CERT_PATH")]
-    #[clap(help = "RMS client certificate path. Default to RMS_CLIENT_CERT_PATH environment variable.")]
+    #[clap(
+        help = "RMS client certificate path. Default to RMS_CLIENT_CERT_PATH environment variable."
+    )]
     pub rms_client_cert_path: Option<String>,
 
     #[clap(long, env = "RMS_CLIENT_KEY_PATH")]
