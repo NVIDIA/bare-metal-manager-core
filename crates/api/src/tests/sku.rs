@@ -790,6 +790,7 @@ pub mod tests {
                 default_pause_ingestion_and_poweron: None,
                 host_nics: vec![],
                 rack_id: None,
+                dpf_enabled: true,
             },
         )
         .await?;
@@ -878,6 +879,7 @@ pub mod tests {
                 default_pause_ingestion_and_poweron: None,
                 host_nics: vec![],
                 rack_id: None,
+                dpf_enabled: true,
             },
         )
         .await?;
@@ -941,6 +943,7 @@ pub mod tests {
                 default_pause_ingestion_and_poweron: None,
                 host_nics: vec![],
                 rack_id: None,
+                dpf_enabled: true,
             },
         )
         .await?;
@@ -1021,6 +1024,7 @@ pub mod tests {
                 default_pause_ingestion_and_poweron: None,
                 host_nics: vec![],
                 rack_id: None,
+                dpf_enabled: true,
             },
         )
         .await?;
@@ -1452,6 +1456,7 @@ pub mod tests {
                 default_pause_ingestion_and_poweron: None,
                 host_nics: vec![],
                 rack_id: None,
+                dpf_enabled: true,
             },
         )
         .await?;

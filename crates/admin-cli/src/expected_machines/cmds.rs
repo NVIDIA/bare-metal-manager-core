@@ -125,7 +125,8 @@ async fn convert_and_print_into_nice_table(
         "Description",
         "Labels",
         "SKU ID",
-        "Pause On Ingestion"
+        "Pause On Ingestion",
+        "DPF State",
     ]);
 
     for expected_machine in &expected_machines.expected_machines {
@@ -167,6 +168,7 @@ async fn convert_and_print_into_nice_table(
                 .map(|x| x.to_string())
                 .unwrap_or_default(),
             expected_machine.default_pause_ingestion_and_poweron(),
+            expected_machine.dpf_enabled.to_string(),
         ]);
     }
 

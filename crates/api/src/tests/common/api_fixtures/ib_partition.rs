@@ -29,8 +29,13 @@ pub async fn create_ib_partition(
         .create_ib_partition(Request::new(IbPartitionCreationRequest {
             id: None,
             config: Some(IbPartitionConfig {
-                name,
+                name: name.clone(),
                 tenant_organization_id: tenant,
+            }),
+            metadata: Some(rpc::Metadata {
+                name,
+                labels: Default::default(),
+                description: "".to_string(),
             }),
         }))
         .await

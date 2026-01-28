@@ -10,13 +10,18 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use db::work_lock_manager::WorkLockManagerHandle;
 use opentelemetry::metrics::Meter;
-use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 
 use crate::state_controller::config::IterationConfig;
+use crate::state_controller::controller::periodic_enqueuer::{
+    EnqueuerMetricsEmitter, PeriodicEnqueuer,
+};
+use crate::state_controller::controller::processor::{ProcessorMetricsEmitter, StateProcessor};
 use crate::state_controller::controller::{StateController, StateControllerHandle};
 use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::metrics::MetricHolder;
@@ -27,9 +32,8 @@ use crate::state_controller::state_handler::{
 
 /// The return value of `[Builder::build_internal]`
 struct BuildOrSpawn<IO: StateControllerIO> {
-    /// Instructs the controller to stop.
-    /// We rely on the handle being dropped to instruct the controller to stop performing actions
-    stop_sender: oneshot::Sender<()>,
+    /// Instructs the processor and enqueuer to stop.
+    stop_token: CancellationToken,
     controller_name: String,
     controller: StateController<IO>,
 }
@@ -61,6 +65,7 @@ pub struct Builder<IO: StateControllerIO> {
     >,
     services: Option<Arc<<IO::ContextObjects as StateHandlerContextObjects>::Services>>,
     state_change_emitter: Arc<StateChangeEmitter<IO::ObjectId, IO::ControllerState>>,
+    processor_id: Option<String>,
 }
 
 impl<IO: StateControllerIO> Default for Builder<IO> {
@@ -81,6 +86,7 @@ impl<IO: StateControllerIO> Default for Builder<IO> {
             object_type_for_metrics: None,
             services: None,
             state_change_emitter: Arc::new(StateChangeEmitter::default()),
+            processor_id: None,
         }
     }
 }
@@ -106,13 +112,20 @@ impl<IO: StateControllerIO> Builder<IO> {
 
         tokio::task::Builder::new()
             .name(&format!(
-                "state_controller {}",
+                "state_controller_periodic_enqueuer {}",
                 build_or_spawn.controller_name
             ))
-            .spawn(async move { build_or_spawn.controller.run().await })?;
+            .spawn(async move { build_or_spawn.controller.enqueuer.run().await })?;
+
+        tokio::task::Builder::new()
+            .name(&format!(
+                "state_processor {}",
+                build_or_spawn.controller_name
+            ))
+            .spawn(async move { build_or_spawn.controller.processor.run().await })?;
 
         Ok(StateControllerHandle {
-            _stop_sender: build_or_spawn.stop_sender,
+            stop_token: build_or_spawn.stop_token,
         })
     }
 
@@ -123,10 +136,15 @@ impl<IO: StateControllerIO> Builder<IO> {
             .take()
             .ok_or(StateControllerBuildError::MissingArgument("database"))?;
 
+        let processor_id = self
+            .processor_id
+            .take()
+            .ok_or(StateControllerBuildError::MissingArgument("processor_id"))?;
+
         let object_type_for_metrics = self.object_type_for_metrics.take();
         let meter = self.meter.take();
 
-        let (stop_sender, stop_receiver) = oneshot::channel();
+        let stop_token = CancellationToken::new();
 
         if self.iteration_config.max_concurrency == 0 {
             return Err(StateControllerBuildError::MissingArgument(
@@ -142,29 +160,70 @@ impl<IO: StateControllerIO> Builder<IO> {
 
         // This defines the shared storage location for metrics between the state handler
         // and the OTEL framework
-        let metric_holder = Arc::new(MetricHolder::new(meter, &controller_name));
+        let metric_holder = Arc::new(MetricHolder::new(meter.clone(), &controller_name));
 
         let work_lock_manager_handle = self.work_lock_manager_handle.take().ok_or(
             StateControllerBuildError::MissingArgument("work_lock_manager_handle"),
         )?;
 
-        let controller = StateController::<IO> {
-            pool: database,
+        let period_enqueuer_metric_emitter = meter
+            .clone()
+            .map(|meter| EnqueuerMetricsEmitter::new(&controller_name, &meter));
+
+        let enqueuer = PeriodicEnqueuer::<IO> {
+            pool: database.clone(),
             work_lock_manager_handle,
-            stop_receiver,
+            stop_token: stop_token.clone(),
+            metric_emitter: period_enqueuer_metric_emitter,
             iteration_config: self.iteration_config,
-            work_key: IO::DB_WORK_KEY,
+            io: self.io.clone().unwrap_or_default(),
+        };
+
+        let (task_sender, task_receiver) = tokio::sync::mpsc::unbounded_channel();
+
+        let span_id: String = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
+        let processor_span = tracing::span!(
+            parent: None,
+            tracing::Level::INFO,
+            "state_processor",
+            span_id,
+            controller = IO::LOG_SPAN_CONTROLLER_NAME,
+        );
+        let processor_metric_emitter =
+            meter.map(|meter| ProcessorMetricsEmitter::new(&controller_name, &meter));
+
+        let processor = StateProcessor::<IO> {
+            pool: database,
+            stop_token: stop_token.clone(),
+            iteration_config: self.iteration_config,
             handler_services: services,
             io: self.io.unwrap_or_default(),
             state_handler: self.state_handler.clone(),
+            metric_emitter: processor_metric_emitter,
             metric_holder,
             state_change_emitter: self.state_change_emitter,
+            published_metrics_iteration_id: None,
+            in_flight: HashSet::new(),
+            completed_objects: HashSet::new(),
+            requeue_objects: HashSet::new(),
+            task_sender,
+            task_receiver,
+            data_since_iteration_start: Default::default(),
+            last_log_time: std::time::Instant::now(),
+            stats_since_last_log: Default::default(),
+            processor_span,
+            processor_id,
+        };
+
+        let controller = StateController::<IO> {
+            processor,
+            enqueuer,
         };
 
         Ok(BuildOrSpawn {
             controller,
             controller_name,
-            stop_sender,
+            stop_token,
         })
     }
 
@@ -176,6 +235,15 @@ impl<IO: StateControllerIO> Builder<IO> {
     ) -> Self {
         self.database = Some(db);
         self.work_lock_manager_handle = Some(work_lock_manager_handle);
+        self
+    }
+
+    /// Configures the ID of this state controller. The ID needs to be unique
+    /// within a Carbide deployment. Hostnames can be used as processor IDs
+    /// in case its guaranteed that a host never runs more than a single processor.
+    /// K8S POD IDs will naturally satisfy the requirement.
+    pub fn processor_id(mut self, processor_id: String) -> Self {
+        self.processor_id = Some(processor_id);
         self
     }
 

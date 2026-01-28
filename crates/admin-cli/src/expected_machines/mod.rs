@@ -62,6 +62,7 @@ impl Dispatch for Cmd {
                         host_nics,
                         expected_machine_data.rack_id.clone(),
                         expected_machine_data.default_pause_ingestion_and_poweron,
+                        expected_machine_data.dpf_enabled,
                     )
                     .await?;
                 Ok(())
@@ -94,6 +95,7 @@ impl Dispatch for Cmd {
                         expected_machine_data.sku_id.clone(),
                         expected_machine_data.rack_id.clone(),
                         expected_machine_data.default_pause_ingestion_and_poweron,
+                        expected_machine_data.dpf_enabled,
                     )
                     .await?;
                 Ok(())
@@ -132,6 +134,7 @@ impl Dispatch for Cmd {
                         expected_machine.sku_id,
                         expected_machine.rack_id,
                         expected_machine.default_pause_ingestion_and_poweron,
+                        expected_machine.dpf_enabled,
                     )
                     .await?;
                 Ok(())

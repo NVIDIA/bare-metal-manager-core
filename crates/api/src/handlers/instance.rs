@@ -50,6 +50,49 @@ use crate::instance::{
 use crate::redfish::RedfishAuth;
 use crate::{CarbideError, CarbideResult};
 
+/// Represents the repair status label value set by RepairSystem
+///
+/// This enum is used to parse the `repair_status` label from machine metadata.
+/// All string comparisons are case-insensitive to provide a more robust API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RepairStatus {
+    /// Repair was completed successfully
+    Completed,
+    /// Repair failed or encountered errors
+    Failed,
+    /// Repair is currently in progress
+    InProgress,
+    /// Any other status value not explicitly handled
+    Unknown,
+}
+
+impl RepairStatus {
+    /// Parse a repair status string with case-insensitive matching
+    ///
+    /// Supports multiple formats for flexibility:
+    /// - `"completed"`, `"COMPLETED"`, etc.
+    /// - `"failed"`, `"FAILED"`, etc.
+    /// - `"inprogress"`, `"in_progress"`, `"in-progress"` (case-insensitive)
+    ///
+    /// Returns `RepairStatus::Unknown` for unrecognized values.
+    fn parse(s: &str) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "completed" => Self::Completed,
+            "failed" => Self::Failed,
+            "inprogress" | "in_progress" | "in-progress" => Self::InProgress,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl FromStr for RepairStatus {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::parse(s))
+    }
+}
+
 pub(crate) async fn allocate(
     api: &Api,
     request: Request<rpc::InstanceAllocationRequest>,
@@ -392,15 +435,17 @@ async fn handle_instance_release_from_repair_tenant(
     }
 
     // Machine has RequestRepair override - check repair status
-    let repair_status = machine.metadata.labels.get("repair_status").cloned();
+    let repair_status_str = machine.metadata.labels.get("repair_status");
+    let repair_status = repair_status_str.map(|s| RepairStatus::parse(s.as_str()));
 
     tracing::info!(
         machine_id = %machine_id,
         repair_status = ?repair_status,
+        repair_status_raw = ?repair_status_str,
         "Processing repair tenant release with repair status"
     );
 
-    if repair_status.as_deref() == Some("Completed") {
+    if repair_status == Some(RepairStatus::Completed) {
         // Repair completed successfully - Good to remove the RequestRepair override.
         remove_health_override(
             txn,
@@ -469,8 +514,8 @@ async fn handle_instance_release_from_repair_tenant(
                 category: rpc::IssueCategory::Other as i32,
                 summary: "RepairSystem processing incomplete".to_string(),
                 details: format!(
-                    "Machine released by repair tenant but repair status is: {:?}",
-                    repair_status.as_deref().unwrap_or("Unknown")
+                    "Machine released by repair tenant but repair status is: {}",
+                    repair_status_str.map_or("Unknown", |s| s.as_str())
                 ),
             }
         };
@@ -693,23 +738,56 @@ pub(crate) async fn invoke_power(
     let mut txn = api.txn_begin().await?;
 
     let request = request.into_inner();
-    let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
-    let snapshot = db::managed_host::load_snapshot(
-        &mut txn,
-        &machine_id,
-        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
-    )
-    .await?
-    .ok_or(CarbideError::NotFoundError {
-        kind: "machine",
-        id: machine_id.to_string(),
-    })?;
-    if snapshot.instance.is_none() {
-        return Err(Status::invalid_argument(format!(
-            "Supplied machine ID does not match an instance: {machine_id}"
-        )));
-    }
+    // Search by instance ID if provided, else by machine ID
+    let snapshot = if let Some(instance_id) = &request.instance_id {
+        let snapshot = db::managed_host::load_by_instance_ids(
+            &mut txn,
+            &[*instance_id],
+            LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
+        )
+        .await?
+        .pop()
+        .ok_or(CarbideError::NotFoundError {
+            kind: "instance",
+            id: instance_id.to_string(),
+        })?;
+
+        if let Some(machine_id) = &request.machine_id
+            && *machine_id != snapshot.host_snapshot.id
+        {
+            return Err(Status::invalid_argument(format!(
+                "Instance {} is not hosted on machine {}",
+                instance_id, machine_id
+            )));
+        }
+
+        snapshot
+    } else if let Some(machine_id) = &request.machine_id {
+        log_machine_id(machine_id);
+
+        let snapshot = db::managed_host::load_snapshot(
+            &mut txn,
+            machine_id,
+            LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
+        )
+        .await?
+        .ok_or(CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        })?;
+        if snapshot.instance.is_none() {
+            return Err(Status::invalid_argument(format!(
+                "Supplied machine ID does not match an instance: {machine_id}"
+            )));
+        }
+
+        snapshot
+    } else {
+        return Err(CarbideError::MissingArgument("instance_id").into());
+    };
+    let machine_id = snapshot.host_snapshot.id;
+    log_machine_id(&machine_id);
 
     // Log tenant organization ID
     if let Some(ref instance) = snapshot.instance {

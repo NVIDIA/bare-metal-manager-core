@@ -237,7 +237,7 @@ pub struct FirmwareCollectorConfig {
 impl Default for FirmwareCollectorConfig {
     fn default() -> Self {
         Self {
-            firmware_refresh_interval: Duration::from_secs(1800),
+            firmware_refresh_interval: Duration::from_secs(60 * 60 * 2), // 2 hours
         }
     }
 }

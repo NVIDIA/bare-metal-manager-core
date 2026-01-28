@@ -24,28 +24,14 @@ use crate::tests::common::{self};
 
 /// Compares an expected instance configuration with the actual instance configuration
 ///
-/// We can't directly call `assert_eq` since carbide will fill in the OS details into
-/// the TenantConfig fields if they are not directly specified.
+/// We can't directly call `assert_eq` since carbide will fill in details into various fields
+/// that are not expected
 fn assert_config_equals(
     actual: &rpc::forge::InstanceConfig,
     expected: &rpc::forge::InstanceConfig,
 ) {
     let mut expected = expected.clone();
     let mut actual = actual.clone();
-    match &expected.os.as_ref().unwrap().variant {
-        Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
-            let tenant = expected.tenant.as_mut().unwrap();
-            tenant.custom_ipxe = ipxe.ipxe_script.clone();
-            tenant.user_data = expected.os.as_ref().unwrap().user_data.clone();
-            tenant.always_boot_with_custom_ipxe = expected
-                .os
-                .as_ref()
-                .unwrap()
-                .run_provisioning_instructions_on_every_boot;
-            tenant.phone_home_enabled = expected.os.as_ref().unwrap().phone_home_enabled;
-        }
-        _ => panic!("Unexpected OS type"),
-    }
     if let Some(network) = &mut expected.network {
         network.interfaces.iter_mut().for_each(|x| {
             if let Some(NetworkDetails::VpcPrefixId(_)) = x.network_details {

@@ -669,12 +669,55 @@ impl EndpointExplorer for BmcEndpointExplorer {
         // Authenticate and set the BMC root account credentials
 
         // Case 1: Vault contains a path at "bmc/{bmc_mac_address}/root"
-        // This machine has its BMC set to the Forge sitewide BMC root password.
+        // This machine has its BMC set to the carbide sitewide BMC root password.
         // Create the redfish client and generate the report.
         let report = match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
-                self.generate_exploration_report(bmc_ip_address, credentials, boot_interface_mac)
-                    .await?
+                match self
+                    .generate_exploration_report(bmc_ip_address, credentials, boot_interface_mac)
+                    .await
+                {
+                    Ok(report) => report,
+                    // BMCs (HPEs currently) can return intermittent 401 errors even with valid credentials.
+                    // Allow up to MAX_AUTH_RETRIES before escalating to regular Unauthorized.
+                    Err(EndpointExplorationError::Unauthorized {
+                        details,
+                        response_body,
+                        response_code,
+                    }) if vendor == RedfishVendor::Hpe => {
+                        const MAX_AUTH_RETRIES: u32 = 3;
+
+                        let previous_count = last_report
+                            .and_then(|r| r.last_exploration_error.as_ref())
+                            .and_then(|e| e.intermittent_unauthorized_count())
+                            .unwrap_or(0);
+                        let consecutive_count = previous_count + 1;
+
+                        if consecutive_count > MAX_AUTH_RETRIES {
+                            tracing::warn!(
+                                %bmc_ip_address, %bmc_mac_address, %details, consecutive_count,
+                                "BMC unauthorized error persisted - escalating to Unauthorized"
+                            );
+                            return Err(EndpointExplorationError::Unauthorized {
+                                details,
+                                response_body,
+                                response_code,
+                            });
+                        }
+
+                        tracing::warn!(
+                            %bmc_ip_address, %bmc_mac_address, %details, consecutive_count,
+                            "BMC unauthorized error - treating as intermittent"
+                        );
+                        return Err(EndpointExplorationError::IntermittentUnauthorized {
+                            details,
+                            response_body,
+                            response_code,
+                            consecutive_count,
+                        });
+                    }
+                    Err(e) => return Err(e),
+                }
             }
 
             Err(EndpointExplorationError::MissingCredentials { .. }) => {

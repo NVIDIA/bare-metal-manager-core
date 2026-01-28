@@ -691,6 +691,7 @@ pub fn exploration_error_to_metric_label(error: &EndpointExplorationError) -> St
             "invalid_dpu_redfish_bios_response"
         }
         EndpointExplorationError::SecretsEngineError { .. } => "secrets_engine",
+        EndpointExplorationError::IntermittentUnauthorized { .. } => "intermittent_unauthorized",
     }
     .to_string()
 }

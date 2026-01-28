@@ -27,6 +27,9 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
     type ObjectId: std::fmt::Display
         + std::fmt::Debug
         + std::str::FromStr
+        + PartialEq
+        + Eq
+        + std::hash::Hash
         + Send
         + Sync
         + 'static
@@ -46,12 +49,6 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
     type ContextObjects: StateHandlerContextObjects<
         ObjectMetrics = <Self::MetricsEmitter as MetricsEmitter>::ObjectMetrics,
     >;
-
-    /// The name of the work item that will be locked via db::work_lock_manager.
-    ///
-    /// This lock will prevent multiple instances of controller running on multiple nodes
-    /// from making changes to objects at the same time
-    const DB_WORK_KEY: &'static str;
 
     /// The name of the table in the database that will be used to generate run IDs
     /// The table will be locked whenever a new iteration is started

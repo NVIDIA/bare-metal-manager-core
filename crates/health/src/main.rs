@@ -30,7 +30,7 @@ async fn main() -> Result<(), HealthError> {
         .from_env_lossy();
 
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::Layer::default().compact())
+        .with(logfmt::layer())
         .with(env_filter)
         .init();
 

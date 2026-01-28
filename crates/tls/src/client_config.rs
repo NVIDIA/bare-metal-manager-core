@@ -36,6 +36,7 @@ pub struct FileConfig {
     pub forge_root_ca_path: Option<String>,
     pub client_key_path: Option<String>,
     pub client_cert_path: Option<String>,
+    pub rms_root_ca_path: Option<String>,
 }
 
 pub fn get_carbide_api_url(

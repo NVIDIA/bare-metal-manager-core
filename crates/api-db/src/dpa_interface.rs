@@ -482,6 +482,7 @@ mod test {
             ManagedHostState::Ready,
             &Metadata::default(),
             None,
+            true,
             2,
         )
         .await?;
