@@ -23,10 +23,11 @@ use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
 use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
 use db::machine_interface::find_by_mac_address;
-use db::{power_shelf as db_power_shelf, switch as db_switch};
+use db::{power_shelf as db_power_shelf, rack as db_rack, switch as db_switch, DatabaseError};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use futures_util::FutureExt;
 use health_report::HealthReport;
+use mac_address::MacAddress;
 use model::hardware_info::HardwareInfo;
 use model::machine::{
     BomValidating, BomValidatingContext, DpfState, DpuInitState, FailureCause, FailureDetails,
@@ -35,6 +36,7 @@ use model::machine::{
 };
 use model::power_shelf::power_shelf_id::from_hardware_info;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
+use model::rack::RackConfig;
 use model::site_explorer::EndpointExplorationReport;
 use model::switch::switch_id::from_hardware_info as switch_from_hardware_info;
 use model::switch::{NewSwitch, SwitchConfig};
@@ -1530,6 +1532,104 @@ pub async fn new_power_shelfs(env: &TestEnv, count: u32) -> eyre::Result<Vec<Pow
         );
     }
     Ok(power_shelf_ids)
+}
+
+#[allow(dead_code)]
+#[derive(Default)]
+pub struct TestRackBuilder {
+    compute_trays: Vec<MachineId>,
+    power_shelves: Vec<PowerShelfId>,
+    switches: Vec<SwitchId>,
+    expected_compute_trays: Vec<MacAddress>,
+    expected_power_shelves: Vec<MacAddress>,
+    expected_switches: Vec<MacAddress>,
+    rack_id: Option<String>,
+}
+
+#[allow(dead_code)]
+impl TestRackBuilder {
+    pub fn new() -> TestRackBuilder {
+        TestRackBuilder {
+            ..Default::default()
+        }
+    }
+
+    pub fn with_rack_id(mut self, id: &str) -> Self {
+        self.rack_id = Some(id.to_string());
+        self
+    }
+
+    pub fn with_compute_trays(mut self, compute_trays: Vec<MachineId>) -> Self {
+        self.compute_trays = compute_trays;
+        self
+    }
+
+    pub fn with_power_shelves(mut self, power_shelves: Vec<PowerShelfId>) -> Self {
+        self.power_shelves = power_shelves;
+        self
+    }
+
+    pub fn with_switches(mut self, switches: Vec<SwitchId>) -> Self {
+        self.switches = switches;
+        self
+    }
+
+    pub fn with_expected_compute_trays(mut self, expected_compute_trays: Vec<[u8; 6]>) -> Self {
+        self.expected_compute_trays = expected_compute_trays
+            .into_iter()
+            .map(|i| MacAddress::new(i))
+            .collect();
+        self
+    }
+
+    pub fn with_expected_power_shelves(mut self, expected_power_shelves: Vec<[u8; 6]>) -> Self {
+        self.expected_power_shelves = expected_power_shelves
+            .into_iter()
+            .map(|i| MacAddress::new(i))
+            .collect();
+        self
+    }
+
+    pub fn with_expected_switches(mut self, expected_switches: Vec<[u8; 6]>) -> Self {
+        self.expected_switches = expected_switches
+            .into_iter()
+            .map(|i| MacAddress::new(i))
+            .collect();
+        self
+    }
+
+    pub async fn build(&self, env: &TestEnv) -> Result<String, DatabaseError> {
+        let mut txn = env.pool.begin().await.unwrap();
+        // TODO: this should be RackId. See JIRA RACKMANAGER-377
+        let rack_id = self
+            .rack_id
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+        db_rack::create(
+            &mut txn,
+            &rack_id,
+            self.expected_compute_trays.clone(),
+            self.expected_switches.clone(),
+            self.expected_power_shelves.clone(),
+        )
+        .await?;
+
+        if self.compute_trays.len() > 0 || self.power_shelves.len() > 0 {
+            let cfg = RackConfig {
+                compute_trays: self.compute_trays.clone(),
+                power_shelves: self.power_shelves.clone(),
+                expected_compute_trays: self.expected_compute_trays.clone(),
+                expected_power_shelves: self.expected_power_shelves.clone(),
+            };
+
+            db_rack::update(&mut txn, &rack_id, &cfg).await?;
+        }
+
+        txn.commit().await.unwrap();
+
+        Ok(rack_id)
+    }
 }
 
 /// Creates a new switch for testing purposes
