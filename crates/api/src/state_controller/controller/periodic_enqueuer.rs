@@ -208,13 +208,13 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
         // outside of the state controller
         let mut txn = self.pool.begin().await?;
         let object_ids = self.io.list_objects(&mut txn).await?;
-        iteration_metrics.num_enqueued_objects = object_ids.len();
 
         let queued_objects: Vec<_> = object_ids
             .iter()
             .map(|object_id| (object_id.to_string(), iteration_id))
             .collect();
-        db::queue_objects(&mut txn, IO::DB_QUEUED_OBJECTS_TABLE_NAME, &queued_objects).await?;
+        iteration_metrics.num_enqueued_objects =
+            db::queue_objects(&mut txn, IO::DB_QUEUED_OBJECTS_TABLE_NAME, &queued_objects).await?;
 
         txn.commit().await?;
 

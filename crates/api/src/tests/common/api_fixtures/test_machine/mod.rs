@@ -10,10 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::str::FromStr;
 use std::sync::Arc;
 
 use carbide_uuid::machine::MachineId;
-use model::machine::Machine;
+use model::machine::{Machine, ManagedHostState};
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
@@ -132,5 +133,31 @@ impl TestMachine {
             .bmc_addr()
             .map(|addr| addr.ip().to_string())
             .unwrap_or_else(|| "".to_string())
+    }
+
+    pub async fn json_history(&self, limit: Option<usize>) -> Vec<serde_json::Value> {
+        let machine = self.rpc_machine().await;
+        let mut states: Vec<serde_json::Value> = machine
+            .events
+            .into_iter()
+            .map(|e| serde_json::Value::from_str(&e.event).unwrap())
+            .collect();
+        if let Some(limit) = limit {
+            if states.len() >= limit {
+                states.split_off(states.len() - limit)
+            } else {
+                states
+            }
+        } else {
+            states
+        }
+    }
+
+    pub async fn parsed_history(&self, limit: Option<usize>) -> Vec<ManagedHostState> {
+        let json_states = self.json_history(limit).await;
+        json_states
+            .into_iter()
+            .map(|s| serde_json::from_value::<ManagedHostState>(s).unwrap())
+            .collect()
     }
 }

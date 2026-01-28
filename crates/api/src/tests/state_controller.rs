@@ -160,14 +160,15 @@ async fn test_queue_objects(pool: sqlx::PgPool) -> sqlx::Result<()> {
 
     // Test insert
     let mut txn = pool.begin().await.unwrap();
-    controller::db::queue_objects(
+    let num_enqueued = controller::db::queue_objects(
         &mut txn,
         TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
         &[("0".to_string(), ControllerIterationId(1))],
     )
     .await
     .unwrap();
-    controller::db::queue_objects(
+    assert_eq!(num_enqueued, 1);
+    let num_enqueued = controller::db::queue_objects(
         &mut txn,
         TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
         &[
@@ -177,6 +178,7 @@ async fn test_queue_objects(pool: sqlx::PgPool) -> sqlx::Result<()> {
     )
     .await
     .unwrap();
+    assert_eq!(num_enqueued, 2);
 
     let queued = controller::db::fetch_queued_objects(
         &mut txn,
@@ -210,14 +212,15 @@ async fn test_queue_objects(pool: sqlx::PgPool) -> sqlx::Result<()> {
     // The old iteration ID should be maintained for objects which had
     // been queued before.
     let mut txn = pool.begin().await.unwrap();
-    controller::db::queue_objects(
+    let num_enqueued = controller::db::queue_objects(
         &mut txn,
         TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
         &[("0".to_string(), ControllerIterationId(22))],
     )
     .await
     .unwrap();
-    controller::db::queue_objects(
+    assert_eq!(num_enqueued, 0);
+    let num_enqueued = controller::db::queue_objects(
         &mut txn,
         TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
         &[
@@ -227,6 +230,7 @@ async fn test_queue_objects(pool: sqlx::PgPool) -> sqlx::Result<()> {
     )
     .await
     .unwrap();
+    assert_eq!(num_enqueued, 1);
     let queued = controller::db::fetch_queued_objects(
         &mut txn,
         TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,

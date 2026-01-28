@@ -408,13 +408,12 @@ impl<'a> MockExploredHost<'a> {
         )
         .await;
 
+        // Wait until we exit the DPU states
         self.test_env
-            .run_machine_state_controller_iteration_until_state_matches(
+            .run_machine_state_controller_iteration_until_state_condition(
                 &host_machine_id,
-                4,
-                ManagedHostState::HostInit {
-                    machine_state: MachineState::EnableIpmiOverLan,
-                },
+                20,
+                |machine| matches!(*machine.current_state(), ManagedHostState::HostInit { .. }),
             )
             .await;
 

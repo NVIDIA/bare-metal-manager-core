@@ -110,12 +110,14 @@ pub async fn queue_objects(
     txn: &mut PgConnection,
     table_id: &str,
     queued_objects: &[(String, ControllerIterationId)],
-) -> Result<(), DatabaseError> {
+) -> Result<usize, DatabaseError> {
     // Make sure we are not running into the BIND_LIMIT
     // The theoretical limit would be BIND_LIMIT/2 (for 2 parameters)
     // However shorter transactions are ok here - we still queue 1k objects
     // per chunk
     const OBJECTS_PER_QUERY: usize = BIND_LIMIT / 32;
+
+    let mut num_enqueued = 0;
 
     for queued_objects in queued_objects.chunks(OBJECTS_PER_QUERY) {
         let mut builder = sqlx::QueryBuilder::new("INSERT INTO ");
@@ -129,13 +131,14 @@ pub async fn queue_objects(
         builder.push("ON CONFLICT (object_id) DO NOTHING");
         let query = builder.build();
 
-        let _result = query
+        let result = query
             .execute(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new("StateController::queue_object", e))?;
+        num_enqueued += result.rows_affected() as usize;
     }
 
-    Ok(())
+    Ok(num_enqueued)
 }
 
 /// Fetches all objects which have been queued for execution

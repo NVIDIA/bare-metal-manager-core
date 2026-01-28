@@ -486,13 +486,25 @@ impl TestEnv {
             .await;
     }
 
-    /// Runs one iteration of the network state controller handler with the services
+    /// Runs one iteration of the SPDM state controller handler with the services
     /// in this test environment
     pub async fn run_spdm_controller_iteration(&self) {
         self.spdm_state_controller
             .lock()
             .await
             .run_single_iteration()
+            .boxed()
+            .await;
+    }
+
+    /// Runs one iteration of the SPDM state controller handler with the services
+    /// in this test environment
+    /// No requeuing of tasks is allowed
+    pub async fn run_spdm_controller_iteration_no_requeue(&self) {
+        self.spdm_state_controller
+            .lock()
+            .await
+            .run_single_iteration_ext(false)
             .boxed()
             .await;
     }
