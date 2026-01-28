@@ -103,11 +103,17 @@ impl<IO: StateControllerIO> StateController<IO> {
     /// Enqueues state handling tasks for all objects and processes them
     #[cfg(test)]
     pub async fn run_single_iteration(&mut self) {
+        self.run_single_iteration_ext(true).await
+    }
+
+    /// Enqueues state handling tasks for all objects and processes them
+    #[cfg(test)]
+    pub async fn run_single_iteration_ext(&mut self, allow_requeue: bool) {
         let enqueuer_result = self.enqueuer.run_single_iteration().await;
         loop {
             if let Err(err) = self
                 .processor
-                .run_single_iteration(std::time::Duration::MAX)
+                .run_single_iteration(std::time::Duration::MAX, allow_requeue)
                 .await
             {
                 tracing::error!(%err, "State processor iteration error");

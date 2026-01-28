@@ -22,7 +22,7 @@ use model::instance::config::nvlink::InstanceNvLinkConfig;
 use model::instance::snapshot::InstanceSnapshot;
 use model::instance::status::network::InstanceNetworkStatusObservation;
 use model::machine::{
-    CleanupState, MachineState, MachineValidatingState, ManagedHostState, ValidationState,
+    CleanupState, Machine, MachineState, MachineValidatingState, ManagedHostState, ValidationState,
 };
 use rpc::forge::InstanceDpuExtensionServicesConfig;
 use rpc::forge::forge_server::Forge;
@@ -312,52 +312,56 @@ pub fn config_for_nvlink_config(
     }
 }
 
-pub async fn advance_created_instance_into_ready_state(env: &TestEnv, mh: &TestManagedHost) {
-    // Run network state machine handler here.
+pub async fn advance_created_instance_into_state(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+    state_check_fn: impl Fn(&Machine) -> bool,
+) {
+    // Run network state machine here.
     env.run_network_segment_controller_iteration().await;
 
-    // - zero run: state controller moves state to DpaProvisioning
-    env.run_machine_state_controller_iteration().await;
-    // - first run: state controller moves state to WaitingForDpaToBeReady
-    env.run_machine_state_controller_iteration().await;
-    // - second run: state controller moves state to WaitingForNetworkSegmentToBeReady
-    env.run_machine_state_controller_iteration().await;
-    // - third run: state controller moves state to WaitingForNetworkConfig
-    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        10,
+        ManagedHostState::Assigned {
+            instance_state: model::machine::InstanceState::WaitingForNetworkConfig,
+        },
+    )
+    .await;
+
+    // Check whether we went through expected states
+    // - DpaProvisioning
+    // - WaitingForDpaToBeReady
+    // - WaitingForNetworkSegmentToBeReady
+    // - WaitingForNetworkConfig
     assert_eq!(
-        mh.host().rpc_machine().await.state,
-        "Assigned/WaitingForNetworkConfig".to_string()
+        mh.host().parsed_history(Some(4)).await,
+        vec![
+            ManagedHostState::Assigned {
+                instance_state: model::machine::InstanceState::DpaProvisioning,
+            },
+            ManagedHostState::Assigned {
+                instance_state: model::machine::InstanceState::WaitingForDpaToBeReady,
+            },
+            ManagedHostState::Assigned {
+                instance_state: model::machine::InstanceState::WaitingForNetworkSegmentToBeReady,
+            },
+            ManagedHostState::Assigned {
+                instance_state: model::machine::InstanceState::WaitingForNetworkConfig,
+            }
+        ]
     );
-    // - second run: Run one iteration in WaitingForNetworkConfig
-    // This will request to bind IB ports. We will then observe that these have been bound
-    env.run_machine_state_controller_iteration().await;
-    assert_eq!(
-        mh.host().rpc_machine().await.state,
-        "Assigned/WaitingForNetworkConfig".to_string()
-    );
-    // - forge-dpu-agent gets an instance network to configure, reports it configured
+
+    // Now IB needs to get configured and DPU agent needs to acknowledge the latest config
     mh.network_configured(env).await;
     // If IB is used, another state controller iteration might be required to bind the IB ports
     // and get actually out of the state
     // This iteration will call bind_ib_ports
     env.run_machine_state_controller_iteration().await;
-
-    let state = mh.host().rpc_machine().await.state;
-    if state == "Assigned/WaitingForNetworkConfig" {
-        // Also report that we are no longer on the tenant network for IB
-        // That can require one more state controller iteration after the fabric
-        // monitor supplied the results
-        env.run_ib_fabric_monitor_iteration().await;
-        env.run_ib_fabric_monitor_iteration().await;
-        env.run_nvl_partition_monitor_iteration().await;
-        env.run_nvl_partition_monitor_iteration().await;
-        env.run_machine_state_controller_iteration().await;
-    }
-    assert_eq!(
-        mh.host().rpc_machine().await.state,
-        "Assigned/WaitingForRebootToReady".to_string()
-    );
-    // - simulate that the host's hardware is reported healthy
+    env.run_ib_fabric_monitor_iteration().await;
+    env.run_ib_fabric_monitor_iteration().await;
+    env.run_nvl_partition_monitor_iteration().await;
+    env.run_nvl_partition_monitor_iteration().await;
     super::simulate_hardware_health_report(
         env,
         &mh.host().id,
@@ -365,15 +369,37 @@ pub async fn advance_created_instance_into_ready_state(env: &TestEnv, mh: &TestM
     )
     .await;
 
-    // - third run: state controller runs again, advances state to Ready
-    env.run_machine_state_controller_iteration_until_state_matches(
+    // State controller continues to run till target state
+    env.run_machine_state_controller_iteration_until_state_condition(
         &mh.host().id,
-        10,
-        ManagedHostState::Assigned {
-            instance_state: model::machine::InstanceState::Ready,
-        },
+        20,
+        state_check_fn,
     )
     .await;
+}
+
+pub async fn advance_created_instance_into_ready_state(env: &TestEnv, mh: &TestManagedHost) {
+    advance_created_instance_into_state(env, mh, |machine| {
+        matches!(
+            machine.state.value,
+            ManagedHostState::Assigned {
+                instance_state: model::machine::InstanceState::Ready,
+            }
+        )
+    })
+    .await;
+
+    assert_eq!(
+        mh.host().parsed_history(Some(2)).await,
+        vec![
+            ManagedHostState::Assigned {
+                instance_state: model::machine::InstanceState::WaitingForRebootToReady,
+            },
+            ManagedHostState::Assigned {
+                instance_state: model::machine::InstanceState::Ready,
+            }
+        ]
+    );
 }
 
 pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestManagedHost) {
