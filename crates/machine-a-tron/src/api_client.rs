@@ -18,8 +18,8 @@ use mac_address::MacAddress;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::operating_system::Variant;
 use rpc::forge::{
-    ConfigSetting, ExpectedMachine, InlineIpxe, MachineType, MachinesByIdsRequest,
-    OperatingSystem, PxeInstructions, SetDynamicConfigRequest,
+    ConfigSetting, ExpectedMachine, InlineIpxe, MachineType, MachinesByIdsRequest, OperatingSystem,
+    PxeInstructions, SetDynamicConfigRequest,
 };
 use rpc::protos::forge_api_client::ForgeApiClient;
 

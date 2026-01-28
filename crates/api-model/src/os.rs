@@ -35,9 +35,7 @@ impl TryFrom<rpc::forge::InlineIpxe> for InlineIpxe {
 impl TryFrom<InlineIpxe> for rpc::forge::InlineIpxe {
     type Error = RpcDataConversionError;
 
-    fn try_from(
-        config: InlineIpxe,
-    ) -> Result<rpc::forge::InlineIpxe, Self::Error> {
+    fn try_from(config: InlineIpxe) -> Result<rpc::forge::InlineIpxe, Self::Error> {
         Ok(Self {
             ipxe_script: config.ipxe_script,
             user_data: None,
