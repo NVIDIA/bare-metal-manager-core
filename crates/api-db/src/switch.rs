@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::net::IpAddr;
+
 use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
@@ -243,4 +245,34 @@ pub async fn update(switch: &Switch, txn: &mut PgConnection) -> Result<Switch, D
         .map_err(|e| DatabaseError::new("update", e))?;
 
     Ok(switch.clone())
+}
+
+pub async fn get_switch_ips_by_serials(
+    txn: &mut PgConnection,
+    serial_numbers: &[String],
+) -> DatabaseResult<std::collections::HashMap<String, IpAddr>> {
+    if serial_numbers.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    let sql = r#"
+        SELECT DISTINCT
+            es.serial_number,
+            ee.address
+        FROM expected_switches es
+        JOIN explored_endpoints ee ON (
+            jsonb_path_query_array(ee.exploration_report, '$.Systems[*].EthernetInterfaces[*].MACAddress')
+            ||
+            jsonb_path_query_array(ee.exploration_report, '$.Managers[*].EthernetInterfaces[*].MACAddress')
+        ) @> to_jsonb(ARRAY[upper(es.bmc_mac_address::text)])
+        WHERE es.serial_number = ANY($1)
+    "#;
+
+    let rows: Vec<(String, IpAddr)> = sqlx::query_as(sql)
+        .bind(serial_numbers)
+        .fetch_all(txn)
+        .await
+        .map_err(|err| DatabaseError::new("get_switch_ips_by_serials", err))?;
+
+    Ok(rows.into_iter().collect())
 }
