@@ -17,6 +17,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::str::FromStr;
 use std::time::Duration;
 
+use crate::redfish::test_support::RedfishSimAction;
 use carbide_uuid::machine::MachineId;
 use common::api_fixtures::instance::TestInstance;
 use common::api_fixtures::{
@@ -2195,7 +2196,7 @@ async fn test_preingestion_time_sync_reset_flow(
     let actions = env.redfish_sim.actions_since(&timepoint);
     let all_actions = actions.all_hosts();
     assert!(
-        all_actions.contains(&crate::redfish::RedfishSimAction::SetUtcTimezone),
+        all_actions.contains(&RedfishSimAction::SetUtcTimezone),
         "Expected SetUtcTimezone action to be called during TimeSyncReset Start phase"
     );
 
