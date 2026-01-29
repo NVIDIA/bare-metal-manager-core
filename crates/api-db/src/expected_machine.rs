@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -306,7 +306,7 @@ pub async fn update<'a>(
         .bind(sqlx::types::Json(&data.metadata.labels))
         .bind(&data.sku_id)
         .bind(sqlx::types::Json(&data.host_nics))
-        .bind(&data.rack_id)
+        .bind(data.rack_id)
         .bind(data.default_pause_ingestion_and_poweron)
         .bind(data.dpf_enabled)
         .bind(value.bmc_mac_address)
@@ -341,7 +341,7 @@ pub async fn update_by_id(
         .bind(sqlx::types::Json(&data.metadata.labels))
         .bind(&data.sku_id)
         .bind(sqlx::types::Json(&data.host_nics))
-        .bind(&data.rack_id)
+        .bind(data.rack_id)
         .bind(data.default_pause_ingestion_and_poweron)
         .bind(data.dpf_enabled)
         .bind(id)

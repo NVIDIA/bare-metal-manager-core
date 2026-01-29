@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide_uuid::rack::RackId;
 use clap::{ArgGroup, Parser};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
@@ -92,7 +93,7 @@ pub struct AddExpectedPowerShelf {
         help = "Rack ID for this machine",
         action = clap::ArgAction::Append
     )]
-    pub rack_id: Option<String>,
+    pub rack_id: Option<RackId>,
 
     #[clap(
         long = "ip_address",
@@ -203,7 +204,7 @@ pub struct UpdateExpectedPowerShelf {
         help = "Rack ID for this power shelf",
         action = clap::ArgAction::Append
     )]
-    pub rack_id: Option<String>,
+    pub rack_id: Option<RackId>,
 
     #[clap(
         long = "ip_address",
@@ -242,6 +243,6 @@ pub struct ExpectedPowerShelfJson {
     #[serde(default)]
     pub metadata: Option<rpc::forge::Metadata>,
     pub host_name: Option<String>,
-    pub rack_id: Option<String>,
+    pub rack_id: Option<RackId>,
     pub ip_address: Option<String>,
 }

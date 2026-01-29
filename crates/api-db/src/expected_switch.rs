@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -12,6 +12,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use carbide_uuid::rack::RackId;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::expected_switch::{ExpectedSwitch, LinkedExpectedSwitch};
@@ -127,7 +128,7 @@ pub async fn create(
     bmc_password: String,
     serial_number: String,
     metadata: Metadata,
-    rack_id: Option<String>,
+    rack_id: Option<RackId>,
     nvos_username: Option<String>,
     nvos_password: Option<String>,
 ) -> DatabaseResult<ExpectedSwitch> {
@@ -194,7 +195,7 @@ pub async fn update<'a>(
     bmc_password: String,
     serial_number: String,
     metadata: Metadata,
-    rack_id: Option<String>,
+    rack_id: Option<RackId>,
     nvos_username: Option<String>,
     nvos_password: Option<String>,
 ) -> DatabaseResult<&'a mut ExpectedSwitch> {
@@ -207,7 +208,7 @@ pub async fn update<'a>(
         .bind(&metadata.name)
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
-        .bind(&rack_id)
+        .bind(rack_id)
         .bind(&nvos_username)
         .bind(&nvos_password)
         .bind(expected_switch.bmc_mac_address)

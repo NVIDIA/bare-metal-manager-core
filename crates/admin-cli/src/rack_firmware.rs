@@ -253,7 +253,7 @@ async fn apply_firmware(
     );
 
     let request = rpc::forge::RackFirmwareApplyRequest {
-        rack_id: opts.rack_id,
+        rack_id: Some(opts.rack_id),
         firmware_id: opts.firmware_id,
         firmware_type: opts.firmware_type,
     };

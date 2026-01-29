@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -30,7 +30,7 @@ pub async fn show_rack(api_client: &ApiClient, show_opts: ShowRack) -> Result<()
     }
 
     for r in racks {
-        println!("ID: {}", r.id);
+        println!("ID: {}", r.id.map(|id| id.to_string()).unwrap_or_default());
         println!("State: {}", r.rack_state);
         println!("Expected Compute Tray BMCs:");
         for mac_address in r.expected_compute_trays {
@@ -100,7 +100,7 @@ pub async fn list_racks(api_client: &ApiClient) -> Result<()> {
                     .join("\n");
                 let expected_nvlink_switches = r.expected_nvlink_switches.join("\n");
                 table.add_row(prettytable::row![
-                    r.id.as_str(),
+                    r.id.map(|id| id.to_string()).unwrap_or_default(),
                     r.rack_state.as_str(),
                     expected_compute_trays,
                     current_compute_trays,

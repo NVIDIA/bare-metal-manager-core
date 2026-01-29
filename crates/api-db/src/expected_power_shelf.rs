@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -13,6 +13,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
 
+use carbide_uuid::rack::RackId;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::expected_power_shelf::{ExpectedPowerShelf, LinkedExpectedPowerShelf};
@@ -101,7 +102,7 @@ pub async fn create(
     serial_number: String,
     ip_address: Option<IpAddr>,
     metadata: Metadata,
-    rack_id: Option<String>,
+    rack_id: Option<RackId>,
 ) -> DatabaseResult<ExpectedPowerShelf> {
     let query = "INSERT INTO expected_power_shelves
             (bmc_mac_address, bmc_username, bmc_password, serial_number, ip_address, metadata_name, metadata_description, metadata_labels, rack_id)
@@ -166,7 +167,7 @@ pub async fn update<'a>(
     serial_number: String,
     ip_address: Option<IpAddr>,
     metadata: Metadata,
-    rack_id: Option<String>,
+    rack_id: Option<RackId>,
 ) -> DatabaseResult<&'a mut ExpectedPowerShelf> {
     let query = "UPDATE expected_power_shelves SET bmc_username=$1, bmc_password=$2, serial_number=$3, ip_address=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7, rack_id=$8 WHERE bmc_mac_address=$9 RETURNING bmc_mac_address";
 
@@ -178,7 +179,7 @@ pub async fn update<'a>(
         .bind(&metadata.name)
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
-        .bind(rack_id.clone())
+        .bind(rack_id)
         .bind(expected_power_shelf.bmc_mac_address)
         .fetch_one(txn)
         .await

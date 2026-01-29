@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -794,7 +794,7 @@ impl SiteExplorer {
             }
         }
 
-        if let Some(rack_id) = &e_ps.rack_id {
+        if let Some(rack_id) = e_ps.rack_id {
             let rack = match db::rack::get(&mut txn, rack_id).await {
                 Ok(rack) => rack,
                 Err(_) => db::rack::create(
@@ -829,7 +829,7 @@ impl SiteExplorer {
             let bmc_mac_address = expected_power_shelf
                 .map(|m| m.bmc_mac_address.to_string())
                 .unwrap_or_default();
-            let rack_id = expected_power_shelf.and_then(|ps| ps.rack_id.clone());
+            let rack_id = expected_power_shelf.and_then(|ps| ps.rack_id);
 
             match rack_id {
                 Some(rack_id) => {
@@ -966,7 +966,7 @@ impl SiteExplorer {
             let bmc_mac_address = expected_switch
                 .map(|m| m.bmc_mac_address.to_string())
                 .unwrap_or_default();
-            let rack_id = expected_switch.and_then(|s| s.rack_id.clone());
+            let rack_id = expected_switch.and_then(|s| s.rack_id);
 
             match rack_id {
                 Some(rack_id) => {

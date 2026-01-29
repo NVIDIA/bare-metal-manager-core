@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -12,6 +12,7 @@
 
 use std::collections::HashMap;
 
+use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use mac_address::MacAddress;
 use serde::Deserialize;
@@ -38,7 +39,7 @@ pub struct ExpectedSwitch {
     pub nvos_password: Option<String>,
     #[serde(default = "default_metadata_for_deserializer")]
     pub metadata: Metadata,
-    pub rack_id: Option<String>,
+    pub rack_id: Option<RackId>,
 }
 
 impl<'r> FromRow<'r, PgRow> for ExpectedSwitch {

@@ -2772,7 +2772,7 @@ async fn test_site_explorer_power_shelf_discovery(
         expected_power_shelf.serial_number.clone(),
         expected_power_shelf.ip_address,
         expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id.clone(),
+        expected_power_shelf.rack_id,
     )
     .await?;
     txn.commit().await?;
@@ -2931,7 +2931,7 @@ async fn test_site_explorer_power_shelf_with_expected_config(
         expected_power_shelf.serial_number.clone(),
         expected_power_shelf.ip_address,
         expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id.clone(),
+        expected_power_shelf.rack_id,
     )
     .await?;
     txn.commit().await?;
@@ -3093,7 +3093,7 @@ async fn test_site_explorer_power_shelf_creation_limit(
             expected_power_shelf.serial_number.clone(),
             expected_power_shelf.ip_address,
             expected_power_shelf.metadata.clone(),
-            expected_power_shelf.rack_id.clone(),
+            expected_power_shelf.rack_id,
         )
         .await?;
     }
@@ -3244,7 +3244,7 @@ async fn test_site_explorer_power_shelf_disabled(
         expected_power_shelf.serial_number.clone(),
         expected_power_shelf.ip_address,
         expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id.clone(),
+        expected_power_shelf.rack_id,
     )
     .await?;
     txn.commit().await?;
@@ -3381,7 +3381,7 @@ async fn test_site_explorer_power_shelf_error_handling(
         expected_power_shelf.serial_number.clone(),
         expected_power_shelf.ip_address,
         expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id.clone(),
+        expected_power_shelf.rack_id,
     )
     .await?;
     txn.commit().await?;
@@ -3530,7 +3530,7 @@ async fn test_site_explorer_creates_power_shelf(
         expected_power_shelf.serial_number.clone(),
         expected_power_shelf.ip_address,
         expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id.clone(),
+        expected_power_shelf.rack_id,
     )
     .await?;
     txn.commit().await?;
@@ -3745,7 +3745,7 @@ async fn test_power_shelf_state_history(
         expected_power_shelf.serial_number.clone(),
         expected_power_shelf.ip_address,
         expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id.clone(),
+        expected_power_shelf.rack_id,
     )
     .await?;
     txn.commit().await?;
@@ -3969,7 +3969,7 @@ async fn test_power_shelf_state_history_multiple(
         expected_power_shelf1.serial_number.clone(),
         expected_power_shelf1.ip_address,
         expected_power_shelf1.metadata.clone(),
-        expected_power_shelf1.rack_id.clone(),
+        expected_power_shelf1.rack_id,
     )
     .await?;
 
@@ -3981,7 +3981,7 @@ async fn test_power_shelf_state_history_multiple(
         expected_power_shelf2.serial_number.clone(),
         expected_power_shelf2.ip_address,
         expected_power_shelf2.metadata.clone(),
-        expected_power_shelf2.rack_id.clone(),
+        expected_power_shelf2.rack_id,
     )
     .await?;
     txn.commit().await?;
@@ -4260,7 +4260,7 @@ async fn test_power_shelf_state_history_error_handling(
         expected_power_shelf.serial_number.clone(),
         expected_power_shelf.ip_address,
         expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id.clone(),
+        expected_power_shelf.rack_id,
     )
     .await?;
     txn.commit().await?;
@@ -4456,7 +4456,7 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
         expected_power_shelf.serial_number.clone(),
         expected_power_shelf.ip_address,
         expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id.clone(),
+        expected_power_shelf.rack_id,
     )
     .await?;
     txn.commit().await?;

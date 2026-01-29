@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide_uuid::rack::RackId;
 use forge_tls::rms_client_config::{rms_client_cert_info, rms_root_ca_path};
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use rpc::protos::rack_manager::{
@@ -125,42 +126,42 @@ pub trait RmsApi: Send + Sync + 'static {
     ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError>;
     async fn remove_node(
         &self,
-        rack_id: String,
+        rack_id: RackId,
         node_id: String,
     ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError>;
     async fn get_poweron_order(
         &self,
-        rack_id: String,
+        rack_id: RackId,
     ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError>;
     async fn set_poweron_order(
         &self,
-        rack_id: String,
+        rack_id: RackId,
         poweron_order: Vec<PowerOnOrderItem>,
     ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError>;
     async fn get_power_state(
         &self,
-        rack_id: String,
+        rack_id: RackId,
         node_id: String,
     ) -> Result<rpc::protos::rack_manager::PowerControlResponse, RackManagerError>;
     async fn set_power_state(
         &self,
-        rack_id: String,
+        rack_id: RackId,
         node_id: String,
         operation: PowerOperation,
     ) -> Result<rpc::protos::rack_manager::PowerControlResponse, RackManagerError>;
     async fn rack_power(
         &self,
-        rack_id: String,
+        rack_id: RackId,
         operation: RackPowerOperation,
     ) -> Result<rpc::protos::rack_manager::PowerControlResponse, RackManagerError>;
     async fn get_firmware_inventory(
         &self,
-        rack_id: String,
+        rack_id: RackId,
         node_id: String,
     ) -> Result<rpc::protos::rack_manager::FirmwareResponse, RackManagerError>;
     async fn update_firmware(
         &self,
-        rack_id: String,
+        rack_id: RackId,
         node_id: String,
         filename: String,
         target: String,
@@ -168,14 +169,14 @@ pub trait RmsApi: Send + Sync + 'static {
     ) -> Result<rpc::protos::rack_manager::FirmwareResponse, RackManagerError>;
     async fn update_firmware_by_node_type(
         &self,
-        rack_id: String,
+        rack_id: RackId,
         node_type: i32,
         filename: String,
         target: String,
     ) -> Result<rpc::protos::rack_manager::FirmwareResponse, RackManagerError>;
     async fn get_available_fw_images(
         &self,
-        rack_id: String,
+        rack_id: RackId,
         node_id: String,
     ) -> Result<rpc::protos::rack_manager::FirmwareResponse, RackManagerError>;
     async fn get_bkc_files(
@@ -263,10 +264,13 @@ impl RmsApi for RackManagerApi {
 
     async fn remove_node(
         &self,
-        rack_id: String,
+        rack_id: RackId,
         node_id: String,
     ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError> {
-        let remove_node_command = rpc::protos::rack_manager::RemoveNodeCommand { rack_id, node_id };
+        let remove_node_command = rpc::protos::rack_manager::RemoveNodeCommand {
+            rack_id: rack_id.to_string(),
+            node_id,
+        };
         let cmd =
             rpc::protos::rack_manager::inventory_request::Command::RemoveNode(remove_node_command);
         let message = rpc::protos::rack_manager::InventoryRequest {
@@ -283,10 +287,11 @@ impl RmsApi for RackManagerApi {
 
     async fn get_poweron_order(
         &self,
-        rack_id: String,
+        rack_id: RackId,
     ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError> {
-        let get_poweron_order_command =
-            rpc::protos::rack_manager::GetPowerOnOrderCommand { rack_id };
+        let get_poweron_order_command = rpc::protos::rack_manager::GetPowerOnOrderCommand {
+            rack_id: rack_id.to_string(),
+        };
         let cmd = rpc::protos::rack_manager::inventory_request::Command::GetPowerOnOrder(
             get_poweron_order_command,
         );
@@ -303,11 +308,11 @@ impl RmsApi for RackManagerApi {
     #[allow(dead_code)]
     async fn set_poweron_order(
         &self,
-        rack_id: String,
+        rack_id: RackId,
         poweron_order: Vec<PowerOnOrderItem>,
     ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError> {
         let set_poweron_order_command = rpc::protos::rack_manager::SetPowerOnOrderCommand {
-            rack_id,
+            rack_id: rack_id.to_string(),
             power_on_order: poweron_order,
         };
         let cmd = rpc::protos::rack_manager::inventory_request::Command::SetPowerOnOrder(
@@ -325,11 +330,13 @@ impl RmsApi for RackManagerApi {
 
     async fn get_power_state(
         &self,
-        rack_id: String,
+        rack_id: RackId,
         node_id: String,
     ) -> Result<rpc::protos::rack_manager::PowerControlResponse, RackManagerError> {
-        let get_power_state_command =
-            rpc::protos::rack_manager::GetPowerStateCommand { rack_id, node_id };
+        let get_power_state_command = rpc::protos::rack_manager::GetPowerStateCommand {
+            rack_id: rack_id.to_string(),
+            node_id,
+        };
         let cmd = rpc::protos::rack_manager::power_control_request::Command::GetPowerState(
             get_power_state_command,
         );
@@ -346,12 +353,12 @@ impl RmsApi for RackManagerApi {
     #[allow(dead_code)]
     async fn set_power_state(
         &self,
-        rack_id: String,
+        rack_id: RackId,
         node_id: String,
         operation: PowerOperation,
     ) -> Result<rpc::protos::rack_manager::PowerControlResponse, RackManagerError> {
         let set_power_state_command = rpc::protos::rack_manager::SetPowerStateCommand {
-            rack_id,
+            rack_id: rack_id.to_string(),
             node_id,
             operation: operation.into(),
         };
@@ -371,11 +378,11 @@ impl RmsApi for RackManagerApi {
     #[allow(dead_code)]
     async fn rack_power(
         &self,
-        rack_id: String,
+        rack_id: RackId,
         operation: RackPowerOperation,
     ) -> Result<rpc::protos::rack_manager::PowerControlResponse, RackManagerError> {
         let rack_power_command = rpc::protos::rack_manager::RackPowerCommand {
-            rack_id,
+            rack_id: rack_id.to_string(),
             operation: operation.into(),
         };
         let cmd = rpc::protos::rack_manager::power_control_request::Command::RackPower(
@@ -395,11 +402,14 @@ impl RmsApi for RackManagerApi {
 
     async fn get_firmware_inventory(
         &self,
-        rack_id: String,
+        rack_id: RackId,
         node_id: String,
     ) -> Result<rpc::protos::rack_manager::FirmwareResponse, RackManagerError> {
         let get_firmware_inventory_command =
-            rpc::protos::rack_manager::GetFirmwareInventoryCommand { rack_id, node_id };
+            rpc::protos::rack_manager::GetFirmwareInventoryCommand {
+                rack_id: rack_id.to_string(),
+                node_id,
+            };
         let cmd = rpc::protos::rack_manager::firmware_request::Command::GetFirmwareInventory(
             get_firmware_inventory_command,
         );
@@ -416,14 +426,14 @@ impl RmsApi for RackManagerApi {
     #[allow(dead_code)]
     async fn update_firmware(
         &self,
-        rack_id: String,
+        rack_id: RackId,
         node_id: String,
         filename: String,
         target: String,
         activate: bool,
     ) -> Result<rpc::protos::rack_manager::FirmwareResponse, RackManagerError> {
         let update_firmware_command = rpc::protos::rack_manager::UpdateFirmwareCommand {
-            rack_id,
+            rack_id: rack_id.to_string(),
             node_id,
             filename,
             target,
@@ -445,14 +455,14 @@ impl RmsApi for RackManagerApi {
     #[allow(dead_code)]
     async fn update_firmware_by_node_type(
         &self,
-        rack_id: String,
+        rack_id: RackId,
         node_type: i32,
         filename: String,
         target: String,
     ) -> Result<rpc::protos::rack_manager::FirmwareResponse, RackManagerError> {
         let update_firmware_by_node_type_command =
             rpc::protos::rack_manager::UpdateFirmwareByNodeTypeCommand {
-                rack_id,
+                rack_id: rack_id.to_string(),
                 node_type,
                 filename,
                 target,
@@ -472,12 +482,12 @@ impl RmsApi for RackManagerApi {
 
     async fn get_available_fw_images(
         &self,
-        rack_id: String,
+        rack_id: RackId,
         node_id: String,
     ) -> Result<rpc::protos::rack_manager::FirmwareResponse, RackManagerError> {
         let get_available_fw_images_command =
             rpc::protos::rack_manager::GetAvailableFwImagesCommand {
-                rack_id: Some(rack_id),
+                rack_id: Some(rack_id.to_string()),
                 node_id: Some(node_id),
             };
         let cmd = rpc::protos::rack_manager::firmware_request::Command::GetAvailableFwImages(
@@ -692,7 +702,7 @@ pub mod test_support {
 
         async fn remove_node(
             &self,
-            _rack_id: String,
+            _rack_id: RackId,
             _node_id: String,
         ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError> {
             Ok(rpc::protos::rack_manager::InventoryResponse::default())
@@ -700,14 +710,14 @@ pub mod test_support {
 
         async fn get_poweron_order(
             &self,
-            _rack_id: String,
+            _rack_id: RackId,
         ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError> {
             Ok(rpc::protos::rack_manager::InventoryResponse::default())
         }
 
         async fn set_poweron_order(
             &self,
-            _rack_id: String,
+            _rack_id: RackId,
             _poweron_order: Vec<PowerOnOrderItem>,
         ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError> {
             Ok(rpc::protos::rack_manager::InventoryResponse::default())
@@ -715,7 +725,7 @@ pub mod test_support {
 
         async fn get_power_state(
             &self,
-            _rack_id: String,
+            _rack_id: RackId,
             _node_id: String,
         ) -> Result<rpc::protos::rack_manager::PowerControlResponse, RackManagerError> {
             Ok(rpc::protos::rack_manager::PowerControlResponse::default())
@@ -723,7 +733,7 @@ pub mod test_support {
 
         async fn set_power_state(
             &self,
-            _rack_id: String,
+            _rack_id: RackId,
             _node_id: String,
             _operation: PowerOperation,
         ) -> Result<rpc::protos::rack_manager::PowerControlResponse, RackManagerError> {
@@ -732,7 +742,7 @@ pub mod test_support {
 
         async fn rack_power(
             &self,
-            _rack_id: String,
+            _rack_id: RackId,
             _operation: RackPowerOperation,
         ) -> Result<rpc::protos::rack_manager::PowerControlResponse, RackManagerError> {
             Ok(rpc::protos::rack_manager::PowerControlResponse::default())
@@ -740,7 +750,7 @@ pub mod test_support {
 
         async fn get_firmware_inventory(
             &self,
-            _rack_id: String,
+            _rack_id: RackId,
             _node_id: String,
         ) -> Result<rpc::protos::rack_manager::FirmwareResponse, RackManagerError> {
             Ok(rpc::protos::rack_manager::FirmwareResponse::default())
@@ -748,7 +758,7 @@ pub mod test_support {
 
         async fn update_firmware(
             &self,
-            _rack_id: String,
+            _rack_id: RackId,
             _node_id: String,
             _filename: String,
             _target: String,
@@ -759,7 +769,7 @@ pub mod test_support {
 
         async fn update_firmware_by_node_type(
             &self,
-            _rack_id: String,
+            _rack_id: RackId,
             _node_type: i32,
             _filename: String,
             _target: String,
@@ -769,7 +779,7 @@ pub mod test_support {
 
         async fn get_available_fw_images(
             &self,
-            _rack_id: String,
+            _rack_id: RackId,
             _node_id: String,
         ) -> Result<rpc::protos::rack_manager::FirmwareResponse, RackManagerError> {
             Ok(rpc::protos::rack_manager::FirmwareResponse::default())
