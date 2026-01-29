@@ -12,7 +12,10 @@
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::host_reprovisioning_request::Mode;
-use ::rpc::forge::{HostReprovisioningRequest, UpdateInitiator};
+use ::rpc::forge::{
+    ClearHostUefiPasswordRequest, HostReprovisioningRequest, SetHostUefiPasswordRequest,
+    UpdateInitiator,
+};
 use carbide_uuid::machine::MachineId;
 use forge_secrets::credentials::Credentials;
 use prettytable::{Table, row};
@@ -73,13 +76,14 @@ pub async fn list_hosts_pending(api_client: &ApiClient) -> CarbideCliResult<()> 
 }
 
 pub async fn set_uefi_password(
-    query: &MachineQuery,
+    query: MachineQuery,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let response = api_client
-        .0
-        .set_host_uefi_password(query.query.parse::<MachineId>()?)
-        .await?;
+    let request = SetHostUefiPasswordRequest {
+        host_id: None,
+        machine_query: Some(query.query.clone()),
+    };
+    let response = api_client.0.set_host_uefi_password(request).await?;
     println!(
         "successfully set UEFI password for host {query:#?} (jid: {:#?})",
         response.job_id
@@ -88,13 +92,14 @@ pub async fn set_uefi_password(
 }
 
 pub async fn clear_uefi_password(
-    query: &MachineQuery,
+    query: MachineQuery,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let response = api_client
-        .0
-        .clear_host_uefi_password(query.query.parse::<MachineId>()?)
-        .await?;
+    let request = ClearHostUefiPasswordRequest {
+        host_id: None,
+        machine_query: Some(query.query.clone()),
+    };
+    let response = api_client.0.clear_host_uefi_password(request).await?;
     println!(
         "successfully cleared UEFI password for host {query:#?}; (jid: {:#?})",
         response.job_id
