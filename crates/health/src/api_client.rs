@@ -245,6 +245,38 @@ impl ApiClientWrapper {
 
         Ok(())
     }
+
+    /// find ready switches with their IP addresses
+    pub async fn fetch_ready_switches(&self) -> Result<Vec<rpc::forge::Switch>, HealthError> {
+        let request = rpc::forge::SwitchQuery {
+            name: None,
+            switch_id: None,
+            include_ip_addresses: true,
+        };
+
+        let response = self
+            .client
+            .find_switches(request)
+            .await
+            .map_err(HealthError::ApiInvocationError)?;
+
+        // Filter for ready switches with IP addresses
+        let ready_switches: Vec<_> = response
+            .switches
+            .into_iter()
+            .filter(|s| {
+                s.controller_state == "ready" || s.controller_state == "{\"state\":\"ready\"}"
+            })
+            .filter(|s| s.ip_address.is_some())
+            .collect();
+
+        tracing::debug!(
+            "Found {} ready switches with IP addresses",
+            ready_switches.len()
+        );
+
+        Ok(ready_switches)
+    }
 }
 
 impl EndpointSource for ApiClientWrapper {
