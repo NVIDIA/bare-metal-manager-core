@@ -128,6 +128,7 @@ pub(super) struct StatsSinceLastLog {
 }
 
 #[derive(Debug, Default, Clone)]
+#[allow(dead_code)]
 struct QueueStats {
     /// The ID of the latest iteration that had been started
     latest_iteration: Option<ControllerIterationId>,
@@ -227,14 +228,13 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         // Delete the DB entries for tasks which finished in `wait_and_process_object_handling_task_completions`.
         self.cleanup_completed_objects().await?;
 
-        let queue_stats = self.gather_queue_stats().await?;
-
         // Schedule handler again for objects which transitioned.
         // We queue them using the latest iteration_id.
         // This needs to happen after `cleanup_completed_objects` to remove
         // the old entries from the DB first.
-        self.requeue_transitioned_objects(&queue_stats).await?;
+        self.requeue_transitioned_objects().await?;
 
+        let queue_stats = self.gather_queue_stats().await?;
         self.emit_metric_if_iteration_changed(&queue_stats);
 
         self.emit_periodic_log_if_necessary();
@@ -423,10 +423,10 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             Vec::new()
         };
 
-        let objects: Vec<(ControllerIterationId, IO::ObjectId)> = objects
+        let objects: Vec<IO::ObjectId> = objects
             .into_iter()
             .filter_map(|object| match IO::ObjectId::from_str(&object.object_id) {
-                Ok(id) => Some((object.iteration_id, id)),
+                Ok(id) => Some(id),
                 Err(_) => {
                     tracing::error!(
                         controller = IO::LOG_SPAN_CONTROLLER_NAME,
@@ -442,9 +442,9 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         self.stats_since_last_log.num_dispatched_tasks += num_dispatched_tasks;
 
         // Send off the new objects for processing
-        for (_iteration_id, object_id) in objects {
+        for object_id in objects {
             self.dispatch_object_handling_task(object_id.clone());
-            self.in_flight.insert(object_id.clone());
+            self.in_flight.insert(object_id);
         }
 
         if let Some(emitter) = &self.metric_emitter
@@ -532,22 +532,15 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         Ok(())
     }
 
-    async fn requeue_transitioned_objects(
-        &mut self,
-        queue_stats: &QueueStats,
-    ) -> Result<(), IterationError> {
+    async fn requeue_transitioned_objects(&mut self) -> Result<(), IterationError> {
         if self.requeue_objects.is_empty() {
             return Ok(());
         }
 
-        let Some(iteration_id) = queue_stats.latest_iteration else {
-            return Ok(());
-        };
-
-        let queue_objects: Vec<(String, ControllerIterationId)> = self
+        let queue_objects: Vec<String> = self
             .requeue_objects
             .iter()
-            .map(|id| (id.to_string(), iteration_id))
+            .map(|id| id.to_string())
             .collect();
         let mut txn = self.pool.begin().await?;
         let num_requeued =

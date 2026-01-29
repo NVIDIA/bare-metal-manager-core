@@ -25,9 +25,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
 
 use crate::state_controller::config::IterationConfig;
-use crate::state_controller::controller::{
-    self, ControllerIterationId, QueuedObject, StateController,
-};
+use crate::state_controller::controller::{self, Enqueuer, QueuedObject, StateController};
 use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::metrics::NoopMetricsEmitter;
 use crate::state_controller::state_change_emitter::{
@@ -163,7 +161,7 @@ async fn test_queue_objects(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let num_enqueued = controller::db::queue_objects(
         &mut txn,
         TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
-        &[("0".to_string(), ControllerIterationId(1))],
+        &["0".to_string()],
     )
     .await
     .unwrap();
@@ -171,37 +169,32 @@ async fn test_queue_objects(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let num_enqueued = controller::db::queue_objects(
         &mut txn,
         TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
-        &[
-            ("1".to_string(), ControllerIterationId(2)),
-            ("2".to_string(), ControllerIterationId(3)),
-        ],
+        &["1".to_string(), "2".to_string()],
     )
     .await
     .unwrap();
     assert_eq!(num_enqueued, 2);
 
-    let queued = controller::db::fetch_queued_objects(
+    let mut queued = controller::db::fetch_queued_objects(
         &mut txn,
         TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
     )
     .await
     .unwrap();
+    queued.sort_by(|a, b| a.object_id.cmp(&b.object_id));
     assert_eq!(
         queued,
         vec![
             QueuedObject {
                 object_id: "0".to_string(),
-                iteration_id: ControllerIterationId(1),
                 processed_by: None,
             },
             QueuedObject {
                 object_id: "1".to_string(),
-                iteration_id: ControllerIterationId(2),
                 processed_by: None,
             },
             QueuedObject {
                 object_id: "2".to_string(),
-                iteration_id: ControllerIterationId(3),
                 processed_by: None,
             },
         ]
@@ -215,7 +208,7 @@ async fn test_queue_objects(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let num_enqueued = controller::db::queue_objects(
         &mut txn,
         TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
-        &[("0".to_string(), ControllerIterationId(22))],
+        &["0".to_string()],
     )
     .await
     .unwrap();
@@ -223,41 +216,35 @@ async fn test_queue_objects(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let num_enqueued = controller::db::queue_objects(
         &mut txn,
         TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
-        &[
-            ("3".to_string(), ControllerIterationId(44)),
-            ("2".to_string(), ControllerIterationId(33)),
-        ],
+        &["3".to_string(), "2".to_string()],
     )
     .await
     .unwrap();
     assert_eq!(num_enqueued, 1);
-    let queued = controller::db::fetch_queued_objects(
+    let mut queued = controller::db::fetch_queued_objects(
         &mut txn,
         TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
     )
     .await
     .unwrap();
+    queued.sort_by(|a, b| a.object_id.cmp(&b.object_id));
     assert_eq!(
         queued,
         vec![
             QueuedObject {
                 object_id: "0".to_string(),
-                iteration_id: ControllerIterationId(1),
                 processed_by: None,
             },
             QueuedObject {
                 object_id: "1".to_string(),
-                iteration_id: ControllerIterationId(2),
                 processed_by: None,
             },
             QueuedObject {
                 object_id: "2".to_string(),
-                iteration_id: ControllerIterationId(3),
                 processed_by: None,
             },
             QueuedObject {
                 object_id: "3".to_string(),
-                iteration_id: ControllerIterationId(44),
                 processed_by: None,
             },
         ]
@@ -278,18 +265,16 @@ async fn test_queue_objects(pool: sqlx::PgPool) -> sqlx::Result<()> {
     )
     .await
     .unwrap();
-    queued.sort_by(|a, b| a.iteration_id.0.cmp(&b.iteration_id.0));
+    queued.sort_by(|a, b| a.object_id.cmp(&b.object_id));
     assert_eq!(
         queued,
         vec![
             QueuedObject {
                 object_id: "0".to_string(),
-                iteration_id: ControllerIterationId(1),
                 processed_by: Some(processor_id1.clone()),
             },
             QueuedObject {
                 object_id: "1".to_string(),
-                iteration_id: ControllerIterationId(2),
                 processed_by: Some(processor_id1.clone()),
             },
         ]
@@ -303,12 +288,11 @@ async fn test_queue_objects(pool: sqlx::PgPool) -> sqlx::Result<()> {
     )
     .await
     .unwrap();
-    queued2.sort_by(|a, b| a.iteration_id.0.cmp(&b.iteration_id.0));
+    queued2.sort_by(|a, b| a.object_id.cmp(&b.object_id));
     assert_eq!(
         queued2,
         vec![QueuedObject {
             object_id: "2".to_string(),
-            iteration_id: ControllerIterationId(3),
             processed_by: Some(processor_id2.clone()),
         },]
     );
@@ -339,28 +323,26 @@ async fn test_queue_objects(pool: sqlx::PgPool) -> sqlx::Result<()> {
     .unwrap();
     assert_eq!(num_deleted, 1);
 
-    let queued = controller::db::fetch_queued_objects(
+    let mut queued = controller::db::fetch_queued_objects(
         &mut txn,
         TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
     )
     .await
     .unwrap();
+    queued.sort_by(|a, b| a.object_id.cmp(&b.object_id));
     assert_eq!(
         queued,
         vec![
             QueuedObject {
                 object_id: "0".to_string(),
-                iteration_id: ControllerIterationId(1),
                 processed_by: Some(processor_id1.clone()),
             },
             QueuedObject {
                 object_id: "2".to_string(),
-                iteration_id: ControllerIterationId(3),
                 processed_by: Some(processor_id2.clone()),
             },
             QueuedObject {
                 object_id: "3".to_string(),
-                iteration_id: ControllerIterationId(44),
                 processed_by: None,
             },
         ]
@@ -371,7 +353,7 @@ async fn test_queue_objects(pool: sqlx::PgPool) -> sqlx::Result<()> {
 
     // Test acquire with max_outdated
     let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();
-    let mut queued = controller::db::acquire_queued_objects(
+    let queued = controller::db::acquire_queued_objects(
         &mut txn,
         TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
         2,
@@ -380,47 +362,20 @@ async fn test_queue_objects(pool: sqlx::PgPool) -> sqlx::Result<()> {
     )
     .await
     .unwrap();
-    queued.sort_by(|a, b| a.iteration_id.0.cmp(&b.iteration_id.0));
-    assert_eq!(
-        queued,
-        vec![
-            QueuedObject {
-                object_id: "0".to_string(),
-                iteration_id: ControllerIterationId(1),
-                processed_by: Some(processor_id1.clone()),
-            },
-            QueuedObject {
-                object_id: "2".to_string(),
-                iteration_id: ControllerIterationId(3),
-                processed_by: Some(processor_id1.clone()),
-            },
-        ]
-    );
-    let queued = controller::db::fetch_queued_objects(
-        &mut txn,
-        TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        queued,
-        vec![
-            QueuedObject {
-                object_id: "0".to_string(),
-                iteration_id: ControllerIterationId(1),
-                processed_by: Some(processor_id1.clone()),
-            },
-            QueuedObject {
-                object_id: "2".to_string(),
-                iteration_id: ControllerIterationId(3),
-                processed_by: Some(processor_id1.clone()),
-            },
-            QueuedObject {
-                object_id: "3".to_string(),
-                iteration_id: ControllerIterationId(44),
-                processed_by: None,
-            },
-        ]
+    // We might see 2-3 tasks not being acquired by the processor.
+    // 2 if it re-acquires the tasks it already has, or 3 if it acquires other tasks
+    let acquired = queued
+        .iter()
+        .filter(|queued| {
+            queued
+                .processed_by
+                .as_ref()
+                .is_some_and(|by| by == &processor_id1)
+        })
+        .count();
+    assert!(
+        acquired == 2 || acquired == 3,
+        "Object is acquired {acquired} times: Full data: {queued:?}"
     );
 
     txn.commit().await.unwrap();
@@ -510,7 +465,6 @@ async fn create_test_state_controller_tables(pool: &sqlx::PgPool) {
     sqlx::query(
         "CREATE TABLE test_state_controller_queued_objects(
         object_id VARCHAR PRIMARY KEY,
-        iteration_id BIGINT,
         processed_by TEXT NULL,
         processing_started_at timestamptz NOT NULL DEFAULT NOW()
     );",
@@ -876,6 +830,64 @@ async fn test_state_change_emitter_emits_events_on_transitions(
         receiver.try_recv().is_err(),
         "Expected no event for do_nothing outcome"
     );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_state_controller_manual_enqueuing(pool: sqlx::PgPool) -> eyre::Result<()> {
+    create_test_state_controller_tables(&pool).await;
+    let work_lock_manager_handle =
+        db::work_lock_manager::start(pool.clone(), Default::default()).await?;
+
+    // Create a single test object in state A
+    let mut txn = pool.begin().await?;
+    let _obj = create_test_object("test-obj-1".to_string(), &mut txn).await;
+    txn.commit().await?;
+
+    // Build the state controller with the emitter
+    let mut controller = StateController::<TestStateControllerIO>::builder()
+        .iteration_config(IterationConfig {
+            iteration_time: Duration::from_millis(50),
+            processor_dispatch_interval: Duration::from_millis(50),
+            ..Default::default()
+        })
+        .database(pool.clone(), work_lock_manager_handle.clone())
+        .processor_id(uuid::Uuid::new_v4().to_string())
+        .services(Arc::new(()))
+        .state_handler(Arc::new(TestTransitionStateHandler))
+        .build_for_manual_iterations()?;
+
+    // Transition A -> B, but no re-enqueuing
+    controller.run_single_iteration_ext(false).await;
+
+    let mut txn = pool.begin().await?;
+    let queued = controller::db::fetch_queued_objects(
+        &mut txn,
+        TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
+    )
+    .await
+    .unwrap();
+    assert!(queued.is_empty());
+    txn.commit().await.unwrap();
+
+    let enqueuer = Enqueuer::<TestStateControllerIO>::new(pool.clone());
+    enqueuer.enqueue_object(&"test-obj-1".to_string()).await?;
+    let mut txn = pool.begin().await?;
+    let queued = controller::db::fetch_queued_objects(
+        &mut txn,
+        TestStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        queued,
+        vec![QueuedObject {
+            object_id: "test-obj-1".to_string(),
+            processed_by: None,
+        },]
+    );
+    txn.commit().await.unwrap();
 
     Ok(())
 }

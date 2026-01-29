@@ -95,7 +95,7 @@ use crate::redfish::test_support::RedfishSim;
 use crate::scout_stream;
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::common_services::CommonStateHandlerServices;
-use crate::state_controller::controller::StateController;
+use crate::state_controller::controller::{Enqueuer, StateController};
 use crate::state_controller::ib_partition::handler::IBPartitionStateHandler;
 use crate::state_controller::ib_partition::io::IBPartitionStateControllerIO;
 use crate::state_controller::machine::handler::{
@@ -1333,6 +1333,7 @@ pub async fn create_test_env_with_overrides(
         rms_client: rms_sim.as_rms_client(),
         nmxm_pool: nmxm_sim.clone(),
         work_lock_manager_handle: work_lock_manager_handle.clone(),
+        machine_state_handler_enqueuer: Enqueuer::new(db_pool.clone()),
     });
 
     let attestation_enabled = config.attestation_enabled;
