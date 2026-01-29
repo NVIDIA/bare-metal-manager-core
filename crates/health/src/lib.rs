@@ -33,6 +33,7 @@ pub mod logs_collector;
 pub mod metrics;
 pub mod monitor;
 pub mod sharding;
+pub mod switch_collector;
 
 pub use config::Config;
 pub use discovery::{DiscoveryIterationStats, DiscoveryLoopContext};

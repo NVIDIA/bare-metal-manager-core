@@ -1,0 +1,349 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+//! This module collects metrics from NMX-T telemetry endpoints on the NVLink switches.
+//! Currently scraping for:
+//! - Effective BER 
+//! - Symbol Errors
+//! - Link Down counter
+
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+
+use prometheus::{GaugeVec, Opts, Registry};
+
+use crate::HealthError;
+use crate::api_client::ApiClientWrapper;
+use crate::config::{Configurable, SwitchCollectorConfig};
+
+/// default NMX-T port
+const NMXT_PORT: u16 = 9352;
+
+/// NMX-T endpoint 
+const NMXT_ENDPOINT: &str = "/xcset/nvlink_domain_telemetry";
+
+/// Prometheus text -> NmxtMetricSample
+#[derive(Debug, Clone)]
+struct NmxtMetricSample {
+    name: String,
+    labels: HashMap<String, String>,
+    value: f64,
+}
+
+/// Parse Prometheus text format metrics from NMX-T endpoint
+fn parse_prometheus_metrics(body: &str) -> Vec<NmxtMetricSample> {
+    let mut samples = Vec::new();
+
+    for line in body.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        if let Some(sample) = parse_prometheus_line(line) {
+            samples.push(sample);
+        }
+    }
+
+    samples
+}
+
+/// Parse a single text line
+fn parse_prometheus_line(line: &str) -> Option<NmxtMetricSample> {
+    // Find labels start
+    let (name_part, rest) = if let Some(brace_pos) = line.find('{') {
+        let name = &line[..brace_pos];
+        let rest = &line[brace_pos..];
+        (name, rest)
+    } else {
+        // No labels
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 2 {
+            let name = parts[0];
+            let value = parts[1].parse::<f64>().ok()?;
+            return Some(NmxtMetricSample {
+                name: name.to_string(),
+                labels: HashMap::new(),
+                value,
+            });
+        }
+        return None;
+    };
+
+    // parse labels and value
+    let close_brace = rest.find('}')?;
+    let labels_str = &rest[1..close_brace];
+    let value_part = rest[close_brace + 1..].trim();
+    let value_str = value_part.split_whitespace().next()?;
+    let value = value_str.parse::<f64>().ok()?;
+
+    let mut labels = HashMap::new();
+    for label_pair in labels_str.split(',') {
+        let label_pair = label_pair.trim();
+        if let Some(eq_pos) = label_pair.find('=') {
+            let key = label_pair[..eq_pos].trim();
+            let val = label_pair[eq_pos + 1..].trim().trim_matches('"');
+            labels.insert(key.to_string(), val.to_string());
+        }
+    }
+
+    Some(NmxtMetricSample {
+        name: name_part.to_string(),
+        labels,
+        value,
+    })
+}
+
+/// scrape metrics from a single switch
+async fn scrape_switch_nmxt_metrics(
+    http_client: &reqwest::Client,
+    switch_ip: &str,
+) -> Result<Vec<NmxtMetricSample>, HealthError> {
+    let url = format!("http://{}:{}{}", switch_ip, NMXT_PORT, NMXT_ENDPOINT);
+
+    let response = http_client
+        .get(&url)
+        .timeout(Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|e| {
+            HealthError::GenericError(format!("HTTP request failed for {}: {}", switch_ip, e))
+        })?;
+
+    if !response.status().is_success() {
+        return Err(HealthError::GenericError(format!(
+            "HTTP request to {} returned status {}",
+            url,
+            response.status()
+        )));
+    }
+
+    let body = response.text().await.map_err(|e| {
+        HealthError::GenericError(format!(
+            "Failed to read response body from {}: {}",
+            switch_ip, e
+        ))
+    })?;
+
+    Ok(parse_prometheus_metrics(&body))
+}
+
+pub struct SwitchCollector {
+    api_client: Arc<ApiClientWrapper>,
+    http_client: reqwest::Client,
+    config: SwitchCollectorConfig,
+    effective_ber_gauge: GaugeVec,
+    symbol_error_gauge: GaugeVec,
+    link_down_gauge: GaugeVec,
+}
+
+impl SwitchCollector {
+    pub fn new(
+        api_client: Arc<ApiClientWrapper>,
+        config: SwitchCollectorConfig,
+        registry: &Registry,
+    ) -> Result<Self, HealthError> {
+        let http_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(60))
+            .build()
+            .map_err(|e| {
+                HealthError::GenericError(format!("Failed to create HTTP client: {}", e))
+            })?;
+
+        let effective_ber_gauge = GaugeVec::new(
+            Opts::new(
+                "carbide_switch_effective_ber",
+                "Effective BER from NMX-T telemetry",
+            ),
+            &["switch_id", "switch_ip", "node_guid", "port_num"],
+        )?;
+        registry.register(Box::new(effective_ber_gauge.clone()))?;
+
+        let symbol_error_gauge = GaugeVec::new(
+            Opts::new(
+                "carbide_switch_symbol_error_counter",
+                "Symbol error counter from NMX-T telemetry",
+            ),
+            &["switch_id", "switch_ip", "node_guid", "port_num"],
+        )?;
+        registry.register(Box::new(symbol_error_gauge.clone()))?;
+
+        let link_down_gauge = GaugeVec::new(
+            Opts::new(
+                "carbide_switch_link_down_counter",
+                "Link down counter from NMX-T telemetry",
+            ),
+            &["switch_id", "switch_ip", "node_guid", "port_num"],
+        )?;
+        registry.register(Box::new(link_down_gauge.clone()))?;
+
+        Ok(Self {
+            api_client,
+            http_client,
+            config,
+            effective_ber_gauge,
+            symbol_error_gauge,
+            link_down_gauge,
+        })
+    }
+
+    /// scrapes metrics from all ready switches
+    pub async fn scrape_iteration(&self) -> Result<(), HealthError> {
+        let switches = self.api_client.fetch_ready_switches().await?;
+
+        if switches.is_empty() {
+            tracing::debug!("No ready switches found to scrape");
+            return Ok(());
+        }
+
+        tracing::info!(
+            "Scraping {} ready switches for NMX-T metrics",
+            switches.len()
+        );
+
+        for switch in &switches {
+            let switch_ip = match &switch.ip_address {
+                Some(ip) => ip,
+                None => {
+                    tracing::warn!(switch_id = ?switch.id, "Switch has no IP address, skipping");
+                    continue;
+                }
+            };
+
+            let switch_id = switch
+                .id
+                .as_ref()
+                .map(|id| id.to_string())
+                .unwrap_or_default();
+
+            match scrape_switch_nmxt_metrics(&self.http_client, switch_ip).await {
+                Ok(metrics) => {
+                    for sample in metrics {
+                        let port_num = sample
+                            .labels
+                            .get("Port_Number")
+                            .cloned()
+                            .unwrap_or_default();
+
+                        let node_guid = sample.labels.get("Node_GUID").cloned().unwrap_or_default();
+
+                        let labels = [switch_id.as_str(), switch_ip, &node_guid, &port_num];
+
+                        match sample.name.as_str() {
+                            "Effective_BER" => {
+                                self.effective_ber_gauge
+                                    .with_label_values(&labels)
+                                    .set(sample.value);
+                            }
+                            "Symbol_Errors" => {
+                                self.symbol_error_gauge
+                                    .with_label_values(&labels)
+                                    .set(sample.value);
+                            }
+                            "Link_Down" => {
+                                self.link_down_gauge
+                                    .with_label_values(&labels)
+                                    .set(sample.value);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(switch_ip = switch_ip, error = ?e, "Failed to scrape switch NMX-T metrics");
+                }
+            }
+        }
+
+        Ok(())
+    }
+    pub fn scrape_interval(&self) -> Duration {
+        self.config.scrape_interval
+    }
+}
+
+/// run the switch collector loop
+pub async fn run_switch_collector(
+    api_client: Arc<ApiClientWrapper>,
+    config: Configurable<SwitchCollectorConfig>,
+    registry: &Registry,
+) -> Result<(), HealthError> {
+    let config = match config {
+        Configurable::Enabled(cfg) => cfg,
+        Configurable::Disabled => {
+            tracing::info!("Switch collector is disabled");
+            return Ok(());
+        }
+    };
+
+    let collector = SwitchCollector::new(api_client, config, registry)?;
+
+    loop {
+        let start = std::time::Instant::now();
+
+        if let Err(e) = collector.scrape_iteration().await {
+            tracing::error!(error = ?e, "Switch scrape iteration failed");
+        }
+
+        let elapsed = start.elapsed();
+        tracing::debug!("Switch scrape iteration took {:?}", elapsed);
+
+        let remaining = collector.scrape_interval().saturating_sub(elapsed);
+        let sleep_time = remaining.max(Duration::from_secs(5));
+        tokio::time::sleep(sleep_time).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_prometheus_line_with_labels() {
+        let line = r#"Effective_BER{Port_Number="2", Node_GUID="0x8e2161c8803caf64"} 1.5e-254"#;
+        let sample = parse_prometheus_line(line).unwrap();
+
+        assert_eq!(sample.name, "Effective_BER");
+        assert_eq!(sample.labels.get("Port_Number"), Some(&"2".to_string()));
+        assert_eq!(
+            sample.labels.get("Node_GUID"),
+            Some(&"0x8e2161c8803caf64".to_string())
+        );
+        assert_eq!(sample.value, 1.5e-254);
+    }
+
+    #[test]
+    fn test_parse_prometheus_line_no_labels() {
+        let line = "simple_metric 42.5 1234567890";
+        let sample = parse_prometheus_line(line).unwrap();
+
+        assert_eq!(sample.name, "simple_metric");
+        assert!(sample.labels.is_empty());
+        assert_eq!(sample.value, 42.5);
+    }
+
+    #[test]
+    fn test_parse_prometheus_metrics() {
+        let body = r#"
+# HELP Effective_BER Effective bit error rate
+# TYPE Effective_BER gauge
+Effective_BER{Port_Number="1"} 0
+Effective_BER{Port_Number="2"} 1e-10
+Symbol_Errors{Port_Number="1"} 0
+Link_Down{Port_Number="1"} 5
+"#;
+
+        let samples = parse_prometheus_metrics(body);
+        assert_eq!(samples.len(), 4);
+    }
+}
