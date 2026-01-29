@@ -200,9 +200,15 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
     Ok(())
 }
 
-fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
-    let mut err_vec: Vec<String> = Vec::new();
+/// Result of cleaning a single NVMe device
+struct NvmeCleanupResult {
+    device: String,
+    result: Result<(), CarbideClientError>,
+    duration: std::time::Duration,
+}
 
+async fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
+    let mut nvme_devicepaths: Vec<String> = Vec::new();
     if let Ok(paths) = fs::read_dir("/dev") {
         for entry in paths {
             let path = match entry {
@@ -215,16 +221,84 @@ fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
 
             let nvmename = path.to_string_lossy().to_string();
             if NVME_DEV_RE.is_match(&nvmename) {
-                match clean_this_nvme(&nvmename) {
-                    Ok(_) => (),
-                    Err(e) => err_vec.push(format!("NVME_CLEAN_ERROR:{}:{}", &nvmename, e)),
-                }
+                nvme_devicepaths.push(nvmename);
             }
         }
     }
-    if !err_vec.is_empty() {
-        return Err(CarbideClientError::GenericError(err_vec.join("\n")));
+
+    let device_count = nvme_devicepaths.len();
+    if device_count == 0 {
+        tracing::info!("No NVMe devices found to clean");
+        return Ok(());
     }
+
+    tracing::info!(device_count, "Starting parallel NVMe cleanup");
+    let start_time = std::time::Instant::now();
+
+    // Spawn blocking tasks for each NVMe device cleanup
+    let cleanup_futures: Vec<_> = nvme_devicepaths
+        .into_iter()
+        .map(|nvmename| {
+            let device = nvmename.clone();
+            tokio::task::spawn_blocking(move || {
+                let device_start = std::time::Instant::now();
+                let span = tracing::info_span!("nvme_cleanup", device = %nvmename);
+                let _guard = span.enter();
+
+                tracing::info!("Starting cleanup");
+                let result = clean_this_nvme(&nvmename);
+                let duration = device_start.elapsed();
+
+                match &result {
+                    Ok(()) => tracing::info!(?duration, "Cleanup completed successfully"),
+                    Err(e) => tracing::error!(?duration, error = %e, "Cleanup failed"),
+                }
+
+                NvmeCleanupResult {
+                    device,
+                    result,
+                    duration,
+                }
+            })
+        })
+        .collect();
+
+    // Wait for all cleanup tasks to complete
+    let results = futures_util::future::join_all(cleanup_futures).await;
+    let total_duration = start_time.elapsed();
+
+    // Collect and categorize results
+    let mut errors: Vec<String> = Vec::new();
+    let mut success_count = 0;
+
+    for join_result in results {
+        match join_result {
+            Ok(cleanup_result) => match cleanup_result.result {
+                Ok(()) => success_count += 1,
+                Err(e) => errors.push(format!(
+                    "NVME_CLEAN_ERROR:{}:{} (took {:?})",
+                    cleanup_result.device, e, cleanup_result.duration
+                )),
+            },
+            Err(join_error) => {
+                // Task panicked or was cancelled
+                errors.push(format!("NVME_CLEAN_TASK_ERROR:{}", join_error));
+            }
+        }
+    }
+
+    tracing::info!(
+        device_count,
+        success_count,
+        error_count = errors.len(),
+        ?total_duration,
+        "NVMe cleanup completed"
+    );
+
+    if !errors.is_empty() {
+        return Err(CarbideClientError::GenericError(errors.join("\n")));
+    }
+
     Ok(())
 }
 
@@ -449,7 +523,7 @@ async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineC
     };
 
     if stdin_link == "/dev/null" {
-        match all_nvme_cleanup() {
+        match all_nvme_cleanup().await {
             Ok(_) => {
                 cleanup_result.nvme = Some(rpc::machine_cleanup_info::CleanupStepResult {
                     result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
@@ -554,7 +628,7 @@ pub(crate) async fn run(config: &Options, machine_id: &MachineId) -> CarbideClie
     Ok(())
 }
 
-pub fn run_no_api() -> Result<(), CarbideClientError> {
+pub async fn run_no_api() -> Result<(), CarbideClientError> {
     if !is_host() {
         tracing::info!("No cleanup needed on DPU.");
         return Ok(());
@@ -567,7 +641,7 @@ pub fn run_no_api() -> Result<(), CarbideClientError> {
     tracing::info!("stdin is {}", stdin_link);
 
     if stdin_link == "/dev/null" {
-        match all_nvme_cleanup() {
+        match all_nvme_cleanup().await {
             Ok(_) => tracing::debug!("nvme cleanup OK"),
             Err(e) => tracing::error!("nvme cleanup error: {}", e),
         }
