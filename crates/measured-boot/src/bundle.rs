@@ -139,7 +139,7 @@ impl TryFrom<MeasurementBundlePb> for MeasurementBundle {
 // the default table view, this gets used to print a pretty table.
 #[cfg(feature = "cli")]
 impl ToTable for MeasurementBundle {
-    fn to_table(&self) -> eyre::Result<String> {
+    fn into_table(self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
         let mut values_table = prettytable::Table::new();
         values_table.add_row(prettytable::row!["pcr_register", "value"]);

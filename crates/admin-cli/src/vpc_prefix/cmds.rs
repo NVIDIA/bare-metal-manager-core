@@ -28,7 +28,7 @@ use super::args::{VpcPrefixCreate, VpcPrefixDelete, VpcPrefixShow};
 use crate::rpc::ApiClient;
 
 pub async fn show(
-    args: &VpcPrefixShow,
+    args: VpcPrefixShow,
     output_format: OutputFormat,
     api_client: &ApiClient,
     batch_size: usize,
@@ -42,7 +42,7 @@ pub async fn show(
 }
 
 pub async fn create(
-    args: &VpcPrefixCreate,
+    args: VpcPrefixCreate,
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
@@ -53,7 +53,7 @@ pub async fn create(
         .map_err(CarbideCliError::from)
 }
 
-pub async fn delete(args: &VpcPrefixDelete, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn delete(args: VpcPrefixDelete, api_client: &ApiClient) -> CarbideCliResult<()> {
     do_delete(api_client, args).await
 }
 
@@ -78,10 +78,10 @@ impl ShowOutput {
     }
 }
 
-impl From<&VpcPrefixShow> for ShowMethod {
-    fn from(show_args: &VpcPrefixShow) -> Self {
-        match &show_args.prefix_selector {
-            Some(selector) => ShowMethod::Get(selector.clone()),
+impl From<VpcPrefixShow> for ShowMethod {
+    fn from(show_args: VpcPrefixShow) -> Self {
+        match show_args.prefix_selector {
+            Some(selector) => ShowMethod::Get(selector),
             None => {
                 let mut search = match_all();
                 search.vpc_id = show_args.vpc_id;
@@ -101,12 +101,12 @@ impl From<&VpcPrefixShow> for ShowMethod {
 
 async fn do_create(
     api_client: &ApiClient,
-    create_args: &VpcPrefixCreate,
+    create_args: VpcPrefixCreate,
 ) -> Result<ShowOutput, CarbideCliError> {
     let new_prefix = VpcPrefixCreationRequest {
         id: create_args.vpc_prefix_id,
         prefix: create_args.prefix.to_string(),
-        name: create_args.name.clone(),
+        name: create_args.name,
         vpc_id: Some(create_args.vpc_id),
     };
     Ok(api_client
@@ -118,7 +118,7 @@ async fn do_create(
 
 async fn do_delete(
     api_client: &ApiClient,
-    delete_args: &VpcPrefixDelete,
+    delete_args: VpcPrefixDelete,
 ) -> Result<(), CarbideCliError> {
     let delete_prefix = VpcPrefixDeletionRequest {
         id: Some(delete_args.vpc_prefix_id),

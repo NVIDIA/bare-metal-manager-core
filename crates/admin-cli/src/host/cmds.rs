@@ -26,7 +26,7 @@ pub async fn trigger_reprovisioning(
     api_client: &ApiClient,
     update_message: Option<String>,
 ) -> CarbideCliResult<()> {
-    if let (Mode::Set, Some(update_message)) = (mode, &update_message) {
+    if let (Mode::Set, Some(update_message)) = (mode, update_message) {
         // Set a HostUpdateInProgress health override on the Host
 
         let host_machine = api_client
@@ -48,10 +48,7 @@ pub async fn trigger_reprovisioning(
             )));
         }
 
-        let report = get_health_report(
-            HealthOverrideTemplates::HostUpdate,
-            Some(update_message.clone()),
-        );
+        let report = get_health_report(HealthOverrideTemplates::HostUpdate, Some(update_message));
 
         api_client
             .machine_insert_health_report_override(host_id, report.into(), false)

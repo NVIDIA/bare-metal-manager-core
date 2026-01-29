@@ -1748,6 +1748,7 @@ dependencies = [
  "humantime-serde",
  "hyper",
  "hyper-util",
+ "logfmt",
  "nv-redfish",
  "nv-redfish-bmc-http",
  "nv-redfish-core",

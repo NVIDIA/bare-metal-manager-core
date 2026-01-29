@@ -149,7 +149,7 @@ async fn handle_show(
             println!("{}", serde_yaml::to_string(&serializable_profile)?);
         }
         OutputFormat::AsciiTable => {
-            print_profile_table(&serializable_profile);
+            print_profile_table(serializable_profile);
         }
         OutputFormat::Csv => {
             println!("CSV not yet supported")
@@ -204,12 +204,7 @@ fn print_profiles_table(profiles: &[mlx_device_pb::ProfileSummary]) {
     for profile in profiles {
         table.add_row(Row::new(vec![
             Cell::new(&profile.name),
-            Cell::new(
-                &profile
-                    .description
-                    .clone()
-                    .unwrap_or_else(|| "-".to_string()),
-            ),
+            Cell::new(profile.description.as_deref().unwrap_or("-")),
             Cell::new(&profile.variable_count.to_string()),
             Cell::new(&profile.registry_name),
         ]));
@@ -219,7 +214,7 @@ fn print_profiles_table(profiles: &[mlx_device_pb::ProfileSummary]) {
 }
 
 // print_profile_table prints a detailed table for a single profile.
-fn print_profile_table(profile: &SerializableProfile) {
+fn print_profile_table(profile: SerializableProfile) {
     let mut table = Table::new();
 
     // Name row.
@@ -228,12 +223,7 @@ fn print_profile_table(profile: &SerializableProfile) {
     // Description row.
     table.add_row(Row::new(vec![
         Cell::new("Description"),
-        Cell::new(
-            &profile
-                .description
-                .clone()
-                .unwrap_or_else(|| "-".to_string()),
-        ),
+        Cell::new(profile.description.as_deref().unwrap_or("-")),
     ]));
 
     // Registry row.
@@ -246,14 +236,14 @@ fn print_profile_table(profile: &SerializableProfile) {
     table.add_row(Row::new(vec![Cell::new("Config").with_hspan(2)]));
 
     // Config variables (sorted by name).
-    let mut config_entries: Vec<_> = profile.config.iter().collect();
-    config_entries.sort_by_key(|(name, _)| *name);
+    let mut config_entries: Vec<_> = profile.config.into_iter().collect();
+    config_entries.sort_by(|a, b| a.0.cmp(&b.0));
 
     for (variable_name, value) in config_entries {
         // Format the value as a compact YAML string.
         let value_str = format_yaml_value(value);
         table.add_row(Row::new(vec![
-            Cell::new(variable_name),
+            Cell::new(&variable_name),
             Cell::new(&value_str),
         ]));
     }
@@ -262,28 +252,28 @@ fn print_profile_table(profile: &SerializableProfile) {
 }
 
 // format_yaml_value formats a YAML value into a compact string representation.
-fn format_yaml_value(value: &serde_yaml::Value) -> String {
+fn format_yaml_value(value: serde_yaml::Value) -> String {
     match value {
         serde_yaml::Value::Null => "null".to_string(),
         serde_yaml::Value::Bool(b) => b.to_string(),
         serde_yaml::Value::Number(n) => n.to_string(),
-        serde_yaml::Value::String(s) => s.clone(),
+        serde_yaml::Value::String(s) => s,
         serde_yaml::Value::Sequence(seq) => {
             // Format arrays compactly.
-            let items: Vec<String> = seq.iter().map(format_yaml_value).collect();
+            let items: Vec<String> = seq.into_iter().map(format_yaml_value).collect();
             format!("[{}]", items.join(", "))
         }
         serde_yaml::Value::Mapping(map) => {
             // Format maps compactly.
             let items: Vec<String> = map
-                .iter()
+                .into_iter()
                 .map(|(k, v)| format!("{}: {}", format_yaml_value(k), format_yaml_value(v)))
                 .collect();
             format!("{{{}}}", items.join(", "))
         }
         serde_yaml::Value::Tagged(tagged) => {
             // For tagged values, just show the value part.
-            format_yaml_value(&tagged.value)
+            format_yaml_value(tagged.value)
         }
     }
 }

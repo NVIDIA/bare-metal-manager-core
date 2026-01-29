@@ -50,7 +50,7 @@ async fn show_ib_partitions(
     name: Option<String>,
 ) -> CarbideCliResult<()> {
     let all_ib_partitions = match api_client
-        .get_all_ib_partitions(tenant_org_id.clone(), name.clone(), page_size)
+        .get_all_ib_partitions(tenant_org_id, name, page_size)
         .await
     {
         Ok(all_ib_partition_ids) => all_ib_partition_ids,
@@ -74,16 +74,14 @@ async fn show_ib_partition_details(
         Err(e) => return Err(e),
     };
 
-    if ib_partitions.ib_partitions.len() != 1 {
+    let Some(ib_partition) = ib_partitions.ib_partitions.into_iter().next() else {
         return Err(CarbideCliError::GenericError(
             "Unknown InfiniBand Partition ID".to_string(),
         ));
-    }
-
-    let ib_partition = &ib_partitions.ib_partitions[0];
+    };
 
     if json {
-        println!("{}", serde_json::to_string_pretty(ib_partition)?);
+        println!("{}", serde_json::to_string_pretty(&ib_partition)?);
     } else {
         println!(
             "{}",
@@ -147,28 +145,28 @@ fn convert_ib_partitions_to_nice_table(ib_partitions: forgerpc::IbPartitionList)
 }
 
 fn convert_ib_partition_to_nice_format(
-    ib_partition: &forgerpc::IbPartition,
+    ib_partition: forgerpc::IbPartition,
 ) -> CarbideCliResult<String> {
     let width = 25;
     let mut lines = String::new();
 
-    let default_config = forgerpc::IbPartitionConfig::default();
-    let config = ib_partition.config.as_ref().unwrap_or(&default_config);
-    let metadata = ib_partition.metadata.as_ref();
-    let labels = crate::metadata::get_nice_labels_from_rpc_metadata(metadata);
+    let tenant_organization_id = ib_partition
+        .config
+        .unwrap_or_default()
+        .tenant_organization_id;
+    let metadata = ib_partition.metadata;
+    let labels = crate::metadata::get_nice_labels_from_rpc_metadata(metadata.as_ref());
 
-    let default_status = forgerpc::IbPartitionStatus::default();
-    let status = ib_partition.status.as_ref().unwrap_or(&default_status);
-    let default_state_reason = forgerpc::ControllerStateReason::default();
-    let state_reason = status
-        .state_reason
-        .as_ref()
-        .unwrap_or(&default_state_reason);
+    let status = ib_partition.status.unwrap_or_default();
+    let state_reason = status.state_reason.unwrap_or_default();
 
-    let id = ib_partition.id.map(|id| id.to_string()).unwrap_or_default();
-    let service_level = format!("{}", status.service_level.unwrap_or_default());
-    let rate = format!("{}", status.rate_limit.unwrap_or_default());
-    let mtu = format!("{}", status.mtu.unwrap_or_default());
+    let id = ib_partition.id.map(|i| i.to_string()).unwrap_or_default();
+    let service_level = status
+        .service_level
+        .map(|i| i.to_string())
+        .unwrap_or_default();
+    let rate = status.rate_limit.map(|i| i.to_string()).unwrap_or_default();
+    let mtu = status.mtu.map(|i| i.to_string()).unwrap_or_default();
     let labels = labels.join(", ");
 
     let data: Vec<(&str, &str)> = vec![
@@ -180,7 +178,7 @@ fn convert_ib_partition_to_nice_format(
                 .map(|m| m.name.as_str())
                 .unwrap_or_default(),
         ),
-        ("TENANT ORG", config.tenant_organization_id.as_str()),
+        ("TENANT ORG", &tenant_organization_id),
         (
             "STATE",
             forgerpc::TenantState::try_from(status.state)

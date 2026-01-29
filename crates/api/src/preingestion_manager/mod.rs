@@ -1363,6 +1363,10 @@ impl PreingestionManagerStatic {
 
         match phase {
             TimeSyncResetPhase::Start => {
+                if let Err(e) = redfish_client.set_utc_timezone().await {
+                    tracing::error!("Could not set UTC timezone on {}: {e}", endpoint.address);
+                    return Err(CarbideError::RedfishError(e));
+                }
                 if !self
                     .execute_power_off_and_bmc_reset(redfish_client.as_ref(), endpoint)
                     .await

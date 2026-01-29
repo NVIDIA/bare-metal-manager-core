@@ -20,7 +20,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 use serde::{Deserialize, Serialize};
 
@@ -45,25 +45,11 @@ impl Dispatch for Cmd {
                     eprintln!("Duplicate values not allowed for --fallback-dpu-serial-number");
                     return Ok(());
                 }
-                let metadata = expected_machine_data
-                    .metadata()
-                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
-                let host_nics = Vec::new();
+                let expected_machine: rpc::forge::ExpectedMachine =
+                    expected_machine_data.try_into()?;
                 ctx.api_client
-                    .add_expected_machine(
-                        expected_machine_data.bmc_mac_address,
-                        expected_machine_data.bmc_username.clone(),
-                        expected_machine_data.bmc_password.clone(),
-                        expected_machine_data.chassis_serial_number.clone(),
-                        expected_machine_data.fallback_dpu_serial_numbers.clone(),
-                        metadata,
-                        expected_machine_data.sku_id.clone(),
-                        expected_machine_data.id.clone(),
-                        host_nics,
-                        expected_machine_data.rack_id.clone(),
-                        expected_machine_data.default_pause_ingestion_and_poweron,
-                        expected_machine_data.dpf_enabled,
-                    )
+                    .0
+                    .add_expected_machine(expected_machine)
                     .await?;
                 Ok(())
             }
@@ -85,15 +71,15 @@ impl Dispatch for Cmd {
                 ctx.api_client
                     .patch_expected_machine(
                         expected_machine_data.bmc_mac_address,
-                        expected_machine_data.bmc_username.clone(),
-                        expected_machine_data.bmc_password.clone(),
-                        expected_machine_data.chassis_serial_number.clone(),
-                        expected_machine_data.fallback_dpu_serial_numbers.clone(),
-                        expected_machine_data.meta_name.clone(),
-                        expected_machine_data.meta_description.clone(),
-                        expected_machine_data.labels.clone(),
-                        expected_machine_data.sku_id.clone(),
-                        expected_machine_data.rack_id.clone(),
+                        expected_machine_data.bmc_username,
+                        expected_machine_data.bmc_password,
+                        expected_machine_data.chassis_serial_number,
+                        expected_machine_data.fallback_dpu_serial_numbers,
+                        expected_machine_data.meta_name,
+                        expected_machine_data.meta_description,
+                        expected_machine_data.labels,
+                        expected_machine_data.sku_id,
+                        expected_machine_data.rack_id,
                         expected_machine_data.default_pause_ingestion_and_poweron,
                         expected_machine_data.dpf_enabled,
                     )

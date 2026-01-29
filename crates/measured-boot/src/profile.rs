@@ -104,7 +104,7 @@ impl TryFrom<MeasurementSystemProfilePb> for MeasurementSystemProfile {
 // the default table view, this gets used to print a pretty table.
 #[cfg(feature = "cli")]
 impl ToTable for MeasurementSystemProfile {
-    fn to_table(&self) -> eyre::Result<String> {
+    fn into_table(self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
         let mut attrs_table = prettytable::Table::new();
         attrs_table.add_row(prettytable::row!["name", "value"]);

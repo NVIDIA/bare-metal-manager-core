@@ -9,12 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
+use mac_address::MacAddress;
 use prettytable::{Table, row};
 use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use serde::{Deserialize, Serialize};
@@ -23,10 +24,11 @@ use super::args::{
     AddExpectedPowerShelf, DeleteExpectedPowerShelf, ExpectedPowerShelfJson,
     ReplaceAllExpectedPowerShelf, ShowExpectedPowerShelfQuery, UpdateExpectedPowerShelf,
 };
+use crate::metadata::parse_rpc_labels;
 use crate::rpc::ApiClient;
 
 pub async fn show(
-    query: &ShowExpectedPowerShelfQuery,
+    query: ShowExpectedPowerShelfQuery,
     api_client: &ApiClient,
     output_format: OutputFormat,
 ) -> CarbideCliResult<()> {
@@ -50,13 +52,14 @@ pub async fn show(
     let expected_macs = expected_power_shelves
         .expected_power_shelves
         .iter()
-        .map(|x| x.bmc_mac_address.clone().to_lowercase())
-        .collect::<Vec<String>>();
+        .filter_map(|x| x.bmc_mac_address.parse().ok())
+        .collect::<Vec<MacAddress>>();
 
-    let expected_mi: HashMap<String, ::rpc::forge::MachineInterface> =
-        HashMap::from_iter(all_mi.interfaces.iter().filter_map(|x| {
-            if expected_macs.contains(&x.mac_address.to_lowercase()) {
-                Some((x.mac_address.clone().to_lowercase(), x.clone()))
+    let expected_mi: HashMap<MacAddress, ::rpc::forge::MachineInterface> =
+        HashMap::from_iter(all_mi.interfaces.into_iter().filter_map(|x| {
+            let mac = x.mac_address.parse().ok()?;
+            if expected_macs.contains(&mac) {
+                Some((mac, x))
             } else {
                 None
             }
@@ -64,10 +67,8 @@ pub async fn show(
 
     let bmc_ips = expected_mi
         .iter()
-        .filter_map(|x| {
-            let ip = x.1.address.first()?;
-            Some(ip.clone())
-        })
+        .filter_map(|(_, iface)| iface.address.first())
+        .cloned()
         .collect::<Vec<_>>();
 
     let expected_bmc_ip_vs_ids = HashMap::from_iter(
@@ -76,10 +77,10 @@ pub async fn show(
             .find_machine_ids_by_bmc_ips(bmc_ips)
             .await?
             .pairs
-            .iter()
+            .into_iter()
             .map(|x| {
                 (
-                    x.bmc_ip.clone(),
+                    x.bmc_ip,
                     x.machine_id
                         .map(|x| x.to_string())
                         .unwrap_or("Unlinked".to_string()),
@@ -99,7 +100,7 @@ pub async fn show(
 fn convert_and_print_into_nice_table(
     expected_power_shelves: &::rpc::forge::ExpectedPowerShelfList,
     expected_discovered_machine_ids: &HashMap<String, String>,
-    expected_discovered_machine_interfaces: &HashMap<String, ::rpc::forge::MachineInterface>,
+    expected_discovered_machine_interfaces: &HashMap<MacAddress, ::rpc::forge::MachineInterface>,
 ) -> CarbideCliResult<()> {
     let mut table = Box::new(Table::new());
 
@@ -114,36 +115,51 @@ fn convert_and_print_into_nice_table(
     ]);
 
     for expected_power_shelf in &expected_power_shelves.expected_power_shelves {
-        let machine_interface = expected_discovered_machine_interfaces
-            .get(&expected_power_shelf.bmc_mac_address.to_lowercase());
+        let Ok(bmc_mac_address) = expected_power_shelf.bmc_mac_address.parse() else {
+            continue;
+        };
+        let machine_interface = expected_discovered_machine_interfaces.get(&bmc_mac_address);
         let machine_id = expected_discovered_machine_ids
             .get(
-                &machine_interface
-                    .and_then(|x| x.address.first().cloned())
-                    .unwrap_or("unknown".to_string()),
+                machine_interface
+                    .and_then(|x| x.address.first().map(String::as_str))
+                    .unwrap_or("unknown"),
             )
-            .cloned();
+            .map(String::as_str);
 
-        let metadata = expected_power_shelf.metadata.clone().unwrap_or_default();
-        let labels = metadata
-            .labels
-            .iter()
-            .map(|label| {
-                let key = &label.key;
-                let value = label.value.clone().unwrap_or_default();
-                format!("\"{}:{}\"", key, value)
+        let labels = expected_power_shelf
+            .metadata
+            .as_ref()
+            .map(|m| {
+                m.labels
+                    .iter()
+                    .map(|label| {
+                        let key = label.key.as_str();
+                        let value = label.value.as_deref().unwrap_or_default();
+                        format!("\"{}:{}\"", key, value)
+                    })
+                    .collect::<Vec<_>>()
             })
-            .collect::<Vec<_>>();
+            .unwrap_or_default();
 
         table.add_row(row![
             expected_power_shelf.shelf_serial_number,
             expected_power_shelf.bmc_mac_address,
             machine_interface
-                .map(|x| x.address.join("\n"))
-                .unwrap_or("Undiscovered".to_string()),
-            machine_id.unwrap_or("Unlinked".to_string()),
-            metadata.name,
-            metadata.description,
+                .map(|x| Cow::Owned(x.address.join("\n")))
+                .unwrap_or(Cow::Borrowed("Undiscovered"))
+                .as_ref(),
+            machine_id.unwrap_or("Unlinked"),
+            expected_power_shelf
+                .metadata
+                .as_ref()
+                .map(|m| m.name.as_str())
+                .unwrap_or_default(),
+            expected_power_shelf
+                .metadata
+                .as_ref()
+                .map(|m| m.description.as_str())
+                .unwrap_or_default(),
             labels.join(", ")
         ]);
     }
@@ -153,24 +169,13 @@ fn convert_and_print_into_nice_table(
     Ok(())
 }
 
-pub async fn add(data: &AddExpectedPowerShelf, api_client: &ApiClient) -> color_eyre::Result<()> {
-    let metadata = data.metadata()?;
-    api_client
-        .add_expected_power_shelf(
-            data.bmc_mac_address,
-            data.bmc_username.clone(),
-            data.bmc_password.clone(),
-            data.shelf_serial_number.clone(),
-            metadata,
-            data.rack_id.clone(),
-            data.ip_address.clone(),
-        )
-        .await?;
+pub async fn add(data: AddExpectedPowerShelf, api_client: &ApiClient) -> color_eyre::Result<()> {
+    api_client.0.add_expected_power_shelf(data).await?;
     Ok(())
 }
 
 pub async fn delete(
-    query: &DeleteExpectedPowerShelf,
+    query: DeleteExpectedPowerShelf,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     api_client
@@ -181,30 +186,34 @@ pub async fn delete(
 }
 
 pub async fn update(
-    data: &UpdateExpectedPowerShelf,
+    data: UpdateExpectedPowerShelf,
     api_client: &ApiClient,
 ) -> color_eyre::Result<()> {
     if let Err(e) = data.validate() {
         eprintln!("{e}");
         return Ok(());
     }
-    let metadata = data.metadata()?;
+    let metadata = rpc::forge::Metadata {
+        name: data.meta_name.unwrap_or_default(),
+        description: data.meta_description.unwrap_or_default(),
+        labels: parse_rpc_labels(data.labels.unwrap_or_default()),
+    };
     api_client
         .update_expected_power_shelf(
             data.bmc_mac_address,
-            data.bmc_username.clone(),
-            data.bmc_password.clone(),
-            data.shelf_serial_number.clone(),
+            data.bmc_username,
+            data.bmc_password,
+            data.shelf_serial_number,
+            data.rack_id,
+            data.ip_address,
             metadata,
-            data.rack_id.clone(),
-            data.ip_address.clone(),
         )
         .await?;
     Ok(())
 }
 
 pub async fn replace_all(
-    request: &ReplaceAllExpectedPowerShelf,
+    request: ReplaceAllExpectedPowerShelf,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let json_file_path = Path::new(&request.filename);

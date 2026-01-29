@@ -37,6 +37,7 @@ use carbide_uuid::nvlink::{NvLinkLogicalPartitionId, NvLinkPartitionId};
 use carbide_uuid::vpc::VpcId;
 use mac_address::MacAddress;
 
+use crate::IntoOnlyOne;
 use crate::expected_machines::args::ExpectedMachineJson;
 use crate::instance::args::AllocateInstance;
 use crate::machine::MachineAutoupdate;
@@ -88,7 +89,7 @@ impl ApiClient {
         request: rpc::MachineSearchConfig,
         page_size: usize,
     ) -> CarbideCliResult<rpc::MachineList> {
-        let all_machine_ids = self.0.find_machine_ids(request.clone()).await?;
+        let all_machine_ids = self.0.find_machine_ids(request).await?;
         let mut all_machines = rpc::MachineList {
             machines: Vec::with_capacity(all_machine_ids.machine_ids.len()),
         };
@@ -203,10 +204,10 @@ impl ApiClient {
     ) -> CarbideCliResult<rpc::InstanceList> {
         let all_ids = self
             .get_instance_ids(
-                tenant_org_id.clone(),
-                vpc_id.clone(),
-                label_key.clone(),
-                label_value.clone(),
+                tenant_org_id,
+                vpc_id,
+                label_key,
+                label_value,
                 instance_type_id,
             )
             .await?;
@@ -261,9 +262,7 @@ impl ApiClient {
         name: Option<String>,
         page_size: usize,
     ) -> CarbideCliResult<rpc::NetworkSegmentList> {
-        let all_ids = self
-            .get_segment_ids(tenant_org_id.clone(), name.clone())
-            .await?;
+        let all_ids = self.get_segment_ids(tenant_org_id, name).await?;
         let mut all_list = rpc::NetworkSegmentList {
             network_segments: Vec::with_capacity(all_ids.network_segments_ids.len()),
         };
@@ -410,7 +409,7 @@ impl ApiClient {
         endpoint_ids: &[String],
     ) -> CarbideCliResult<::rpc::site_explorer::ExploredEndpointList> {
         let request = ::rpc::site_explorer::ExploredEndpointsByIdsRequest {
-            endpoint_ids: Vec::from(endpoint_ids),
+            endpoint_ids: endpoint_ids.to_vec(),
         };
         Ok(self.0.find_explored_endpoints_by_ids(request).await?)
     }
@@ -460,40 +459,6 @@ impl ApiClient {
             expiry,
         };
         Ok(self.0.set_dynamic_config(request).await?)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn add_expected_machine(
-        &self,
-        bmc_mac_address: MacAddress,
-        bmc_username: String,
-        bmc_password: String,
-        chassis_serial_number: String,
-        fallback_dpu_serial_numbers: Option<Vec<String>>,
-        metadata: ::rpc::forge::Metadata,
-        sku_id: Option<String>,
-        id: Option<String>,
-        host_nics: Vec<::rpc::forge::ExpectedHostNic>,
-        rack_id: Option<String>,
-        default_pause_ingestion_and_poweron: Option<bool>,
-        dpf_enabled: bool,
-    ) -> Result<(), CarbideCliError> {
-        let request = rpc::ExpectedMachine {
-            bmc_mac_address: bmc_mac_address.to_string(),
-            bmc_username,
-            bmc_password,
-            chassis_serial_number,
-            fallback_dpu_serial_numbers: fallback_dpu_serial_numbers.unwrap_or_default(),
-            metadata: Some(metadata),
-            sku_id,
-            id: id.map(|s| ::rpc::common::Uuid { value: s }),
-            host_nics,
-            rack_id,
-            default_pause_ingestion_and_poweron,
-            dpf_enabled,
-        };
-
-        Ok(self.0.add_expected_machine(request).await?)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -577,69 +542,15 @@ impl ApiClient {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub async fn add_expected_power_shelf(
-        &self,
-        bmc_mac_address: MacAddress,
-        bmc_username: String,
-        bmc_password: String,
-        shelf_serial_number: String,
-        metadata: ::rpc::forge::Metadata,
-        rack_id: Option<String>,
-        ip_address: Option<String>,
-    ) -> Result<(), CarbideCliError> {
-        let request = rpc::ExpectedPowerShelf {
-            bmc_mac_address: bmc_mac_address.to_string(),
-            bmc_username,
-            bmc_password,
-            shelf_serial_number,
-            ip_address: ip_address.unwrap_or_default(),
-            metadata: Some(metadata),
-            rack_id,
-        };
-        self.0
-            .add_expected_power_shelf(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn add_expected_switch(
-        &self,
-        bmc_mac_address: MacAddress,
-        bmc_username: String,
-        bmc_password: String,
-        switch_serial_number: String,
-        metadata: ::rpc::forge::Metadata,
-        rack_id: Option<String>,
-        nvos_username: Option<String>,
-        nvos_password: Option<String>,
-    ) -> Result<(), CarbideCliError> {
-        let request = rpc::ExpectedSwitch {
-            bmc_mac_address: bmc_mac_address.to_string(),
-            bmc_username,
-            bmc_password,
-            switch_serial_number,
-            metadata: Some(metadata),
-            rack_id,
-            nvos_username,
-            nvos_password,
-        };
-        self.0
-            .add_expected_switch(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
-    }
-
-    #[allow(clippy::too_many_arguments)]
     pub async fn update_expected_power_shelf(
         &self,
         bmc_mac_address: MacAddress,
         bmc_username: Option<String>,
         bmc_password: Option<String>,
         shelf_serial_number: Option<String>,
-        metadata: ::rpc::forge::Metadata,
         rack_id: Option<String>,
         ip_address: Option<String>,
+        metadata: ::rpc::forge::Metadata,
     ) -> Result<(), CarbideCliError> {
         let expected_power_shelf = self
             .0
@@ -669,10 +580,10 @@ impl ApiClient {
         bmc_username: Option<String>,
         bmc_password: Option<String>,
         switch_serial_number: Option<String>,
-        metadata: ::rpc::forge::Metadata,
         rack_id: Option<String>,
         nvos_username: Option<String>,
         nvos_password: Option<String>,
+        metadata: ::rpc::forge::Metadata,
     ) -> Result<(), CarbideCliError> {
         let expected_switch = self
             .0
@@ -784,7 +695,7 @@ impl ApiClient {
         label_value: Option<String>,
     ) -> CarbideCliResult<rpc::VpcList> {
         let all_ids = self
-            .get_vpc_ids(tenant_org_id.clone(), name.clone(), label_key, label_value)
+            .get_vpc_ids(tenant_org_id, name, label_key, label_value)
             .await?;
         let mut all_list = rpc::VpcList {
             vpcs: Vec::with_capacity(all_ids.vpc_ids.len()),
@@ -963,9 +874,7 @@ impl ApiClient {
         name: Option<String>,
         page_size: usize,
     ) -> CarbideCliResult<rpc::IbPartitionList> {
-        let all_ids = self
-            .get_ib_partition_ids(tenant_org_id.clone(), name.clone())
-            .await?;
+        let all_ids = self.get_ib_partition_ids(tenant_org_id, name).await?;
         let mut all_list = rpc::IbPartitionList {
             ib_partitions: Vec::with_capacity(all_ids.ib_partition_ids.len()),
         };
@@ -1015,7 +924,7 @@ impl ApiClient {
         tenant_org_id: Option<String>,
         page_size: usize,
     ) -> CarbideCliResult<rpc::TenantKeySetList> {
-        let all_ids = self.get_keyset_ids(tenant_org_id.clone()).await?;
+        let all_ids = self.get_keyset_ids(tenant_org_id).await?;
         let mut all_list = rpc::TenantKeySetList {
             keyset: Vec::with_capacity(all_ids.keyset_ids.len()),
         };
@@ -1164,15 +1073,14 @@ impl ApiClient {
                     ))?
                     .pci_properties
                     .as_ref()
-                    .map(|pci| pci.device.clone())
-                    .clone();
+                    .map(|pci| pci.device.as_str());
 
-                if device.is_none() {
+                let Some(device) = device else {
                     continue;
-                }
+                };
 
                 let device_instance = *next_device_instance
-                    .entry(device.clone())
+                    .entry(device)
                     .and_modify(|i| *i += 1)
                     .or_insert(0) as u32;
 
@@ -1180,7 +1088,7 @@ impl ApiClient {
                     function_type: rpc::InterfaceFunctionType::Physical as i32,
                     network_segment_id: Some(network_segment_id), // to support legacy.
                     network_details: Some(NetworkDetails::SegmentId(network_segment_id)),
-                    device: device.clone(),
+                    device: Some(device.to_string()),
                     device_instance,
                     virtual_function_id: None,
                 });
@@ -1193,7 +1101,7 @@ impl ApiClient {
                             network_details: Some(NetworkDetails::SegmentId(
                                 *vf_network_segment_id,
                             )),
-                            device: device.clone(),
+                            device: Some(device.to_string()),
                             device_instance,
                             virtual_function_id: Some(vf_function_id),
                         });
@@ -1206,8 +1114,8 @@ impl ApiClient {
                 interface_config,
                 allocate_instance
                     .tenant_org
-                    .clone()
-                    .unwrap_or("Forge-simulation-tenant".to_string()),
+                    .as_deref()
+                    .unwrap_or("Forge-simulation-tenant"),
             )
         } else if !allocate_instance.vpc_prefix_id.is_empty() {
             let Some(discovery_info) = &machine.discovery_info else {
@@ -1246,7 +1154,7 @@ impl ApiClient {
                     };
 
                     let device_instance = *interface_index_map
-                        .entry(pci_properties.device.clone())
+                        .entry(pci_properties.device.as_str())
                         .and_modify(|c| *c += 1)
                         .or_insert(0u32);
 
@@ -1286,7 +1194,7 @@ impl ApiClient {
 
             (
                 interface_configs,
-                allocate_instance.tenant_org.clone().ok_or_else(|| {
+                allocate_instance.tenant_org.as_deref().ok_or_else(|| {
                     CarbideCliError::GenericError(
                         "Tenant org is mandatory in case of vpc_prefix.".to_string(),
                     )
@@ -1310,7 +1218,7 @@ impl ApiClient {
             ));
         }
         let tenant_config = rpc::TenantConfig {
-            tenant_organization_id: tenant_org,
+            tenant_organization_id: tenant_org.to_string(),
             tenant_keyset_ids: vec![],
             hostname: None,
         };
@@ -1410,17 +1318,18 @@ impl ApiClient {
 
         let instance = find_response
             .instances
-            .first()
+            .into_iter()
+            .next()
             .ok_or_else(|| CarbideCliError::InstanceNotFound(instance_id))?;
 
-        let config = instance.config.clone().map(|mut c| {
+        let config = instance.config.map(|mut c| {
             modify_config(&mut c);
             c
         });
 
         tracing::info!("{}", serde_json::to_string(&config).unwrap_or_default());
 
-        let metadata = instance.metadata.clone().map(|mut m| {
+        let metadata = instance.metadata.map(|mut m| {
             modify_metadata(&mut m);
 
             let mut labels: Vec<rpc::Label> = m
@@ -1443,7 +1352,7 @@ impl ApiClient {
 
         let update_instance_request = rpc::InstanceConfigUpdateRequest {
             instance_id: Some(instance_id),
-            if_version_match: Some(instance.config_version.clone()),
+            if_version_match: Some(instance.config_version),
             config,
             metadata,
         };
@@ -1539,10 +1448,9 @@ impl ApiClient {
         description: Option<String>,
     ) -> CarbideCliResult<rpc::OsImage> {
         let os_image = self.0.get_os_image(id).await?;
-        if os_image.attributes.is_none() {
+        let Some(mut new_attrs) = os_image.attributes else {
             return Err(CarbideCliError::Empty);
-        }
-        let mut new_attrs = os_image.attributes.clone().unwrap();
+        };
         if auth_type.is_some() {
             new_attrs.auth_type = auth_type;
         }
@@ -1824,9 +1732,7 @@ impl ApiClient {
         name: Option<String>,
         page_size: usize,
     ) -> CarbideCliResult<rpc::NvLinkPartitionList> {
-        let all_ids = self
-            .get_nv_link_partition_ids(tenant_org_id.clone(), name.clone())
-            .await?;
+        let all_ids = self.get_nv_link_partition_ids(tenant_org_id, name).await?;
         let mut all_list = rpc::NvLinkPartitionList {
             partitions: Vec::with_capacity(all_ids.partition_ids.len()),
         };
@@ -1847,12 +1753,9 @@ impl ApiClient {
             .get_nv_link_partitions_by_ids(std::slice::from_ref(&nvl_partition_id))
             .await?;
 
-        if partitions.partitions.len() != 1 {
-            return Err(CarbideCliError::GenericError(
-                "Unknown NvLink Partition ID".to_string(),
-            ));
-        }
-        Ok(partitions.partitions[0].clone())
+        partitions.partitions.into_only_one_or_else(|_| {
+            CarbideCliError::GenericError("Unknown NvLink Partition ID".to_string())
+        })
     }
 
     async fn get_nv_link_partition_ids(
@@ -1889,7 +1792,7 @@ impl ApiClient {
         name: Option<String>,
         page_size: usize,
     ) -> CarbideCliResult<rpc::NvLinkLogicalPartitionList> {
-        let all_ids = self.get_logical_partition_ids(name.clone()).await?;
+        let all_ids = self.get_logical_partition_ids(name).await?;
         let mut all_list = rpc::NvLinkLogicalPartitionList {
             partitions: Vec::with_capacity(all_ids.partition_ids.len()),
         };
@@ -1910,12 +1813,11 @@ impl ApiClient {
             .get_logical_partitions_by_ids(std::slice::from_ref(&partition_id))
             .await?;
 
-        if partitions.partitions.len() != 1 {
-            return Err(CarbideCliError::GenericError(format!(
-                "Multiple logical partitions found for ID: {partition_id}",
-            )));
-        }
-        Ok(partitions.partitions[0].clone())
+        partitions.partitions.into_only_one_or_else(|len| {
+            CarbideCliError::GenericError(format!(
+                "Expected a single logical partition found for ID: {partition_id}, found {len}",
+            ))
+        })
     }
 
     async fn get_logical_partition_ids(
@@ -2174,20 +2076,17 @@ impl ApiClient {
             service_ids: vec![service_id],
         };
 
-        let service_response = self.0.find_dpu_extension_services_by_ids(request).await;
+        let service_response = self.0.find_dpu_extension_services_by_ids(request).await?;
 
-        match service_response {
-            Ok(service_response) => match service_response.services.len() {
-                0 => Err(CarbideCliError::GenericError(
-                    "Extension service not found".to_string(),
-                )),
-                1 => Ok(service_response.services.first().unwrap().clone()),
-                _ => Err(CarbideCliError::GenericError(
+        service_response.services.into_only_one_or_else(|len| {
+            if len == 0 {
+                CarbideCliError::GenericError("Extension service not found".to_string())
+            } else {
+                CarbideCliError::GenericError(
                     "Multiple extension services found for the same ID".to_string(),
-                )),
-            },
-            Err(e) => Err(CarbideCliError::ApiInvocationError(e)),
-        }
+                )
+            }
+        })
     }
 
     pub async fn modify_dpf_state(

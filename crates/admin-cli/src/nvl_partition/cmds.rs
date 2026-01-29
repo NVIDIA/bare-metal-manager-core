@@ -50,7 +50,7 @@ async fn show_nvl_partitions(
     name: Option<String>,
 ) -> CarbideCliResult<()> {
     let all_nvl_partitions = api_client
-        .get_all_nv_link_partitions(tenant_org_id.clone(), name.clone(), page_size)
+        .get_all_nv_link_partitions(tenant_org_id, name, page_size)
         .await?;
     if json {
         println!("{}", serde_json::to_string_pretty(&all_nvl_partitions)?);
@@ -77,7 +77,7 @@ async fn show_nvl_partition_details(
     } else {
         println!(
             "{}",
-            convert_nvl_partition_to_nice_format(&nvl_partition).unwrap_or_else(|x| x.to_string())
+            convert_nvl_partition_to_nice_format(nvl_partition).unwrap_or_else(|x| x.to_string())
         );
     }
     Ok(())
@@ -93,7 +93,7 @@ fn convert_nvl_partitions_to_nice_table(
     for nvl_partition in nvl_partitions.partitions {
         table.add_row(row![
             nvl_partition.id.unwrap_or_default(),
-            nvl_partition.name.clone(),
+            nvl_partition.name,
         ]);
     }
 
@@ -101,14 +101,14 @@ fn convert_nvl_partitions_to_nice_table(
 }
 
 fn convert_nvl_partition_to_nice_format(
-    nvl_partition: &forgerpc::NvLinkPartition,
+    nvl_partition: forgerpc::NvLinkPartition,
 ) -> CarbideCliResult<String> {
     let width = 25;
     let mut lines = String::new();
 
     let data = vec![
         ("ID", nvl_partition.id.unwrap_or_default().0.to_string()),
-        ("NAME", nvl_partition.name.clone()),
+        ("NAME", nvl_partition.name),
         (
             "LOGICAL PARTITION ID",
             nvl_partition
@@ -116,7 +116,7 @@ fn convert_nvl_partition_to_nice_format(
                 .map(|logical_partition_id| logical_partition_id.to_string())
                 .unwrap_or_default(),
         ),
-        ("NMX-M-ID", nvl_partition.nmx_m_id.clone()),
+        ("NMX-M-ID", nvl_partition.nmx_m_id),
         (
             "NVLINK DOMAIN UUID",
             nvl_partition.domain_uuid.unwrap_or_default().0.to_string(),

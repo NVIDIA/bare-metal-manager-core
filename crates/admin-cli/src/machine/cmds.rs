@@ -26,6 +26,7 @@ use chrono::Utc;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess, HealthReport,
 };
+use mac_address::MacAddress;
 use prettytable::{Row, Table, row};
 use rpc::Machine;
 
@@ -53,30 +54,27 @@ fn convert_machine_to_nice_format(
             "ID",
             machine.id.map(|id| id.to_string()).unwrap_or_default(),
         ),
-        ("STATE", machine.state.clone().to_uppercase()),
-        ("STATE_VERSION", machine.state_version.clone()),
+        ("STATE", machine.state.to_uppercase()),
+        ("STATE_VERSION", machine.state_version),
         ("MACHINE TYPE", get_machine_type(machine.id)),
         (
             "FAILURE",
-            machine
-                .failure_details
-                .clone()
-                .unwrap_or("None".to_string()),
+            machine.failure_details.unwrap_or("None".to_string()),
         ),
         ("VERSION", machine.version),
         ("SKU", sku),
         ("SKU DEVICE TYPE", sku_device_type),
     ];
-    if let Some(di) = machine.discovery_info.as_ref()
-        && let Some(dmi) = di.dmi_data.as_ref()
+    if let Some(di) = machine.discovery_info
+        && let Some(dmi) = di.dmi_data
     {
-        data.push(("VENDOR", dmi.sys_vendor.clone()));
-        data.push(("PRODUCT NAME", dmi.product_name.clone()));
-        data.push(("PRODUCT SERIAL", dmi.product_serial.clone()));
-        data.push(("BOARD SERIAL", dmi.board_serial.clone()));
-        data.push(("CHASSIS SERIAL", dmi.chassis_serial.clone()));
-        data.push(("BIOS VERSION", dmi.bios_version.clone()));
-        data.push(("BOARD VERSION", dmi.board_version.clone()));
+        data.push(("VENDOR", dmi.sys_vendor));
+        data.push(("PRODUCT NAME", dmi.product_name));
+        data.push(("PRODUCT SERIAL", dmi.product_serial));
+        data.push(("BOARD SERIAL", dmi.board_serial));
+        data.push(("CHASSIS SERIAL", dmi.chassis_serial));
+        data.push(("BIOS VERSION", dmi.bios_version));
+        data.push(("BOARD VERSION", dmi.board_version));
     }
     let autoupdate = if let Some(autoupdate) = machine.firmware_autoupdate {
         autoupdate.to_string()
@@ -182,9 +180,9 @@ fn convert_machine_to_nice_format(
                     "Domain ID",
                     interface.domain_id.unwrap_or_default().to_string(),
                 ),
-                ("Hostname", interface.hostname.clone()),
+                ("Hostname", interface.hostname),
                 ("Primary", interface.primary_interface.to_string()),
-                ("MAC Address", interface.mac_address.clone()),
+                ("MAC Address", interface.mac_address),
                 ("Addresses", interface.address.join(",")),
             ];
 
@@ -277,10 +275,10 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
             )
         };
         let mut vendor = String::new();
-        if let Some(di) = machine.discovery_info.as_ref()
-            && let Some(dmi) = di.dmi_data.as_ref()
+        if let Some(di) = machine.discovery_info
+            && let Some(dmi) = di.dmi_data
         {
-            vendor = dmi.sys_vendor.clone();
+            vendor = dmi.sys_vendor;
         }
 
         let labels = crate::metadata::get_nice_labels_from_rpc_metadata(machine.metadata.as_ref());
@@ -294,7 +292,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
             String::from(if is_unhealthy { "U" } else { "H" }),
             machine_id_string,
             machine.state.to_uppercase(),
-            machine.state_version.clone(),
+            machine.state_version,
             dpu_id,
             id,
             address,
@@ -661,7 +659,7 @@ pub async fn force_delete(
         );
 
         if dpu_machine_id.is_empty() && !response.dpu_machine_id.is_empty() {
-            dpu_machine_id = response.dpu_machine_id.clone();
+            dpu_machine_id = response.dpu_machine_id;
         }
 
         if response.all_done {
@@ -1012,17 +1010,26 @@ pub async fn metadata_from_expected_machine(
         )));
     }
     let machine = machines.remove(0);
-    let bmc_mac = machine
+    let bmc_mac: MacAddress = machine
         .bmc_info
-        .as_ref()
-        .and_then(|bmc_info| bmc_info.mac.clone())
+        .and_then(|bmc_info| bmc_info.mac)
+        .map(|mac| mac.parse())
+        .transpose()
+        .map_or_else(
+            |e| {
+                Err(CarbideCliError::GenericError(format!(
+                    "Invalid BMC MAC address found for Machine with ID {}: {}",
+                    cmd.machine, e
+                )))
+            },
+            Ok,
+        )?
         .ok_or_else(|| {
             CarbideCliError::GenericError(format!(
                 "No BMC MAC address found for Machine with ID {}",
                 cmd.machine
             ))
-        })?
-        .to_ascii_lowercase();
+        })?;
 
     let mut metadata = machine.metadata.ok_or_else(|| {
         CarbideCliError::GenericError("Machine does not carry Metadata that can be patched".into())
@@ -1034,15 +1041,20 @@ pub async fn metadata_from_expected_machine(
         .await?
         .expected_machines;
     let expected_machine = expected_machines
-        .iter()
-        .find(|em| em.bmc_mac_address.to_ascii_lowercase() == bmc_mac)
+        .into_iter()
+        .find(|em| {
+            em.bmc_mac_address
+                .parse::<MacAddress>()
+                .is_ok_and(|m| m == bmc_mac)
+        })
         .ok_or_else(|| {
             CarbideCliError::GenericError(format!(
                 "No expected Machine found for Machine with ID {} and BMC Mac address {}",
                 cmd.machine, bmc_mac
             ))
         })?;
-    let expected_machine_metadata = expected_machine.metadata.clone().ok_or_else(|| {
+
+    let expected_machine_metadata = expected_machine.metadata.ok_or_else(|| {
         CarbideCliError::GenericError(format!(
             "No expected Machine Metadata found for Machine with ID {} and BMC Mac address {}",
             cmd.machine, bmc_mac
@@ -1052,7 +1064,7 @@ pub async fn metadata_from_expected_machine(
     if cmd.replace_all {
         // Configure the Machines metadata in the same way as if the Machine was freshly ingested
         metadata.name = if expected_machine_metadata.name.is_empty() {
-            machine.id.unwrap().to_string()
+            machine.id.map(|id| id.to_string()).unwrap_or_default()
         } else {
             expected_machine_metadata.name
         };

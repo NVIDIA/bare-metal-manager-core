@@ -15,6 +15,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
+use mac_address::MacAddress;
 use prettytable::{Table, row};
 use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,7 @@ use super::args::{
     AddExpectedSwitch, DeleteExpectedSwitch, ExpectedSwitchJson, ReplaceAllExpectedSwitch,
     ShowExpectedSwitchQuery, UpdateExpectedSwitch,
 };
+use crate::metadata::parse_rpc_labels;
 use crate::rpc::ApiClient;
 
 pub async fn show(
@@ -44,19 +46,18 @@ pub async fn show(
         println!("{}", serde_json::to_string_pretty(&expected_switches)?);
     }
 
-    // TODO: This should be optimised. `find_interfaces` should accept a list of macs also and
-    // return related interfaces details.
     let all_mi = api_client.get_all_machines_interfaces(None).await?;
     let expected_macs = expected_switches
         .expected_switches
         .iter()
-        .map(|x| x.bmc_mac_address.clone().to_lowercase())
-        .collect::<Vec<String>>();
+        .filter_map(|x| x.bmc_mac_address.parse().ok())
+        .collect::<Vec<MacAddress>>();
 
-    let expected_mi: HashMap<String, ::rpc::forge::MachineInterface> =
-        HashMap::from_iter(all_mi.interfaces.iter().filter_map(|x| {
-            if expected_macs.contains(&x.mac_address.to_lowercase()) {
-                Some((x.mac_address.clone().to_lowercase(), x.clone()))
+    let expected_mi: HashMap<MacAddress, ::rpc::forge::MachineInterface> =
+        HashMap::from_iter(all_mi.interfaces.into_iter().filter_map(|x| {
+            let mac = x.mac_address.parse().ok()?;
+            if expected_macs.contains(&mac) {
+                Some((mac, x))
             } else {
                 None
             }
@@ -64,8 +65,8 @@ pub async fn show(
 
     let bmc_ips = expected_mi
         .iter()
-        .filter_map(|x| {
-            let ip = x.1.address.first()?;
+        .filter_map(|(_mac, interface)| {
+            let ip = interface.address.first()?;
             Some(ip.clone())
         })
         .collect::<Vec<_>>();
@@ -76,10 +77,10 @@ pub async fn show(
             .find_machine_ids_by_bmc_ips(bmc_ips)
             .await?
             .pairs
-            .iter()
+            .into_iter()
             .map(|x| {
                 (
-                    x.bmc_ip.clone(),
+                    x.bmc_ip,
                     x.machine_id
                         .map(|x| x.to_string())
                         .unwrap_or("Unlinked".to_string()),
@@ -95,7 +96,7 @@ pub async fn show(
 fn convert_and_print_into_nice_table(
     expected_switches: &::rpc::forge::ExpectedSwitchList,
     expected_discovered_machine_ids: &HashMap<String, String>,
-    expected_discovered_machine_interfaces: &HashMap<String, ::rpc::forge::MachineInterface>,
+    expected_discovered_machine_interfaces: &HashMap<MacAddress, ::rpc::forge::MachineInterface>,
 ) -> CarbideCliResult<()> {
     let mut table = Box::new(Table::new());
 
@@ -112,26 +113,33 @@ fn convert_and_print_into_nice_table(
     ]);
 
     for expected_switch in &expected_switches.expected_switches {
-        let machine_interface = expected_discovered_machine_interfaces
-            .get(&expected_switch.bmc_mac_address.to_lowercase());
+        let machine_interface = expected_switch
+            .bmc_mac_address
+            .parse()
+            .ok()
+            .and_then(|mac| expected_discovered_machine_interfaces.get(&mac));
         let machine_id = expected_discovered_machine_ids
             .get(
-                &machine_interface
-                    .and_then(|x| x.address.first().cloned())
-                    .unwrap_or("unknown".to_string()),
+                machine_interface
+                    .and_then(|x| x.address.first().map(String::as_str))
+                    .unwrap_or("unknown"),
             )
-            .cloned();
+            .map(String::as_str);
 
-        let metadata = expected_switch.metadata.clone().unwrap_or_default();
-        let labels = metadata
-            .labels
-            .iter()
-            .map(|label| {
-                let key = &label.key;
-                let value = label.value.clone().unwrap_or_default();
-                format!("\"{}:{}\"", key, value)
+        let labels = expected_switch
+            .metadata
+            .as_ref()
+            .map(|m| {
+                m.labels
+                    .iter()
+                    .map(|label| {
+                        let key = &label.key;
+                        let value = label.value.as_deref().unwrap_or_default();
+                        format!("\"{}:{}\"", key, value)
+                    })
+                    .collect::<Vec<_>>()
             })
-            .collect::<Vec<_>>();
+            .unwrap_or_default();
 
         table.add_row(row![
             expected_switch.switch_serial_number,
@@ -139,14 +147,22 @@ fn convert_and_print_into_nice_table(
             machine_interface
                 .map(|x| x.address.join("\n"))
                 .unwrap_or("Undiscovered".to_string()),
-            machine_id.unwrap_or("Unlinked".to_string()),
-            metadata.name,
-            metadata.description,
+            machine_id.unwrap_or("Unlinked"),
+            expected_switch
+                .metadata
+                .as_ref()
+                .map(|m| m.name.as_str())
+                .unwrap_or_default(),
+            expected_switch
+                .metadata
+                .as_ref()
+                .map(|m| m.description.as_str())
+                .unwrap_or_default(),
             labels.join(", "),
-            expected_switch.nvos_username.clone().unwrap_or_default(),
+            expected_switch.nvos_username.as_deref().unwrap_or_default(),
             expected_switch
                 .nvos_password
-                .clone()
+                .as_ref()
                 .map(|_| "***")
                 .unwrap_or_default()
         ]);
@@ -157,20 +173,8 @@ fn convert_and_print_into_nice_table(
     Ok(())
 }
 
-pub async fn add(data: &AddExpectedSwitch, api_client: &ApiClient) -> color_eyre::Result<()> {
-    let metadata = data.metadata()?;
-    api_client
-        .add_expected_switch(
-            data.bmc_mac_address,
-            data.bmc_username.clone(),
-            data.bmc_password.clone(),
-            data.switch_serial_number.clone(),
-            metadata,
-            data.rack_id.clone(),
-            data.nvos_username.clone(),
-            data.nvos_password.clone(),
-        )
-        .await?;
+pub async fn add(data: AddExpectedSwitch, api_client: &ApiClient) -> color_eyre::Result<()> {
+    api_client.0.add_expected_switch(data).await?;
     Ok(())
 }
 
@@ -182,22 +186,26 @@ pub async fn delete(query: &DeleteExpectedSwitch, api_client: &ApiClient) -> Car
     Ok(())
 }
 
-pub async fn update(data: &UpdateExpectedSwitch, api_client: &ApiClient) -> color_eyre::Result<()> {
+pub async fn update(data: UpdateExpectedSwitch, api_client: &ApiClient) -> color_eyre::Result<()> {
     if let Err(e) = data.validate() {
         eprintln!("{e}");
         return Ok(());
     }
-    let metadata = data.metadata()?;
+    let metadata = rpc::forge::Metadata {
+        name: data.meta_name.unwrap_or_default(),
+        description: data.meta_description.unwrap_or_default(),
+        labels: parse_rpc_labels(data.labels.unwrap_or_default()),
+    };
     api_client
         .update_expected_switch(
             data.bmc_mac_address,
-            data.bmc_username.clone(),
-            data.bmc_password.clone(),
-            data.switch_serial_number.clone(),
+            data.bmc_username,
+            data.bmc_password,
+            data.switch_serial_number,
+            data.rack_id,
+            data.nvos_username,
+            data.nvos_password,
             metadata,
-            data.rack_id.clone(),
-            data.nvos_username.clone(),
-            data.nvos_password.clone(),
         )
         .await?;
     Ok(())

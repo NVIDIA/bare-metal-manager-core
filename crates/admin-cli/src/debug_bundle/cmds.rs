@@ -15,7 +15,9 @@
 //! This module contains all functionality related to creating debug bundles
 //! for troubleshooting managed hosts and Carbide API issues.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
+use std::fmt::Formatter;
 use std::fs::File;
 use std::io::Write;
 use std::str::FromStr;
@@ -23,7 +25,8 @@ use std::str::FromStr;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::BmcEndpointRequest;
 use carbide_uuid::machine::MachineId;
-use chrono::{DateTime, Local, NaiveDate, NaiveTime, Utc};
+use chrono::{DateTime, Local, NaiveDateTime, NaiveTime, Utc};
+use rpc::admin_cli::CarbideCliError::InvalidDateTimeFromUserInput;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use zip::CompressionMethod;
@@ -84,116 +87,44 @@ impl LogType {
 }
 
 // TimeRange struct to group related time parameters
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 struct TimeRange {
-    start_date: String,
-    start_time: String,
-    end_date: String,
-    end_time: String,
-    use_utc: bool,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    utc: bool,
 }
 
 impl TimeRange {
-    fn new(
-        start_date: &str,
-        start_time: &str,
-        end_date: &str,
-        end_time: &str,
-        use_utc: bool,
-    ) -> Self {
+    fn to_grafana_format(self) -> (i64, i64) {
+        (self.start.timestamp_millis(), self.end.timestamp_millis())
+    }
+
+    fn with_new_start_time(self, new_start_time: DateTime<Utc>) -> Self {
+        let orig_duration = self.end - self.start;
         Self {
-            start_date: start_date.to_string(),
-            start_time: start_time.to_string(),
-            end_date: end_date.to_string(),
-            end_time: end_time.to_string(),
-            use_utc,
+            start: new_start_time,
+            end: new_start_time + orig_duration,
+            utc: self.utc,
         }
     }
 
-    fn to_grafana_format(&self) -> CarbideCliResult<(String, String)> {
-        convert_time_to_grafana_format(
-            &self.start_date,
-            &self.start_time,
-            &self.end_date,
-            &self.end_time,
-            self.use_utc,
+    fn display_start(&self) -> DisplayDateTime {
+        DisplayDateTime {
+            date_time: self.start,
+            utc: self.utc,
+        }
+    }
+
+    // function to format end display timestamp
+    fn format_end_display(&self, end_ms: i64) -> String {
+        format!(
+            "{} ({})",
+            DisplayDateTime {
+                date_time: self.end,
+                utc: self.utc,
+            },
+            end_ms
         )
-    }
-
-    fn with_new_end_time(&self, new_end_time: &str) -> Self {
-        Self {
-            start_date: self.start_date.clone(),
-            start_time: self.start_time.clone(),
-            end_date: self.end_date.clone(),
-            end_time: new_end_time.to_string(),
-            use_utc: self.use_utc,
-        }
-    }
-
-    fn get_start_datetime(&self) -> CarbideCliResult<DateTime<Utc>> {
-        let date_naive = NaiveDate::parse_from_str(&self.start_date, "%Y-%m-%d").map_err(|e| {
-            CarbideCliError::GenericError(format!(
-                "Invalid date format '{}'. Expected YYYY-MM-DD: {}",
-                self.start_date, e
-            ))
-        })?;
-
-        let time_naive = NaiveTime::parse_from_str(&self.start_time, "%H:%M:%S").map_err(|e| {
-            CarbideCliError::GenericError(format!(
-                "Invalid time format '{}'. Expected HH:MM:SS: {}",
-                self.start_time, e
-            ))
-        })?;
-
-        let datetime = date_naive.and_time(time_naive);
-        let utc: DateTime<Utc> = if self.use_utc {
-            DateTime::from_naive_utc_and_offset(datetime, Utc)
-        } else {
-            datetime
-                .and_local_timezone(Local)
-                .single()
-                .ok_or_else(|| {
-                    CarbideCliError::GenericError(format!(
-                        "Invalid or ambiguous time '{}'. This may occur during daylight saving time transitions. Please use a different time or use --utc flag.",
-                        datetime
-                    ))
-                })?
-                .with_timezone(&Utc)
-        };
-        Ok(utc)
-    }
-
-    fn get_end_datetime(&self) -> CarbideCliResult<DateTime<Utc>> {
-        let date_naive = NaiveDate::parse_from_str(&self.end_date, "%Y-%m-%d").map_err(|e| {
-            CarbideCliError::GenericError(format!(
-                "Invalid date format '{}'. Expected YYYY-MM-DD: {}",
-                self.end_date, e
-            ))
-        })?;
-
-        let time_naive = NaiveTime::parse_from_str(&self.end_time, "%H:%M:%S").map_err(|e| {
-            CarbideCliError::GenericError(format!(
-                "Invalid time format '{}'. Expected HH:MM:SS: {}",
-                self.end_time, e
-            ))
-        })?;
-
-        let datetime = date_naive.and_time(time_naive);
-        let utc: DateTime<Utc> = if self.use_utc {
-            DateTime::from_naive_utc_and_offset(datetime, Utc)
-        } else {
-            datetime
-                .and_local_timezone(Local)
-                .single()
-                .ok_or_else(|| {
-                    CarbideCliError::GenericError(format!(
-                        "Invalid or ambiguous time '{}'. This may occur during daylight saving time transitions. Please use a different time or use --utc flag.",
-                        datetime
-                    ))
-                })?
-                .with_timezone(&Utc)
-        };
-        Ok(utc)
     }
 }
 
@@ -222,8 +153,8 @@ impl LogBatch {
         loki_uid: &str,
         expr: &str,
     ) -> CarbideCliResult<()> {
-        let (start_ms, end_ms) = self.time_range.to_grafana_format()?;
-        let link = generate_grafana_link(grafana_base_url, loki_uid, expr, &start_ms, &end_ms)?;
+        let (start_ms, end_ms) = self.time_range.to_grafana_format();
+        let link = generate_grafana_link(grafana_base_url, loki_uid, expr, start_ms, end_ms)?;
         self.grafana_link = Some(link);
         Ok(())
     }
@@ -232,17 +163,22 @@ impl LogBatch {
         self.log_type.batch_label(self.batch_number)
     }
 
-    fn needs_pagination(&self, batch_count: usize, batch_size: u32) -> bool {
+    fn needs_pagination(batch_count: usize, batch_size: u32) -> bool {
         batch_count >= batch_size as usize
     }
 
     fn next_time_range(
-        &self,
-        response_body: &str,
+        previous_time_range: TimeRange,
+        previous_entry_count: usize,
+        newest_timestamp: Option<i64>,
         batch_size: u32,
     ) -> CarbideCliResult<Option<TimeRange>> {
-        if let Some(next_end_time) = handle_pagination(response_body, batch_size as usize)? {
-            Ok(Some(self.time_range.with_new_end_time(&next_end_time)))
+        if let Some(next_start_time) =
+            handle_pagination(previous_entry_count, newest_timestamp, batch_size as usize)?
+        {
+            Ok(Some(
+                previous_time_range.with_new_start_time(next_start_time),
+            ))
         } else {
             Ok(None)
         }
@@ -251,18 +187,39 @@ impl LogBatch {
 
 // LogCollector struct to encapsulate state and behavior
 #[derive(Debug)]
-struct LogCollector {
-    grafana_base_url: String,
-    loki_uid: String,
+struct LogCollector<'a> {
+    grafana_base_url: Cow<'a, str>,
+    loki_uid: Cow<'a, str>,
     unique_log_ids: HashSet<String>,
     all_entries: Vec<LogEntry>,
     batch_size: u32,
     batch_links: Vec<(String, String, usize, String)>, // (batch_label, grafana_link, log_count, time_range_display)
-    grafana_client: GrafanaClient,                     // Reuse client across batches
+    grafana_client: GrafanaClient<'a>,                 // Reuse client across batches
 }
 
-impl LogCollector {
-    fn new(grafana_url: String, loki_uid: String, batch_size: u32) -> CarbideCliResult<Self> {
+struct DisplayDateTime {
+    date_time: DateTime<Utc>,
+    utc: bool,
+}
+
+impl std::fmt::Display for DisplayDateTime {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let fmt = "%Y-%m-%d %H:%M:%S%Z";
+        let s = if self.utc {
+            self.date_time.format(fmt)
+        } else {
+            self.date_time.with_timezone(&Local).format(fmt)
+        };
+        write!(f, "{s}")
+    }
+}
+
+impl<'a> LogCollector<'a> {
+    fn new(
+        grafana_base_url: Cow<'a, str>,
+        loki_uid: Cow<'a, str>,
+        batch_size: u32,
+    ) -> CarbideCliResult<Self> {
         // Validate and cap batch size
         let capped_batch_size = batch_size.min(MAX_BATCH_SIZE);
         if batch_size > MAX_BATCH_SIZE {
@@ -272,10 +229,10 @@ impl LogCollector {
         }
 
         // Create GrafanaClient once and reuse
-        let grafana_client = GrafanaClient::new(grafana_url.clone())?;
+        let grafana_client = GrafanaClient::new(grafana_base_url.clone())?;
 
         Ok(Self {
-            grafana_base_url: grafana_url,
+            grafana_base_url,
             loki_uid,
             unique_log_ids: HashSet::new(),
             all_entries: Vec::new(),
@@ -285,40 +242,39 @@ impl LogCollector {
         })
     }
 
-    async fn collect_logs(
-        &mut self,
+    async fn into_logs_and_batch_links(
+        mut self,
         expr: &str,
         log_type: LogType,
-        time_range: TimeRange,
-    ) -> CarbideCliResult<Vec<LogEntry>> {
-        let mut current_time_range = time_range;
+        mut time_range: TimeRange,
+    ) -> CarbideCliResult<(Vec<LogEntry>, Vec<(String, String, usize, String)>)> {
         let mut batch_number = 1;
 
         loop {
-            let mut batch = LogBatch::new(batch_number, log_type, current_time_range.clone());
-            let (start_ms, end_ms) = batch.time_range.to_grafana_format()?;
-            let end_display = format_end_display(&batch.time_range.end_time, &end_ms);
+            let mut batch = LogBatch::new(batch_number, log_type, time_range);
+            let (start_ms, end_ms) = batch.time_range.to_grafana_format();
+            let end_display = batch.time_range.format_end_display(end_ms);
 
             println!(
                 "   {}: Fetching logs from {} ({}) to {}",
                 batch.label(),
-                batch.time_range.start_time,
+                batch.time_range.display_start(),
                 start_ms,
                 end_display
             );
 
-            let batch_result = self.process_batch(expr, &start_ms, &end_ms).await?;
+            let batch_result = self.process_batch(expr, start_ms, end_ms).await?;
 
             // Generate Grafana link for this batch
             batch.set_grafana_link(&self.grafana_base_url, &self.loki_uid, expr)?;
 
             // Store batch info with link and time range
             let batch_label = batch.label();
-            let grafana_link = batch.grafana_link.clone().unwrap_or_default();
+            let grafana_link = batch.grafana_link.unwrap_or_default();
             let log_count = batch_result.entries.len();
             let time_range_display = format!(
                 "{} ({}) to {}",
-                batch.time_range.start_time, start_ms, end_display
+                batch.time_range.start, start_ms, end_display
             );
             self.batch_links
                 .push((batch_label, grafana_link, log_count, time_range_display));
@@ -332,28 +288,32 @@ impl LogCollector {
             );
             self.all_entries.extend(batch_result.entries);
 
-            if !batch.needs_pagination(batch_result.original_batch_count, self.batch_size) {
+            if !LogBatch::needs_pagination(batch_result.original_batch_count, self.batch_size) {
                 break;
             }
 
-            if let Some(next_time_range) =
-                batch.next_time_range(&batch_result.response_body, self.batch_size)?
-            {
-                current_time_range = next_time_range;
+            if let Some(next_time_range) = LogBatch::next_time_range(
+                batch.time_range,
+                log_count,
+                batch_result.newest_timestamp,
+                self.batch_size,
+            )? {
+                time_range = next_time_range;
                 batch_number += 1;
             } else {
                 break;
             }
         }
 
-        self.finalize_and_validate_logs(&log_type)
+        self.finalize_and_validate_logs(&log_type)?;
+        Ok((self.all_entries, self.batch_links))
     }
 
     async fn process_batch(
         &self,
         expr: &str,
-        start_ms: &str,
-        end_ms: &str,
+        start_ms: i64,
+        end_ms: i64,
     ) -> CarbideCliResult<BatchResult> {
         let query_request =
             build_grafana_query_request(expr, start_ms, end_ms, &self.loki_uid, self.batch_size);
@@ -362,19 +322,19 @@ impl LogCollector {
         let response_body = execute_grafana_query(&query_request, &self.grafana_client).await?;
 
         // 3. Parse response using reusable function
-        let batch_entries = parse_logs_from_response(&response_body)?;
+        let (batch_entries, newest_timestamp) = parse_grafana_logs(response_body)?;
 
         let original_batch_count = batch_entries.len();
         let new_entries = remove_duplicates_from_end(batch_entries, &self.unique_log_ids);
 
         Ok(BatchResult {
             entries: new_entries,
-            response_body,
+            newest_timestamp,
             original_batch_count,
         })
     }
 
-    fn finalize_and_validate_logs(&self, log_type: &LogType) -> CarbideCliResult<Vec<LogEntry>> {
+    fn finalize_and_validate_logs(&self, log_type: &LogType) -> CarbideCliResult<()> {
         let log_type_upper = log_type.as_str().to_uppercase();
         println!(
             "   TOTAL {} LOGS COLLECTED: {}",
@@ -404,25 +364,20 @@ impl LogCollector {
             logs_count,
             unique_ids_count
         );
-
-        Ok(self.all_entries.clone())
-    }
-
-    fn get_batch_links(&self) -> &Vec<(String, String, usize, String)> {
-        &self.batch_links
+        Ok(())
     }
 }
 
 // GrafanaClient struct for API interactions
 #[derive(Debug)]
-struct GrafanaClient {
+struct GrafanaClient<'a> {
     client: reqwest::Client,
-    base_url: String,
+    base_url: Cow<'a, str>,
     auth_token: String,
 }
 
-impl GrafanaClient {
-    fn new(grafana_url: String) -> CarbideCliResult<Self> {
+impl<'a> GrafanaClient<'a> {
+    fn new(grafana_url: Cow<'a, str>) -> CarbideCliResult<Self> {
         let auth_token = std::env::var("GRAFANA_AUTH_TOKEN")
             .map_err(|_| CarbideCliError::GenericError(
                 "GRAFANA_AUTH_TOKEN environment variable not set. Please set it with your Grafana bearer token.".to_string()
@@ -833,27 +788,22 @@ pub async fn handle_debug_bundle(
     );
 
     // Parse flexible date/time inputs
-    let (start_date, start_time) = parse_datetime_input(&debug_bundle.start_time)?;
+    let start = parse_datetime_input(&debug_bundle.start_time, debug_bundle.utc)?;
 
     // Handle optional end_time (default to "now")
-    let (end_date, end_time) = if let Some(ref end_time_str) = debug_bundle.end_time {
-        parse_datetime_input(end_time_str)?
+    let end = if let Some(ref end_time_str) = debug_bundle.end_time {
+        parse_datetime_input(end_time_str, debug_bundle.utc)?
     } else {
         // Use current time as default
-        let now = chrono::Local::now();
-        let current_date = now.format("%Y-%m-%d").to_string();
-        let current_time = now.format("%H:%M:%S").to_string();
-        (current_date, current_time)
+        chrono::Utc::now()
     };
 
     // Create TimeRange struct with parsed values
-    let time_range = TimeRange::new(
-        &start_date,
-        &start_time,
-        &end_date,
-        &end_time,
-        debug_bundle.utc,
-    );
+    let time_range = TimeRange {
+        start,
+        end,
+        utc: debug_bundle.utc,
+    };
 
     // Conditionally collect logs based on --grafana-url presence
     let (
@@ -866,7 +816,7 @@ pub async fn handle_debug_bundle(
         loki_uid,
     ) = if let Some(grafana_url) = &debug_bundle.grafana_url {
         // Use new GrafanaClient struct
-        let grafana_client = GrafanaClient::new(grafana_url.clone())?;
+        let grafana_client = GrafanaClient::new(Cow::Borrowed(grafana_url))?;
 
         println!("\nFetching Loki datasource UID...");
         let loki_uid = grafana_client.get_loki_datasource_uid().await?;
@@ -874,7 +824,7 @@ pub async fn handle_debug_bundle(
         println!("\nDownloading host-specific logs...");
         let (host_logs, host_batch_links) = get_host_logs(
             &debug_bundle.host_id,
-            time_range.clone(),
+            time_range,
             grafana_url,
             &loki_uid,
             debug_bundle.batch_size,
@@ -882,18 +832,14 @@ pub async fn handle_debug_bundle(
         .await?;
 
         println!("\nDownloading carbide-api logs...");
-        let (carbide_api_logs, carbide_batch_links) = get_carbide_api_logs(
-            time_range.clone(),
-            grafana_url,
-            &loki_uid,
-            debug_bundle.batch_size,
-        )
-        .await?;
+        let (carbide_api_logs, carbide_batch_links) =
+            get_carbide_api_logs(time_range, grafana_url, &loki_uid, debug_bundle.batch_size)
+                .await?;
 
         println!("\nDownloading DPU agent logs...");
         let (dpu_agent_logs, dpu_batch_links) = get_dpu_agent_logs(
             &debug_bundle.host_id,
-            time_range.clone(),
+            time_range,
             grafana_url,
             &loki_uid,
             debug_bundle.batch_size,
@@ -1011,11 +957,10 @@ async fn get_host_logs(
     let log_type = LogType::HostSpecific;
 
     // NEW() NOW RETURNS RESULT
-    let mut collector =
-        LogCollector::new(grafana_url.to_string(), loki_uid.to_string(), batch_size)?;
-    let logs = collector.collect_logs(&expr, log_type, time_range).await?;
-    let batch_links = collector.get_batch_links().clone();
-    Ok((logs, batch_links))
+    let collector = LogCollector::new(grafana_url.into(), loki_uid.into(), batch_size)?;
+    collector
+        .into_logs_and_batch_links(&expr, log_type, time_range)
+        .await
 }
 
 async fn get_carbide_api_logs(
@@ -1028,11 +973,10 @@ async fn get_carbide_api_logs(
     let log_type = LogType::CarbideApi;
 
     // NEW() NOW RETURNS RESULT
-    let mut collector =
-        LogCollector::new(grafana_url.to_string(), loki_uid.to_string(), batch_size)?;
-    let logs = collector.collect_logs(&expr, log_type, time_range).await?;
-    let batch_links = collector.get_batch_links().clone();
-    Ok((logs, batch_links))
+    let collector = LogCollector::new(grafana_url.into(), loki_uid.into(), batch_size)?;
+    collector
+        .into_logs_and_batch_links(&expr, log_type, time_range)
+        .await
 }
 
 async fn get_dpu_agent_logs(
@@ -1047,11 +991,10 @@ async fn get_dpu_agent_logs(
     );
     let log_type = LogType::DpuAgent;
 
-    let mut collector =
-        LogCollector::new(grafana_url.to_string(), loki_uid.to_string(), batch_size)?;
-    let logs = collector.collect_logs(&expr, log_type, time_range).await?;
-    let batch_links = collector.get_batch_links().clone();
-    Ok((logs, batch_links))
+    let collector = LogCollector::new(grafana_url.into(), loki_uid.into(), batch_size)?;
+    collector
+        .into_logs_and_batch_links(&expr, log_type, time_range)
+        .await
 }
 
 /// Collect health alerts for a machine within a time range
@@ -1070,8 +1013,8 @@ async fn get_health_alerts(
     })?;
 
     // Get DateTime objects from TimeRange
-    let start_dt = time_range.get_start_datetime()?;
-    let end_dt = time_range.get_end_datetime()?;
+    let start_dt = time_range.start;
+    let end_dt = time_range.end;
 
     // Convert DateTime → Protobuf Timestamp (using rpc::Timestamp's From implementation)
     let start_time_proto: ::rpc::Timestamp = start_dt.into();
@@ -1121,8 +1064,8 @@ async fn get_alert_overrides(
 // Step 1: Reusable request builder
 fn build_grafana_query_request(
     expr: &str,
-    start_ms: &str,
-    end_ms: &str,
+    start_ms: i64,
+    end_ms: i64,
     loki_uid: &str,
     batch_size: u32,
 ) -> GrafanaQueryRequest {
@@ -1146,7 +1089,7 @@ fn build_grafana_query_request(
 // Step 2: Reusable HTTP executor
 async fn execute_grafana_query(
     query_request: &GrafanaQueryRequest,
-    grafana_client: &GrafanaClient,
+    grafana_client: &GrafanaClient<'_>,
 ) -> CarbideCliResult<String> {
     let response = grafana_client
         .client
@@ -1185,101 +1128,107 @@ async fn execute_grafana_query(
     }
 }
 
-// Step 3: Reusable response parser
-fn parse_logs_from_response(response_json: &str) -> CarbideCliResult<Vec<LogEntry>> {
-    let (log_entries, _) = parse_grafana_logs(response_json)?;
-    Ok(log_entries)
-}
-
 // Structure to hold batch processing results
 struct BatchResult {
     entries: Vec<LogEntry>,
-    response_body: String,
+    newest_timestamp: Option<i64>,
     original_batch_count: usize, // Count before deduplication
 }
 
 // Helper function to handle pagination logic
-fn handle_pagination(response_body: &str, batch_size: usize) -> CarbideCliResult<Option<String>> {
+fn handle_pagination(
+    entry_count: usize,
+    newest_timestamp: Option<i64>,
+    batch_size: usize,
+) -> CarbideCliResult<Option<DateTime<Utc>>> {
     // Parse response to check if we need pagination
-    let response: GrafanaResponse = serde_json::from_str(response_body).map_err(|e| {
-        CarbideCliError::GenericError(format!("Failed to parse pagination response: {e}"))
-    })?;
-
-    let frame_data = &response.results.a.frames[0].data;
-    let actual_batch_count = if frame_data.values.len() > 2 {
-        frame_data.values[2].len()
-    } else {
-        0
-    };
-
-    if actual_batch_count < batch_size {
+    if entry_count < batch_size {
         return Ok(None);
     }
 
-    let (_, oldest_timestamp) = parse_grafana_logs(response_body)?;
-    if let Some(oldest_ts) = oldest_timestamp {
-        let next_end_ms = oldest_ts + 1;
-        Ok(Some(format!("{next_end_ms}ms")))
+    if let Some(newest_ts) = newest_timestamp {
+        let next_end_ms = newest_ts + 1;
+        Ok(DateTime::from_timestamp_millis(next_end_ms))
     } else {
         Ok(None)
     }
 }
 
 // Parse Grafana JSON response using strongly typed structs
-fn parse_grafana_logs(json_response: &str) -> CarbideCliResult<(Vec<LogEntry>, Option<i64>)> {
-    let response: GrafanaResponse = serde_json::from_str(json_response)
+fn parse_grafana_logs(json_response: String) -> CarbideCliResult<(Vec<LogEntry>, Option<i64>)> {
+    let response: GrafanaResponse = serde_json::from_str(&json_response)
         .map_err(|e| CarbideCliError::GenericError(format!("Failed to parse JSON: {e}")))?;
 
-    let frame_data = &response.results.a.frames[0].data;
+    let Some(frame) = response.results.a.frames.into_iter().next() else {
+        return Err(CarbideCliError::GenericError(
+            "No frames found in grafana results".to_string(),
+        ));
+    };
+
+    // TODO: Where is this assumption that there are 5 values coming from?
+    // This code should be rewritten make fewer assumptions about the data we're getting.
+    let [_, value1, value2, value3, value4] = frame
+        .data
+        .values
+        .into_iter()
+        .take(5)
+        .collect::<Vec<_>>()
+        .try_into()
+        .map_err(|v: Vec<_>| {
+            CarbideCliError::GenericError(format!(
+                "Invalid grafana frame: Expected at least 5 values, got {}",
+                v.len()
+            ))
+        })?;
+
+    // Extract newest timestamp from values[1] for pagination
+    let newest_timestamp = value1
+        .iter()
+        .filter_map(|val| match val {
+            GrafanaValue::String(s) => s.parse::<i64>().ok(),
+            GrafanaValue::Int(ts) => Some(*ts),
+            _ => None,
+        })
+        .max();
 
     // Extract nanosecond timestamps from values[3] for sorting
-    let timestamps: Vec<u64> = frame_data.values[3]
-        .iter()
-        .filter_map(|val| match val {
-            GrafanaValue::String(s) => s.parse::<u64>().ok(),
-            _ => None,
-        })
-        .collect();
+    let mut timestamps = value3.into_iter().map(|val| match val {
+        GrafanaValue::String(s) => s.parse::<u64>().ok(),
+        GrafanaValue::Int(ts) => ts.try_into().ok(),
+        _ => None,
+    });
 
     // Extract log messages from values[2]
-    let logs: Vec<String> = frame_data.values[2]
-        .iter()
-        .filter_map(|val| match val {
-            GrafanaValue::String(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
+    let logs = value2.into_iter().map(|val| match val {
+        GrafanaValue::String(s) => Some(s),
+        _ => None,
+    });
 
     // Extract unique IDs from values[4] for deduplication
-    let unique_ids: Vec<String> = frame_data.values[4]
-        .iter()
-        .filter_map(|val| match val {
-            GrafanaValue::String(s) => Some(s.clone()),
-            _ => None,
-        })
-        .collect();
+    let mut unique_ids = value4.into_iter().map(|val| match val {
+        GrafanaValue::String(s) => Some(s),
+        _ => None,
+    });
 
     // Extract millisecond timestamps from values[1] for headers
-    let ms_timestamps: Vec<i64> = frame_data.values[1]
-        .iter()
-        .filter_map(|val| match val {
-            GrafanaValue::Int(n) => Some(*n),
-            _ => None,
-        })
-        .collect();
+    let mut ms_timestamps = value1.into_iter().map(|val| match val {
+        GrafanaValue::Int(n) => Some(n),
+        GrafanaValue::String(n) => n.parse().ok(),
+        _ => None,
+    });
 
     // Create LogEntry structs using direct indexing
-    let mut log_entries: Vec<LogEntry> = (0..logs.len())
-        .filter_map(|i| {
-            let ns_timestamp = timestamps.get(i)?;
-            let log = logs.get(i)?;
-            let id = unique_ids.get(i)?;
-            let ms_timestamp = ms_timestamps.get(i)?;
+    let mut log_entries: Vec<LogEntry> = logs
+        .filter_map(|log| {
+            let log = log?;
+            let ns_timestamp = timestamps.next()??;
+            let id = unique_ids.next()??;
+            let ms_timestamp: i64 = ms_timestamps.next()??;
             Some(LogEntry {
-                message: log.clone(),
-                timestamp_ms: *ms_timestamp,
-                unique_id: id.clone(),
-                nanosecond_timestamp: *ns_timestamp,
+                message: log,
+                timestamp_ms: ms_timestamp,
+                unique_id: id,
+                nanosecond_timestamp: ns_timestamp,
             })
         })
         .collect();
@@ -1287,20 +1236,7 @@ fn parse_grafana_logs(json_response: &str) -> CarbideCliResult<(Vec<LogEntry>, O
     // Sort by nanosecond timestamp for perfect chronological order
     log_entries.sort_by_key(|entry| entry.nanosecond_timestamp);
 
-    // Extract oldest timestamp from values[1] for pagination
-    let oldest_timestamp = if frame_data.values.len() > 1 {
-        frame_data.values[1]
-            .iter()
-            .filter_map(|val| match val {
-                GrafanaValue::Int(ts) => Some(*ts),
-                _ => None,
-            })
-            .min()
-    } else {
-        None
-    };
-
-    Ok((log_entries, oldest_timestamp))
+    Ok((log_entries, newest_timestamp))
 }
 
 // Helper function to remove duplicates from the end of batch (optimized for timestamp-sorted logs)
@@ -1329,113 +1265,42 @@ fn format_timestamp_header(timestamp_ms: i64) -> String {
     }
 }
 
-//  function to convert millisecond timestamp back to HH:MM:SS format
-fn format_timestamp_for_display(timestamp_ms: i64) -> String {
-    if let Some(datetime) = DateTime::from_timestamp_millis(timestamp_ms) {
-        let local_time: DateTime<Local> = datetime.with_timezone(&Local);
-        local_time.format("%H:%M:%S").to_string()
-    } else {
-        "INVALID".to_string()
-    }
-}
-
-// function to format end display timestamp
-fn format_end_display(current_end_time: &str, end_ms: &str) -> String {
-    if current_end_time.ends_with("ms") {
-        if let Some(end_timestamp_str) = current_end_time.strip_suffix("ms") {
-            if let Ok(end_ts) = end_timestamp_str.parse::<i64>() {
-                format!("{} ({})", format_timestamp_for_display(end_ts), end_ts)
-            } else {
-                current_end_time.to_string()
-            }
-        } else {
-            current_end_time.to_string()
-        }
-    } else {
-        format!("{current_end_time} ({end_ms})")
-    }
-}
-
-fn convert_time_to_grafana_format(
-    start_date: &str,
-    start_time: &str,
-    end_date: &str,
-    end_time: &str,
-    use_utc: bool,
-) -> CarbideCliResult<(String, String)> {
-    let parse_datetime = |date: &str, time: &str| -> CarbideCliResult<i64> {
-        let date_naive = NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|e| {
-            CarbideCliError::GenericError(format!(
-                "Invalid date format '{date}'. Expected YYYY-MM-DD: {e}"
-            ))
-        })?;
-
-        let time_naive = NaiveTime::parse_from_str(time, "%H:%M:%S").map_err(|e| {
-            CarbideCliError::GenericError(format!(
-                "Invalid time format '{time}'. Expected HH:MM:SS: {e}"
-            ))
-        })?;
-
-        let datetime = date_naive.and_time(time_naive);
-        let utc: DateTime<Utc> = if use_utc {
-            // Interpret as UTC directly
-            DateTime::from_naive_utc_and_offset(datetime, Utc)
-        } else {
-            // Interpret as local timezone, then convert to UTC
-            datetime
-            .and_local_timezone(Local)
-                .single()
-                .ok_or_else(|| {
-                    CarbideCliError::GenericError(format!(
-                        "Invalid or ambiguous time '{}'. This may occur during daylight saving time transitions. Please use a different time or use --utc flag.",
-                        datetime
-                    ))
-                })?
-                .with_timezone(&Utc)
-        };
-        Ok(utc.timestamp_millis())
-    };
-
-    let start_ms = parse_datetime(start_date, start_time)?;
-
-    let end_ms = if end_time.ends_with("ms") {
-        let end_timestamp_str = end_time.strip_suffix("ms").ok_or_else(|| {
-            CarbideCliError::GenericError(format!(
-                "Expected timestamp to end with 'ms': {}",
-                end_time
-            ))
-        })?;
-        return Ok((start_ms.to_string(), end_timestamp_str.to_string()));
-    } else {
-        parse_datetime(end_date, end_time)?
-    };
-
-    Ok((start_ms.to_string(), end_ms.to_string()))
-}
-
 // datetime parsing function
-fn parse_datetime_input(input: &str) -> CarbideCliResult<(String, String)> {
+fn parse_datetime_input(input: &str, use_utc: bool) -> CarbideCliResult<DateTime<Utc>> {
     let dash_count = input.chars().filter(|&c| c == '-').count();
     let colon_count = input.chars().filter(|&c| c == ':').count();
 
-    if dash_count == 2 && colon_count == 2 {
+    let naive_datetime = if dash_count == 2 && colon_count == 2 {
         // Format: "2025-09-02 06:00:00" (full datetime)
         let parts: Vec<&str> = input.split_whitespace().collect();
         if parts.len() == 2 {
-            Ok((parts[0].to_string(), parts[1].to_string()))
+            NaiveDateTime::parse_from_str(input, "%Y-%m-%d %H:%M:%S")
+                .map_err(|_| CarbideCliError::InvalidDateTimeFromUserInput(input.to_string()))?
         } else {
-            Err(CarbideCliError::GenericError(
-                "Invalid datetime format. Use 'YYYY-MM-DD HH:MM:SS'".to_string(),
-            ))
+            return Err(CarbideCliError::InvalidDateTimeFromUserInput(
+                input.to_string(),
+            ));
         }
     } else if dash_count == 0 && colon_count == 2 {
         // Format: "06:00:00" (time only - use today's date)
-        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        Ok((today, input.to_string()))
+        let today = chrono::Local::now().date_naive();
+        let time = NaiveTime::parse_from_str(input, "%H:%M:%S")
+            .map_err(|_| InvalidDateTimeFromUserInput(input.to_string()))?;
+        NaiveDateTime::new(today, time)
     } else {
-        Err(CarbideCliError::GenericError(
-            "Invalid format. Use 'YYYY-MM-DD HH:MM:SS' or 'HH:MM:SS'".to_string(),
-        ))
+        return Err(CarbideCliError::InvalidDateTimeFromUserInput(
+            input.to_string(),
+        ));
+    };
+
+    if use_utc {
+        Ok(naive_datetime.and_utc())
+    } else {
+        let local = naive_datetime
+            .and_local_timezone(Local)
+            .single()
+            .ok_or_else(|| CarbideCliError::GenericError(format!("Invalid or ambiguous time '{input}'. This may occur during daylight saving time transitions. Please use a different time or use --utc flag.")))?;
+        Ok(local.into())
     }
 }
 
@@ -1443,8 +1308,8 @@ fn generate_grafana_link(
     grafana_base_url: &str,
     loki_uid: &str,
     expr: &str,
-    start_ms: &str,
-    end_ms: &str,
+    start_ms: i64,
+    end_ms: i64,
 ) -> CarbideCliResult<String> {
     let config = GrafanaConfig {
         datasource: loki_uid.to_string(),
@@ -1857,7 +1722,7 @@ impl<'a> ZipBundleCreator<'a> {
         let controller_state = machine.state_reason.as_ref().map(|reason| {
             json!({
                 "outcome": format!("{:?}", reason.outcome()),
-                "message": reason.outcome_msg.clone(),
+                "message": &reason.outcome_msg,
                 "source": reason.source_ref.as_ref().map(|src| {
                     format!("{}:{}", src.file, src.line)
                 }),
@@ -1877,7 +1742,7 @@ impl<'a> ZipBundleCreator<'a> {
                         .map(|dt| dt.to_rfc3339())
                         .unwrap_or_else(|| ts.seconds.to_string())
                 }),
-                "mode": machine.last_reboot_requested_mode.clone(),
+                "mode": &machine.last_reboot_requested_mode,
             }
         });
 
@@ -2106,42 +1971,37 @@ impl<'a> ZipBundleCreator<'a> {
 
         // Generate overall Grafana links only if logs were collected
         if let (Some(loki_uid), Some(grafana_url)) = (loki_uid, &self.config.grafana_url) {
-            let (start_date, start_time) = parse_datetime_input(&self.config.start_time)?;
+            let start = parse_datetime_input(&self.config.start_time, self.config.utc)?;
 
             // Handle optional end_time (default to "now")
-            let (end_date, end_time) = if let Some(ref end_time_str) = self.config.end_time {
-                parse_datetime_input(end_time_str)?
+            let end = if let Some(ref end_time_str) = self.config.end_time {
+                parse_datetime_input(end_time_str, self.config.utc)?
             } else {
-                let now = chrono::Local::now();
-                let current_date = now.format("%Y-%m-%d").to_string();
-                let current_time = now.format("%H:%M:%S").to_string();
-                (current_date, current_time)
+                chrono::Utc::now()
             };
 
-            let time_range = TimeRange::new(
-                &start_date,
-                &start_time,
-                &end_date,
-                &end_time,
-                self.config.utc,
-            );
-            let (start_ms, end_ms) = time_range.to_grafana_format()?;
+            let time_range = TimeRange {
+                start,
+                end,
+                utc: self.config.utc,
+            };
+            let (start_ms, end_ms) = time_range.to_grafana_format();
 
             let host_expr = format!("{{host_machine_id=\"{}\"}} |= ``", self.config.host_id);
             let host_overall_link =
-                generate_grafana_link(grafana_url, loki_uid, &host_expr, &start_ms, &end_ms)?;
+                generate_grafana_link(grafana_url, loki_uid, &host_expr, start_ms, end_ms)?;
 
             let carbide_expr =
                 format!("{{{K8S_CONTAINER_NAME_LABEL}=\"{CARBIDE_API_CONTAINER_NAME}\"}} |= ``");
             let carbide_overall_link =
-                generate_grafana_link(grafana_url, loki_uid, &carbide_expr, &start_ms, &end_ms)?;
+                generate_grafana_link(grafana_url, loki_uid, &carbide_expr, start_ms, end_ms)?;
 
             let dpu_agent_expr = format!(
                 "{{systemd_unit=\"forge-dpu-agent.service\", host_machine_id=\"{}\"}} |= ``",
                 self.config.host_id
             );
             let dpu_agent_overall_link =
-                generate_grafana_link(grafana_url, loki_uid, &dpu_agent_expr, &start_ms, &end_ms)?;
+                generate_grafana_link(grafana_url, loki_uid, &dpu_agent_expr, start_ms, end_ms)?;
 
             // Host Logs - Overall Link and Batches
             writeln!(zip, "Host Logs Grafana Link (Complete Time Range):")?;
