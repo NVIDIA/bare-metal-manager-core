@@ -61,13 +61,30 @@ pub async fn find_switch(
         .map_err(|e| Status::internal(format!("Failed to find switch: {}", e)))?
     };
 
+    let ip_map = if query.include_ip_addresses {
+        let serial_numbers: Vec<String> =
+            switch_list.iter().map(|s| s.config.name.clone()).collect();
+        db_switch::get_switch_ips_by_serials(&mut txn, &serial_numbers)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to get switch IPs: {}", e)))?
+    } else {
+        std::collections::HashMap::new()
+    };
+
     txn.commit()
         .await
         .map_err(|e| Status::internal(format!("Failed to commit transaction: {}", e)))?;
 
     let switches: Vec<rpc::Switch> = switch_list
         .into_iter()
-        .map(rpc::Switch::try_from)
+        .map(|s| {
+            let serial = s.config.name.clone();
+            let ip_address = ip_map.get(&serial).map(|ip| ip.to_string());
+            rpc::Switch::try_from(s).map(|mut rpc_switch| {
+                rpc_switch.ip_address = ip_address;
+                rpc_switch
+            })
+        })
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| Status::internal(format!("Failed to convert switch: {}", e)))?;
 
