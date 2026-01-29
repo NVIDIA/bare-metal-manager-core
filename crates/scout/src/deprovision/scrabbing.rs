@@ -84,7 +84,7 @@ struct NvmeParams {
     fr: String,
 }
 
-async fn get_nvme_params(nvmename: &String) -> Result<NvmeParams, CarbideClientError> {
+async fn get_nvme_params(nvmename: &str) -> Result<NvmeParams, CarbideClientError> {
     let nvme_params_lines =
         cmdrun::run_prog(NVME_CLI_PROG, ["id-ctrl", nvmename, "-o", "json"]).await?;
     let nvme_drive_params = match serde_json::from_str(&nvme_params_lines) {
