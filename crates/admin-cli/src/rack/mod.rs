@@ -25,9 +25,9 @@ use crate::cfg::runtime::RuntimeContext;
 impl Dispatch for Cmd {
     async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
         match self {
-            Cmd::Show(show_opts) => cmds::show_rack(&ctx.api_client, &show_opts).await?,
+            Cmd::Show(show_opts) => cmds::show_rack(&ctx.api_client, show_opts).await?,
             Cmd::List => cmds::list_racks(&ctx.api_client).await?,
-            Cmd::Delete(delete_opts) => cmds::delete_rack(&ctx.api_client, &delete_opts).await?,
+            Cmd::Delete(delete_opts) => cmds::delete_rack(&ctx.api_client, delete_opts).await?,
         }
         Ok(())
     }

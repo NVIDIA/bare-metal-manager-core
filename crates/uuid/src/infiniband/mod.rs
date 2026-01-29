@@ -66,6 +66,12 @@ impl fmt::Display for IBPartitionId {
     }
 }
 
+impl From<IBPartitionId> for String {
+    fn from(id: IBPartitionId) -> Self {
+        id.to_string()
+    }
+}
+
 #[cfg(feature = "sqlx")]
 impl PgHasArrayType for IBPartitionId {
     fn array_type_info() -> PgTypeInfo {

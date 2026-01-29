@@ -92,6 +92,9 @@ pub enum CarbideCliError {
     #[error("Generic Error: {0}")]
     GenericError(String),
 
+    #[error("Invalid datetime format: {0}. Use 'YYYY-MM-DD HH:MM:SS' or 'HH:MM:SS'")]
+    InvalidDateTimeFromUserInput(String),
+
     #[error("Segment not found.")]
     SegmentNotFound,
 
@@ -168,19 +171,13 @@ pub type CarbideCliResult<T> = Result<T, CarbideCliError>;
 
 /// ToTable is a trait which is used alongside the cli_output command
 /// and being able to prettytable print results.
-//
-// Prefer implementing IntoTable instead of this.
 pub trait ToTable {
-    fn to_table(&self) -> eyre::Result<String> {
+    fn into_table(self) -> eyre::Result<String>
+    where
+        Self: Sized,
+    {
         Ok("not implemented".to_string())
     }
-}
-
-/// convert_to_table leverages input instances which
-/// implement the ToTable trait for the purpose of
-/// printing themselves as a prettytable.
-pub fn convert_to_table<T: ToTable>(input: &T) -> eyre::Result<String> {
-    input.to_table()
 }
 
 /// cli_output is the generic function implementation used by the OutputResult
@@ -194,9 +191,9 @@ pub fn cli_output<T: Serialize + ToTable>(
     let output = match format {
         OutputFormat::Json => serde_json::to_string_pretty(&input)?,
         OutputFormat::Yaml => serde_yaml::to_string(&input)?,
-        OutputFormat::AsciiTable => {
-            convert_to_table(&input).map_err(|e| CarbideCliError::GenericError(e.to_string()))?
-        }
+        OutputFormat::AsciiTable => input
+            .into_table()
+            .map_err(|e| CarbideCliError::GenericError(e.to_string()))?,
         OutputFormat::Csv => {
             return Err(CarbideCliError::GenericError(String::from(
                 "CSV not supported for measurement commands (yet)",
@@ -231,7 +228,7 @@ pub mod output {
         Stdout(),
     }
 
-    #[derive(Default, PartialEq, Eq, ValueEnum, Clone, Debug)]
+    #[derive(Default, PartialEq, Eq, ValueEnum, Clone, Copy, Debug)]
     #[clap(rename_all = "kebab_case")]
     pub enum OutputFormat {
         #[default]

@@ -99,7 +99,7 @@ pub async fn handle_rack_firmware(
                             ]));
 
                             // Collect components with their subcomponents for display
-                            let mut component_subcomps: Vec<(String, Vec<serde_json::Value>)> =
+                            let mut component_subcomps: Vec<(String, &[serde_json::Value])> =
                                 Vec::new();
 
                             if let Some(comp_map) = components.as_object() {
@@ -129,8 +129,7 @@ pub async fn handle_rack_firmware(
                                         entry.get("subcomponents").and_then(|s| s.as_array())
                                         && !subcomps.is_empty()
                                     {
-                                        component_subcomps
-                                            .push((component.to_string(), subcomps.clone()));
+                                        component_subcomps.push((component.to_string(), subcomps));
                                     }
                                 }
                             }
@@ -236,7 +235,7 @@ pub async fn handle_rack_firmware(
         }
 
         RackFirmwareActions::Apply(opts) => {
-            apply_firmware(&opts, format, api_client).await?;
+            apply_firmware(opts, format, api_client).await?;
         }
     }
 
@@ -244,7 +243,7 @@ pub async fn handle_rack_firmware(
 }
 
 async fn apply_firmware(
-    opts: &RackFirmwareApply,
+    opts: RackFirmwareApply,
     format: OutputFormat,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
@@ -254,9 +253,9 @@ async fn apply_firmware(
     );
 
     let request = rpc::forge::RackFirmwareApplyRequest {
-        rack_id: opts.rack_id.clone(),
-        firmware_id: opts.firmware_id.clone(),
-        firmware_type: opts.firmware_type.clone(),
+        rack_id: opts.rack_id,
+        firmware_id: opts.firmware_id,
+        firmware_type: opts.firmware_type,
     };
 
     let response = api_client

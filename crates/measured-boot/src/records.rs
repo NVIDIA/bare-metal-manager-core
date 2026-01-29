@@ -914,7 +914,7 @@ impl TryFrom<CandidateMachineSummaryPb> for CandidateMachineSummary {
 
 #[cfg(feature = "cli")]
 impl ToTable for CandidateMachineSummary {
-    fn to_table(&self) -> eyre::Result<String> {
+    fn into_table(self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
         table.add_row(prettytable::row!["machine_id", self.machine_id]);
         table.add_row(prettytable::row!["created_ts", self.ts]);
@@ -1088,7 +1088,7 @@ impl TryFrom<MeasurementApprovedMachineRecordPb> for MeasurementApprovedMachineR
 
 #[cfg(feature = "cli")]
 impl ToTable for MeasurementApprovedMachineRecord {
-    fn to_table(&self) -> eyre::Result<String> {
+    fn into_table(self) -> eyre::Result<String> {
         let pcr_registers: String = match self.pcr_registers.clone() {
             Some(pcr_registers) => pcr_registers,
             None => "".to_string(),
@@ -1201,7 +1201,7 @@ impl TryFrom<MeasurementApprovedProfileRecordPb> for MeasurementApprovedProfileR
 
 #[cfg(feature = "cli")]
 impl ToTable for MeasurementApprovedProfileRecord {
-    fn to_table(&self) -> eyre::Result<String> {
+    fn into_table(self) -> eyre::Result<String> {
         let pcr_registers: String = match self.pcr_registers.clone() {
             Some(pcr_registers) => pcr_registers,
             None => "".to_string(),

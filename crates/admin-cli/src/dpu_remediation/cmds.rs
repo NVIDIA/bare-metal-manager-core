@@ -45,8 +45,8 @@ pub async fn create_dpu_remediation(
         .0
         .create_remediation(CreateRemediationRequest {
             script,
-            metadata: create_remediation.metadata(),
             retries: create_remediation.retries.unwrap_or_default() as i32,
+            metadata: create_remediation.into_metadata(),
         })
         .await?;
 

@@ -22,7 +22,6 @@ use ::rpc::protos::measured_boot::{
     list_measurement_report_request,
 };
 use measured_boot::bundle::MeasurementBundle;
-use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::MeasurementReportRecord;
 use measured_boot::report::MeasurementReport;
 use serde::Serialize;
@@ -37,7 +36,7 @@ use crate::rpc::ApiClient;
 /// dispatch matches + dispatches the correct command for
 /// the `bundle` subcommand (e.g. create, delete, set-state).
 pub async fn dispatch(
-    cmd: &CmdReport,
+    cmd: CmdReport,
     cli: &mut global::cmds::CliData<'_, '_>,
 ) -> CarbideCliResult<()> {
     match cmd {
@@ -120,12 +119,12 @@ pub async fn dispatch(
 /// create_for_id creates a new measurement report.
 pub async fn create_for_id(
     grpc_conn: &ApiClient,
-    create: &Create,
+    create: Create,
 ) -> CarbideCliResult<MeasurementReport> {
     // Request.
     let request = CreateMeasurementReportRequest {
         machine_id: create.machine_id.to_string(),
-        pcr_values: PcrRegisterValue::to_pb_vec(&create.values),
+        pcr_values: create.values.into_iter().map(Into::into).collect(),
     };
 
     // Response.
@@ -136,7 +135,7 @@ pub async fn create_for_id(
 }
 
 /// delete deletes a measurement report with the provided ID.
-pub async fn delete(grpc_conn: &ApiClient, delete: &Delete) -> CarbideCliResult<MeasurementReport> {
+pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<MeasurementReport> {
     // Request.
     let request = DeleteMeasurementReportRequest {
         report_id: Some(delete.report_id),
@@ -154,7 +153,7 @@ pub async fn delete(grpc_conn: &ApiClient, delete: &Delete) -> CarbideCliResult<
 /// `report promote <report-id> [pcr-selector]`
 pub async fn promote(
     grpc_conn: &ApiClient,
-    promote: &Promote,
+    promote: Promote,
 ) -> CarbideCliResult<MeasurementBundle> {
     // Request.
     let request = PromoteMeasurementReportRequest {
@@ -177,7 +176,7 @@ pub async fn promote(
 /// matching this should be marked as rejected.
 ///
 /// `journal revoke <journal-id> [pcr-selector]`
-pub async fn revoke(grpc_conn: &ApiClient, revoke: &Revoke) -> CarbideCliResult<MeasurementBundle> {
+pub async fn revoke(grpc_conn: &ApiClient, revoke: Revoke) -> CarbideCliResult<MeasurementBundle> {
     // Request.
     let request = RevokeMeasurementReportRequest {
         report_id: Some(revoke.report_id),
@@ -197,7 +196,7 @@ pub async fn revoke(grpc_conn: &ApiClient, revoke: &Revoke) -> CarbideCliResult<
 /// show_for_id dumps all info about a report for the given ID.
 pub async fn show_for_id(
     grpc_conn: &ApiClient,
-    show_for_id: &ShowForId,
+    show_for_id: ShowForId,
 ) -> CarbideCliResult<MeasurementReport> {
     // Request.
     let request = ShowMeasurementReportForIdRequest {
@@ -214,7 +213,7 @@ pub async fn show_for_id(
 /// show_for_machine dumps reports for a given machine.
 pub async fn show_for_machine(
     grpc_conn: &ApiClient,
-    show_for_machine: &ShowForMachine,
+    show_for_machine: ShowForMachine,
 ) -> CarbideCliResult<MeasurementReportList> {
     // Request.
     let request = ShowMeasurementReportsForMachineRequest {
@@ -228,9 +227,9 @@ pub async fn show_for_machine(
             .show_measurement_reports_for_machine(request)
             .await?
             .reports
-            .iter()
+            .into_iter()
             .map(|report| {
-                MeasurementReport::try_from(report.clone())
+                MeasurementReport::try_from(report)
                     .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
             })
             .collect::<CarbideCliResult<Vec<MeasurementReport>>>()?,
@@ -245,9 +244,9 @@ pub async fn show_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementRepo
             .show_measurement_reports()
             .await?
             .reports
-            .iter()
+            .into_iter()
             .map(|report| {
-                MeasurementReport::try_from(report.clone())
+                MeasurementReport::try_from(report)
                     .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
             })
             .collect::<CarbideCliResult<Vec<MeasurementReport>>>()?,
@@ -266,9 +265,9 @@ pub async fn list_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementRepo
             .list_measurement_report(request)
             .await?
             .reports
-            .iter()
+            .into_iter()
             .map(|report| {
-                MeasurementReportRecord::try_from(report.clone())
+                MeasurementReportRecord::try_from(report)
                     .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
             })
             .collect::<CarbideCliResult<Vec<MeasurementReportRecord>>>()?,
@@ -278,7 +277,7 @@ pub async fn list_all(grpc_conn: &ApiClient) -> CarbideCliResult<MeasurementRepo
 /// list_machines lists all reports for the given machine ID.
 pub async fn list_machines(
     grpc_conn: &ApiClient,
-    list_machines: &ListMachines,
+    list_machines: ListMachines,
 ) -> CarbideCliResult<MeasurementReportRecordList> {
     // Request.
     let request = ListMeasurementReportRequest {
@@ -294,9 +293,9 @@ pub async fn list_machines(
             .list_measurement_report(request)
             .await?
             .reports
-            .iter()
+            .into_iter()
             .map(|report| {
-                MeasurementReportRecord::try_from(report.clone())
+                MeasurementReportRecord::try_from(report)
                     .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
             })
             .collect::<CarbideCliResult<Vec<MeasurementReportRecord>>>()?,
@@ -308,11 +307,11 @@ pub async fn list_machines(
 /// `report match <pcr_register:val>,...`
 pub async fn match_values(
     grpc_conn: &ApiClient,
-    match_args: &Match,
+    match_args: Match,
 ) -> CarbideCliResult<MeasurementReportRecordList> {
     // Request.
     let request = MatchMeasurementReportRequest {
-        pcr_values: PcrRegisterValue::to_pb_vec(&match_args.values),
+        pcr_values: match_args.values.into_iter().map(Into::into).collect(),
     };
 
     // Response.
@@ -322,9 +321,9 @@ pub async fn match_values(
             .match_measurement_report(request)
             .await?
             .reports
-            .iter()
+            .into_iter()
             .map(|report| {
-                MeasurementReportRecord::try_from(report.clone())
+                MeasurementReportRecord::try_from(report)
                     .map_err(|e| CarbideCliError::GenericError(format!("conversion failed: {e}")))
             })
             .collect::<CarbideCliResult<Vec<MeasurementReportRecord>>>()?,
@@ -338,7 +337,7 @@ pub async fn match_values(
 pub struct MeasurementReportRecordList(Vec<MeasurementReportRecord>);
 
 impl ToTable for MeasurementReportRecordList {
-    fn to_table(&self) -> eyre::Result<String> {
+    fn into_table(self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
         table.add_row(prettytable::row!["report_id", "machine_id", "created_ts"]);
         for report in self.0.iter() {
@@ -361,7 +360,7 @@ pub struct MeasurementReportList(Vec<MeasurementReport>);
 // When `report show` gets called (for all entries), and the output format
 // is the default table view, this gets used to print a pretty table.
 impl ToTable for MeasurementReportList {
-    fn to_table(&self) -> eyre::Result<String> {
+    fn into_table(self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
         table.add_row(prettytable::row!["report_id", "details", "values"]);
         for report in self.0.iter() {

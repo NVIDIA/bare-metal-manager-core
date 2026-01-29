@@ -190,11 +190,11 @@ async fn main() -> color_eyre::Result<()> {
     let ctx = RuntimeContext {
         api_client: ApiClient(ForgeApiClient::new(&ApiConfig::new(&url, &client_config))),
         config: RuntimeConfig {
-            format: config.format.clone(),
+            format: config.format,
             page_size: config.internal_page_size,
             extended: config.extended,
             cloud_unsafe_op_enabled: config.cloud_unsafe_op.is_some(),
-            sort_by: config.sort_by.clone(),
+            sort_by: config.sort_by,
         },
         output_file: get_output_file_or_stdout(config.output.as_deref()).await?,
         rms_client,
@@ -284,5 +284,21 @@ pub async fn get_output_file_or_stdout(
         Ok(Box::pin(file))
     } else {
         Ok(Box::pin(tokio::io::stdout()))
+    }
+}
+
+pub(crate) trait IntoOnlyOne<T> {
+    fn into_only_one_or_else<E, F: FnOnce(usize) -> E>(self, f: F) -> Result<T, E>;
+}
+
+impl<T> IntoOnlyOne<T> for Vec<T> {
+    fn into_only_one_or_else<E, F: FnOnce(usize) -> E>(self, f: F) -> Result<T, E> {
+        if self.len() != 1 {
+            return Err(f(self.len()));
+        }
+        let Some(first) = self.into_iter().next() else {
+            return Err(f(0));
+        };
+        Ok(first)
     }
 }

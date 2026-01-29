@@ -28,7 +28,7 @@ struct NetworkState {
 }
 
 async fn convert_network_to_nice_format(
-    segment: &forgerpc::NetworkSegment,
+    segment: forgerpc::NetworkSegment,
     api_client: &ApiClient,
 ) -> CarbideCliResult<String> {
     let width = 10;
@@ -39,7 +39,7 @@ async fn convert_network_to_nice_format(
             "ID",
             segment.id.map(|id| id.to_string()).unwrap_or_default(),
         ),
-        ("NAME", segment.name.clone()),
+        ("NAME", segment.name),
         ("CREATED", segment.created.unwrap_or_default().to_string()),
         ("UPDATED", segment.updated.unwrap_or_default().to_string()),
         (
@@ -82,7 +82,7 @@ async fn convert_network_to_nice_format(
     if segment.prefixes.is_empty() {
         writeln!(&mut lines, "\tEMPTY")?;
     } else {
-        for (i, prefix) in segment.prefixes.clone().into_iter().enumerate() {
+        for (i, prefix) in segment.prefixes.into_iter().enumerate() {
             let net = ipnet::IpNet::from_str(&prefix.prefix).unwrap();
             let range = format!("{} - {}", net.network(), net.broadcast());
             let data = vec![
@@ -92,11 +92,7 @@ async fn convert_network_to_nice_format(
                 ("Range", range),
                 (
                     "Gateway",
-                    prefix
-                        .gateway
-                        .clone()
-                        .unwrap_or_else(|| "Unknown".to_string())
-                        .to_string(),
+                    prefix.gateway.unwrap_or_else(|| "Unknown".to_string()),
                 ),
                 ("SVI IP", prefix.svi_ip.unwrap_or_default()),
                 ("Reserve First", prefix.reserve_first.to_string()),
@@ -143,11 +139,11 @@ async fn get_domain_name(domain_id: Option<DomainId>, api_client: &ApiClient) ->
     match domain_id {
         Some(id) => match api_client.get_domains(Some(id)).await {
             Ok(domain_list) => {
-                if domain_list.domains.is_empty() {
+                let Some(first) = domain_list.domains.into_iter().next() else {
                     return "Not Found in db".to_string();
-                }
+                };
 
-                domain_list.domains[0].name.clone()
+                first.name
             }
             Err(x) => x.to_string(),
         },
@@ -203,7 +199,7 @@ async fn show_all_segments(
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let all_segments = match api_client
-        .get_all_segments(tenant_org_id.clone(), name.clone(), page_size)
+        .get_all_segments(tenant_org_id, name, page_size)
         .await
     {
         Ok(all_segment_ids) => all_segment_ids,
@@ -227,10 +223,9 @@ async fn show_network_information(
         Err(e) => return Err(e),
     };
 
-    if segment.network_segments.is_empty() {
+    let Some(segment) = segment.network_segments.into_iter().next() else {
         return Err(CarbideCliError::SegmentNotFound);
-    }
-    let segment = &segment.network_segments[0];
+    };
 
     if json {
         println!("{}", serde_json::to_string_pretty(&segment)?);

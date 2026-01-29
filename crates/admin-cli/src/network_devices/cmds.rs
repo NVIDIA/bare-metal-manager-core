@@ -35,7 +35,7 @@ pub async fn handle_show(
 
     match output_format {
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&devices)?),
-        OutputFormat::AsciiTable => show_network_devices_info(&devices)?,
+        OutputFormat::AsciiTable => show_network_devices_info(devices)?,
         OutputFormat::Csv => println!("CSV not yet supported."),
         OutputFormat::Yaml => println!("YAML not yet supported."),
     }
@@ -43,11 +43,11 @@ pub async fn handle_show(
     Ok(())
 }
 
-fn show_network_devices_info(data: &rpc::forge::NetworkTopologyData) -> CarbideCliResult<()> {
+fn show_network_devices_info(data: rpc::forge::NetworkTopologyData) -> CarbideCliResult<()> {
     let mut lines = String::new();
 
     writeln!(&mut lines, "{}", "-".repeat(95))?;
-    for network_device in &data.network_devices {
+    for network_device in data.network_devices {
         writeln!(
             &mut lines,
             "Network Device: {}/{}",
@@ -56,7 +56,7 @@ fn show_network_devices_info(data: &rpc::forge::NetworkTopologyData) -> CarbideC
         writeln!(
             &mut lines,
             "Description:    {}",
-            network_device.description.clone().unwrap_or_default()
+            network_device.description.unwrap_or_default()
         )?;
         writeln!(
             &mut lines,

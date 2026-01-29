@@ -26,7 +26,7 @@ impl Dispatch for Cmd {
     async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
         // Build the internal GlobalOptions from RuntimeContext for handlers that need it
         let opts = args::GlobalOptions {
-            format: ctx.config.format.clone(),
+            format: ctx.config.format,
             page_size: ctx.config.page_size,
             sort_by: &ctx.config.sort_by,
             cloud_unsafe_op: if ctx.config.cloud_unsafe_op_enabled {
@@ -49,11 +49,11 @@ impl Dispatch for Cmd {
                 .await?
             }
             Cmd::Reboot(args) => cmds::handle_reboot(args, &ctx.api_client).await?,
-            Cmd::Release(args) => cmds::release(&ctx.api_client, args, &opts).await?,
-            Cmd::Allocate(args) => cmds::allocate(&ctx.api_client, args, &opts).await?,
-            Cmd::UpdateOS(args) => cmds::update_os(&ctx.api_client, args, &opts).await?,
+            Cmd::Release(args) => cmds::release(&ctx.api_client, args, opts).await?,
+            Cmd::Allocate(args) => cmds::allocate(&ctx.api_client, args, opts).await?,
+            Cmd::UpdateOS(args) => cmds::update_os(&ctx.api_client, args, opts).await?,
             Cmd::UpdateIbConfig(args) => {
-                cmds::update_ib_config(&ctx.api_client, args, &opts).await?
+                cmds::update_ib_config(&ctx.api_client, args, opts).await?
             }
         }
         Ok(())

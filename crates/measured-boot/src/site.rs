@@ -54,7 +54,7 @@ impl From<&ImportSiteMeasurementsResponse> for ImportResult {
 
 #[cfg(feature = "cli")]
 impl ToTable for ImportResult {
-    fn to_table(&self) -> eyre::Result<String> {
+    fn into_table(self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
         table.add_row(prettytable::row!["status", self.status]);
         Ok(table.to_string())
@@ -73,7 +73,7 @@ pub struct SiteModel {
 
 #[cfg(feature = "cli")]
 impl ToTable for SiteModel {
-    fn to_table(&self) -> eyre::Result<String> {
+    fn into_table(self) -> eyre::Result<String> {
         Ok("lol, not implemented for SiteModel. try -o json or -o yaml.".to_string())
     }
 }

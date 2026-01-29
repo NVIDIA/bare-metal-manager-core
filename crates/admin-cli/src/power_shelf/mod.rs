@@ -26,7 +26,7 @@ impl Dispatch for Cmd {
     async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
         match self {
             Cmd::Show(show_opts) => {
-                cmds::handle_show(&show_opts, ctx.config.format, &ctx.api_client).await?
+                cmds::handle_show(show_opts, ctx.config.format, &ctx.api_client).await?
             }
             Cmd::List => cmds::list_power_shelves(&ctx.api_client).await?,
         }

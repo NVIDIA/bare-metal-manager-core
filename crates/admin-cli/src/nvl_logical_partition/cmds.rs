@@ -69,7 +69,7 @@ async fn show_logical_partition_details(
     } else {
         println!(
             "{}",
-            convert_partition_to_nice_format(&logical_partition).unwrap_or_else(|x| x.to_string())
+            convert_partition_to_nice_format(logical_partition).unwrap_or_else(|x| x.to_string())
         );
     }
     Ok(())
@@ -96,7 +96,7 @@ fn convert_partitions_to_nice_table(
 }
 
 fn convert_partition_to_nice_format(
-    partition: &forgerpc::NvLinkLogicalPartition,
+    partition: forgerpc::NvLinkLogicalPartition,
 ) -> CarbideCliResult<String> {
     let width = 25;
     let mut lines = String::new();
@@ -115,11 +115,9 @@ fn convert_partition_to_nice_format(
             "NAME",
             partition
                 .config
-                .clone()
-                .unwrap_or_default()
-                .metadata
-                .unwrap_or_default()
-                .name,
+                .and_then(|c| c.metadata)
+                .map(|m| m.name)
+                .unwrap_or_default(),
         ),
         (
             "STATUS",
