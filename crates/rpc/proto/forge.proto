@@ -1639,6 +1639,9 @@ message Switch {
   optional google.protobuf.Timestamp deleted = 4;
 
   string controller_state = 5;
+
+  // IP address of the switch
+  optional string ip_address = 6;
 }
 
 message SwitchList {
@@ -1683,6 +1686,7 @@ message SwitchStateHistoryRecords {
 message SwitchQuery {
   optional string name = 1;
   common.SwitchId switch_id = 2;
+  bool include_ip_addresses = 3; // include switch IP addresses in response
 }
 
 message ExpectedSwitch {
