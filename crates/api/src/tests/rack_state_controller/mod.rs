@@ -127,7 +127,6 @@ impl StateHandler for TestRackStateHandler {
 
         tokio::time::sleep(Duration::from_millis(100)).await;
         Ok(StateHandlerOutcome::transition(new_state.clone()).with_txn(None))
-        //Ok(StateHandlerOutcome::do_nothing().with_txn(None))
     }
 }
 
@@ -156,10 +155,6 @@ async fn test_can_retrieve_rack_state_history(
         .with_expected_power_shelves(vec![
             [0x01, 0x1A, 0x2B, 0x3C, 0x4D, 0x50],
             [0x01, 0x1A, 0x2B, 0x3C, 0x4D, 0x51],
-        ])
-        .with_expected_compute_trays(vec![
-            [0x02, 0x1A, 0x2B, 0x3C, 0x4D, 0x50],
-            [0x02, 0x1A, 0x2B, 0x3C, 0x4D, 0x51],
         ])
         .build(&env)
         .await?;
