@@ -244,6 +244,37 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
         }
     });
 
+    // spawn switch collector
+    let join_switch_collector: Option<tokio::task::JoinHandle<Result<(), HealthError>>> =
+        if config_arc.collectors.switch.is_enabled() {
+            if let Configurable::Enabled(ref api_cfg) = config_arc.endpoint_sources.carbide_api {
+                let api_client = Arc::new(ApiClientWrapper::new(
+                    api_cfg.root_ca.clone(),
+                    api_cfg.client_cert.clone(),
+                    api_cfg.client_key.clone(),
+                    &api_cfg.api_url,
+                ));
+                let switch_config = config_arc.collectors.switch.clone();
+                let switch_registry = registry.clone();
+
+                Some(tokio::spawn(async move {
+                    switch_collector::run_switch_collector(
+                        api_client,
+                        switch_config,
+                        &switch_registry,
+                    )
+                    .await
+                }))
+            } else {
+                tracing::warn!(
+                    "Switch collector is enabled but Carbide API is not configured, skipping"
+                );
+                None
+            }
+        } else {
+            None
+        };
+
     tokio::select! {
         res = join_listener => {
             match res {
@@ -268,6 +299,24 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
                 }
                 Err(e) => {
                     tracing::error!(error=?e, "Discovery loop join error");
+                }
+            }
+        }
+        res = async {
+            match join_switch_collector {
+                Some(handle) => handle.await,
+                None => std::future::pending().await,
+            }
+        } => {
+            match res {
+                Ok(Ok(_)) => {
+                    tracing::info!("Switch collector shutdown");
+                }
+                Ok(Err(e)) => {
+                    tracing::error!(error=?e, "Switch collector failed");
+                }
+                Err(e) => {
+                    tracing::error!(error=?e, "Switch collector join error");
                 }
             }
         }
