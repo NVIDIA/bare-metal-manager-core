@@ -278,7 +278,7 @@ async fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
         return Ok(());
     }
 
-    tracing::info!(device_count, "Starting parallel NVMe cleanup");
+    tracing::info!(device_count, "Starting NVMe cleanup");
     let start_time = std::time::Instant::now();
 
     // Spawn async tasks for each NVMe device cleanup
