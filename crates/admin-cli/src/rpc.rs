@@ -2172,8 +2172,9 @@ impl RmsApiClient {
         Ok(serde_json::to_string_pretty(&add_node_response)?)
     }
 
-    pub async fn remove_node(&self, node_id: String) -> CarbideCliResult<String> {
-        let remove_node_command = ::rpc::protos::rack_manager::RemoveNodeCommand { node_id };
+    pub async fn remove_node(&self, rack_id: String, node_id: String) -> CarbideCliResult<String> {
+        let remove_node_command =
+            ::rpc::protos::rack_manager::RemoveNodeCommand { rack_id, node_id };
         let cmd = ::rpc::protos::rack_manager::inventory_request::Command::RemoveNode(
             remove_node_command,
         );
@@ -2190,11 +2191,12 @@ impl RmsApiClient {
         Ok(serde_json::to_string_pretty(&remove_node_response)?)
     }
 
-    pub async fn get_poweron_order(&self) -> CarbideCliResult<String> {
-        let cmd: ::rpc::protos::rack_manager::inventory_request::Command =
-            ::rpc::protos::rack_manager::inventory_request::Command::GetPowerOnOrder(
-                Default::default(),
-            );
+    pub async fn get_poweron_order(&self, rack_id: String) -> CarbideCliResult<String> {
+        let get_poweron_order_command =
+            ::rpc::protos::rack_manager::GetPowerOnOrderCommand { rack_id };
+        let cmd = ::rpc::protos::rack_manager::inventory_request::Command::GetPowerOnOrder(
+            get_poweron_order_command,
+        );
         let message = ::rpc::protos::rack_manager::InventoryRequest {
             metadata: None,
             command: Some(cmd),
@@ -2208,9 +2210,13 @@ impl RmsApiClient {
         Ok(serde_json::to_string_pretty(&get_poweron_order_response)?)
     }
 
-    pub async fn get_power_state(&self, node_id: String) -> CarbideCliResult<String> {
+    pub async fn get_power_state(
+        &self,
+        rack_id: String,
+        node_id: String,
+    ) -> CarbideCliResult<String> {
         let get_power_state_command =
-            ::rpc::protos::rack_manager::GetPowerStateCommand { node: node_id };
+            ::rpc::protos::rack_manager::GetPowerStateCommand { rack_id, node_id };
         let cmd = ::rpc::protos::rack_manager::power_control_request::Command::GetPowerState(
             get_power_state_command,
         );
@@ -2227,9 +2233,13 @@ impl RmsApiClient {
         Ok(serde_json::to_string_pretty(&get_power_state_response)?)
     }
 
-    pub async fn get_firmware_inventory(&self, node_id: String) -> CarbideCliResult<String> {
+    pub async fn get_firmware_inventory(
+        &self,
+        rack_id: String,
+        node_id: String,
+    ) -> CarbideCliResult<String> {
         let get_firmware_inventory_command =
-            ::rpc::protos::rack_manager::GetFirmwareInventoryCommand { node: node_id };
+            ::rpc::protos::rack_manager::GetFirmwareInventoryCommand { rack_id, node_id };
         let cmd = ::rpc::protos::rack_manager::firmware_request::Command::GetFirmwareInventory(
             get_firmware_inventory_command,
         );
@@ -2248,11 +2258,13 @@ impl RmsApiClient {
         )?)
     }
 
-    pub async fn get_available_fw_images(&self, node_id: String) -> CarbideCliResult<String> {
+    pub async fn get_available_fw_images(
+        &self,
+        rack_id: Option<String>,
+        node_id: Option<String>,
+    ) -> CarbideCliResult<String> {
         let get_available_fw_images_command =
-            ::rpc::protos::rack_manager::GetAvailableFwImagesCommand {
-                node: Some(node_id),
-            };
+            ::rpc::protos::rack_manager::GetAvailableFwImagesCommand { rack_id, node_id };
         let cmd = ::rpc::protos::rack_manager::firmware_request::Command::GetAvailableFwImages(
             get_available_fw_images_command,
         );

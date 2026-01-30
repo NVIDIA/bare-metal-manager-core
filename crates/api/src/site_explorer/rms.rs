@@ -20,6 +20,7 @@ use crate::rack::rms_client::{RmsApi, RmsNodeType};
 // Helper function to add a node to the Rack Manager
 pub async fn add_node_to_rms(
     rms_client: Arc<Box<dyn RmsApi>>,
+    rack_id: String,
     node_id: String,
     ip_address: String,
     port: i32,
@@ -27,6 +28,7 @@ pub async fn add_node_to_rms(
     node_type: RmsNodeType,
 ) -> Result<(), CarbideError> {
     let new_node_info = NewNodeInfo {
+        rack_id,
         node_id,
         mac_address,
         ip_address,
