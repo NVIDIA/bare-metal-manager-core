@@ -811,7 +811,7 @@ mod tests {
     use carbide_uuid::machine::MachineId;
 
     use self::forge::operating_system::Variant;
-    use self::forge::{IpxeOperatingSystem, OperatingSystem};
+    use self::forge::{InlineIpxe, OperatingSystem};
     use super::*;
     use crate::protos::dns::{Domain, Metadata};
 
@@ -853,7 +853,7 @@ mod tests {
             phone_home_enabled: true,
             run_provisioning_instructions_on_every_boot: true,
             user_data: Some("def".to_string()),
-            variant: Some(Variant::Ipxe(IpxeOperatingSystem {
+            variant: Some(Variant::Ipxe(InlineIpxe {
                 ipxe_script: "abc".to_string(),
                 user_data: Some("def".to_string()),
             })),
