@@ -1,0 +1,142 @@
+name: Carbide Artifacts Promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to promote (e.g., v0.1.0-rc2-0-g85ed21555)'
+        required: true
+        type: string
+
+jobs:
+  # ============================================================================
+  # PREPARE - Validate source images exist
+  # ============================================================================
+  prepare:
+    runs-on: linux-amd64-cpu4
+    outputs:
+      version: ${{ inputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to NVCR
+        uses: ./.github/actions/docker-auth
+        with:
+          username: ${{ secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NVCR_TOKEN }}
+
+      - name: Validate source images exist
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          echo "## Promotion Validation" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          IMAGES=(
+            "nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide:${VERSION}"
+            "nvcr.io/0837451325059433/carbide-dev/carbide-release-artifacts-aarch64:${VERSION}"
+            "nvcr.io/0837451325059433/carbide-dev/carbide-release-artifacts-x86_64:${VERSION}"
+          )
+
+          FAILED=0
+          for IMAGE in "${IMAGES[@]}"; do
+            if docker manifest inspect "${IMAGE}" > /dev/null 2>&1; then
+              echo "✅ Found: ${IMAGE}"
+              echo "| \`${IMAGE}\` | ✅ Found |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ NOT FOUND: ${IMAGE}"
+              echo "| \`${IMAGE}\` | ❌ Not Found |" >> $GITHUB_STEP_SUMMARY
+              FAILED=1
+            fi
+          done
+
+          if [ $FAILED -eq 1 ]; then
+            echo ""
+            echo "::error::One or more source images not found. Please verify the version string."
+            exit 1
+          fi
+
+          echo ""
+          echo "All source images validated successfully!"
+
+  # ============================================================================
+  # APPROVAL GATE - Promote images from carbide-dev to carbide
+  # ============================================================================
+  approve-promotion:
+    needs: prepare
+    runs-on: linux-amd64-cpu4
+    environment:
+      name: promote-release-candidate
+    steps:
+      - name: Promotion approved
+        run: |
+          echo "✅ Promotion approved"
+          echo "Promoting images from carbide-dev to carbide"
+          echo "Version: ${{ needs.prepare.outputs.version }}"
+          echo ""
+          echo "Images to be promoted:"
+          echo "  - nvmetal-carbide"
+          echo "  - carbide-release-artifacts-aarch64"
+          echo "  - carbide-release-artifacts-x86_64"
+
+
+  # ============================================================================
+  # ReTag - Application Image (nvmetal-carbide)
+  # ============================================================================
+  promote-carbide-core:
+    needs:
+      - prepare
+      - approve-promotion
+    uses: NVIDIA/dsx-github-actions/.github/workflows/promote-image.yml@95e609360851cfc141918c2c21e57762d77394ac
+    with:
+      source: nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide
+      source_tag: ${{ needs.prepare.outputs.version }}
+      destination: nvcr.io/0837451325059433/carbide/nvmetal-carbide
+      destination_tag: ${{ needs.prepare.outputs.version }}
+    secrets:
+      SOURCE_USERNAME: ${{ secrets.NVCR_USERNAME }}
+      SOURCE_PASSWORD: ${{ secrets.NVCR_TOKEN }}
+      DEST_USERNAME: ${{ secrets.NVCR_PROD_USERNAME }}
+      DEST_PASSWORD: ${{ secrets.NVCR_PROD_TOKEN }}
+
+  # ============================================================================
+  # ReTag - Artifacts Image (aarch64)
+  # ============================================================================
+  promote-artifacts-aarch64:
+    needs:
+      - prepare
+      - approve-promotion
+    uses: NVIDIA/dsx-github-actions/.github/workflows/promote-image.yml@95e609360851cfc141918c2c21e57762d77394ac
+    with:
+      source: nvcr.io/0837451325059433/carbide-dev/carbide-release-artifacts-aarch64
+      source_tag: ${{ needs.prepare.outputs.version }}
+      destination: nvcr.io/0837451325059433/carbide/carbide-release-artifacts-aarch64
+      destination_tag: ${{ needs.prepare.outputs.version }}
+    secrets:
+      SOURCE_USERNAME: ${{ secrets.NVCR_USERNAME }}
+      SOURCE_PASSWORD: ${{ secrets.NVCR_TOKEN }}
+      DEST_USERNAME: ${{ secrets.NVCR_PROD_USERNAME }}
+      DEST_PASSWORD: ${{ secrets.NVCR_PROD_TOKEN }}
+
+  # ============================================================================
+  # ReTag - Artifacts Image (x86_64)
+  # ============================================================================
+  promote-artifacts-x86_64:
+    needs:
+      - prepare
+      - approve-promotion
+    uses: NVIDIA/dsx-github-actions/.github/workflows/promote-image.yml@95e609360851cfc141918c2c21e57762d77394ac
+    with:
+      source: nvcr.io/0837451325059433/carbide-dev/carbide-release-artifacts-x86_64
+      source_tag: ${{ needs.prepare.outputs.version }}
+      destination: nvcr.io/0837451325059433/carbide/carbide-release-artifacts-x86_64
+      destination_tag: ${{ needs.prepare.outputs.version }}
+    secrets:
+      SOURCE_USERNAME: ${{ secrets.NVCR_USERNAME }}
+      SOURCE_PASSWORD: ${{ secrets.NVCR_TOKEN }}
+      DEST_USERNAME: ${{ secrets.NVCR_PROD_USERNAME }}
+      DEST_PASSWORD: ${{ secrets.NVCR_PROD_TOKEN }}
