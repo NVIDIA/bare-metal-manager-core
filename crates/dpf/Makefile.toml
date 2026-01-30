@@ -6,7 +6,7 @@ default_to_workspace = false
 
 [env]
 DOCA_REPO_URL = "https://github.com/NVIDIA/doca-platform.git"
-DOCA_BRANCH = "public-release-v25.10"
+DOCA_BRANCH = "v25.10.1"
 DOCA_CLONE_DIR = "/tmp/doca-platform"
 CRD_PROVISIONING_PATH = "${DOCA_CLONE_DIR}/config/provisioning/crd/bases"
 CRD_OPERATOR_PATH = "${DOCA_CLONE_DIR}/config/operator-crds"

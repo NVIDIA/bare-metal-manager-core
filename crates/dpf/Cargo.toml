@@ -27,6 +27,8 @@ tracing = { workspace = true }
 uuid = { features = ["v4"], workspace = true }
 async-trait = { workspace = true }
 
+carbide-uuid = { path = "../uuid", features = ["sqlx"] }
+
 [dev-dependencies]
 tower-test = { workspace = true }
 hyper = { features = ["client", "http1"], workspace = true }

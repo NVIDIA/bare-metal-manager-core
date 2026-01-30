@@ -144,6 +144,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 DpuInitState::WaitingForPlatformConfiguration => "waitingforplatformconfiguration",
                 DpuInitState::PollingBiosSetup => "pollingbiossetup",
                 DpuInitState::WaitingForPlatformPowercycle { .. } => "waitingforplatformpowercycle",
+                DpuInitState::DpfStates { .. } => "dpfstates",
             }
         }
 

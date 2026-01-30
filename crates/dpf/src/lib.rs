@@ -15,9 +15,9 @@
 //! This library provides the Carbide DPF implementation.
 
 pub mod crds;
-
 #[cfg(test)]
 pub mod test;
+pub mod utils;
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -32,8 +32,9 @@ use tokio::time::Duration;
 use crate::crds::bfb_generated::{BFB, BfbSpec, BfbStatusPhase};
 use crate::crds::dpu_flavor_generated::{DPUFlavor, DpuFlavorDpuMode, DpuFlavorSpec};
 use crate::crds::dpu_set_generated::{
-    DPUSet, DpuSetDpuTemplate, DpuSetDpuTemplateSpec, DpuSetDpuTemplateSpecBfb,
-    DpuSetDpuTemplateSpecNodeEffect, DpuSetSpec, DpuSetStrategy, DpuSetStrategyType,
+    DPUSet, DpuSetDpuNodeSelector, DpuSetDpuTemplate, DpuSetDpuTemplateSpec,
+    DpuSetDpuTemplateSpecBfb, DpuSetDpuTemplateSpecNodeEffect, DpuSetSpec, DpuSetStrategy,
+    DpuSetStrategyType,
 };
 
 pub const NAMESPACE: &str = "dpf-operator-system";
@@ -65,28 +66,40 @@ fn bfb_crd(name: &str) -> BFB {
 
 /// Trait for a Kubernetes client implementation.
 #[async_trait::async_trait]
-pub trait KubeImpl {
-    async fn get_object<K>(&self) -> Result<Api<K>, DpfError>
-    where
-        K: kube::Resource<Scope = k8s_openapi::NamespaceResourceScope>,
-        K: kube::Resource,
-        <K as kube::Resource>::DynamicType: Default;
+pub trait KubeImpl: Send + Sync + std::fmt::Debug + 'static {
+    async fn get_kube_client(&self) -> Result<kube::Client, DpfError>;
+
+    // This is Test implementation to avoid deleting kube CRs.
+    async fn force_delete_machine(
+        &self,
+        ip: &str,
+        dpu_machine_ids: &[String],
+    ) -> Result<(), DpfError> {
+        tracing::info!(
+            "Force deleting machine {ip} with DPU machine ids {dpu_machine_ids:?} in TEST env."
+        );
+        Ok(())
+    }
 }
 
 /// Production Kubernetes client implementation.
+#[derive(Debug, Clone)]
 pub struct Production;
 
 #[async_trait::async_trait]
 impl KubeImpl for Production {
-    async fn get_object<K>(&self) -> Result<Api<K>, DpfError>
-    where
-        K: kube::Resource<Scope = k8s_openapi::NamespaceResourceScope>,
-        K: kube::Resource,
-        <K as kube::Resource>::DynamicType: Default,
-    {
+    async fn get_kube_client(&self) -> Result<kube::Client, DpfError> {
         let client = Client::try_default().await.map_err(DpfError::KubeError)?;
-        let object: Api<K> = Api::namespaced(client, NAMESPACE);
-        Ok(object)
+        Ok(client)
+    }
+
+    // Production implementation does the real deletion.
+    async fn force_delete_machine(
+        &self,
+        ip: &str,
+        dpu_machine_ids: &[String],
+    ) -> Result<(), DpfError> {
+        utils::force_delete_managed_host(self, ip, dpu_machine_ids).await
     }
 }
 
@@ -99,6 +112,12 @@ pub enum DpfError {
     BFBNotReady(u32),
     #[error("Template error: {0}")]
     TemplateError(#[from] tera::Error),
+    #[error("Object {0} not found: {1}")]
+    NotFound(&'static str, String),
+    #[error("Annotation not found: {0} in object {1}")]
+    AnnotationNotFound(String, String),
+    #[error("Object {0} already exists: {1}")]
+    AlreadyExists(&'static str, String),
 }
 
 /// Creates all necessary Custom Resource Definitions (CRDs) and a Secret in the Kubernetes cluster to set up the DPF (Data Processing Framework) system.
@@ -185,7 +204,8 @@ async fn create_secret_for_bmc_password(
     password: String,
     kube_impl: &impl KubeImpl,
 ) -> Result<(), DpfError> {
-    let secrets = kube_impl.get_object::<Secret>().await?;
+    let client = kube_impl.get_kube_client().await?;
+    let secrets = Api::<Secret>::namespaced(client, NAMESPACE);
 
     if let Some(existing_secret) = secrets.get_opt(SECRET_NAME).await? {
         tracing::info!(
@@ -231,7 +251,8 @@ pub async fn create_bfcfg_configmap(
     let data = Some(BTreeMap::from([("BF_CFG_TEMPLATE".to_string(), bf_cfg)]));
 
     // Initialize Kubernetes client and construct the API object for ConfigMaps.
-    let configmaps = kube_impl.get_object::<ConfigMap>().await?;
+    let client = kube_impl.get_kube_client().await?;
+    let configmaps = Api::<ConfigMap>::namespaced(client, NAMESPACE);
 
     // Build the ConfigMap object.
     let configmap_cr = ConfigMap {
@@ -274,7 +295,8 @@ pub fn get_fw_update_data() -> String {
 /// - Returns `Ok(())` if successful, or a wrapped error if the Kubernetes client or API calls fail.
 async fn create_dpuflavor_if_not_exists(kube_impl: &impl KubeImpl) -> Result<(), DpfError> {
     // Initialize Kubernetes client and the API object for DPUFlavor in the given namespace.
-    let dpuflavors = kube_impl.get_object::<DPUFlavor>().await?;
+    let client = kube_impl.get_kube_client().await?;
+    let dpuflavors = Api::<DPUFlavor>::namespaced(client, NAMESPACE);
 
     // Attempt to retrieve the DPUFlavor CR; proceed if it does not exist.
     if dpuflavors
@@ -322,7 +344,8 @@ async fn create_dpuflavor_if_not_exists(kube_impl: &impl KubeImpl) -> Result<(),
 ///     - Creates the resource in the cluster with default post parameters.
 /// - Returns `Ok(())` if successful, or a wrapped error if the Kubernetes client or API calls fail.
 async fn create_dpuset_crd(bfb_name: &str, kube_impl: &impl KubeImpl) -> Result<(), DpfError> {
-    let dpusets = kube_impl.get_object::<DPUSet>().await?;
+    let client = kube_impl.get_kube_client().await?;
+    let dpusets = Api::<DPUSet>::namespaced(client, NAMESPACE);
 
     // Construct the DPUSet CR with default/empty fields.
     let dpuset_cr = DPUSet {
@@ -332,7 +355,13 @@ async fn create_dpuset_crd(bfb_name: &str, kube_impl: &impl KubeImpl) -> Result<
             ..Default::default()
         },
         spec: DpuSetSpec {
-            dpu_node_selector: None,
+            dpu_node_selector: Some(DpuSetDpuNodeSelector {
+                match_expressions: None,
+                match_labels: Some(BTreeMap::from([(
+                    "carbide.nvidia.com/controlled.node".to_string(),
+                    "true".to_string(),
+                )])),
+            }),
             dpu_selector: None,
             dpu_template: DpuSetDpuTemplate {
                 annotations: None,
@@ -386,7 +415,8 @@ pub async fn check_if_bfb_exists(
     name: &str,
     kube_impl: &impl KubeImpl,
 ) -> Result<Option<BFB>, DpfError> {
-    let bfb = kube_impl.get_object::<BFB>().await?;
+    let client = kube_impl.get_kube_client().await?;
+    let bfb = Api::<BFB>::namespaced(client, NAMESPACE);
     let bfb_crd = bfb.get_opt(name).await.map_err(DpfError::KubeError)?;
     Ok(bfb_crd)
 }
@@ -397,7 +427,8 @@ pub async fn check_if_bfb_exists(
 /// - Deletes the BFB CR with the name `BFB_NAME` using default delete parameters.
 /// - Returns `Ok(true)` if successful, or a wrapped error if the Kubernetes client or API calls fail.
 pub async fn delete_bfb_crd(name: &str, kube_impl: &impl KubeImpl) -> Result<(), DpfError> {
-    let bfb = kube_impl.get_object::<BFB>().await?;
+    let client = kube_impl.get_kube_client().await?;
+    let bfb = Api::<BFB>::namespaced(client, NAMESPACE);
     bfb.delete(name, &Default::default())
         .await
         .map_err(DpfError::KubeError)?;
@@ -416,7 +447,8 @@ async fn delete_all_old_bfb_crds(
     latest_bfb_name: String,
     kube_impl: &impl KubeImpl,
 ) -> Result<(), DpfError> {
-    let bfb = kube_impl.get_object::<BFB>().await?;
+    let client = kube_impl.get_kube_client().await?;
+    let bfb = Api::<BFB>::namespaced(client, NAMESPACE);
     let bfb_crds = bfb.list(&ListParams::default()).await?;
     for bfb_crd in bfb_crds {
         let name = bfb_crd.metadata.name.unwrap_or_default();
@@ -453,7 +485,8 @@ pub async fn create_and_wait_for_bfb(kube_impl: &impl KubeImpl) -> Result<String
     const TIMEOUT_SECONDS: u32 = 60;
     tracing::info!("Starting creation and waiting for BFB to become ready");
 
-    let bfb = kube_impl.get_object::<BFB>().await?;
+    let client = kube_impl.get_kube_client().await?;
+    let bfb = Api::<BFB>::namespaced(client, NAMESPACE);
 
     for attempt in 0..3 {
         let bfb_name = format!("{}-{}", BFB_NAME, uuid::Uuid::new_v4());

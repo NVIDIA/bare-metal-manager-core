@@ -18,6 +18,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
+use carbide_dpf::KubeImpl;
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
@@ -64,7 +65,8 @@ use model::machine::{
     ManagedHostStateSnapshot, MeasuringState, NetworkConfigUpdateState, NextStateBFBSupport,
     PerformPowerOperation, PowerDrainState, ReprovisionState, RetryInfo, SecureEraseBossContext,
     SecureEraseBossState, SetBootOrderInfo, SetBootOrderState, SetSecureBootState,
-    StateMachineArea, UefiSetupInfo, UefiSetupState, ValidationState, get_display_ids,
+    StateMachineArea, UefiSetupInfo, UefiSetupState, ValidationState,
+    dpf_based_dpu_provisioning_possible, get_display_ids,
 };
 use model::power_manager::PowerHandlingOutcome;
 use model::resource_pool::common::CommonPools;
@@ -93,6 +95,7 @@ use crate::state_controller::state_handler::{
     StateHandlerOutcomeWithTransaction,
 };
 
+mod dpf;
 mod helpers;
 mod machine_validation;
 mod power;
@@ -163,6 +166,24 @@ pub struct MachineStateHandler {
     enable_secure_boot: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct DpfConfig {
+    enabled: bool,
+    pub kube_client_provider: Arc<dyn KubeImpl>,
+}
+
+impl DpfConfig {
+    pub fn from(
+        config: crate::cfg::file::DpfConfig,
+        kube_client_provider: Arc<dyn KubeImpl>,
+    ) -> Self {
+        Self {
+            enabled: config.enabled,
+            kube_client_provider,
+        }
+    }
+}
+
 pub struct MachineStateHandlerBuilder {
     dpu_up_threshold: chrono::Duration,
     dpu_nic_firmware_initial_update_enabled: bool,
@@ -182,6 +203,7 @@ pub struct MachineStateHandlerBuilder {
     power_options_config: PowerOptionConfig,
     enable_secure_boot: bool,
     hgx_bmc_gpu_reboot_delay: chrono::Duration,
+    dpf_config: DpfConfig,
 }
 
 impl MachineStateHandlerBuilder {
@@ -217,7 +239,16 @@ impl MachineStateHandlerBuilder {
             },
             enable_secure_boot: false,
             hgx_bmc_gpu_reboot_delay: chrono::Duration::seconds(30),
+            dpf_config: DpfConfig {
+                enabled: false,
+                kube_client_provider: Arc::new(carbide_dpf::Production {}),
+            },
         }
+    }
+
+    pub fn dpf_config(mut self, dpf_config: DpfConfig) -> Self {
+        self.dpf_config = dpf_config;
+        self
     }
 
     pub fn credential_provider(mut self, credential_provider: Arc<dyn CredentialProvider>) -> Self {
@@ -370,6 +401,7 @@ impl MachineStateHandler {
                 builder.hardware_models.clone().unwrap_or_default(),
                 builder.reachability_params,
                 builder.enable_secure_boot,
+                builder.dpf_config.clone(),
             ),
             instance_handler: InstanceStateHandler::new(
                 builder.attestation_enabled,
@@ -378,6 +410,7 @@ impl MachineStateHandler {
                 host_upgrade.clone(),
                 builder.hardware_models.clone().unwrap_or_default(),
                 builder.enable_secure_boot,
+                builder.dpf_config.clone(),
             ),
             reachability_params: builder.reachability_params,
             host_upgrade,
@@ -825,7 +858,8 @@ impl MachineStateHandler {
 
                     let reprov_state = ReprovisionState::next_substate_based_on_bfb_support(
                         self.enable_secure_boot,
-                        &dpus_for_reprov,
+                        mh_snapshot,
+                        ctx.services.site_config.dpf.enabled,
                     );
 
                     let next_state = reprov_state.next_state_with_all_dpus_updated(
@@ -1441,6 +1475,7 @@ impl MachineStateHandler {
                             dpu_snapshot,
                             ctx,
                             &self.dpu_handler.hardware_models,
+                            &self.dpu_handler.dpf_config,
                         )
                         .await?
                     {
@@ -1537,7 +1572,8 @@ impl MachineStateHandler {
 
         let reprov_state = ReprovisionState::next_substate_based_on_bfb_support(
             self.enable_secure_boot,
-            dpus_for_reprov,
+            state,
+            ctx.services.site_config.dpf.enabled,
         );
         Ok(Some(reprov_state.next_state_with_all_dpus_updated(
             &state.managed_state,
@@ -1595,7 +1631,8 @@ impl MachineStateHandler {
                 next_state = Some(
                     ReprovisionState::next_substate_based_on_bfb_support(
                         self.enable_secure_boot,
-                        &dpus_for_reprov,
+                        state,
+                        ctx.services.site_config.dpf.enabled,
                     )
                     .next_state_with_all_dpus_updated(
                         &state.managed_state,
@@ -2421,6 +2458,7 @@ pub fn identify_dpu(dpu_snapshot: &Machine) -> DpuModel {
 
 /// Handle workflow of DPU reprovision
 #[allow(txn_held_across_await)]
+#[allow(clippy::too_many_arguments)]
 async fn handle_dpu_reprovision(
     state: &ManagedHostStateSnapshot,
     reachability_params: &ReachabilityParams,
@@ -2429,6 +2467,7 @@ async fn handle_dpu_reprovision(
     dpu_snapshot: &Machine,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     hardware_models: &FirmwareConfig,
+    dpf_config: &DpfConfig,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let dpu_machine_id = &dpu_snapshot.id;
     let reprovision_state = state
@@ -2440,6 +2479,19 @@ async fn handle_dpu_reprovision(
         })?;
 
     match reprovision_state {
+        ReprovisionState::DpfStates { substate } => {
+            dpf::handle_dpf_state_with_reprovision(
+                state,
+                dpu_snapshot,
+                substate,
+                txn,
+                ctx,
+                dpf_config,
+                reachability_params,
+                next_state_resolver,
+            )
+            .await
+        }
         ReprovisionState::InstallDpuOs { substate } => {
             handle_bfb_install_state(
                 state,
@@ -2761,7 +2813,7 @@ fn host_reprovisioning_requested(state: &ManagedHostStateSnapshot) -> bool {
 }
 
 /// This function waits for DPU to finish discovery and reboots it.
-async fn try_wait_for_dpu_discovery(
+pub async fn try_wait_for_dpu_discovery(
     state: &ManagedHostStateSnapshot,
     reachability_params: &ReachabilityParams,
     services: &CommonStateHandlerServices,
@@ -3002,6 +3054,7 @@ pub struct DpuMachineStateHandler {
     hardware_models: FirmwareConfig,
     reachability_params: ReachabilityParams,
     enable_secure_boot: bool,
+    pub dpf_config: DpfConfig,
 }
 
 impl DpuMachineStateHandler {
@@ -3010,12 +3063,14 @@ impl DpuMachineStateHandler {
         hardware_models: FirmwareConfig,
         reachability_params: ReachabilityParams,
         enable_secure_boot: bool,
+        dpf_config: DpfConfig,
     ) -> Self {
         DpuMachineStateHandler {
             dpu_nic_firmware_initial_update_enabled,
             hardware_models,
             reachability_params,
             enable_secure_boot,
+            dpf_config,
         }
     }
 
@@ -3111,11 +3166,11 @@ impl DpuMachineStateHandler {
                     .await
                     .map_err(|e| tracing::info!("failed to enable rshim on DPU {e}"));
 
-                let dpu_states = state.dpu_snapshots.iter().collect::<Vec<&Machine>>();
                 let next_dpu_discovering_state =
                     DpuDiscoveringState::next_substate_based_on_bfb_support(
                         self.enable_secure_boot,
-                        &dpu_states,
+                        state,
+                        ctx.services.site_config.dpf.enabled,
                     );
 
                 tracing::info!(
@@ -3191,17 +3246,26 @@ impl DpuMachineStateHandler {
                     ));
                 }
 
-                //
-                // Next just do a ForceRestart to netboot without secureboot.
-                //
-                // This will kick off the ARM OS install since we move to DPU/Init next.
-                //
-                for dpu_snapshot in &state.dpu_snapshots {
-                    handler_restart_dpu(dpu_snapshot, ctx.services, txn).await?;
-                }
+                // Checking dpf and updating state to start dpf based provisioing in this satte because this state works as a sync state as well.
+                let next_state =
+                    if dpf_based_dpu_provisioning_possible(state, self.dpf_config.enabled) {
+                        DpuInitState::DpfStates {
+                            state: model::machine::DpfState::CreateDpuDevice,
+                        }
+                    } else {
+                        //
+                        // Next just do a ForceRestart to netboot without secureboot.
+                        //
+                        // This will kick off the ARM OS install since we move to DPU/Init next.
+                        //
+                        for dpu_snapshot in &state.dpu_snapshots {
+                            handler_restart_dpu(dpu_snapshot, ctx.services, txn).await?;
+                        }
+                        DpuInitState::Init
+                    };
 
                 let next_state =
-                    DpuInitState::Init.next_state_with_all_dpus_updated(&state.managed_state)?;
+                    next_state.next_state_with_all_dpus_updated(&state.managed_state)?;
                 Ok(StateHandlerOutcome::transition(next_state))
             }
         }
@@ -3277,7 +3341,18 @@ impl DpuMachineStateHandler {
                     machine_state.next_state_with_all_dpus_updated(&state.managed_state)?;
                 Ok(StateHandlerOutcome::transition(next_state))
             }
-
+            DpuInitState::DpfStates { state: dpf_state } => {
+                dpf::handle_dpf_state(
+                    state,
+                    dpu_snapshot,
+                    dpf_state,
+                    txn,
+                    ctx,
+                    &self.dpf_config,
+                    &self.reachability_params,
+                )
+                .await
+            }
             DpuInitState::WaitingForPlatformPowercycle {
                 substate: PerformPowerOperation::Off,
             } => {
@@ -5020,6 +5095,7 @@ pub struct InstanceStateHandler {
     host_upgrade: Arc<HostUpgradeState>,
     hardware_models: FirmwareConfig,
     enable_secure_boot: bool,
+    dpf_config: DpfConfig,
 }
 
 impl InstanceStateHandler {
@@ -5030,6 +5106,7 @@ impl InstanceStateHandler {
         host_upgrade: Arc<HostUpgradeState>,
         hardware_models: FirmwareConfig,
         enable_secure_boot: bool,
+        dpf_config: DpfConfig,
     ) -> Self {
         InstanceStateHandler {
             attestation_enabled,
@@ -5038,6 +5115,7 @@ impl InstanceStateHandler {
             host_upgrade,
             hardware_models,
             enable_secure_boot,
+            dpf_config,
         }
     }
 }
@@ -5538,7 +5616,8 @@ impl InstanceStateHandler {
 
                         let next_state = ReprovisionState::next_substate_based_on_bfb_support(
                             self.enable_secure_boot,
-                            &dpus_for_reprov,
+                            mh_snapshot,
+                            ctx.services.site_config.dpf.enabled,
                         )
                         .next_state_with_all_dpus_updated(
                             &mh_snapshot.managed_state,
@@ -5777,6 +5856,7 @@ impl InstanceStateHandler {
                                 dpu_snapshot,
                                 ctx,
                                 &self.hardware_models,
+                                &self.dpf_config,
                             )
                             .await?
                         {
