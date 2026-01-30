@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures::{StreamExt, stream};
-use health_report::HealthProbeId;
+use health_report::{HealthAlertClassification, HealthProbeId};
 use nv_redfish::ServiceRoot;
 use nv_redfish::chassis::{Chassis, PowerSupply};
 use nv_redfish::computer_system::{ComputerSystem, Drive, Memory, Processor, Storage};
@@ -266,9 +266,9 @@ impl SensorHealthData {
                 );
                 let classifications = if let Ok(classification) = health.to_classification().parse()
                 {
-                    vec![classification]
+                    vec![classification, HealthAlertClassification::hardware()]
                 } else {
-                    vec![]
+                    vec![HealthAlertClassification::hardware()]
                 };
                 SensorHealthResult::Alert(health_report::HealthProbeAlert {
                     id: probe_id,
