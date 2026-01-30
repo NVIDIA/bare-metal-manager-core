@@ -9,14 +9,20 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use scout::CarbideClientError;
-use utils::cmd::Cmd;
+use std::ffi::OsStr;
 
-pub fn run_prog(cmd: String) -> Result<String, CarbideClientError> {
-    let mut cmdpar = cmd.split(' ');
-    let command = Cmd::new(cmdpar.next().unwrap());
+use scout::CarbideClientError;
+use utils::cmd::TokioCmd;
+
+pub async fn run_prog<I, S>(command: S, args: I) -> Result<String, CarbideClientError>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let command = TokioCmd::new(command);
     command
-        .args(cmdpar)
+        .args(args)
         .output()
+        .await
         .map_err(CarbideClientError::from)
 }

@@ -1115,6 +1115,8 @@ pub fn get_config() -> CarbideConfig {
         dsx_exchange_event_bus: None,
         use_onboard_nic: Arc::new(false.into()),
         dpf: crate::cfg::file::DpfConfig::default(),
+        x86_pxe_boot_url_override: None,
+        arm_pxe_boot_url_override: None,
     }
 }
 
