@@ -30,7 +30,6 @@ use db::rack_state_history;
 use model::rack::{Rack, RackMaintenanceState, RackReadyState, RackState, RackValidationState};
 use rpc::forge::RackEvent;
 use rpc::forge::forge_server::Forge;
-use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::controller::StateController;
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
@@ -65,7 +64,6 @@ impl StateHandler for TestRackStateHandler {
         state: &mut Rack,
         controller_state: &Self::ControllerState,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    //) -> Result<StateHandlerOutcomeWithTransaction<Self::ControllerState>, StateHandlerError> {
     ) -> Result<StateHandlerOutcomeWithTransaction<Self::ControllerState>, StateHandlerError> {
         assert_eq!(state.id, *rack_id);
         self.count.fetch_add(1, Ordering::SeqCst);
@@ -166,17 +164,7 @@ async fn test_can_retrieve_rack_state_history(
     const ITERATION_TIME: Duration = Duration::from_millis(50);
     const TEST_TIME: Duration = Duration::from_secs(2);
 
-    // TODO: push this into test infra as a builder
-    let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone().into(),
-        redfish_client_pool: env.redfish_sim.clone(),
-        ib_fabric_manager: env.ib_fabric_manager.clone(),
-        ib_pools: env.common_pools.infiniband.clone(),
-        ipmi_tool: env.ipmi_tool.clone(),
-        site_config: env.config.clone(),
-        dpa_info: None,
-        rms_client: None,
-    });
+    let handler_services = Arc::new(env.state_handler_services());
 
     let _handle = StateController::<RackStateControllerIO>::builder()
         .iteration_config(IterationConfig {
@@ -246,17 +234,7 @@ async fn test_rack_state_transitions(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     const ITERATION_TIME: Duration = Duration::from_millis(50);
     const TEST_TIME: Duration = Duration::from_secs(5);
 
-    let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone(),
-        db_reader: pool.clone().into(),
-        redfish_client_pool: env.redfish_sim.clone(),
-        ib_fabric_manager: env.ib_fabric_manager.clone(),
-        ib_pools: env.common_pools.infiniband.clone(),
-        ipmi_tool: env.ipmi_tool.clone(),
-        site_config: env.config.clone(),
-        dpa_info: None,
-        rms_client: None,
-    });
+    let handler_services = Arc::new(env.state_handler_services());
 
     let handle = StateController::<RackStateControllerIO>::builder()
         .iteration_config(IterationConfig {
@@ -312,17 +290,7 @@ async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     const ITERATION_TIME: Duration = Duration::from_millis(50);
     const TEST_TIME: Duration = Duration::from_secs(2);
 
-    let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone(),
-        db_reader: pool.clone().into(),
-        redfish_client_pool: env.redfish_sim.clone(),
-        ib_fabric_manager: env.ib_fabric_manager.clone(),
-        ib_pools: env.common_pools.infiniband.clone(),
-        ipmi_tool: env.ipmi_tool.clone(),
-        site_config: env.config.clone(),
-        dpa_info: None,
-        rms_client: None,
-    });
+    let handler_services = Arc::new(env.state_handler_services());
 
     let handle = StateController::<RackStateControllerIO>::builder()
         .iteration_config(IterationConfig {
@@ -336,20 +304,6 @@ async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         .state_handler(rack_handler.clone())
         .build_and_spawn()
         .unwrap();
-
-/*
-    let _handle = StateController::<RackStateControllerIO>::builder()
-        .iteration_config(IterationConfig {
-            iteration_time: ITERATION_TIME,
-            ..Default::default()
-        })
-        .database(pool.clone(), env.api.work_lock_manager_handle.clone())
-        .processor_id(uuid::Uuid::new_v4().to_string())
-        .services(handler_services.clone())
-        .state_handler(rack_handler.clone())
-        .build_and_spawn()
-        .unwrap();
-*/
 
     // Let the controller process the active rack
     tokio::time::sleep(TEST_TIME).await;
@@ -412,17 +366,7 @@ async fn test_rack_error_state_handling(
     const ITERATION_TIME: Duration = Duration::from_millis(50);
     const TEST_TIME: Duration = Duration::from_secs(5);
 
-    let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone(),
-        db_reader: pool.clone().into(),
-        redfish_client_pool: env.redfish_sim.clone(),
-        ib_fabric_manager: env.ib_fabric_manager.clone(),
-        ib_pools: env.common_pools.infiniband.clone(),
-        ipmi_tool: env.ipmi_tool.clone(),
-        site_config: env.config.clone(),
-        dpa_info: None,
-        rms_client: None,
-    });
+    let handler_services = Arc::new(env.state_handler_services());
 
     let handle = StateController::<RackStateControllerIO>::builder()
         .iteration_config(IterationConfig {
@@ -525,17 +469,7 @@ async fn test_rack_deletion_with_state_controller(
     const ITERATION_TIME: Duration = Duration::from_millis(50);
     const TEST_TIME: Duration = Duration::from_secs(2);
 
-    let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone(),
-        db_reader: pool.clone().into(),
-        redfish_client_pool: env.redfish_sim.clone(),
-        ib_fabric_manager: env.ib_fabric_manager.clone(),
-        ib_pools: env.common_pools.infiniband.clone(),
-        ipmi_tool: env.ipmi_tool.clone(),
-        site_config: env.config.clone(),
-        dpa_info: None,
-        rms_client: None,
-    });
+    let handler_services = Arc::new(env.state_handler_services());
 
     let handle = StateController::<RackStateControllerIO>::builder()
         .iteration_config(IterationConfig {
