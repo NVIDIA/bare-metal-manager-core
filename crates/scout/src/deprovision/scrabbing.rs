@@ -19,6 +19,7 @@ use regex::Regex;
 use scout::CarbideClientError;
 use serde::Deserialize;
 use smbioslib::SMBiosSystemInformation;
+use tracing::Instrument;
 
 use crate::cfg::Options;
 use crate::client::create_forge_client;
@@ -245,11 +246,11 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
     Ok(())
 }
 
-/// Result of cleaning a single NVMe device
-struct NvmeCleanupResult {
+/// Failed NVMe device cleanup with error context
+struct CleanupFailure {
     device: String,
-    result: Result<(), CarbideClientError>,
     duration: std::time::Duration,
+    error: CarbideClientError,
 }
 
 async fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
@@ -280,31 +281,38 @@ async fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
     tracing::info!(device_count, "Starting parallel NVMe cleanup");
     let start_time = std::time::Instant::now();
 
-    // Spawn blocking tasks for each NVMe device cleanup
+    // Spawn async tasks for each NVMe device cleanup
     let cleanup_futures: Vec<_> = nvme_devicepaths
         .into_iter()
         .map(|nvmename| {
             let device = nvmename.clone();
-            tokio::task::spawn_blocking(move || {
-                let device_start = std::time::Instant::now();
-                let span = tracing::info_span!("nvme_cleanup", device = %nvmename);
-                let _guard = span.enter();
+            let span = tracing::info_span!("nvme_cleanup", device = %nvmename);
 
-                tracing::info!("Starting cleanup");
-                let result = clean_this_nvme(&nvmename);
-                let duration = device_start.elapsed();
+            tokio::spawn(
+                async move {
+                    let device_start = std::time::Instant::now();
 
-                match &result {
-                    Ok(()) => tracing::info!(?duration, "Cleanup completed successfully"),
-                    Err(e) => tracing::error!(?duration, error = %e, "Cleanup failed"),
+                    tracing::info!("Starting cleanup");
+                    let result = clean_this_nvme(&nvmename).await;
+                    let duration = device_start.elapsed();
+
+                    match result {
+                        Ok(()) => {
+                            tracing::info!(?duration, "Cleanup completed successfully");
+                            Ok(())
+                        }
+                        Err(error) => {
+                            tracing::error!(?duration, %error, "Cleanup failed");
+                            Err(CleanupFailure {
+                                device,
+                                duration,
+                                error,
+                            })
+                        }
+                    }
                 }
-
-                NvmeCleanupResult {
-                    device,
-                    result,
-                    duration,
-                }
-            })
+                .instrument(span),
+            )
         })
         .collect();
 
@@ -317,18 +325,13 @@ async fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
     let mut success_count = 0;
 
     for join_result in results {
-        match join_result {
-            Ok(cleanup_result) => match cleanup_result.result {
-                Ok(()) => success_count += 1,
-                Err(e) => errors.push(format!(
-                    "NVME_CLEAN_ERROR:{}:{} (took {:?})",
-                    cleanup_result.device, e, cleanup_result.duration
-                )),
-            },
-            Err(join_error) => {
-                // Task panicked or was cancelled
-                errors.push(format!("NVME_CLEAN_TASK_ERROR:{}", join_error));
-            }
+        let cleanup_result = join_result.expect("nvme cleanup task panicked");
+        match cleanup_result {
+            Ok(()) => success_count += 1,
+            Err(failure) => errors.push(format!(
+                "NVME_CLEAN_ERROR (device: {}; duration: {:?}): {}",
+                failure.device, failure.duration, failure.error,
+            )),
         }
     }
 
