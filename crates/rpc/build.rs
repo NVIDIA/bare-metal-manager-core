@@ -253,7 +253,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.PowerOptions",
                         "#[derive(serde::Deserialize, serde::Serialize)]")
         .type_attribute(
-            "forge.IpxeOperatingSystem",
+            "forge.InlineIpxe",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
         .type_attribute("forge.NetworkSegmentList", "#[derive(serde::Serialize)]")

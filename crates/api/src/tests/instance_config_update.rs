@@ -73,7 +73,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::IpxeOperatingSystem {
+            rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
             },
@@ -122,7 +122,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         run_provisioning_instructions_on_every_boot: true,
         user_data: Some("SomeRandomData2".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::IpxeOperatingSystem {
+            rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe2".to_string(),
                 user_data: Some("SomeRandomData2".to_string()),
             },
@@ -224,7 +224,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData3".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::IpxeOperatingSystem {
+            rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe3".to_string(),
                 user_data: Some("SomeRandomData3".to_string()),
             },
@@ -328,7 +328,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::IpxeOperatingSystem {
+            rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
             },
@@ -364,7 +364,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData2".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::IpxeOperatingSystem {
+            rpc::forge::InlineIpxe {
                 ipxe_script: "".to_string(),
                 user_data: Some("SomeRandomData2".to_string()),
             },
@@ -387,7 +387,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
     assert_eq!(
         err.message(),
-        "Invalid value: IpxeOperatingSystem::ipxe_script is empty"
+        "Invalid value: InlineIpxe::ipxe_script is empty"
     );
 
     // The tenant of an instance can not be updated
@@ -557,7 +557,7 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::IpxeOperatingSystem {
+            rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
             },
@@ -680,7 +680,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::IpxeOperatingSystem {
+            rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
             },
@@ -863,7 +863,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::IpxeOperatingSystem {
+            rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
             },
@@ -999,7 +999,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::IpxeOperatingSystem {
+            rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
             },
@@ -1147,7 +1147,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::IpxeOperatingSystem {
+            rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
             },

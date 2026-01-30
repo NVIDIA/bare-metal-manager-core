@@ -17,27 +17,25 @@ use uuid::Uuid;
 use crate::ConfigValidationError;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct IpxeOperatingSystem {
+pub struct InlineIpxe {
     /// The iPXE script which is booted into
     pub ipxe_script: String,
 }
 
-impl TryFrom<rpc::forge::IpxeOperatingSystem> for IpxeOperatingSystem {
+impl TryFrom<rpc::forge::InlineIpxe> for InlineIpxe {
     type Error = RpcDataConversionError;
 
-    fn try_from(config: rpc::forge::IpxeOperatingSystem) -> Result<Self, Self::Error> {
+    fn try_from(config: rpc::forge::InlineIpxe) -> Result<Self, Self::Error> {
         Ok(Self {
             ipxe_script: config.ipxe_script,
         })
     }
 }
 
-impl TryFrom<IpxeOperatingSystem> for rpc::forge::IpxeOperatingSystem {
+impl TryFrom<InlineIpxe> for rpc::forge::InlineIpxe {
     type Error = RpcDataConversionError;
 
-    fn try_from(
-        config: IpxeOperatingSystem,
-    ) -> Result<rpc::forge::IpxeOperatingSystem, Self::Error> {
+    fn try_from(config: InlineIpxe) -> Result<rpc::forge::InlineIpxe, Self::Error> {
         Ok(Self {
             ipxe_script: config.ipxe_script,
             user_data: None,
@@ -45,12 +43,12 @@ impl TryFrom<IpxeOperatingSystem> for rpc::forge::IpxeOperatingSystem {
     }
 }
 
-impl IpxeOperatingSystem {
+impl InlineIpxe {
     /// Validates the operating system
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
         if self.ipxe_script.trim().is_empty() {
             return Err(ConfigValidationError::invalid_value(
-                "IpxeOperatingSystem::ipxe_script is empty",
+                "InlineIpxe::ipxe_script is empty",
             ));
         }
 
@@ -61,7 +59,7 @@ impl IpxeOperatingSystem {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OperatingSystemVariant {
     /// An operating system that is booted into via iPXE
-    Ipxe(IpxeOperatingSystem),
+    Ipxe(InlineIpxe),
     OsImage(Uuid),
 }
 
@@ -139,7 +137,7 @@ impl TryFrom<OperatingSystem> for rpc::forge::OperatingSystem {
     fn try_from(config: OperatingSystem) -> Result<rpc::forge::OperatingSystem, Self::Error> {
         let variant = match config.variant {
             OperatingSystemVariant::Ipxe(ipxe) => {
-                let mut ipxe: rpc::forge::IpxeOperatingSystem = ipxe.try_into()?;
+                let mut ipxe: rpc::forge::InlineIpxe = ipxe.try_into()?;
                 ipxe.user_data = config.user_data.clone();
                 rpc::forge::operating_system::Variant::Ipxe(ipxe)
             }

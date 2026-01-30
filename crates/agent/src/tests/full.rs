@@ -776,7 +776,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                 phone_home_enabled: false,
                 run_provisioning_instructions_on_every_boot: false,
                 user_data: Some("".to_string()),
-                variant: Some(rpc::forge::operating_system::Variant::Ipxe(rpc::forge::IpxeOperatingSystem {
+                variant: Some(rpc::forge::operating_system::Variant::Ipxe(rpc::forge::InlineIpxe {
                     ipxe_script: " chain http://10.217.126.4/public/blobs/internal/x86_64/qcow-imager.efi loglevel=7 console=ttyS0,115200 console=tty0 pci=realloc=off image_url=https://pbss.s8k.io/v1/AUTH_team-forge/images.qcow2/carbide-dev-environment/carbide-dev-environment-latest.qcow2".to_string(),
                     user_data: Some("".to_string()),
                 })),

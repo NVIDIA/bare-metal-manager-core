@@ -1935,7 +1935,7 @@ message TenantConfig {
 message OperatingSystem {
   // Contains the operating system definition based on the variant of operating system
   oneof variant {
-    IpxeOperatingSystem ipxe = 1;
+    InlineIpxe ipxe = 1;
     common.UUID os_image_id = 2;
   }
 
@@ -1966,7 +1966,7 @@ message OperatingSystem {
   optional string user_data = 13;
 }
 
-message IpxeOperatingSystem {
+message InlineIpxe {
   // The iPXE script which is booted into
   string ipxe_script = 1;
   // Optional user-data that is associated with the iPXE script
