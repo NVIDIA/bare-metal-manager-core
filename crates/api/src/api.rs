@@ -732,10 +732,7 @@ impl Forge for Api {
         }
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                "begin find_rack_state_histories",
-                e,
-            ))
+            CarbideError::from(DatabaseError::new("begin find_rack_state_histories", e))
         })?;
 
         let results = db::rack_state_history::find_by_rack_ids(&mut txn, &rack_ids)
@@ -753,10 +750,7 @@ impl Forge for Api {
         }
 
         txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                "end find_rack_state_histories",
-                e,
-            ))
+            CarbideError::from(DatabaseError::new("end find_rack_state_histories", e))
         })?;
 
         Ok(tonic::Response::new(response))

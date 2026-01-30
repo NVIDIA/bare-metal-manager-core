@@ -21,15 +21,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use carbide_uuid::rack::RackId;
-//use sqlx::PgConnection;
-
-use db::rack as db_rack;
-
 use config_version::ConfigVersion;
-use db::rack_state_history;
+use db::{rack as db_rack, rack_state_history};
 use model::rack::{Rack, RackMaintenanceState, RackReadyState, RackState, RackValidationState};
 use rpc::forge::RackStateHistoryRecord;
 use rpc::forge::forge_server::Forge;
+
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::controller::StateController;
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
@@ -38,7 +35,8 @@ use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
     StateHandlerOutcomeWithTransaction,
 };
-use crate::tests::common::api_fixtures::{create_test_env, site_explorer::TestRackDbBuilder};
+use crate::tests::common::api_fixtures::create_test_env;
+use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 
 mod fixtures;
 use fixtures::rack::{mark_rack_as_deleted, set_rack_controller_state};
@@ -73,29 +71,23 @@ impl StateHandler for TestRackStateHandler {
         }
 
         let new_state = match controller_state {
-            RackState::Expected => {
-                &RackState::Discovering
-            }
+            RackState::Expected => &RackState::Discovering,
 
-            RackState::Discovering => {
-                &RackState::Ready {
-                    rack_ready: RackReadyState::Partial,
-                }
-            }
+            RackState::Discovering => &RackState::Ready {
+                rack_ready: RackReadyState::Partial,
+            },
 
             RackState::Ready {
                 rack_ready: ready_state,
             } => match ready_state {
-                RackReadyState::Partial => {
-                    &RackState::Ready {
-                        rack_ready: RackReadyState::Full,
-                    }
-                }
+                RackReadyState::Partial => &RackState::Ready {
+                    rack_ready: RackReadyState::Full,
+                },
                 RackReadyState::Full => {
                     return Ok(StateHandlerOutcome::transition(RackState::Maintenance {
                         rack_maintenance: RackMaintenanceState::RackValidation {
-                            rack_validation: RackValidationState::Topology
-                        }
+                            rack_validation: RackValidationState::Topology,
+                        },
                     })
                     .with_txn(None));
                 }
@@ -111,20 +103,18 @@ impl StateHandler for TestRackStateHandler {
         db_rack::try_update_controller_state(&mut txn, rack_id, old_version, new_state).await?;
 
         // Persist state history so we can get at it from UT
-        rack_state_history::persist(
-            &mut txn,
-            rack_id,
-            &controller_state.clone(),
-            old_version,
-        )
-        .await?;
+        rack_state_history::persist(&mut txn, rack_id, &controller_state.clone(), old_version)
+            .await?;
 
         tokio::time::sleep(Duration::from_millis(100)).await;
         Ok(StateHandlerOutcome::transition(new_state.clone()).with_txn(None))
     }
 }
 
-fn validate_state_change_history(histories: &[RackStateHistoryRecord], expected: &Vec<&str>) -> bool {
+fn validate_state_change_history(
+    histories: &[RackStateHistoryRecord],
+    expected: &Vec<&str>,
+) -> bool {
     for &s in expected {
         if !histories.iter().any(|e| e.state == s) {
             return false;
@@ -405,7 +395,6 @@ async fn test_rack_error_state_handling(
 async fn test_rack_state_transition_validation(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-
     // Create a rack
     let rack_id = RackId::from(uuid::Uuid::new_v4());
     let mut txn = pool.acquire().await?;

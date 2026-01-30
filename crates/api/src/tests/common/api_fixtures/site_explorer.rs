@@ -18,13 +18,12 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::iter;
 use std::net::IpAddr;
-use sqlx::PgConnection;
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
 use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
 use db::machine_interface::find_by_mac_address;
-use db::{power_shelf as db_power_shelf, rack as db_rack, switch as db_switch, DatabaseError};
+use db::{DatabaseError, power_shelf as db_power_shelf, rack as db_rack, switch as db_switch};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use futures_util::FutureExt;
 use health_report::HealthReport;
@@ -46,6 +45,7 @@ use rpc::forge::{self, HardwareHealthReport};
 use rpc::forge_agent_control_response::Action;
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{DiscoveryData, DiscoveryInfo};
+use sqlx::PgConnection;
 use tonic::Request;
 use uuid;
 
@@ -1592,10 +1592,7 @@ impl TestRackDbBuilder {
     }
 
     pub fn with_expected_switches(mut self, expected_switches: Vec<[u8; 6]>) -> Self {
-        self.expected_switches = expected_switches
-            .into_iter()
-            .map(MacAddress::new)
-            .collect();
+        self.expected_switches = expected_switches.into_iter().map(MacAddress::new).collect();
         self
     }
 
