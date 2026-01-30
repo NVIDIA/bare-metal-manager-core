@@ -300,7 +300,7 @@ pub async fn tenant_network(
             let vpc_prefixes = db::vpc_prefix::find_by_vpc(txn, vpc_id)
                 .await?
                 .into_iter()
-                .map(|vpc_prefix| vpc_prefix.prefix.to_string());
+                .map(|vpc_prefix| vpc_prefix.config.prefix.to_string());
             let vpc_segment_prefixes = db::network_prefix::find_by_vpc(txn, vpc_id)
                 .await?
                 .into_iter()

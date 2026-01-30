@@ -20,7 +20,9 @@ use tonic::Request;
 use crate::tests::common::api_fixtures::{create_test_env, get_vpc_fixture_id};
 
 #[crate::sqlx_test]
-async fn test_create_and_delete_vpc_prefix(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_create_and_delete_vpc_prefix_deprecated_fields(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     env.create_vpc_and_tenant_segment().await;
     let ip_prefix = "192.0.2.0/25";
@@ -30,6 +32,52 @@ async fn test_create_and_delete_vpc_prefix(pool: PgPool) -> Result<(), Box<dyn s
         prefix: ip_prefix.into(),
         name: "Test VPC prefix".into(),
         vpc_id: Some(vpc_id),
+        ..Default::default()
+    };
+    let request = Request::new(new_vpc_prefix);
+    let response = env.api.create_vpc_prefix(request).await;
+    let vpc_prefix = response.expect("Could not create VPC prefix").into_inner();
+
+    assert_eq!(
+        vpc_prefix.prefix.as_str(),
+        ip_prefix,
+        "The prefix after resource creation was different from what we requested"
+    );
+
+    let id = vpc_prefix
+        .id
+        .expect("The id field on the new VPC prefix is missing (this should be impossible)");
+
+    let delete_by_id = VpcPrefixDeletionRequest { id: Some(id) };
+    let request = Request::new(delete_by_id);
+    let response = env.api.delete_vpc_prefix(request).await;
+    let _deletion_result = response.expect("Could not delete VPC prefix").into_inner();
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_create_and_delete_vpc_prefix(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    env.create_vpc_and_tenant_segment().await;
+    let ip_prefix = "192.0.2.0/25";
+    let vpc_id = get_vpc_fixture_id(&env).await;
+    let new_vpc_prefix = VpcPrefixCreationRequest {
+        id: None,
+        prefix: String::new(),
+        name: String::new(),
+        vpc_id: Some(vpc_id),
+        config: Some(rpc::forge::VpcPrefixConfig {
+            prefix: ip_prefix.into(),
+        }),
+        metadata: Some(rpc::forge::Metadata {
+            name: "Test VPC prefix".into(),
+            description: String::from("some description"),
+            labels: vec![rpc::forge::Label {
+                key: "example_key".into(),
+                value: Some("example_value".into()),
+            }],
+        }),
     };
     let request = Request::new(new_vpc_prefix);
     let response = env.api.create_vpc_prefix(request).await;
@@ -64,9 +112,20 @@ async fn test_overlapping_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::
 
     let new_vpc_prefix = VpcPrefixCreationRequest {
         id: None,
-        prefix: ip_prefix.into(),
-        name: "Test VPC prefix".into(),
+        prefix: String::new(),
+        name: String::new(),
         vpc_id: Some(vpc_id),
+        config: Some(rpc::forge::VpcPrefixConfig {
+            prefix: ip_prefix.into(),
+        }),
+        metadata: Some(rpc::forge::Metadata {
+            name: "Test VPC prefix".into(),
+            description: String::from("some description"),
+            labels: vec![rpc::forge::Label {
+                key: "example_key".into(),
+                value: Some("example_value".into()),
+            }],
+        }),
     };
     let request = Request::new(new_vpc_prefix);
     let response = env.api.create_vpc_prefix(request).await;
@@ -74,13 +133,64 @@ async fn test_overlapping_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::
 
     let overlapping_vpc_prefix = VpcPrefixCreationRequest {
         id: None,
-        prefix: overlapping_ip_prefix.into(),
-        name: "Overlapping VPC prefix".into(),
+        prefix: String::new(),
+        name: String::new(),
         vpc_id: Some(vpc_id),
+        config: Some(rpc::forge::VpcPrefixConfig {
+            prefix: overlapping_ip_prefix.into(),
+        }),
+        metadata: Some(rpc::forge::Metadata {
+            name: "Overlapping VPC prefix".into(),
+            description: String::from("some description"),
+            labels: vec![rpc::forge::Label {
+                key: "example_key".into(),
+                value: Some("example_value".into()),
+            }],
+        }),
     };
     let request = Request::new(overlapping_vpc_prefix);
     let response = env.api.create_vpc_prefix(request).await;
     assert!(response.is_err());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_reject_create_with_invalid_metadata(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    env.create_vpc_and_tenant_segment().await;
+    let vpc_id = get_vpc_fixture_id(&env).await;
+
+    let ip_prefix = "192.0.2.0/24";
+
+    let new_vpc_prefix = VpcPrefixCreationRequest {
+        id: None,
+        prefix: String::new(),
+        name: String::new(),
+        vpc_id: Some(vpc_id),
+        config: Some(rpc::forge::VpcPrefixConfig {
+            prefix: ip_prefix.into(),
+        }),
+        metadata: Some(rpc::forge::Metadata {
+            name: "".into(),
+            description: String::from("some description"),
+            labels: vec![rpc::forge::Label {
+                key: "example_key".into(),
+                value: Some("example_value".into()),
+            }],
+        }),
+    };
+    let request = Request::new(new_vpc_prefix);
+    let response = env.api.create_vpc_prefix(request).await;
+    let error = response
+        .expect_err("expected create create vpc prefix to fail")
+        .to_string();
+    assert!(
+        error.contains("Invalid value"),
+        "Error message should contain 'Invalid value', but is {error}"
+    );
 
     Ok(())
 }
@@ -107,9 +217,17 @@ async fn test_invalid_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::erro
     ] {
         let bad_vpc_prefix = VpcPrefixCreationRequest {
             id: None,
-            prefix: prefix.into(),
-            name: description.into(),
+            prefix: String::new(),
+            name: String::new(),
             vpc_id: Some(vpc_id),
+
+            config: Some(rpc::forge::VpcPrefixConfig {
+                prefix: prefix.into(),
+            }),
+            metadata: Some(rpc::forge::Metadata {
+                name: description.into(),
+                ..Default::default()
+            }),
         };
         let request = Request::new(bad_vpc_prefix);
         let response = env.api.create_vpc_prefix(request).await;
@@ -133,15 +251,25 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
     let p2 = "192.0.2.128/25";
     let create_p1 = VpcPrefixCreationRequest {
         id: None,
-        prefix: p1.into(),
-        name: "VPC prefix p1".into(),
+        prefix: String::new(),
+        name: String::new(),
         vpc_id: Some(vpc_id),
+        config: Some(rpc::forge::VpcPrefixConfig { prefix: p1.into() }),
+        metadata: Some(rpc::forge::Metadata {
+            name: "VPC prefix p1".into(),
+            ..Default::default()
+        }),
     };
     let create_p2 = VpcPrefixCreationRequest {
         id: None,
-        prefix: p2.into(),
-        name: "VPC prefix p2".into(),
+        prefix: String::new(),
+        name: String::new(),
         vpc_id: Some(vpc_id),
+        config: Some(rpc::forge::VpcPrefixConfig { prefix: p2.into() }),
+        metadata: Some(rpc::forge::Metadata {
+            name: "VPC prefix p2".into(),
+            ..Default::default()
+        }),
     };
     let p1_request = Request::new(create_p1);
     let p2_request = Request::new(create_p2);
