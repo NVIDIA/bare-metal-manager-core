@@ -258,7 +258,7 @@ pub async fn update(
         .metadata
         .validate(true)
         .map_err(CarbideError::from)?;
-    
+
     let updated = db::update(&update_prefix, &mut txn).await?;
 
     txn.commit().await?;
