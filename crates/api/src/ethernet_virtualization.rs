@@ -89,6 +89,7 @@ pub async fn admin_network(
     dpu_machine_id: &MachineId,
     fnn_enabled_on_admin: bool,
     common_pools: &CommonPools,
+    booturl: &Option<String>,
 ) -> Result<(rpc::FlatInterfaceConfig, MachineInterfaceId), tonic::Status> {
     let admin_segment = db::network_segment::admin(txn).await?;
 
@@ -227,7 +228,7 @@ pub async fn admin_network(
         },
         prefix: prefix.prefix.to_string(),
         fqdn: format!("{}.{}", interface.hostname, domain),
-        booturl: None,
+        booturl: booturl.clone(),
         svi_ip,
         tenant_vrf_loopback_ip,
         is_l2_segment: true,
@@ -253,6 +254,7 @@ pub async fn tenant_network(
     network_security_group_details: Option<(i32, NetworkSecurityGroup)>,
     segment: &NetworkSegment,
     vpc_peering_policy_on_existing: Option<VpcPeeringPolicy>,
+    booturl: &Option<String>,
 ) -> Result<rpc::FlatInterfaceConfig, tonic::Status> {
     // Any stretchable segment is treated as L2 segment by FNN.
     let is_l2_segment = segment.can_stretch.unwrap_or(true);
@@ -453,7 +455,7 @@ pub async fn tenant_network(
         // FIXME: Right now we are sending instance IP as hostname. This should be replaced by
         // user's provided fqdn later.
         fqdn,
-        booturl: None,
+        booturl: booturl.clone(),
         svi_ip,
         tenant_vrf_loopback_ip: loopback_ip,
         is_l2_segment,
