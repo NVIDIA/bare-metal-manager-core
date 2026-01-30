@@ -21,10 +21,10 @@ cscope.*
 forged
 
 pxe/nvinit_setup/*
-!pxe/nvinit_setup/blank_file
+!pxe/nvinit_setup/.gitkeep
 
 pxe/debs/*
-!pxe/debs/blank_file
+!pxe/debs/.gitkeep
 !pxe/debs/libnss-exec_0.2.0-1_arm64.deb
 !pxe/debs/libnss-exec_0.2.0-1_amd64.deb
 
