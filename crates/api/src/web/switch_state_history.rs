@@ -32,7 +32,7 @@ struct SwitchStateHistory {
 
 #[derive(Debug, serde::Serialize)]
 pub(super) struct SwitchStateHistoryRecord {
-    pub event: String,
+    pub state: String,
     pub version: String,
     pub time: String,
 }
@@ -50,7 +50,7 @@ pub async fn show_state_history(
     let records = records
         .into_iter()
         .map(|record| SwitchStateHistoryRecord {
-            event: record.event,
+            state: record.state,
             version: record.version,
             time: record
                 .time
@@ -71,15 +71,15 @@ pub async fn show_state_history_json(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(switch_id): AxumPath<String>,
 ) -> Response {
-    let (_switch_id, health_records) = match fetch_state_history_records(&state, &switch_id).await {
+    let (_switch_id, state_records) = match fetch_state_history_records(&state, &switch_id).await {
         Ok((id, records)) => (id, records),
         Err((code, msg)) => return (code, msg).into_response(),
     };
 
-    let records: Vec<SwitchStateHistoryRecord> = health_records
+    let records: Vec<SwitchStateHistoryRecord> = state_records
         .into_iter()
         .map(|record| SwitchStateHistoryRecord {
-            event: record.event,
+            state: record.state,
             version: record.version,
             time: record
                 .time
@@ -97,7 +97,7 @@ pub async fn fetch_state_history_records(
 ) -> Result<
     (
         carbide_uuid::switch::SwitchId,
-        Vec<::rpc::forge::SwitchEvent>,
+        Vec<::rpc::forge::SwitchStateHistoryRecord>,
     ),
     (http::StatusCode, String),
 > {

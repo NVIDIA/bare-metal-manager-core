@@ -1515,8 +1515,8 @@ message PowerShelfDeletionRequest {
 message PowerShelfDeletionResult {
 }
 
-message PowerShelfEvent {
-  string event = 1;
+message PowerShelfStateHistoryRecord {
+  string state = 1;
   string version = 2;
   google.protobuf.Timestamp time = 3;
 }
@@ -1530,7 +1530,7 @@ message PowerShelfStateHistories {
 }
 
 message PowerShelfStateHistoryRecords {
-  repeated PowerShelfEvent records = 1;
+  repeated PowerShelfStateHistoryRecord records = 1;
 }
 
 message PowerShelfQuery {
@@ -1631,8 +1631,8 @@ message SwitchDeletionResult {
 }
 
 
-message SwitchEvent {
-  string event = 1;
+message SwitchStateHistoryRecord {
+  string state = 1;
   string version = 2;
   google.protobuf.Timestamp time = 3;
 }
@@ -1646,7 +1646,7 @@ message SwitchStateHistories {
 }
 
 message SwitchStateHistoryRecords {
-  repeated SwitchEvent records = 1;
+  repeated SwitchStateHistoryRecord records = 1;
 }
 
 
@@ -5520,7 +5520,7 @@ message DpaInterface {
   string network_config = 11;
   string network_config_version = 12;
 
-  repeated DpaInterfaceStateHistory history = 13;
+  repeated DpaInterfaceStateHistoryRecord history = 13;
 
   google.protobuf.Timestamp last_hb_time = 14;
 
@@ -5552,7 +5552,7 @@ message DpaInterfaceList {
   repeated DpaInterface interfaces = 1;
 }
 
-message DpaInterfaceStateHistory {
+message DpaInterfaceStateHistoryRecord {
   string state = 1;
   string version = 2;
   google.protobuf.Timestamp time = 3;
