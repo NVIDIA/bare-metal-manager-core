@@ -3609,7 +3609,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::IpxeOperatingSystem {
+            rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
             },
@@ -3985,7 +3985,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::IpxeOperatingSystem {
+            rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
             },
@@ -4927,7 +4927,7 @@ async fn test_can_not_update_instance_config_after_deletion(
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::IpxeOperatingSystem {
+            rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
             },
