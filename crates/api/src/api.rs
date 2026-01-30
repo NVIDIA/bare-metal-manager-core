@@ -47,6 +47,8 @@ use crate::rack::rms_client::RmsApi;
 use crate::redfish::RedfishClientPool;
 use crate::scout_stream::ConnectionRegistry;
 use crate::site_explorer::EndpointExplorer;
+use crate::state_controller::controller::Enqueuer;
+use crate::state_controller::machine::io::MachineStateControllerIO;
 use crate::{CarbideError, CarbideResult, measured_boot};
 
 pub struct Api {
@@ -66,6 +68,7 @@ pub struct Api {
     pub(crate) rms_client: Option<Arc<Box<dyn RmsApi>>>,
     pub(crate) nmxm_pool: Arc<dyn NmxmClientPool>,
     pub(crate) work_lock_manager_handle: WorkLockManagerHandle,
+    pub(crate) machine_state_handler_enqueuer: Enqueuer<MachineStateControllerIO>,
 }
 
 pub(crate) type ScoutStreamType =

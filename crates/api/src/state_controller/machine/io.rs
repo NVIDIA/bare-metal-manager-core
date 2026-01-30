@@ -70,6 +70,19 @@ impl StateControllerIO for MachineStateControllerIO {
         txn: &mut PgConnection,
         machine_id: &Self::ObjectId,
     ) -> Result<Option<Self::State>, DatabaseError> {
+        // Never load state for DPUs
+        // The state machine is only supposed to execute for hosts
+        // If by any accidental chance a DPU ID was enqueued into the system,
+        // we filter it here.
+        if machine_id.machine_type().is_dpu() {
+            return Err(DatabaseError::new(
+                "MachineStateControllerIO::load_object_state",
+                sqlx::Error::InvalidArgument(
+                    "DPU state can not be loaded by state controller".to_string(),
+                ),
+            ));
+        }
+
         let mut retstate = db::managed_host::load_snapshot(
             txn,
             machine_id,
