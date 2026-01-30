@@ -215,17 +215,17 @@ pub fn state_sla(state: &PowerShelfControllerState, state_version: &ConfigVersio
 
 /// History of Power Shelf states for a single Power Shelf
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PowerShelfStateHistory {
+pub struct PowerShelfStateHistoryRecord {
     /// The state that was entered
     pub state: String,
     // The version number associated with the state change
     pub state_version: ConfigVersion,
 }
 
-impl From<PowerShelfStateHistory> for rpc::PowerShelfEvent {
-    fn from(value: PowerShelfStateHistory) -> rpc::PowerShelfEvent {
-        rpc::PowerShelfEvent {
-            event: value.state,
+impl From<PowerShelfStateHistoryRecord> for rpc::PowerShelfStateHistoryRecord {
+    fn from(value: PowerShelfStateHistoryRecord) -> rpc::PowerShelfStateHistoryRecord {
+        rpc::PowerShelfStateHistoryRecord {
+            state: value.state,
             version: value.state_version.version_string(),
             time: Some(value.state_version.timestamp().into()),
         }
