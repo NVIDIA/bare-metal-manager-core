@@ -47,7 +47,7 @@ pub(crate) async fn get_dpf_state(
     let request = request.get_ref();
 
     for machine_id in &request.machine_ids {
-        if machine_id.machine_type() != carbide_uuid::machine::MachineType::Host {
+        if machine_id.machine_type().is_dpu() {
             return Err(Status::invalid_argument("Only host id is expected!!"));
         }
     }
