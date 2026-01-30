@@ -2746,11 +2746,10 @@ pub fn dpf_based_dpu_provisioning_possible(
         return false;
     }
 
-    // DPF should be enabled on all DPUs.
-    // This could have been merged with other iter, but kept is separate to make debugging easier.
-    if state.dpu_snapshots.iter().any(|dpu| !dpu.dpf_enabled) {
+    // DPF should be enabled for host.
+    if !state.host_snapshot.dpf_enabled {
         tracing::info!(
-            "DPF based DPU provisioning is not possible because DPF is not enabled on all DPUs {}.",
+            "DPF based DPU provisioning is not possible because DPF is not enabled for the host {}.",
             state.host_snapshot.id
         );
         return false;

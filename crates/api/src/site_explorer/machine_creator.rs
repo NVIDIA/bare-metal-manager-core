@@ -144,7 +144,7 @@ impl MachineCreator {
             let dpu_machine_id = *dpu_report.machine_id_if_valid_report()?;
             dpu_ids.push(dpu_machine_id);
 
-            if !self.create_dpu(&mut txn, dpu_report).await? {
+            if !self.create_dpu(&mut txn, dpu_report, dpf_enabled).await? {
                 // Site explorer has already created a machine for this DPU previously.
                 //
                 // If the DPU's machine is not attached to its machine interface, do so here.
@@ -335,8 +335,12 @@ impl MachineCreator {
         &self,
         txn: &mut PgConnection,
         explored_dpu: &ExploredDpu,
+        dpf_enabled: bool,
     ) -> CarbideResult<bool> {
-        if let Some(dpu_machine) = self.create_dpu_machine(txn, explored_dpu).await? {
+        if let Some(dpu_machine) = self
+            .create_dpu_machine(txn, explored_dpu, dpf_enabled)
+            .await?
+        {
             self.configure_dpu_interface(txn, explored_dpu).await?;
             self.update_dpu_network_config(txn, &dpu_machine).await?;
             let dpu_machine_id: &MachineId = explored_dpu.report.machine_id.as_ref().unwrap();
@@ -440,6 +444,7 @@ impl MachineCreator {
         &self,
         txn: &mut PgConnection,
         explored_dpu: &ExploredDpu,
+        dpf_enabled: bool,
     ) -> CarbideResult<Option<Machine>> {
         let dpu_machine_id = explored_dpu.report.machine_id.as_ref().unwrap();
         match db::machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default()).await? {
@@ -452,7 +457,9 @@ impl MachineCreator {
                 ManagedHostState::Created,
                 &Metadata::default(),
                 None,
-                true, // This field is not used for the DPUs
+                // Although this field is not used in case of DPU, but let's keep them
+                // in sync.
+                dpf_enabled,
                 CURRENT_STATE_MODEL_VERSION,
             )
             .await
