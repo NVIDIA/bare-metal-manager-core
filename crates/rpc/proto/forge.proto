@@ -4391,7 +4391,10 @@ enum RouteServerSourceType {
 }
 
 message SetHostUefiPasswordRequest {
+  // Deprecated: use machine_query instead
   common.MachineId host_id = 1;
+  // UUID, IP address, hostname or MAC address
+  optional string machine_query = 2;
 }
 
 message SetHostUefiPasswordResponse {
@@ -4399,7 +4402,10 @@ message SetHostUefiPasswordResponse {
 }
 
 message ClearHostUefiPasswordRequest {
+  // Deprecated: use machine_query instead
   common.MachineId host_id = 1;
+  // UUID, IP address, hostname or MAC address
+  optional string machine_query = 2;
 }
 
 message ClearHostUefiPasswordResponse {

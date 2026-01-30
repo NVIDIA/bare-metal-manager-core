@@ -25,9 +25,9 @@ use crate::cfg::runtime::RuntimeContext;
 impl Dispatch for Cmd {
     async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
         match self {
-            Cmd::SetUefiPassword(query) => cmds::set_uefi_password(&query, &ctx.api_client).await,
+            Cmd::SetUefiPassword(query) => cmds::set_uefi_password(query, &ctx.api_client).await,
             Cmd::ClearUefiPassword(query) => {
-                cmds::clear_uefi_password(&query, &ctx.api_client).await
+                cmds::clear_uefi_password(query, &ctx.api_client).await
             }
             Cmd::GenerateHostUefiPassword => cmds::generate_uefi_password(),
             Cmd::Reprovision(reprovision) => match reprovision {
