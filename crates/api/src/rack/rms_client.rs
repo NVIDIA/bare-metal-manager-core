@@ -98,7 +98,7 @@ impl RackManagerApi {
         api_url: &str,
     ) -> Self {
         let client_certs = rms_client_cert_info(client_cert, client_key);
-        let root_ca = rms_root_ca_path(root_ca_path);
+        let root_ca = rms_root_ca_path(root_ca_path, None);
         let config = ForgeClientConfig::new(root_ca, client_certs);
         let api_config = ApiConfig::new(api_url, &config);
 

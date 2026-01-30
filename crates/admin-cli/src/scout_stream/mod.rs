@@ -175,7 +175,7 @@ fn print_connections_table(connections: &[rpc::forge::ScoutStreamConnectionInfo]
         let connect_time = if let Ok(dt) = conn.connected_at.parse::<DateTime<Utc>>() {
             Cow::Owned(dt.format("%Y-%m-%d %H:%M:%S").to_string())
         } else {
-            Cow::Borrowed(&conn.connected_at.clone())
+            Cow::Borrowed(&conn.connected_at)
         };
 
         table.add_row(Row::new(vec![

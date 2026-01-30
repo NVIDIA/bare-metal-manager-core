@@ -1400,8 +1400,7 @@ message IBPartitionConfig {
   string name = 1;
   // The ID of tenant that IBPartition belong to
   string tenantOrganizationId = 2; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
-  // Metadata associated with this IB Partition
-  Metadata metadata = 3;
+
 }
 
 // Describe the status and applied configuration of an IBPartition
@@ -1435,6 +1434,8 @@ message IBPartition {
   string config_version = 3;
 
   IBPartitionStatus status = 4;
+
+  Metadata metadata = 5;
 }
 
 message IBPartitionList {
@@ -1447,6 +1448,8 @@ message IBPartitionCreationRequest {
   // a random ID.
   // The Partition ID must be unique within the Forge site.
   optional common.IBPartitionId id = 2;
+
+  Metadata metadata = 3;
 }
 
 message IBPartitionDeletionRequest {

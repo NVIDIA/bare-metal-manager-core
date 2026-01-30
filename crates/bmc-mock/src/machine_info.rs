@@ -158,6 +158,7 @@ impl MachineInfo {
                     })
                     .collect();
                 redfish::computer_system::SystemConfig {
+                    bmc_vendor: redfish::oem::BmcVendor::Dell,
                     systems: vec![redfish::computer_system::SingleSystemConfig {
                         id: Cow::Borrowed("System.Embedded.1"),
                         eth_interfaces,
@@ -169,6 +170,7 @@ impl MachineInfo {
                 }
             }
             MachineInfo::Dpu(dpu) => redfish::computer_system::SystemConfig {
+                bmc_vendor: redfish::oem::BmcVendor::Nvidia,
                 systems: vec![redfish::computer_system::SingleSystemConfig {
                     id: Cow::Borrowed("Bluefield"),
                     eth_interfaces: vec![

@@ -42,7 +42,7 @@ async fn get_or_create_vpc(api_client: &ApiClient) -> CarbideCliResult<Vpc> {
             vpc.id.unwrap(),
             vpc.metadata
                 .as_ref()
-                .map(|x| x.name.clone())
+                .map(|x| x.name.as_str())
                 .unwrap_or_default()
         );
         vpc
@@ -167,7 +167,7 @@ pub async fn apply_devenv_config(
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
     // Read config file.
-    if !std::fs::exists(config.path.clone())? {
+    if !std::fs::exists(&config.path)? {
         return Err(CarbideCliError::GenericError(
             "Config file does not exists.".to_string(),
         ));

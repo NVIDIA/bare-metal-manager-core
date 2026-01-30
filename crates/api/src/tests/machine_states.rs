@@ -309,6 +309,7 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     // Ensure DPU network status is recorded
     mh.network_configured(&env).await;
 
+    env.run_machine_state_controller_iteration().await;
     let mut txn = env.db_txn().await;
 
     // create_dpu_machine runs record_dpu_network_status, so machine should be healthy
@@ -322,17 +323,6 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
             .alerts
             .is_empty()
     );
-
-    // Tell state handler to mark DPU as unhealthy after 1 second
-    let handler = MachineStateHandlerBuilder::builder()
-        .dpu_up_threshold(chrono::Duration::seconds(1))
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .hardware_models(env.config.get_firmware_config())
-        .power_options_config(env.config.power_manager_options.clone().into())
-        .build();
-    env.override_machine_state_controller_handler(handler).await;
-    env.run_machine_state_controller_iteration().await;
 
     assert_eq!(
         env.test_meter
@@ -361,6 +351,17 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
             .formatted_metric("forge_hosts_unhealthy_by_probe_id_count{fresh=\"true\",probe_id=\"HeartbeatTimeout\",probe_target=\"hardware-health\"}"),
         None,
     );
+
+    // Tell state handler to mark DPU as unhealthy after 1 second
+    let handler = MachineStateHandlerBuilder::builder()
+        .dpu_up_threshold(chrono::Duration::seconds(1))
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .hardware_models(env.config.get_firmware_config())
+        .power_options_config(env.config.power_manager_options.clone().into())
+        .build();
+    env.override_machine_state_controller_handler(handler).await;
+    env.run_machine_state_controller_iteration().await;
 
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 

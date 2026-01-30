@@ -37,7 +37,6 @@ impl StateControllerIO for PowerShelfStateControllerIO {
     type MetricsEmitter = NoopMetricsEmitter;
     type ContextObjects = PowerShelfStateHandlerContextObjects;
 
-    const DB_WORK_KEY: &'static str = "power_shelf_controller_lock";
     const DB_ITERATION_ID_TABLE_NAME: &'static str = "power_shelf_controller_iteration_ids";
     const DB_QUEUED_OBJECTS_TABLE_NAME: &'static str = "power_shelf_controller_queued_objects";
 

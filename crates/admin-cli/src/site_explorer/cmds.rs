@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::pin::Pin;
 
@@ -28,32 +29,33 @@ use super::args::{
 use crate::rpc::ApiClient;
 use crate::{async_write, async_writeln};
 
-fn get_endpoints_for_managed_host<'a>(
-    managedhost: &'a ExploredManagedHost,
-    exploration_report: &'a SiteExplorationReport,
-) -> HashMap<String, &'a ExploredEndpoint> {
+/// Build an index into the ExploredEndpoints slice for ones matching this ExploredManaged, using
+/// the same lifetime as the endpoints slice.
+fn get_endpoints_for_managed_host<'ep>(
+    managedhost: &ExploredManagedHost,
+    endpoints: &'ep [ExploredEndpoint],
+) -> HashMap<&'ep str, &'ep ExploredEndpoint> {
     let mut wanted_ips = managedhost
         .dpus
         .iter()
-        .map(|x| x.bmc_ip.clone())
-        .collect::<Vec<String>>();
-    wanted_ips.push(managedhost.host_bmc_ip.clone());
+        .map(|x| x.bmc_ip.as_str())
+        .collect::<Vec<&str>>();
+    wanted_ips.push(managedhost.host_bmc_ip.as_str());
 
-    exploration_report
-        .endpoints
+    endpoints
         .iter()
         .filter_map(|x| {
-            if wanted_ips.contains(&x.address) {
-                Some((x.address.clone(), x))
+            if wanted_ips.contains(&x.address.as_str()) {
+                Some((x.address.as_str(), x))
             } else {
                 None
             }
         })
-        .collect::<HashMap<String, &ExploredEndpoint>>()
+        .collect::<HashMap<&str, &ExploredEndpoint>>()
 }
 
 fn convert_managed_host_to_nice_table(
-    explored_endpoints: &SiteExplorationReport,
+    explored_endpoints: SiteExplorationReport,
     vendor: Option<String>,
 ) -> Box<Table> {
     let mut table = Table::new();
@@ -68,15 +70,15 @@ fn convert_managed_host_to_nice_table(
         headers.into_iter().map(Cell::new).collect::<Vec<Cell>>(),
     ));
 
-    for managedhost in &explored_endpoints.managed_hosts {
-        let endpoints = get_endpoints_for_managed_host(managedhost, explored_endpoints);
+    for managedhost in explored_endpoints.managed_hosts {
+        let endpoints = get_endpoints_for_managed_host(&managedhost, &explored_endpoints.endpoints);
         if let Some(vendor) = &vendor
-            && let Some(report) = endpoints.get(&managedhost.host_bmc_ip)
-            && &report
+            && let Some(report) = endpoints.get(&managedhost.host_bmc_ip.as_str())
+            && report
                 .report
                 .as_ref()
-                .and_then(|x| x.vendor.clone())
-                .unwrap_or("".to_string())
+                .and_then(|x| x.vendor.as_deref())
+                .unwrap_or("")
                 != vendor
         {
             continue;
@@ -88,13 +90,15 @@ fn convert_managed_host_to_nice_table(
 }
 
 fn managed_host_to_row(
-    value: &ExploredManagedHost,
-    endpoints: HashMap<String, &ExploredEndpoint>,
+    value: ExploredManagedHost,
+    endpoints: HashMap<&str, &ExploredEndpoint>,
 ) -> Row {
     let mut dpu_table = Table::new();
     dpu_table.set_format(*format::consts::FORMAT_NO_LINESEP);
-    value.dpus.iter().for_each(|x| {
-        let dpu_report = endpoints.get(&x.bmc_ip).and_then(|x| x.report.clone());
+    value.dpus.into_iter().for_each(|dpu| {
+        let dpu_report = endpoints
+            .get(&dpu.bmc_ip.as_str())
+            .and_then(|x| x.report.as_ref());
 
         let system = dpu_report.as_ref().and_then(|x| x.systems.first());
         let oob_mac = system
@@ -104,29 +108,29 @@ fn managed_host_to_row(
                     .iter()
                     .find_map(|x| {
                         if x.id().contains("oob") {
-                            x.mac_address.clone()
+                            x.mac_address.as_deref()
                         } else {
                             None
                         }
                     })
-                    .unwrap_or("oob_net0 not found.".to_string())
+                    .unwrap_or("oob_net0 not found.")
             })
-            .unwrap_or("Unknown".to_string());
+            .unwrap_or("Unknown");
 
         dpu_table.add_row(
             vec![
-                x.bmc_ip.clone(),
+                dpu.bmc_ip.as_str(),
                 dpu_report
                     .as_ref()
-                    .and_then(|x| x.machine_id.clone())
-                    .unwrap_or("Unknown".to_string()),
+                    .and_then(|x| x.machine_id.as_deref())
+                    .unwrap_or("Unknown"),
                 system
                     .as_ref()
-                    .and_then(|x| x.serial_number.clone())
-                    .unwrap_or("Unknown".to_string()),
-                x.host_pf_mac_address
-                    .clone()
-                    .unwrap_or("Unknown MacAddress".to_string()),
+                    .and_then(|x| x.serial_number.as_deref())
+                    .unwrap_or("Unknown"),
+                dpu.host_pf_mac_address
+                    .as_deref()
+                    .unwrap_or("Unknown MacAddress"),
                 oob_mac,
             ]
             .into(),
@@ -134,30 +138,29 @@ fn managed_host_to_row(
     });
 
     let host_report = endpoints
-        .get(&value.host_bmc_ip)
-        .and_then(|x| x.report.clone());
+        .get(&value.host_bmc_ip.as_str())
+        .and_then(|x| x.report.as_ref());
 
     Row::new(vec![
         Cell::new(value.host_bmc_ip.as_str()),
         Cell::new(
             host_report
-                .and_then(|x| x.vendor)
-                .unwrap_or("Unknown".to_string())
-                .as_str(),
+                .and_then(|x| x.vendor.as_deref())
+                .unwrap_or("Unknown"),
         ),
         Cell::new(dpu_table.to_string().as_str()),
     ])
 }
 
 async fn get_exploration_report_for_bmc_address(
-    ip: String,
+    ip: &String,
     api_client: &ApiClient,
     page_size: usize,
 ) -> CarbideCliResult<SiteExplorationReport> {
     // get managed host with host bmc
     let mut managed_host = api_client
         .0
-        .find_explored_managed_hosts_by_ids(std::slice::from_ref(&ip))
+        .find_explored_managed_hosts_by_ids(std::slice::from_ref(&ip.to_string()))
         .await?
         .managed_hosts;
 
@@ -167,7 +170,7 @@ async fn get_exploration_report_for_bmc_address(
         let managed_hosts = api_client.get_all_explored_managed_hosts(page_size).await?;
         managed_host = managed_hosts
             .into_iter()
-            .filter(|x| x.host_bmc_ip == ip || x.dpus.iter().any(|a| a.bmc_ip == ip))
+            .filter(|x| x.host_bmc_ip.eq(ip) || x.dpus.iter().any(|a| a.bmc_ip.eq(ip)))
             .collect();
     }
 
@@ -176,7 +179,7 @@ async fn get_exploration_report_for_bmc_address(
         ips.extend(managed_host.dpus.iter().map(|x| x.bmc_ip.clone()));
         ips
     } else {
-        vec![ip]
+        vec![ip.to_string()]
     };
 
     let endpoints = api_client.get_explored_endpoints_by_ids(&ips).await?;
@@ -211,7 +214,7 @@ pub async fn show_discovered_managed_host(
         GetReportMode::ManagedHost(managed_host_info) => {
             if let Some(address) = managed_host_info.address {
                 let exploration_report = get_exploration_report_for_bmc_address(
-                    address.clone(),
+                    &address,
                     api_client,
                     internal_page_size,
                 )
@@ -230,7 +233,8 @@ pub async fn show_discovered_managed_host(
                     )?;
                     return Ok(());
                 }
-                let endpoints = get_endpoints_for_managed_host(managed_host, &exploration_report);
+                let endpoints =
+                    get_endpoints_for_managed_host(managed_host, &exploration_report.endpoints);
                 print_managed_host_info(output_file, managed_host, endpoints).await?;
             } else {
                 let exploration_report = api_client
@@ -245,7 +249,7 @@ pub async fn show_discovered_managed_host(
                     return Ok(());
                 }
                 let table = convert_managed_host_to_nice_table(
-                    &exploration_report,
+                    exploration_report,
                     managed_host_info.vendor,
                 );
                 async_write!(output_file, "{}", table)?;
@@ -254,7 +258,7 @@ pub async fn show_discovered_managed_host(
         GetReportMode::Endpoint(endpoint_info) => {
             if let Some(address) = endpoint_info.address {
                 let exploration_report = get_exploration_report_for_bmc_address(
-                    address.clone(),
+                    &address,
                     api_client,
                     internal_page_size,
                 )
@@ -273,12 +277,11 @@ pub async fn show_discovered_managed_host(
                     output_file,
                     exploration_report
                         .endpoints
-                        .iter()
+                        .into_iter()
                         .find(|x| x.address == address)
                         .ok_or_else(|| {
                             CarbideCliError::GenericError("Endpoint not found.".to_string())
-                        })?
-                        .clone(),
+                        })?,
                 )
                 .await?;
             } else {
@@ -287,11 +290,11 @@ pub async fn show_discovered_managed_host(
                     .await?;
                 let mut paired_ips = vec![];
                 if endpoint_info.unpairedonly {
-                    for managed_host in exploration_report.managed_hosts {
-                        paired_ips.push(managed_host.host_bmc_ip.clone());
+                    for managed_host in &exploration_report.managed_hosts {
+                        paired_ips.push(managed_host.host_bmc_ip.as_str());
 
-                        for dpu in managed_host.dpus {
-                            paired_ips.push(dpu.bmc_ip.clone());
+                        for dpu in &managed_host.dpus {
+                            paired_ips.push(dpu.bmc_ip.as_str());
                         }
                     }
                 }
@@ -321,31 +324,33 @@ fn filter_endpoints(
     endpoints: Vec<ExploredEndpoint>,
     erroronly: bool,
     successonly: bool,
-    paired_ips: Vec<String>,
+    paired_ips: Vec<&str>,
     vendor: Option<String>,
 ) -> Vec<ExploredEndpoint> {
     endpoints
         .into_iter()
-        .filter(|x| {
+        .filter(|explored_endpoint| {
             let paired_filter = if !paired_ips.is_empty() {
-                !paired_ips.contains(&x.address)
+                !paired_ips.contains(&explored_endpoint.address.as_str())
             } else {
                 true
             };
 
-            let vendor_filter = if let Some(vendor) = vendor.clone() {
-                x.report
+            let vendor_filter = if let Some(vendor) = &vendor {
+                explored_endpoint
+                    .report
                     .as_ref()
-                    .and_then(|x| x.vendor.clone())
+                    .and_then(|x| x.vendor.as_deref())
                     .unwrap_or_default()
-                    == vendor
+                    == vendor.as_str()
             } else {
                 true
             };
 
             vendor_filter
                 && paired_filter
-                && x.report
+                && explored_endpoint
+                    .report
                     .as_ref()
                     .map(|x| {
                         if let Some(error) = &x.last_exploration_error {
@@ -369,23 +374,25 @@ fn filter_endpoints(
 async fn print_managed_host_info(
     output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     managed_host: &ExploredManagedHost,
-    endpoints: HashMap<String, &ExploredEndpoint>,
+    endpoints: HashMap<&str, &ExploredEndpoint>,
 ) -> CarbideCliResult<()> {
     let host_report = endpoints
-        .get(&managed_host.host_bmc_ip)
-        .and_then(|x| x.report.clone());
+        .get(&managed_host.host_bmc_ip.as_str())
+        .and_then(|x| x.report.as_ref());
 
     async_writeln!(output_file, "Host BMC IP : {}", managed_host.host_bmc_ip)?;
     async_writeln!(
         output_file,
         "Vendor      : {}",
         host_report
-            .and_then(|x| x.vendor)
-            .unwrap_or("Unknown".to_string())
+            .and_then(|x| x.vendor.as_deref())
+            .unwrap_or("Unknown")
     )?;
     for (i, x) in managed_host.dpus.iter().enumerate() {
-        let dpu_report = endpoints.get(&x.bmc_ip).and_then(|x| x.report.clone());
-        let system = dpu_report.as_ref().and_then(|x| x.systems.first());
+        let dpu_report = endpoints
+            .get(&x.bmc_ip.as_str())
+            .and_then(|x| x.report.as_ref());
+        let system = dpu_report.and_then(|x| x.systems.first());
         let oob_mac = system
             .as_ref()
             .map(|x| {
@@ -393,14 +400,14 @@ async fn print_managed_host_info(
                     .iter()
                     .find_map(|x| {
                         if x.id().contains("oob") {
-                            x.mac_address.clone()
+                            x.mac_address.as_deref()
                         } else {
                             None
                         }
                     })
-                    .unwrap_or("oob_net0 not found.".to_string())
+                    .unwrap_or("oob_net0 not found.")
             })
-            .unwrap_or("Unknown".to_string());
+            .unwrap_or("Unknown");
         async_writeln!(output_file)?;
         async_writeln!(output_file, "DPU{i}")?;
         async_writeln!(
@@ -413,23 +420,21 @@ async fn print_managed_host_info(
             "    Machine ID           : {}",
             dpu_report
                 .as_ref()
-                .and_then(|x| x.machine_id.clone())
-                .unwrap_or("Unknwon".to_string())
+                .and_then(|x| x.machine_id.as_deref())
+                .unwrap_or("Unknown")
         )?;
         async_writeln!(
             output_file,
             "    Serial Number        : {}",
             system
                 .as_ref()
-                .and_then(|x| x.serial_number.clone())
-                .unwrap_or("Unknwon".to_string())
+                .and_then(|x| x.serial_number.as_deref())
+                .unwrap_or("Unknown")
         )?;
         async_writeln!(
             output_file,
             "    Host PF Mac Address  : {}",
-            x.host_pf_mac_address
-                .clone()
-                .unwrap_or("Unknown".to_string())
+            x.host_pf_mac_address.as_deref().unwrap_or("Unknown")
         )?;
         async_writeln!(output_file, "    oob net0 Mac Address : {oob_mac}")?;
     }
@@ -470,20 +475,22 @@ fn endpoint_to_row(endpoint: &ExploredEndpoint) -> Row {
                 .iter()
                 .map(|a| {
                     if a.interface_enabled() {
-                        a.mac_address.clone().unwrap_or_default()
+                        Cow::Borrowed(a.mac_address.as_deref().unwrap_or_default())
                     } else {
-                        format!("{} - Disabled", a.mac_address.clone().unwrap_or_default())
+                        Cow::Owned(format!(
+                            "{} - Disabled",
+                            a.mac_address.as_deref().unwrap_or_default()
+                        ))
                     }
                 })
-                .collect::<Vec<String>>()
+                .collect::<Vec<Cow<str>>>()
         })
         .unwrap_or_default();
 
     let last_error = report
         .as_ref()
         .map(|x| x.last_exploration_error())
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default();
 
     let error_segmented = last_error
         .chars()
@@ -497,7 +504,7 @@ fn endpoint_to_row(endpoint: &ExploredEndpoint) -> Row {
         .preingestion_state
         .split_once(" ")
         .map(|(x, y)| {
-            format!(
+            Cow::Owned(format!(
                 "{}\n{}",
                 x,
                 y.chars()
@@ -506,9 +513,9 @@ fn endpoint_to_row(endpoint: &ExploredEndpoint) -> Row {
                     .map(|x| x.iter().collect::<String>())
                     .collect::<Vec<String>>()
                     .join("\n")
-            )
+            ))
         })
-        .unwrap_or(endpoint.preingestion_state.clone());
+        .unwrap_or(Cow::Borrowed(endpoint.preingestion_state.as_str()));
 
     Row::new(vec![
         Cell::new(endpoint.address.as_str()),
@@ -545,7 +552,7 @@ async fn display_endpoint(
         "Endpoint Type",
         report
             .as_ref()
-            .map(|x| x.endpoint_type.clone())
+            .map(|x| x.endpoint_type.as_str())
             .unwrap_or_default()
     ]);
     table.add_row(row![
@@ -560,8 +567,7 @@ async fn display_endpoint(
     let last_error = report
         .as_ref()
         .map(|x| x.last_exploration_error())
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default();
 
     let error_segmented = last_error
         .chars()
@@ -796,7 +802,7 @@ pub async fn copy_bfb_to_dpu_rshim(
     args: CopyBfbToDpuRshimArgs,
 ) -> CarbideCliResult<()> {
     // Power cycle host if requested
-    if let Some(host_ip) = &args.host_bmc_ip {
+    if let Some(host_ip) = args.host_bmc_ip {
         tracing::info!(
             "Power cycling host at {} to ensure the DPU has rshim control",
             host_ip
@@ -823,7 +829,7 @@ pub async fn copy_bfb_to_dpu_rshim(
         api_client
             .admin_power_control(
                 Some(::rpc::forge::BmcEndpointRequest {
-                    ip_address: host_ip.clone(),
+                    ip_address: host_ip,
                     mac_address: None,
                 }),
                 None,

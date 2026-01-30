@@ -109,33 +109,36 @@ pub enum LockIterationTableError {
 pub async fn queue_objects(
     txn: &mut PgConnection,
     table_id: &str,
-    queued_objects: &[(String, ControllerIterationId)],
-) -> Result<(), DatabaseError> {
+    queued_objects: &[String],
+) -> Result<usize, DatabaseError> {
     // Make sure we are not running into the BIND_LIMIT
-    // The theoretical limit would be BIND_LIMIT/2 (for 2 parameters)
+    // The theoretical limit would be BIND_LIMIT
     // However shorter transactions are ok here - we still queue 1k objects
     // per chunk
     const OBJECTS_PER_QUERY: usize = BIND_LIMIT / 32;
 
+    let mut num_enqueued = 0;
+
     for queued_objects in queued_objects.chunks(OBJECTS_PER_QUERY) {
         let mut builder = sqlx::QueryBuilder::new("INSERT INTO ");
         builder.push(table_id);
-        builder.push("(object_id, iteration_id)");
+        builder.push("(object_id)");
 
-        builder.push_values(queued_objects, |mut b, (object_id, iteration_id)| {
-            b.push_bind(object_id).push_bind(iteration_id.0);
+        builder.push_values(queued_objects, |mut b, object_id| {
+            b.push_bind(object_id);
         });
 
         builder.push("ON CONFLICT (object_id) DO NOTHING");
         let query = builder.build();
 
-        let _result = query
+        let result = query
             .execute(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new("StateController::queue_object", e))?;
+        num_enqueued += result.rows_affected() as usize;
     }
 
-    Ok(())
+    Ok(num_enqueued)
 }
 
 /// Fetches all objects which have been queued for execution
@@ -144,7 +147,7 @@ pub async fn fetch_queued_objects(
     txn: &mut PgConnection,
     table_id: &str,
 ) -> Result<Vec<QueuedObject>, DatabaseError> {
-    let query = format!("SELECT * from {table_id} ORDER BY iteration_id ASC");
+    let query = format!("SELECT * from {table_id}");
 
     let result = sqlx::query_as(&query)
         .fetch_all(txn)
@@ -167,7 +170,7 @@ pub async fn acquire_queued_objects(
 ) -> Result<Vec<QueuedObject>, DatabaseError> {
     let query = format!(
         "WITH dequeued_ids AS (
-            SELECT object_id FROM {table_id} WHERE (processed_by IS NULL OR processing_started_at + $1::interval < now()) ORDER BY iteration_id ASC FOR UPDATE SKIP LOCKED LIMIT {count}
+            SELECT object_id FROM {table_id} WHERE (processed_by IS NULL OR processing_started_at + $1::interval < now()) FOR UPDATE SKIP LOCKED LIMIT {count}
         )
         UPDATE {table_id} SET processed_by=$2, processing_started_at=now() WHERE object_id in (SELECT object_id FROM dequeued_ids) RETURNING *"
     );

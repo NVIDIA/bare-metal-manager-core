@@ -35,7 +35,7 @@ use crate::rpc::ApiClient;
 /// dispatch matches + dispatches the correct command for
 /// the `journal` subcommand.
 pub async fn dispatch(
-    cmd: &CmdJournal,
+    cmd: CmdJournal,
     cli: &mut global::cmds::CliData<'_, '_>,
 ) -> CarbideCliResult<()> {
     match cmd {
@@ -82,10 +82,7 @@ pub async fn dispatch(
 /// delete deletes an existing journal entry.
 ///
 /// `journal delete <journal-id>`
-pub async fn delete(
-    grpc_conn: &ApiClient,
-    delete: &Delete,
-) -> CarbideCliResult<MeasurementJournal> {
+pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<MeasurementJournal> {
     // Request.
     let request = DeleteMeasurementJournalRequest {
         journal_id: Some(delete.journal_id),
@@ -101,17 +98,14 @@ pub async fn delete(
 /// show_by_id shows all info about a journal entry for the provided ID.
 ///
 /// `journal show <journal-id>`
-pub async fn show_by_id(
-    grpc_conn: &ApiClient,
-    show: &Show,
-) -> CarbideCliResult<MeasurementJournal> {
+pub async fn show_by_id(grpc_conn: &ApiClient, show: Show) -> CarbideCliResult<MeasurementJournal> {
     // Prepare.
     // TODO(chet): This exists just because of how I'm dispatching
     // commands, since &Show gets reused for showing all (where journal_id
     // is unset, or showing a specific journal ID). Ultimately this
     // shouldn't ever actually get hit, but it exists just incase. That
     // said, I should look into see if I can just have clap validate this.
-    let Some(journal_id) = &show.journal_id else {
+    let Some(journal_id) = show.journal_id else {
         return Err(CarbideCliError::GenericError(String::from(
             "journal_id must be set to get a journal",
         )));
@@ -120,7 +114,7 @@ pub async fn show_by_id(
     // Request.
     let request = ShowMeasurementJournalRequest {
         selector: Some(show_measurement_journal_request::Selector::JournalId(
-            *journal_id,
+            journal_id,
         )),
     };
 
@@ -136,7 +130,7 @@ pub async fn show_by_id(
 /// `journal show`
 pub async fn show_all(
     grpc_conn: &ApiClient,
-    _show: &Show,
+    _show: Show,
 ) -> CarbideCliResult<MeasurementJournalList> {
     Ok(MeasurementJournalList(
         grpc_conn
@@ -158,7 +152,7 @@ pub async fn show_all(
 /// `journal list`
 pub async fn list(
     grpc_conn: &ApiClient,
-    list: &List,
+    list: List,
 ) -> CarbideCliResult<MeasurementJournalRecordList> {
     // Request.
     let request = match list.machine_id {
@@ -196,11 +190,11 @@ pub async fn list(
 /// `journal promote <journal-id> [--pcr-registers <range0>,...]`
 pub async fn promote(
     grpc_conn: &ApiClient,
-    promote: &Promote,
+    promote: Promote,
 ) -> CarbideCliResult<MeasurementBundle> {
     let journal = show_by_id(
         grpc_conn,
-        &Show {
+        Show {
             journal_id: Some(promote.journal_id),
         },
     )
@@ -208,9 +202,9 @@ pub async fn promote(
 
     report_promote(
         grpc_conn,
-        &ReportPromoteArgs {
+        ReportPromoteArgs {
             report_id: journal.report_id,
-            pcr_registers: promote.pcr_registers.clone(),
+            pcr_registers: promote.pcr_registers,
         },
     )
     .await
@@ -223,7 +217,7 @@ pub async fn promote(
 pub struct MeasurementJournalRecordList(Vec<MeasurementJournalRecord>);
 
 impl ToTable for MeasurementJournalRecordList {
-    fn to_table(&self) -> eyre::Result<String> {
+    fn into_table(self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
         if just_print_summary() {
             table.add_row(prettytable::row![
@@ -286,7 +280,7 @@ pub struct MeasurementJournalList(Vec<MeasurementJournal>);
 // When `journal show` gets called (for all entries), and the output format
 // is the default table view, this gets used to print a pretty table.
 impl ToTable for MeasurementJournalList {
-    fn to_table(&self) -> eyre::Result<String> {
+    fn into_table(self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
         table.add_row(prettytable::row!["journal_id", "details"]);
         for journal in self.0.iter() {

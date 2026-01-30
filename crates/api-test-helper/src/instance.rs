@@ -83,7 +83,7 @@ pub async fn create(
         return Ok(instance_id);
     }
 
-    wait_for_state(addrs, host_machine_id, "Assigned/WaitingForNetworkConfig").await?;
+    wait_for_state(addrs, host_machine_id, "Assigned/Ready").await?;
 
     if phone_home_enable {
         wait_for_instance_state(addrs, &instance_id, "PROVISIONING").await?;

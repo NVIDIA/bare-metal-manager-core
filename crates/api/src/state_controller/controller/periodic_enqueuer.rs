@@ -31,7 +31,6 @@ pub(super) struct PeriodicEnqueuer<IO: StateControllerIO> {
     /// A database connection pool that can be used for additional queries
     pub(super) pool: sqlx::PgPool,
     pub(super) work_lock_manager_handle: WorkLockManagerHandle,
-    pub(super) work_key: &'static str,
     pub(super) io: Arc<IO>,
     pub(super) metric_emitter: Option<EnqueuerMetricsEmitter>,
     pub(super) stop_token: CancellationToken,
@@ -160,31 +159,10 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
         iteration_result
     }
 
-    #[allow(txn_held_across_await)]
     async fn lock_and_handle_iteration(
         &mut self,
         iteration_metrics: &mut PeriodicEnqueuerMetrics,
     ) -> Result<ControllerIteration, IterationError> {
-        let _lock = match self
-            .work_lock_manager_handle
-            .try_acquire_lock(self.work_key.into())
-            .await
-        {
-            Ok(lock) => {
-                tracing::Span::current().record("skipped_iteration", false);
-                tracing::trace!(lock = IO::DB_WORK_KEY, "PeriodicEnqueuer acquired the lock");
-                lock
-            }
-            Err(e) => {
-                tracing::Span::current().record("skipped_iteration", true);
-                tracing::info!(
-                    lock = IO::DB_WORK_KEY,
-                    "PeriodicEnqueuer was not able to obtain the lock: {e}",
-                );
-                return Err(IterationError::LockError);
-            }
-        };
-
         let locked_controller_iteration = match db::lock_and_start_iteration(
             &self.pool,
             &self.work_lock_manager_handle,
@@ -194,6 +172,7 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
         {
             Ok(locked_controller_iteration) => locked_controller_iteration,
             Err(e) => {
+                tracing::Span::current().record("skipped_iteration", true);
                 tracing::error!(
                     iteration_table_id = IO::DB_ITERATION_ID_TABLE_NAME,
                     error = %e,
@@ -206,11 +185,7 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
         tracing::trace!(iteration_data = ?locked_controller_iteration.iteration_data, "Starting iteration with ID ");
         iteration_metrics.iteration_id = Some(locked_controller_iteration.iteration_data.id);
 
-        self.enqueue_objects(
-            iteration_metrics,
-            locked_controller_iteration.iteration_data.id,
-        )
-        .await?;
+        self.enqueue_objects(iteration_metrics).await?;
 
         Ok(locked_controller_iteration.iteration_data)
     }
@@ -220,7 +195,6 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
     async fn enqueue_objects(
         &mut self,
         iteration_metrics: &mut PeriodicEnqueuerMetrics,
-        iteration_id: ControllerIterationId,
     ) -> Result<(), IterationError> {
         // We start by grabbing a list of objects that should be active
         // The list might change until we fetch more data. However that should be ok:
@@ -229,13 +203,13 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
         // outside of the state controller
         let mut txn = self.pool.begin().await?;
         let object_ids = self.io.list_objects(&mut txn).await?;
-        iteration_metrics.num_enqueued_objects = object_ids.len();
 
         let queued_objects: Vec<_> = object_ids
             .iter()
-            .map(|object_id| (object_id.to_string(), iteration_id))
+            .map(|object_id| object_id.to_string())
             .collect();
-        db::queue_objects(&mut txn, IO::DB_QUEUED_OBJECTS_TABLE_NAME, &queued_objects).await?;
+        iteration_metrics.num_enqueued_objects =
+            db::queue_objects(&mut txn, IO::DB_QUEUED_OBJECTS_TABLE_NAME, &queued_objects).await?;
 
         txn.commit().await?;
 

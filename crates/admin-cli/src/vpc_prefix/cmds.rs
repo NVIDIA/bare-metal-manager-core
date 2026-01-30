@@ -28,7 +28,7 @@ use super::args::{VpcPrefixCreate, VpcPrefixDelete, VpcPrefixShow};
 use crate::rpc::ApiClient;
 
 pub async fn show(
-    args: &VpcPrefixShow,
+    args: VpcPrefixShow,
     output_format: OutputFormat,
     api_client: &ApiClient,
     batch_size: usize,
@@ -53,7 +53,7 @@ pub async fn create(
         .map_err(CarbideCliError::from)
 }
 
-pub async fn delete(args: &VpcPrefixDelete, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn delete(args: VpcPrefixDelete, api_client: &ApiClient) -> CarbideCliResult<()> {
     do_delete(api_client, args).await
 }
 
@@ -78,10 +78,10 @@ impl ShowOutput {
     }
 }
 
-impl From<&VpcPrefixShow> for ShowMethod {
-    fn from(show_args: &VpcPrefixShow) -> Self {
-        match &show_args.prefix_selector {
-            Some(selector) => ShowMethod::Get(selector.clone()),
+impl From<VpcPrefixShow> for ShowMethod {
+    fn from(show_args: VpcPrefixShow) -> Self {
+        match show_args.prefix_selector {
+            Some(selector) => ShowMethod::Get(selector),
             None => {
                 let mut search = match_all();
                 search.vpc_id = show_args.vpc_id;
@@ -148,7 +148,7 @@ async fn do_create(
 
 async fn do_delete(
     api_client: &ApiClient,
-    delete_args: &VpcPrefixDelete,
+    delete_args: VpcPrefixDelete,
 ) -> Result<(), CarbideCliError> {
     let delete_prefix = VpcPrefixDeletionRequest {
         id: Some(delete_args.vpc_prefix_id),

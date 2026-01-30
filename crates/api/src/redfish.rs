@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use db::safe_pg_pool::SafePgPool;
+use db::DatabaseError;
 use forge_secrets::SecretsError;
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
@@ -25,7 +25,7 @@ use libredfish::model::BootProgress;
 use libredfish::{Endpoint, PowerState, Redfish, RedfishError, SystemPowerControl};
 use mac_address::MacAddress;
 use model::machine::Machine;
-use sqlx::PgConnection;
+use sqlx::{PgConnection, PgPool};
 use utils::HostPortPair;
 
 use crate::ipmitool::IPMITool;
@@ -127,9 +127,9 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         &self,
         ip: IpAddr,
         port: Option<u16>,
-        pool: &mut SafePgPool,
+        pool: &PgPool,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        let mut conn = pool.acquire().await?;
+        let mut conn = pool.acquire().await.map_err(DatabaseError::acquire)?;
         let auth_key = db::machine_interface::find_by_ip(&mut conn, ip)
             .await?
             .ok_or_else(|| {
@@ -796,6 +796,7 @@ pub mod test_support {
     pub enum RedfishSimAction {
         Power(libredfish::SystemPowerControl),
         BmcReset,
+        SetUtcTimezone,
     }
 
     pub struct RedfishSimActions {
@@ -1975,6 +1976,18 @@ pub mod test_support {
         ) -> Result<(), RedfishError> {
             Ok(())
         }
+
+        async fn set_utc_timezone(&self) -> Result<(), RedfishError> {
+            self.state
+                .lock()
+                .unwrap()
+                .hosts
+                .get_mut(&self._host)
+                .unwrap()
+                .actions
+                .push(RedfishSimAction::SetUtcTimezone);
+            Ok(())
+        }
     }
 
     #[async_trait]
@@ -2018,7 +2031,7 @@ pub mod test_support {
             &self,
             ip: IpAddr,
             port: Option<u16>,
-            _txn: &mut SafePgPool,
+            _txn: &PgPool,
         ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
             self.create_client(
                 &ip.to_string(),

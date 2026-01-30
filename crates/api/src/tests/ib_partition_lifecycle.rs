@@ -39,14 +39,14 @@ async fn create_ib_partition_with_api(
         config: Some(IbPartitionConfig {
             name: name.clone(),
             tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
-            metadata: Some(rpc::Metadata {
-                name,
-                labels: vec![Label {
-                    key: "example_key".into(),
-                    value: Some("example_value".into()),
-                }],
-                description: "example description".into(),
-            }),
+        }),
+        metadata: Some(rpc::Metadata {
+            name,
+            labels: vec![Label {
+                key: "example_key".into(),
+                value: Some("example_value".into()),
+            }],
+            description: "example description".into(),
         }),
     };
 
@@ -273,14 +273,14 @@ async fn test_reject_create_with_invalid_metadata(
         config: Some(IbPartitionConfig {
             name: "partition1".into(),
             tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
-            metadata: Some(rpc::Metadata {
-                name: "".into(), // Invalid name
-                labels: vec![Label {
-                    key: "example_key".into(),
-                    value: Some("example_value".into()),
-                }],
-                description: "example description".into(),
-            }),
+        }),
+        metadata: Some(rpc::Metadata {
+            name: "".into(), // Invalid name
+            labels: vec![Label {
+                key: "example_key".into(),
+                value: Some("example_value".into()),
+            }],
+            description: "example description".into(),
         }),
     };
 
@@ -319,14 +319,14 @@ async fn create_ib_partition_with_api_with_id(
         config: Some(IbPartitionConfig {
             name: "partition1".into(),
             tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
-            metadata: Some(rpc::Metadata {
-                name: "partition1".into(),
-                labels: vec![Label {
-                    key: "example_label".into(),
-                    value: Some("example_value".into()),
-                }],
-                description: "description".into(),
-            }),
+        }),
+        metadata: Some(rpc::Metadata {
+            name: "partition1".into(),
+            labels: vec![Label {
+                key: "example_label".into(),
+                value: Some("example_value".into()),
+            }],
+            description: "description".into(),
         }),
     };
 
@@ -347,16 +347,17 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     let new_partition = NewIBPartition {
         id,
         config: IBPartitionConfig {
+            name: "partition1".to_string(),
             pkey: Some(42.try_into().unwrap()),
             tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string().try_into().unwrap(),
             mtu: Some(IBMtu::default()),
             rate_limit: Some(IBRateLimit::default()),
             service_level: Some(IBServiceLevel::default()),
-            metadata: Metadata {
-                name: "partition1".to_string(),
-                labels: HashMap::from([("example_label".into(), "example_value".into())]),
-                description: "new description".to_string(),
-            },
+        },
+        metadata: Metadata {
+            name: "partition1".to_string(),
+            labels: HashMap::from([("example_label".into(), "example_value".into())]),
+            description: "new description".to_string(),
         },
     };
     let mut txn = pool.begin().await?;
@@ -417,23 +418,24 @@ async fn test_reject_update_with_invalid_metadata(
     let new_partition = NewIBPartition {
         id,
         config: IBPartitionConfig {
+            name: "partition1".to_string(),
             pkey: Some(42.try_into().unwrap()),
             tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string().try_into().unwrap(),
             mtu: Some(IBMtu::default()),
             rate_limit: Some(IBRateLimit::default()),
             service_level: Some(IBServiceLevel::default()),
-            metadata: Metadata {
-                name: "partition1".to_string(),
-                labels: HashMap::from([("example_label".into(), "example_value".into())]),
-                description: "new description".to_string(),
-            },
+        },
+        metadata: Metadata {
+            name: "partition1".to_string(),
+            labels: HashMap::from([("example_label".into(), "example_value".into())]),
+            description: "new description".to_string(),
         },
     };
     let mut txn = pool.begin().await?;
     let mut partition: IBPartition = db::ib_partition::create(new_partition, &mut txn, 10).await?;
     txn.commit().await?;
 
-    partition.config.metadata.name = "".to_string(); // Invalid name
+    partition.metadata.name = "".to_string(); // Invalid name
 
     let mut txn = pool.begin().await?;
     let result = db::ib_partition::update(&partition, &mut txn).await;

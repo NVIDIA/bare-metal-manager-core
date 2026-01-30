@@ -40,11 +40,10 @@ struct IbPartitionRowDisplay {
 
 impl From<forgerpc::IbPartition> for IbPartitionRowDisplay {
     fn from(partition: forgerpc::IbPartition) -> Self {
-        let config = partition.config.unwrap_or_default();
         Self {
             id: partition.id.map(|id| id.to_string()).unwrap_or_default(),
-            tenant_organization_id: config.tenant_organization_id,
-            metadata: config.metadata.unwrap_or_default(),
+            tenant_organization_id: partition.config.unwrap_or_default().tenant_organization_id,
+            metadata: partition.metadata.unwrap_or_default(),
             state: partition
                 .status
                 .as_ref()
@@ -133,8 +132,8 @@ async fn fetch_ib_partitions(api: Arc<Api>) -> Result<Vec<forgerpc::IbPartition>
     partitions.sort_unstable_by(|p1, p2: &rpc::IbPartition| {
         // Sort by tenant_org and name
         // Otherwise fall back to ID
-        if let (Some(p1), Some(p2)) = (p1.config.as_ref(), p2.config.as_ref()) {
-            let ord = p1.tenant_organization_id.cmp(&p2.tenant_organization_id);
+        if let (Some(pc1), Some(pc2)) = (p1.config.as_ref(), p2.config.as_ref()) {
+            let ord = pc1.tenant_organization_id.cmp(&pc2.tenant_organization_id);
             if ord.is_ne() {
                 return ord;
             }
@@ -176,12 +175,11 @@ struct IbPartitionDetail {
 
 impl From<forgerpc::IbPartition> for IbPartitionDetail {
     fn from(partition: forgerpc::IbPartition) -> Self {
-        let config = partition.config.unwrap_or_default();
         Self {
             id: partition.id.map(|id| id.to_string()).unwrap_or_default(),
             config_version: partition.config_version,
-            tenant_organization_id: config.tenant_organization_id,
-            metadata: config.metadata.unwrap_or_default(),
+            tenant_organization_id: partition.config.unwrap_or_default().tenant_organization_id,
+            metadata: partition.metadata.unwrap_or_default(),
             state: partition
                 .status
                 .as_ref()

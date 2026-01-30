@@ -1127,6 +1127,20 @@ pub enum EndpointExplorationError {
         response_body: Option<String>,
         response_code: Option<u16>,
     },
+
+    /// An intermittent unauthorized error that occurred even when site-wide
+    /// credentials are already set. This is a transient error that should be
+    /// retried rather than triggering AvoidLockout behavior.
+    /// After `consecutive_count` reaches the threshold, escalates to regular Unauthorized.
+    #[error("Intermittent unauthorized error (attempt {consecutive_count}): {details}")]
+    #[serde(rename_all = "PascalCase")]
+    IntermittentUnauthorized {
+        details: String,
+        response_body: Option<String>,
+        response_code: Option<u16>,
+        #[serde(default)]
+        consecutive_count: u32,
+    },
 }
 
 impl EndpointExplorationError {
@@ -1148,6 +1162,16 @@ impl EndpointExplorationError {
             self,
             EndpointExplorationError::InvalidDpuRedfishBiosResponse { .. }
         )
+    }
+
+    /// Returns the consecutive count if this is an IntermittentUnauthorized error.
+    pub fn intermittent_unauthorized_count(&self) -> Option<u32> {
+        match self {
+            EndpointExplorationError::IntermittentUnauthorized {
+                consecutive_count, ..
+            } => Some(*consecutive_count),
+            _ => None,
+        }
     }
 }
 

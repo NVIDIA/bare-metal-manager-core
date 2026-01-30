@@ -33,7 +33,7 @@ use crate::state_controller::metrics::{
 use crate::state_controller::state_change_emitter::{StateChangeEmitter, StateChangeEvent};
 use crate::state_controller::state_handler::{
     FromStateHandlerResult, StateHandler, StateHandlerContext, StateHandlerContextObjects,
-    StateHandlerError, StateHandlerOutcome,
+    StateHandlerError, StateHandlerOutcome, StateHandlerOutcomeWithTransaction,
 };
 
 /// The `StateProcessor` is responsible for executing the state handler functions
@@ -62,9 +62,12 @@ pub(super) struct StateProcessor<IO: StateControllerIO> {
     /// Objects where the state handling task was finished but where the entry
     /// in the database has not yet been deleted.
     pub(super) completed_objects: HashSet<IO::ObjectId>,
+    /// Objects for which another object handling task should be queued since
+    /// the state handler returned `Transition`
+    pub(super) requeue_objects: HashSet<IO::ObjectId>,
     pub(super) task_sender: tokio::sync::mpsc::UnboundedSender<ObjectHandlingTaskResult<IO>>,
     pub(super) task_receiver: tokio::sync::mpsc::UnboundedReceiver<ObjectHandlingTaskResult<IO>>,
-    pub(super) data_by_iteration: HashMap<ControllerIterationId, DataByIteration<IO>>,
+    pub(super) data_since_iteration_start: DataSinceStartOfIteration<IO>,
     /// The last time a log message had been emitted
     pub(super) last_log_time: std::time::Instant,
     pub(super) stats_since_last_log: StatsSinceLastLog,
@@ -76,26 +79,22 @@ pub(super) struct StateProcessor<IO: StateControllerIO> {
 }
 pub(super) struct ObjectHandlingTaskResult<IO: StateControllerIO> {
     object_id: IO::ObjectId,
-    iteration_id: ControllerIterationId,
     metrics: ObjectHandlerMetrics<IO>,
 }
 
 #[derive(Debug)]
-pub(super) struct DataByIteration<IO: StateControllerIO> {
+pub(super) struct DataSinceStartOfIteration<IO: StateControllerIO> {
     /// The time when the first state state handling task for the iteration was dequeued
     iteration_started_at: std::time::Instant,
     iteration_started_at_utc: chrono::DateTime<chrono::Utc>,
-    /// The amount of object handlers in-flight for this iteration
-    in_flight: usize,
     object_metrics: HashMap<IO::ObjectId, ObjectHandlerMetrics<IO>>,
 }
 
-impl<IO: StateControllerIO> std::default::Default for DataByIteration<IO> {
+impl<IO: StateControllerIO> std::default::Default for DataSinceStartOfIteration<IO> {
     fn default() -> Self {
         Self {
             iteration_started_at: std::time::Instant::now(),
             iteration_started_at_utc: chrono::Utc::now(),
-            in_flight: 0,
             object_metrics: Default::default(),
         }
     }
@@ -122,11 +121,14 @@ pub(super) struct StatsSinceLastLog {
     num_errored_tasks: usize,
     /// The amount of queued objects which have been deleted from the DB
     num_deleted_queued_objects: usize,
+    /// The amount of objects which have been queued again for statehandling
+    num_requeued_objects: usize,
     /// The aggregated sqlx metrics at the last time logs had been emitted
     db_query_metrics: SqlxQueryDataAggregation,
 }
 
 #[derive(Debug, Default, Clone)]
+#[allow(dead_code)]
 struct QueueStats {
     /// The ID of the latest iteration that had been started
     latest_iteration: Option<ControllerIterationId>,
@@ -155,7 +157,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             let mut next_dispatch_at = start.checked_add(iteration_time).unwrap_or(start);
 
             match self
-                .run_single_iteration(iteration_time)
+                .run_single_iteration(iteration_time, true)
                 .instrument(span)
                 .await
             {
@@ -210,23 +212,30 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
     pub(super) async fn run_single_iteration(
         &mut self,
         max_completion_wait_time: std::time::Duration,
+        allow_requeue: bool,
     ) -> Result<SingleIterationResult, IterationError> {
         let num_dispatched_tasks = self.dequeue_and_dispatch_object_handling_tasks().await?;
         // We are assuming that we dispatch as many tasks that are available and fit into
         // the queue. Therefore its ok to wait until at least one task has been dequeued
         // before evaluating any next steps.
         let num_completed_tasks = self
-            .wait_and_process_object_handling_task_completions(max_completion_wait_time)
+            .wait_and_process_object_handling_task_completions(
+                max_completion_wait_time,
+                allow_requeue,
+            )
             .await;
 
         // Delete the DB entries for tasks which finished in `wait_and_process_object_handling_task_completions`.
         self.cleanup_completed_objects().await?;
 
-        // Delete state saved about past iterations where no more object processing
-        // is expected
+        // Schedule handler again for objects which transitioned.
+        // We queue them using the latest iteration_id.
+        // This needs to happen after `cleanup_completed_objects` to remove
+        // the old entries from the DB first.
+        self.requeue_transitioned_objects().await?;
+
         let queue_stats = self.gather_queue_stats().await?;
-        self.emit_metrics_for_previous_iteration(&queue_stats);
-        self.finalize_completed_iterations(&queue_stats);
+        self.emit_metric_if_iteration_changed(&queue_stats);
 
         self.emit_periodic_log_if_necessary();
 
@@ -254,23 +263,10 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         })
     }
 
-    // Deletes stored state for iterations that are no lot likely to handle tasks.
-    // This needs to be called after metrics for the iteration have been published.
-    fn finalize_completed_iterations(&mut self, queue_stats: &QueueStats) {
-        let Some(latest_iteration) = queue_stats.latest_iteration else {
-            return;
-        };
-
-        for (_id, _data) in self
-            .data_by_iteration
-            .extract_if(|id, data| id.0 < latest_iteration.0 && data.in_flight == 0)
-        {}
-    }
-
     /// Publishes metrics for the previous iteration ID.
     /// Since we want the metrics to be emitted on time (coordinated across multiple
     /// state controller instances), we won't wait until all tasks are finished.
-    fn emit_metrics_for_previous_iteration(&mut self, stats: &QueueStats) {
+    fn emit_metric_if_iteration_changed(&mut self, stats: &QueueStats) {
         self.emit_metrics_for_iteration(stats.previous_iteration);
     }
 
@@ -279,50 +275,37 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
     /// If the target ID is `None`, an empty set of metrics will be emitted.
     pub(super) fn emit_metrics_for_iteration(
         &mut self,
-        target_iteration_id: Option<ControllerIterationId>,
+        finished_iteration_id: Option<ControllerIterationId>,
     ) {
-        if self.published_metrics_iteration_id == target_iteration_id {
+        if self.published_metrics_iteration_id == finished_iteration_id {
             // Metrics are already published
             return;
         }
-        self.published_metrics_iteration_id = target_iteration_id;
+        self.published_metrics_iteration_id = finished_iteration_id;
 
-        let metrics_to_publish = match target_iteration_id {
-            Some(id) => match self.data_by_iteration.get_mut(&id) {
-                Some(data) => {
-                    let mut aggregate = IterationMetrics::<IO>::default();
-                    for object_metrics in data.object_metrics.values() {
-                        aggregate.merge_object_handling_metrics(object_metrics);
-                    }
-
-                    emit_iteration_log(&id, data.iteration_started_at_utc, &aggregate);
-
-                    if let Some(emitter) = self.metric_emitter.as_ref() {
-                        emitter.emit_iteration_counters_and_histograms(data);
-                    }
-                    Some(aggregate)
-                }
-                None => None,
-            },
-            None => None,
-        };
-
-        if let Some(metrics_to_publish) = metrics_to_publish {
-            self.metric_holder
-                .last_iteration_specific_metrics
-                .update(metrics_to_publish.specific);
-            self.metric_holder
-                .last_iteration_common_metrics
-                .update(metrics_to_publish.common);
-        } else {
-            // No metrics for target generation
-            self.metric_holder
-                .last_iteration_specific_metrics
-                .update(Default::default());
-            self.metric_holder
-                .last_iteration_common_metrics
-                .update(Default::default());
+        let mut aggregate = IterationMetrics::<IO>::default();
+        for object_metrics in self.data_since_iteration_start.object_metrics.values() {
+            aggregate.merge_object_handling_metrics(object_metrics);
         }
+
+        emit_iteration_log(
+            finished_iteration_id,
+            self.data_since_iteration_start.iteration_started_at_utc,
+            &aggregate,
+        );
+
+        if let Some(emitter) = self.metric_emitter.as_ref() {
+            emitter.emit_iteration_counters_and_histograms(&self.data_since_iteration_start);
+        }
+
+        self.data_since_iteration_start = DataSinceStartOfIteration::default();
+
+        self.metric_holder
+            .last_iteration_specific_metrics
+            .update(aggregate.specific);
+        self.metric_holder
+            .last_iteration_common_metrics
+            .update(aggregate.common);
     }
 
     fn emit_periodic_log_if_necessary(&mut self) {
@@ -355,6 +338,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             tasks_in_flight = self.in_flight.len(),
             completed_tasks = stats.num_completed_tasks,
             dispatched_tasks = stats.num_dispatched_tasks,
+            requeued_objects = stats.num_requeued_objects,
             errored_tasks = stats.num_errored_tasks,
             sql_queries = db_metrics_since_last_query.num_queries,
             sql_total_rows_affected = db_metrics_since_last_query.total_rows_affected,
@@ -374,6 +358,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
     async fn wait_and_process_object_handling_task_completions(
         &mut self,
         max_duration: std::time::Duration,
+        allow_requeue: bool,
     ) -> usize {
         // Don't wait if there's nothing to do.
         if self.in_flight.is_empty() {
@@ -389,7 +374,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             num_received = self.task_receiver.recv_many(&mut finished_tasks, finished_tasks_capacity) => {
                 for _ in 0 .. num_received {
                     let finished_task = finished_tasks.pop().expect("Object handling task finished");
-                    self.process_object_handling_task_result(finished_task);
+                    self.process_object_handling_task_result(finished_task, allow_requeue);
                     total_completions += 1;
                 }
             }
@@ -438,10 +423,10 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             Vec::new()
         };
 
-        let objects: Vec<(ControllerIterationId, IO::ObjectId)> = objects
+        let objects: Vec<IO::ObjectId> = objects
             .into_iter()
             .filter_map(|object| match IO::ObjectId::from_str(&object.object_id) {
-                Ok(id) => Some((object.iteration_id, id)),
+                Ok(id) => Some(id),
                 Err(_) => {
                     tracing::error!(
                         controller = IO::LOG_SPAN_CONTROLLER_NAME,
@@ -457,12 +442,9 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         self.stats_since_last_log.num_dispatched_tasks += num_dispatched_tasks;
 
         // Send off the new objects for processing
-        for (iteration_id, object_id) in objects {
-            self.dispatch_object_handling_task(iteration_id, object_id.clone());
-
-            self.in_flight.insert(object_id.clone());
-            let data_by_iteration = self.data_by_iteration.entry(iteration_id).or_default();
-            data_by_iteration.in_flight += 1;
+        for object_id in objects {
+            self.dispatch_object_handling_task(object_id.clone());
+            self.in_flight.insert(object_id);
         }
 
         if let Some(emitter) = &self.metric_emitter
@@ -477,11 +459,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
     }
 
     // Executes the state handling function for all objects for a single queued object
-    fn dispatch_object_handling_task(
-        &mut self,
-        iteration_id: ControllerIterationId,
-        object_id: IO::ObjectId,
-    ) {
+    fn dispatch_object_handling_task(&mut self, object_id: IO::ObjectId) {
         let cloned_object_id = object_id.clone();
         let pool = self.pool.clone();
         let services = self.handler_services.as_ref().clone();
@@ -510,7 +488,6 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
 
                     if let Err(e) = result_sender.send(ObjectHandlingTaskResult {
                         object_id: cloned_object_id,
-                        iteration_id,
                         metrics,
                     }) {
                         tracing::error!(
@@ -555,13 +532,43 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         Ok(())
     }
 
-    fn process_object_handling_task_result(&mut self, task_result: ObjectHandlingTaskResult<IO>) {
-        let iteration_id = task_result.iteration_id;
+    async fn requeue_transitioned_objects(&mut self) -> Result<(), IterationError> {
+        if self.requeue_objects.is_empty() {
+            return Ok(());
+        }
 
+        let queue_objects: Vec<String> = self
+            .requeue_objects
+            .iter()
+            .map(|id| id.to_string())
+            .collect();
+        let mut txn = self.pool.begin().await?;
+        let num_requeued =
+            db::queue_objects(&mut txn, IO::DB_QUEUED_OBJECTS_TABLE_NAME, &queue_objects).await?;
+        txn.commit().await?;
+
+        self.stats_since_last_log.num_requeued_objects += num_requeued;
+        if let Some(emitter) = &self.metric_emitter {
+            emitter.requeued_tasks_counter.add(num_requeued as u64, &[]);
+        }
+        self.requeue_objects.clear();
+        Ok(())
+    }
+
+    fn process_object_handling_task_result(
+        &mut self,
+        task_result: ObjectHandlingTaskResult<IO>,
+        allow_requeue: bool,
+    ) {
         // We don't remove objects from the database here but store them first
         // and remove them later in order to not forget about these in case there
         // is a transient database error
         self.completed_objects.insert(task_result.object_id.clone());
+        // If the state handler returned `Transition`, then run the handler again
+        // as soon as possible.
+        if allow_requeue && task_result.metrics.common.next_state.is_some() {
+            self.requeue_objects.insert(task_result.object_id.clone());
+        }
 
         self.stats_since_last_log.num_completed_tasks += 1;
         if task_result.metrics.common.error.is_some() {
@@ -569,14 +576,9 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         }
 
         self.in_flight.remove(&task_result.object_id);
-        let Some(data_by_iteration) = self.data_by_iteration.get_mut(&iteration_id) else {
-            return;
-        };
-
-        data_by_iteration
+        self.data_since_iteration_start
             .object_metrics
-            .insert(task_result.object_id, task_result.metrics);
-        data_by_iteration.in_flight = data_by_iteration.in_flight.saturating_sub(1);
+            .insert(task_result.object_id.clone(), task_result.metrics);
     }
 }
 
@@ -647,15 +649,30 @@ async fn process_object<IO: StateControllerIO>(
             metrics: &mut metrics.specific,
         };
 
-        let handler_outcome = handler
-            .handle_object_state(
-                &object_id,
-                &mut snapshot,
-                &controller_state.value,
-                &mut txn,
-                &mut ctx,
-            )
+        // Commit the transaction now, since we don't want to leave a txn open
+        // throughout handle_object_state.
+        txn.commit().await?;
+
+        let handler_output = handler
+            .handle_object_state(&object_id, &mut snapshot, &controller_state.value, &mut ctx)
             .await;
+
+        // What transaction should we use for persisting the outcome? If the
+        // handler was successful and gave us back a transaction, use that,
+        // otherwise make our own.
+        let (handler_outcome, mut txn) = match handler_output {
+            Ok(StateHandlerOutcomeWithTransaction {
+                outcome,
+                transaction,
+            }) => {
+                if let Some(txn) = transaction {
+                    (Ok(outcome), txn)
+                } else {
+                    (Ok(outcome), pool.begin().await?)
+                }
+            }
+            Err(e) => (Err(e), pool.begin().await?),
+        };
 
         let mut next_state = None;
         if let Ok(StateHandlerOutcome::Transition {
@@ -762,6 +779,7 @@ pub(super) struct ProcessorMetricsEmitter {
     controller_iteration_latency: Histogram<f64>,
     dispatched_tasks_counter: Counter<u64>,
     completed_tasks_counter: Counter<u64>,
+    requeued_tasks_counter: Counter<u64>,
     db: sqlx_query_tracing::DatabaseMetricEmitters,
 }
 
@@ -791,11 +809,19 @@ impl ProcessorMetricsEmitter {
             ))
             .build();
 
+        let requeued_tasks_counter = meter
+            .u64_counter(format!("{object_type}_object_tasks_requeued"))
+            .with_description(format!(
+                "The amount of object handling tasks that have been requeued for objects of type {object_type}"
+            ))
+            .build();
+
         Self {
             controller_iteration_latency,
             db,
             dispatched_tasks_counter,
             completed_tasks_counter,
+            requeued_tasks_counter,
         }
     }
 
@@ -812,7 +838,7 @@ impl ProcessorMetricsEmitter {
 
     fn emit_iteration_counters_and_histograms<IO: StateControllerIO>(
         &self,
-        iteration_data: &DataByIteration<IO>,
+        iteration_data: &DataSinceStartOfIteration<IO>,
     ) {
         self.controller_iteration_latency.record(
             1000.0 * iteration_data.iteration_started_at.elapsed().as_secs_f64(),
@@ -824,14 +850,14 @@ impl ProcessorMetricsEmitter {
 /// Emits the metrics that had been collected during a state controller iteration
 /// as a single log line.
 fn emit_iteration_log<IO: StateControllerIO>(
-    iteration_id: &ControllerIterationId,
+    iteration_id: Option<ControllerIterationId>,
     iteration_processing_started_at: chrono::DateTime<chrono::Utc>,
     iteration_metrics: &IterationMetrics<IO>,
 ) {
     let timing_start_time = format!("{:?}", iteration_processing_started_at);
     let elapsed = chrono::Utc::now().signed_duration_since(iteration_processing_started_at);
     let timing_elapsed_us = elapsed.num_microseconds().unwrap_or_default().to_string();
-    let iteration_id = iteration_id.0.to_string();
+    let iteration_id = iteration_id.map(|id| id.0).unwrap_or_default().to_string();
 
     let mut total_objects = 0;
     let mut states: HashMap<String, usize> = HashMap::new();

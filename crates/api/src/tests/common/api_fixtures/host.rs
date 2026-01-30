@@ -26,7 +26,7 @@ use tonic::Request;
 
 use super::tpm_attestation::{AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIALIZED};
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
-use crate::tests::common::api_fixtures::{TestEnv, forge_agent_control};
+use crate::tests::common::api_fixtures::{TestEnv, TestMachine, forge_agent_control};
 use crate::tests::common::rpc_builder::DhcpDiscovery;
 
 pub const X86_INFO_JSON: &[u8] =
@@ -111,27 +111,45 @@ pub async fn host_discover_machine(
 }
 
 pub async fn host_uefi_setup(env: &TestEnv, host_machine_id: &MachineId) {
-    for state in UefiSetupState::iter() {
+    let machine = TestMachine::new(*host_machine_id, env.api.clone());
+
+    // Wait until we are past through the last UefiSetupState and then assert we went through all
+    const MAX_ITERATIONS: usize = 20;
+    for _ in 0..MAX_ITERATIONS {
+        env.run_machine_state_controller_iteration().await;
+        let history = machine.parsed_history(Some(10)).await;
+
+        let mut found_all = true;
+        for state in UefiSetupState::iter().filter(|state|
         // These states are reserved for legacy hosts--newly ingested hosts will never get here
-        if state == UefiSetupState::UnlockHost || state == UefiSetupState::LockdownHost {
-            continue;
+        *state != UefiSetupState::UnlockHost && *state != UefiSetupState::LockdownHost)
+        {
+            if !history.iter().any(|entry| {
+                *entry
+                    == ManagedHostState::HostInit {
+                        machine_state: UefiSetup {
+                            uefi_setup_info: UefiSetupInfo {
+                                uefi_password_jid: None,
+                                uefi_setup_state: state.clone(),
+                            },
+                        },
+                    }
+            }) {
+                found_all = false;
+                break;
+            }
         }
 
-        env.run_machine_state_controller_iteration_until_state_matches(
-            host_machine_id,
-            1,
-            ManagedHostState::HostInit {
-                machine_state: UefiSetup {
-                    uefi_setup_info: UefiSetupInfo {
-                        uefi_password_jid: None,
-                        uefi_setup_state: state,
-                    },
-                },
-            },
-        )
-        .await;
+        if found_all {
+            tracing::info!("Host machine UEFI setup completed");
+            return;
+        }
 
         let response = forge_agent_control(env, *host_machine_id).await;
         assert_eq!(response.action, Action::Noop as i32);
     }
+
+    panic!(
+        "Host machine did not went through all UEFI setup states within {MAX_ITERATIONS} iterations"
+    );
 }

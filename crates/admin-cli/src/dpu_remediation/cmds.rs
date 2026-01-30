@@ -45,8 +45,8 @@ pub async fn create_dpu_remediation(
         .0
         .create_remediation(CreateRemediationRequest {
             script,
-            metadata: create_remediation.metadata(),
             retries: create_remediation.retries.unwrap_or_default() as i32,
+            metadata: create_remediation.into_metadata(),
         })
         .await?;
 
@@ -323,8 +323,9 @@ fn convert_applied_remediations_to_nice_table(
         table.add_row(row!["None", "None", "None", "None", "None", "None",]);
     } else {
         for applied_remediations in applied_remediations.applied_remediations.into_iter() {
-            let labels =
-                crate::metadata::get_nice_labels_from_rpc_metadata(&applied_remediations.metadata);
+            let labels = crate::metadata::get_nice_labels_from_rpc_metadata(
+                applied_remediations.metadata.as_ref(),
+            );
 
             table.add_row(row![
                 applied_remediations
@@ -496,7 +497,8 @@ fn convert_remediations_to_nice_table(remediations: RemediationList) -> Box<Tabl
         table.add_row(row!["None", "None", "None", "None", "None", "None", "None"]);
     } else {
         for remediation in remediations.remediations.into_iter() {
-            let labels = crate::metadata::get_nice_labels_from_rpc_metadata(&remediation.metadata);
+            let labels =
+                crate::metadata::get_nice_labels_from_rpc_metadata(remediation.metadata.as_ref());
 
             table.add_row(row![
                 remediation.id.unwrap_or_default().to_string(),

@@ -40,7 +40,7 @@ pub fn show_power_shelves(
             );
             println!("{:-<120}", "");
 
-            for shelf in &power_shelves {
+            for shelf in power_shelves {
                 let id = shelf
                     .id
                     .as_ref()
@@ -50,8 +50,8 @@ pub fn show_power_shelves(
                 let name = shelf
                     .config
                     .as_ref()
-                    .map(|config| config.name.clone())
-                    .unwrap_or_else(|| "N/A".to_string());
+                    .map(|config| config.name.as_str())
+                    .unwrap_or_else(|| "N/A");
 
                 let capacity = shelf
                     .config
@@ -70,22 +70,22 @@ pub fn show_power_shelves(
                 let location = shelf
                     .config
                     .as_ref()
-                    .and_then(|config| config.location.clone())
-                    .unwrap_or_else(|| "N/A".to_string());
+                    .and_then(|config| config.location.as_deref())
+                    .unwrap_or("N/A");
 
                 let power_state = shelf
                     .status
                     .as_ref()
-                    .and_then(|status| status.power_state.clone())
-                    .unwrap_or_else(|| "N/A".to_string());
+                    .and_then(|status| status.power_state.as_deref())
+                    .unwrap_or("N/A");
 
                 let health = shelf
                     .status
                     .as_ref()
-                    .and_then(|status| status.health_status.clone())
-                    .unwrap_or_else(|| "N/A".to_string());
+                    .and_then(|status| status.health_status.as_deref())
+                    .unwrap_or("N/A");
 
-                let controller_state = shelf.controller_state.clone();
+                let controller_state = shelf.controller_state.as_str();
 
                 println!(
                     "{:<36} {:<20} {:<10} {:<10} {:<15} {:<10} {:<10} {:<25}",
@@ -113,8 +113,8 @@ pub fn show_power_shelves(
                 let name = shelf
                     .config
                     .as_ref()
-                    .map(|config| config.name.clone())
-                    .unwrap_or_else(|| "N/A".to_string());
+                    .map(|config| config.name.as_str())
+                    .unwrap_or_else(|| "N/A");
 
                 let capacity = shelf
                     .config
@@ -133,22 +133,22 @@ pub fn show_power_shelves(
                 let location = shelf
                     .config
                     .as_ref()
-                    .and_then(|config| config.location.clone())
-                    .unwrap_or_else(|| "N/A".to_string());
+                    .and_then(|config| config.location.as_deref())
+                    .unwrap_or("N/A");
 
                 let power_state = shelf
                     .status
                     .as_ref()
-                    .and_then(|status| status.power_state.clone())
-                    .unwrap_or_else(|| "N/A".to_string());
+                    .and_then(|status| status.power_state.as_deref())
+                    .unwrap_or("N/A");
 
                 let health = shelf
                     .status
                     .as_ref()
-                    .and_then(|status| status.health_status.clone())
-                    .unwrap_or_else(|| "N/A".to_string());
+                    .and_then(|status| status.health_status.as_deref())
+                    .unwrap_or("N/A");
 
-                let controller_state = shelf.controller_state.clone();
+                let controller_state = shelf.controller_state.as_str();
 
                 println!(
                     "{},{},{},{},{},{},{},{}",
@@ -182,8 +182,8 @@ pub async fn list_power_shelves(api_client: &ApiClient) -> Result<()> {
         let name = shelf
             .config
             .as_ref()
-            .map(|config| config.name.clone())
-            .unwrap_or_else(|| "Unnamed".to_string());
+            .map(|config| config.name.as_str())
+            .unwrap_or_else(|| "Unnamed");
 
         let id = shelf
             .id
@@ -194,16 +194,16 @@ pub async fn list_power_shelves(api_client: &ApiClient) -> Result<()> {
         let power_state = shelf
             .status
             .as_ref()
-            .and_then(|status| status.power_state.clone())
-            .unwrap_or_else(|| "Unknown".to_string());
+            .and_then(|status| status.power_state.as_deref())
+            .unwrap_or("Unknown");
 
         let health = shelf
             .status
             .as_ref()
-            .and_then(|status| status.health_status.clone())
-            .unwrap_or_else(|| "Unknown".to_string());
+            .and_then(|status| status.health_status.as_deref())
+            .unwrap_or("Unknown");
 
-        let controller_state = shelf.controller_state.clone();
+        let controller_state = shelf.controller_state.as_str();
 
         println!(
             "{}. {} (ID: {}) - Power: {}, Health: {}, State: {}",
@@ -220,20 +220,20 @@ pub async fn list_power_shelves(api_client: &ApiClient) -> Result<()> {
 }
 
 pub async fn handle_show(
-    args: &ShowPowerShelf,
+    args: ShowPowerShelf,
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let query = match args.identifier {
-        Some(ref id) if !id.is_empty() => {
+        Some(id) if !id.is_empty() => {
             // Try to parse as PowerShelfId, otherwise treat as name.
-            match PowerShelfId::from_str(id) {
+            match PowerShelfId::from_str(&id) {
                 Ok(power_shelf_id) => rpc::forge::PowerShelfQuery {
                     name: None,
                     power_shelf_id: Some(power_shelf_id),
                 },
                 Err(_) => rpc::forge::PowerShelfQuery {
-                    name: Some(id.clone()),
+                    name: Some(id),
                     power_shelf_id: None,
                 },
             }

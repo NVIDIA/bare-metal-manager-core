@@ -1748,6 +1748,7 @@ dependencies = [
  "humantime-serde",
  "hyper",
  "hyper-util",
+ "logfmt",
  "nv-redfish",
  "nv-redfish-bmc-http",
  "nv-redfish-core",
@@ -5403,7 +5404,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.38.0#f156687ee737e21fee769de7d98adef7e3791513"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.39.0#62079b84486e1fda6c7f362e39f80e3db29c4ee1"
 dependencies = [
  "async-trait",
  "chrono",

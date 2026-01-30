@@ -64,7 +64,7 @@ use crate::redfish::RedfishClientPool;
 use crate::scout_stream::ConnectionRegistry;
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::common_services::CommonStateHandlerServices;
-use crate::state_controller::controller::StateController;
+use crate::state_controller::controller::{Enqueuer, StateController};
 use crate::state_controller::dpa_interface::handler::DpaInterfaceStateHandler;
 use crate::state_controller::dpa_interface::io::DpaInterfaceStateControllerIO;
 use crate::state_controller::ib_partition::handler::IBPartitionStateHandler;
@@ -366,7 +366,7 @@ pub async fn start_api(
         certificate_provider: vault_client.clone(),
         common_pools,
         credential_provider: vault_client,
-        database_connection: db_pool,
+        database_connection: db_pool.clone(),
         dpu_health_log_limiter: LogLimiter::default(),
         dynamic_settings,
         endpoint_explorer: bmc_explorer,
@@ -378,6 +378,7 @@ pub async fn start_api(
         rms_client: rms_client.clone(),
         nmxm_pool: shared_nmxm_pool,
         work_lock_manager_handle,
+        machine_state_handler_enqueuer: Enqueuer::new(db_pool),
     });
 
     let (controllers_stop_tx, controllers_stop_rx) = oneshot::channel();
@@ -602,7 +603,7 @@ pub async fn initialize_and_start_controllers(
     };
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: db_pool.clone().into(),
+        db_pool: db_pool.clone(),
         redfish_client_pool: shared_redfish_pool.clone(),
         ib_fabric_manager: ib_fabric_manager.clone(),
         ib_pools: common_pools.infiniband.clone(),

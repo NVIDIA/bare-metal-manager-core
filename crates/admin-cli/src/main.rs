@@ -154,14 +154,16 @@ async fn main() -> color_eyre::Result<()> {
     let forge_root_ca_path =
         get_forge_root_ca_path(config.forge_root_ca_path, file_config.as_ref());
 
-    // No cli config file for rms client for now
-    let rms_url = get_rms_api_url(None);
-
-    let rms_client_cert = rms_client_cert_info(None, None);
-    let rms_root_ca_path = rms_root_ca_path(None);
-    let rms_client_config = ForgeClientConfig::new(rms_root_ca_path, rms_client_cert);
-    let rms_client_config = ApiConfig::new(&rms_url, &rms_client_config);
-    let rms_client = RmsApiClient(RackManagerApiClient::new(&rms_client_config));
+    // RMS client configuration with optional CLI overrides
+    let rms_url = get_rms_api_url(config.rms_api_url);
+    let rms_root_ca = rms_root_ca_path(config.rms_root_ca_path.clone(), file_config.as_ref());
+    let rms_client_cert = rms_client_cert_info(
+        config.rms_client_cert_path.clone(),
+        config.rms_client_key_path.clone(),
+    );
+    let rms_client_config = ForgeClientConfig::new(rms_root_ca, rms_client_cert);
+    let rms_api_config = ApiConfig::new(&rms_url, &rms_client_config);
+    let rms_client = RmsApiClient(RackManagerApiClient::new(&rms_api_config));
 
     let command = match config.commands {
         None => {
@@ -188,11 +190,11 @@ async fn main() -> color_eyre::Result<()> {
     let ctx = RuntimeContext {
         api_client: ApiClient(ForgeApiClient::new(&ApiConfig::new(&url, &client_config))),
         config: RuntimeConfig {
-            format: config.format.clone(),
+            format: config.format,
             page_size: config.internal_page_size,
             extended: config.extended,
             cloud_unsafe_op_enabled: config.cloud_unsafe_op.is_some(),
-            sort_by: config.sort_by.clone(),
+            sort_by: config.sort_by,
         },
         output_file: get_output_file_or_stdout(config.output.as_deref()).await?,
         rms_client,
@@ -282,5 +284,21 @@ pub async fn get_output_file_or_stdout(
         Ok(Box::pin(file))
     } else {
         Ok(Box::pin(tokio::io::stdout()))
+    }
+}
+
+pub(crate) trait IntoOnlyOne<T> {
+    fn into_only_one_or_else<E, F: FnOnce(usize) -> E>(self, f: F) -> Result<T, E>;
+}
+
+impl<T> IntoOnlyOne<T> for Vec<T> {
+    fn into_only_one_or_else<E, F: FnOnce(usize) -> E>(self, f: F) -> Result<T, E> {
+        if self.len() != 1 {
+            return Err(f(self.len()));
+        }
+        let Some(first) = self.into_iter().next() else {
+            return Err(f(0));
+        };
+        Ok(first)
     }
 }

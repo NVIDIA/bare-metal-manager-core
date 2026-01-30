@@ -35,7 +35,7 @@ forge_machines_enqueuer_iteration_latency_milliseconds_bucket{le="5000"} 2
 forge_machines_enqueuer_iteration_latency_milliseconds_bucket{le="7500"} 2
 forge_machines_enqueuer_iteration_latency_milliseconds_bucket{le="10000"} 2
 forge_machines_enqueuer_iteration_latency_milliseconds_bucket{le="+Inf"} 2
-forge_machines_enqueuer_iteration_latency_milliseconds_sum 9.771637000000002
+forge_machines_enqueuer_iteration_latency_milliseconds_sum 10.406267
 forge_machines_enqueuer_iteration_latency_milliseconds_count 2
 # HELP forge_machines_handler_latency_in_state_milliseconds The amount of time it took to invoke the state handler for objects of type forge_machines in a certain state
 # TYPE forge_machines_handler_latency_in_state_milliseconds histogram
@@ -55,7 +55,7 @@ forge_machines_handler_latency_in_state_milliseconds_bucket{state="deleting",sub
 forge_machines_handler_latency_in_state_milliseconds_bucket{state="deleting",substate="drainallocatedips",le="7500"} 1
 forge_machines_handler_latency_in_state_milliseconds_bucket{state="deleting",substate="drainallocatedips",le="10000"} 1
 forge_machines_handler_latency_in_state_milliseconds_bucket{state="deleting",substate="drainallocatedips",le="+Inf"} 1
-forge_machines_handler_latency_in_state_milliseconds_sum{state="deleting",substate="drainallocatedips"} 5.399916
+forge_machines_handler_latency_in_state_milliseconds_sum{state="deleting",substate="drainallocatedips"} 5.474484
 forge_machines_handler_latency_in_state_milliseconds_count{state="deleting",substate="drainallocatedips"} 1
 forge_machines_handler_latency_in_state_milliseconds_bucket{state="ready",substate="",le="0"} 0
 forge_machines_handler_latency_in_state_milliseconds_bucket{state="ready",substate="",le="5"} 0
@@ -73,28 +73,28 @@ forge_machines_handler_latency_in_state_milliseconds_bucket{state="ready",substa
 forge_machines_handler_latency_in_state_milliseconds_bucket{state="ready",substate="",le="7500"} 1
 forge_machines_handler_latency_in_state_milliseconds_bucket{state="ready",substate="",le="10000"} 1
 forge_machines_handler_latency_in_state_milliseconds_bucket{state="ready",substate="",le="+Inf"} 1
-forge_machines_handler_latency_in_state_milliseconds_sum{state="ready",substate=""} 5.395482
+forge_machines_handler_latency_in_state_milliseconds_sum{state="ready",substate=""} 5.1987250000000005
 forge_machines_handler_latency_in_state_milliseconds_count{state="ready",substate=""} 1
 # HELP forge_machines_iteration_latency_milliseconds The overall time it took to handle state for all forge_machines in the system
 # TYPE forge_machines_iteration_latency_milliseconds histogram
 forge_machines_iteration_latency_milliseconds_bucket{le="0"} 0
-forge_machines_iteration_latency_milliseconds_bucket{le="5"} 0
-forge_machines_iteration_latency_milliseconds_bucket{le="10"} 2
+forge_machines_iteration_latency_milliseconds_bucket{le="5"} 1
+forge_machines_iteration_latency_milliseconds_bucket{le="10"} 1
 forge_machines_iteration_latency_milliseconds_bucket{le="25"} 2
-forge_machines_iteration_latency_milliseconds_bucket{le="50"} 2
-forge_machines_iteration_latency_milliseconds_bucket{le="75"} 2
-forge_machines_iteration_latency_milliseconds_bucket{le="100"} 2
-forge_machines_iteration_latency_milliseconds_bucket{le="250"} 2
-forge_machines_iteration_latency_milliseconds_bucket{le="500"} 2
-forge_machines_iteration_latency_milliseconds_bucket{le="750"} 2
-forge_machines_iteration_latency_milliseconds_bucket{le="1000"} 2
-forge_machines_iteration_latency_milliseconds_bucket{le="2500"} 2
-forge_machines_iteration_latency_milliseconds_bucket{le="5000"} 2
-forge_machines_iteration_latency_milliseconds_bucket{le="7500"} 2
-forge_machines_iteration_latency_milliseconds_bucket{le="10000"} 2
-forge_machines_iteration_latency_milliseconds_bucket{le="+Inf"} 2
-forge_machines_iteration_latency_milliseconds_sum 18.032154
-forge_machines_iteration_latency_milliseconds_count 2
+forge_machines_iteration_latency_milliseconds_bucket{le="50"} 3
+forge_machines_iteration_latency_milliseconds_bucket{le="75"} 3
+forge_machines_iteration_latency_milliseconds_bucket{le="100"} 3
+forge_machines_iteration_latency_milliseconds_bucket{le="250"} 3
+forge_machines_iteration_latency_milliseconds_bucket{le="500"} 3
+forge_machines_iteration_latency_milliseconds_bucket{le="750"} 3
+forge_machines_iteration_latency_milliseconds_bucket{le="1000"} 3
+forge_machines_iteration_latency_milliseconds_bucket{le="2500"} 3
+forge_machines_iteration_latency_milliseconds_bucket{le="5000"} 3
+forge_machines_iteration_latency_milliseconds_bucket{le="7500"} 3
+forge_machines_iteration_latency_milliseconds_bucket{le="10000"} 3
+forge_machines_iteration_latency_milliseconds_bucket{le="+Inf"} 3
+forge_machines_iteration_latency_milliseconds_sum 44.459362
+forge_machines_iteration_latency_milliseconds_count 3
 # HELP forge_machines_object_tasks_completed_total The amount of object handling tasks that have been completed for objects of type forge_machines
 # TYPE forge_machines_object_tasks_completed_total counter
 forge_machines_object_tasks_completed_total 2
@@ -103,7 +103,10 @@ forge_machines_object_tasks_completed_total 2
 forge_machines_object_tasks_dispatched_total 2
 # HELP forge_machines_object_tasks_enqueued_total The amount of types that object handling tasks that have been freshly enqueued for objects of type forge_machines
 # TYPE forge_machines_object_tasks_enqueued_total counter
-forge_machines_object_tasks_enqueued_total 2
+forge_machines_object_tasks_enqueued_total 1
+# HELP forge_machines_object_tasks_requeued_total The amount of object handling tasks that have been requeued for objects of type forge_machines
+# TYPE forge_machines_object_tasks_requeued_total counter
+forge_machines_object_tasks_requeued_total 1
 # HELP forge_machines_per_state The number of forge_machines in the system with a given state
 # TYPE forge_machines_per_state gauge
 forge_machines_per_state{fresh="true",state="deleting",substate="drainallocatedips"} 1
@@ -134,7 +137,7 @@ forge_machines_time_in_state_seconds_bucket{next_state="deleting",next_substate=
 forge_machines_time_in_state_seconds_bucket{next_state="deleting",next_substate="drainallocatedips",state="ready",substate="",le="7500"} 1
 forge_machines_time_in_state_seconds_bucket{next_state="deleting",next_substate="drainallocatedips",state="ready",substate="",le="10000"} 1
 forge_machines_time_in_state_seconds_bucket{next_state="deleting",next_substate="drainallocatedips",state="ready",substate="",le="+Inf"} 1
-forge_machines_time_in_state_seconds_sum{next_state="deleting",next_substate="drainallocatedips",state="ready",substate=""} 0.073390318
+forge_machines_time_in_state_seconds_sum{next_state="deleting",next_substate="drainallocatedips",state="ready",substate=""} 0.091039928
 forge_machines_time_in_state_seconds_count{next_state="deleting",next_substate="drainallocatedips",state="ready",substate=""} 1
 # HELP forge_machines_total The total number of forge_machines in the system
 # TYPE forge_machines_total gauge

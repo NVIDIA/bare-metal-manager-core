@@ -71,7 +71,6 @@ pub mod rack_state_history;
 pub mod redfish_actions;
 pub mod resource_pool;
 pub mod route_servers;
-pub mod safe_pg_pool;
 pub mod site_exploration_report;
 pub mod sku;
 pub mod switch;

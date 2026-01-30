@@ -249,139 +249,26 @@ pub mod tests {
         txn.commit().await.unwrap();
         assert_eq!(object_ids.len(), 3);
 
-        validate_device_states(
-            &[
-                "FetchData(FetchMetadata)",
-                "FetchData(FetchMetadata)",
-                "FetchData(FetchMetadata)",
-            ],
-            &machine_id,
-            &env,
-        )
-        .await;
-
-        env.run_spdm_controller_iteration().await;
-        validate_device_states(
-            &[
-                "AttestationCompleted { status: NotSupported }",
-                "FetchData(FetchCertificate)",
-                "FetchData(FetchCertificate)",
-            ],
-            &machine_id,
-            &env,
-        )
-        .await;
-
-        env.run_spdm_controller_iteration().await;
-        validate_device_states(
-            &[
-                "AttestationCompleted { status: NotSupported }",
-                "FetchData(Trigger { retry_count: 0 })",
-                "FetchData(Trigger { retry_count: 0 })",
-            ],
-            &machine_id,
-            &env,
-        )
-        .await;
-        env.run_spdm_controller_iteration().await;
-        validate_device_states(
-            &[
-                "AttestationCompleted { status: NotSupported }",
-                "FetchData(Poll { task_id: \"0\", retry_count: 0 })",
-                "FetchData(Poll { task_id: \"0\", retry_count: 0 })",
-            ],
-            &machine_id,
-            &env,
-        )
-        .await;
-        env.run_spdm_controller_iteration().await;
-        validate_device_states(
-            &[
-                "AttestationCompleted { status: NotSupported }",
-                "FetchData(Collect)",
-                "FetchData(Collect)",
-            ],
-            &machine_id,
-            &env,
-        )
-        .await;
-        env.run_spdm_controller_iteration().await;
-        validate_device_states(
-            &[
-                "AttestationCompleted { status: NotSupported }",
-                "FetchData(Collected)",
-                "FetchData(Collected)",
-            ],
-            &machine_id,
-            &env,
-        )
-        .await;
-        env.run_spdm_controller_iteration().await;
-        validate_device_states(
-            &[
-                "AttestationCompleted { status: NotSupported }",
-                "Verification(GetVerifierResponse)",
-                "Verification(GetVerifierResponse)",
-            ],
-            &machine_id,
-            &env,
-        )
-        .await;
-        env.run_spdm_controller_iteration().await;
-        validate_device_states(
-            &[
-                "AttestationCompleted { status: NotSupported }",
-                "Verification(VerifyResponse { state: RawAttestationOutcome { overall_outcome: (\"JWT\", \"All_good\"), devices_outcome: {} } })",
-                "Verification(VerifyResponse { state: RawAttestationOutcome { overall_outcome: (\"JWT\", \"All_good\"), devices_outcome: {} } })",
-            ],
-            &machine_id,
-            &env,
-        )
-        .await;
-        env.run_spdm_controller_iteration().await;
-        validate_device_states(
-            &[
-                "AttestationCompleted { status: NotSupported }",
-                "Verification(VerificationCompleted)",
-                "Verification(VerificationCompleted)",
-            ],
-            &machine_id,
-            &env,
-        )
-        .await;
-        env.run_spdm_controller_iteration().await;
-        validate_device_states(
-            &[
-                "AttestationCompleted { status: NotSupported }",
-                "ApplyEvidenceResultAppraisalPolicy(ApplyAppraisalPolicy)",
-                "ApplyEvidenceResultAppraisalPolicy(ApplyAppraisalPolicy)",
-            ],
-            &machine_id,
-            &env,
-        )
-        .await;
-        env.run_spdm_controller_iteration().await;
-        validate_device_states(
-            &[
-                "AttestationCompleted { status: NotSupported }",
-                "ApplyEvidenceResultAppraisalPolicy(AppraisalPolicyValidationCompleted)",
-                "ApplyEvidenceResultAppraisalPolicy(AppraisalPolicyValidationCompleted)",
-            ],
-            &machine_id,
-            &env,
-        )
-        .await;
-        env.run_spdm_controller_iteration().await;
-        validate_device_states(
-            &[
-                "AttestationCompleted { status: NotSupported }",
-                "AttestationCompleted { status: Success }",
-                "AttestationCompleted { status: Success }",
-            ],
-            &machine_id,
-            &env,
-        )
-        .await;
+        // Drive all attestation state machines to completion first
+        for i in 0..20 {
+            env.run_spdm_controller_iteration().await;
+            if test_device_states(
+                &[
+                    "AttestationCompleted { status: NotSupported }",
+                    "AttestationCompleted { status: Success }",
+                    "AttestationCompleted { status: Success }",
+                ],
+                &machine_id,
+                &env,
+            )
+            .await
+            {
+                break;
+            }
+            if i == 19 {
+                panic!("Attestation state machines did not complete in expected iterations");
+            }
+        }
 
         let _machine = env
             .api
@@ -394,7 +281,79 @@ pub mod tests {
         assert_eq!(_machine.machines[0].state, "Completed");
         assert_eq!(_machine.machines[0].status, "Completed");
 
+        let history_by_device: HashMap<String, Vec<String>> =
+            device_state_histories(&env, &machine_id).await;
+        assert_eq!(
+            history_by_device,
+            HashMap::from_iter([
+                ("ERoT_BMC_0".to_string(), vec!["AttestationCompleted { status: NotSupported }".to_string()]),
+                ("HGX_IRoT_GPU_0".to_string(), vec!["FetchData(FetchCertificate)".to_string(), "FetchData(Trigger { retry_count: 0 })".to_string(), "FetchData(Poll { task_id: \"0\", retry_count: 0 })".to_string(), "FetchData(Collect)".to_string(), "FetchData(Collected)".to_string(), "Verification(GetVerifierResponse)".to_string(), "Verification(VerifyResponse { state: RawAttestationOutcome { overall_outcome: (\"JWT\", \"All_good\"), devices_outcome: {} } })".to_string(), "Verification(VerificationCompleted)".to_string(), "ApplyEvidenceResultAppraisalPolicy(ApplyAppraisalPolicy)".to_string(), "ApplyEvidenceResultAppraisalPolicy(AppraisalPolicyValidationCompleted)".to_string(), "AttestationCompleted { status: Success }".to_string()]),
+                ("HGX_IRoT_GPU_1".to_string(), vec!["FetchData(FetchCertificate)".to_string(), "FetchData(Trigger { retry_count: 0 })".to_string(), "FetchData(Poll { task_id: \"0\", retry_count: 0 })".to_string(), "FetchData(Collect)".to_string(), "FetchData(Collected)".to_string(), "Verification(GetVerifierResponse)".to_string(), "Verification(VerifyResponse { state: RawAttestationOutcome { overall_outcome: (\"JWT\", \"All_good\"), devices_outcome: {} } })".to_string(), "Verification(VerificationCompleted)".to_string(), "ApplyEvidenceResultAppraisalPolicy(ApplyAppraisalPolicy)".to_string(), "ApplyEvidenceResultAppraisalPolicy(AppraisalPolicyValidationCompleted)".to_string(), "AttestationCompleted { status: Success }".to_string()])
+            ])
+        );
+
         Ok(())
+    }
+
+    /// Returns the device state histories for the given machine
+    async fn device_state_histories(
+        env: &TestEnv,
+        machine_id: &MachineId,
+    ) -> HashMap<String, Vec<String>> {
+        let mut txn = env.pool.begin().await.unwrap();
+        let history: Vec<SpdmMachineAttestationHistory> = sqlx::query_as(
+            "SELECT * FROM spdm_machine_attestation_history WHERE machine_id=$1 ORDER BY ID ASC",
+        )
+        .bind(machine_id)
+        .fetch_all(&mut *txn)
+        .await
+        .unwrap();
+        let history: Vec<SpdmMachineStateSnapshot> = history
+            .into_iter()
+            .map(|entry| entry.state_snapshot)
+            .collect();
+
+        let mut history_by_device: HashMap<String, Vec<String>> = HashMap::new();
+        for history in &history {
+            for (device_id, device_state) in &history.devices_state {
+                let device_state = format!("{:?}", device_state);
+                let device_history = history_by_device.entry(device_id.to_string()).or_default();
+
+                if device_history
+                    .last()
+                    .is_none_or(|last_state| *last_state != device_state)
+                {
+                    device_history.push(device_state.clone());
+                }
+            }
+        }
+        txn.commit().await.unwrap();
+        history_by_device
+    }
+
+    async fn test_device_states(states: &[&str], machine_id: &MachineId, env: &TestEnv) -> bool {
+        let mut success = true;
+        let ids = ["ERoT_BMC_0", "HGX_IRoT_GPU_0", "HGX_IRoT_GPU_1"];
+        let machine = env
+            .api
+            .find_machines_under_attestation(Request::new(AttestationMachineList {
+                machine_ids: vec![*machine_id],
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+
+        for (id, state) in ids.iter().zip(states.iter()) {
+            let device = machine.machines[0]
+                .device_data
+                .iter()
+                .find(|x| x.device_id == *id)
+                .unwrap();
+
+            success &= device.state == *state;
+        }
+
+        success
     }
 
     async fn validate_device_states(states: &[&str], machine_id: &MachineId, env: &TestEnv) {
@@ -448,7 +407,7 @@ pub mod tests {
 
         assert_eq!(object_ids.len(), 1);
 
-        env.run_spdm_controller_iteration().await;
+        env.run_spdm_controller_iteration_no_requeue().await;
         let machine = env
             .api
             .find_machines_under_attestation(Request::new(AttestationMachineList {
@@ -463,7 +422,7 @@ pub mod tests {
                 AttestationState::FetchAttestationTargetsAndUpdateDb
             )
         );
-        env.run_spdm_controller_iteration().await;
+        env.run_spdm_controller_iteration_no_requeue().await;
         let machine = env
             .api
             .find_machines_under_attestation(Request::new(AttestationMachineList {
@@ -494,7 +453,7 @@ pub mod tests {
         )
         .await;
 
-        env.run_spdm_controller_iteration().await;
+        env.run_spdm_controller_iteration_no_requeue().await;
         validate_device_states(
             &[
                 "AttestationCompleted { status: NotSupported }",
@@ -506,7 +465,7 @@ pub mod tests {
         )
         .await;
 
-        env.run_spdm_controller_iteration().await;
+        env.run_spdm_controller_iteration_no_requeue().await;
         validate_device_states(
             &[
                 "AttestationCompleted { status: NotSupported }",
@@ -517,7 +476,7 @@ pub mod tests {
             &env,
         )
         .await;
-        env.run_spdm_controller_iteration().await;
+        env.run_spdm_controller_iteration_no_requeue().await;
         validate_device_states(
             &[
                 "AttestationCompleted { status: NotSupported }",
@@ -573,7 +532,7 @@ pub mod tests {
 
         assert_eq!(object_ids.len(), 1);
 
-        env.run_spdm_controller_iteration().await;
+        env.run_spdm_controller_iteration_no_requeue().await;
         let machine = env
             .api
             .find_machines_under_attestation(Request::new(AttestationMachineList {
@@ -588,7 +547,7 @@ pub mod tests {
                 AttestationState::FetchAttestationTargetsAndUpdateDb
             )
         );
-        env.run_spdm_controller_iteration().await;
+        env.run_spdm_controller_iteration_no_requeue().await;
         let machine = env
             .api
             .find_machines_under_attestation(Request::new(AttestationMachineList {
@@ -619,7 +578,7 @@ pub mod tests {
         )
         .await;
 
-        env.run_spdm_controller_iteration().await;
+        env.run_spdm_controller_iteration_no_requeue().await;
         validate_device_states(
             &[
                 "AttestationCompleted { status: NotSupported }",
@@ -631,7 +590,7 @@ pub mod tests {
         )
         .await;
 
-        env.run_spdm_controller_iteration().await;
+        env.run_spdm_controller_iteration_no_requeue().await;
         validate_device_states(
             &[
                 "AttestationCompleted { status: NotSupported }",
@@ -642,7 +601,7 @@ pub mod tests {
             &env,
         )
         .await;
-        env.run_spdm_controller_iteration().await;
+        env.run_spdm_controller_iteration_no_requeue().await;
         validate_device_states(
             &[
                 "AttestationCompleted { status: NotSupported }",

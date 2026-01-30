@@ -31,11 +31,11 @@ pub async fn create_ib_partition(
             config: Some(IbPartitionConfig {
                 name: name.clone(),
                 tenant_organization_id: tenant,
-                metadata: Some(rpc::Metadata {
-                    name,
-                    labels: Default::default(),
-                    description: "".to_string(),
-                }),
+            }),
+            metadata: Some(rpc::Metadata {
+                name,
+                labels: Default::default(),
+                description: "".to_string(),
             }),
         }))
         .await

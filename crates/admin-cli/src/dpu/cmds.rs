@@ -116,7 +116,7 @@ pub async fn trigger_reprovisioning(
     api_client: &ApiClient,
     update_message: Option<String>,
 ) -> CarbideCliResult<()> {
-    if let (Mode::Set, Some(update_message)) = (mode, &update_message) {
+    if let (Mode::Set, Some(update_message)) = (mode, update_message) {
         // Set a HostUpdateInProgress health override on the Host
         let host_id = match id.machine_type() {
             MachineType::Host => Some(id),
@@ -164,10 +164,8 @@ pub async fn trigger_reprovisioning(
                 )));
             }
 
-            let report = get_health_report(
-                HealthOverrideTemplates::HostUpdate,
-                Some(update_message.clone()),
-            );
+            let report =
+                get_health_report(HealthOverrideTemplates::HostUpdate, Some(update_message));
 
             api_client
                 .machine_insert_health_report_override(*host_machine_id, report.into(), false)
@@ -277,40 +275,44 @@ impl From<Machine> for DpuVersions {
             None => machine.state,
         };
 
-        let dpu_type = machine
-            .discovery_info
-            .as_ref()
-            .and_then(|di| di.dmi_data.as_ref())
-            .map(|dmi_data| {
-                let dpu_type = dmi_data.product_name.clone();
-                let mut dpu_type = dpu_type.split(' ').collect::<Vec<&str>>();
-                dpu_type.truncate(2);
-                dpu_type.join(" ")
-            });
+        let dpu_type;
+        let firmware_version;
+        let bios_version;
+
+        if let Some(discovery_info) = machine.discovery_info {
+            if let Some(dmi_data) = discovery_info.dmi_data {
+                dpu_type = Some(
+                    dmi_data
+                        .product_name
+                        .split(' ')
+                        .take(2)
+                        .collect::<Vec<&str>>()
+                        .join(" "),
+                );
+                bios_version = Some(dmi_data.bios_version);
+            } else {
+                dpu_type = None;
+                bios_version = None;
+            }
+            firmware_version = discovery_info.dpu_info.map(|d| d.firmware_version);
+        } else {
+            dpu_type = None;
+            firmware_version = None;
+            bios_version = None;
+        }
 
         DpuVersions {
             id: machine.id,
             dpu_type,
             state,
-            firmware_version: machine
-                .discovery_info
-                .as_ref()
-                .and_then(|di| di.dpu_info.as_ref())
-                .map(|dpu| dpu.firmware_version.clone()),
-            bmc_version: machine
-                .bmc_info
-                .as_ref()
-                .and_then(|bmc| bmc.firmware_version.clone()),
-            bios_version: machine
-                .discovery_info
-                .as_ref()
-                .and_then(|di| di.dmi_data.as_ref())
-                .map(|dmi_data| dmi_data.bios_version.clone()),
+            firmware_version,
+            bmc_version: machine.bmc_info.and_then(|bmc| bmc.firmware_version),
+            bios_version,
             hbn_version: machine.inventory.and_then(|inv| {
                 inv.components
-                    .iter()
+                    .into_iter()
                     .find(|c| c.name == "doca_hbn")
-                    .map(|c| c.version.clone())
+                    .map(|c| c.version)
             }),
             agent_version: machine.dpu_agent_version,
         }
@@ -386,10 +388,10 @@ pub async fn handle_dpu_versions(
                     .discovery_info
                     .as_ref()
                     .and_then(|di| di.dmi_data.as_ref())
-                    .map(|dmi_data| dmi_data.product_name.clone())
+                    .map(|dmi_data| dmi_data.product_name.as_str())
                     .unwrap_or_default();
 
-                if let Some(expected_version) = expected_versions.get(&product_name) {
+                if let Some(expected_version) = expected_versions.get(product_name) {
                     expected_version
                         != m.discovery_info
                             .as_ref()
@@ -435,18 +437,19 @@ impl From<Machine> for DpuStatus {
     fn from(machine: Machine) -> Self {
         let state = match machine.state.split_once(' ') {
             Some((state, _)) => state.to_owned(),
-            None => machine.state.clone(),
+            None => machine.state,
         };
 
         let dpu_type = machine
             .discovery_info
-            .as_ref()
-            .and_then(|di| di.dmi_data.as_ref())
+            .and_then(|di| di.dmi_data)
             .map(|dmi_data| {
-                let dpu_type = dmi_data.product_name.clone();
-                let mut dpu_type = dpu_type.split(' ').collect::<Vec<&str>>();
-                dpu_type.truncate(2);
-                dpu_type.join(" ")
+                dmi_data
+                    .product_name
+                    .split(' ')
+                    .take(2)
+                    .collect::<Vec<_>>()
+                    .join(" ")
             });
 
         DpuStatus {
@@ -509,17 +512,17 @@ pub fn get_dpu_version_status(build_info: &BuildInfo, machine: &Machine) -> Stri
         .discovery_info
         .as_ref()
         .and_then(|di| di.dmi_data.as_ref())
-        .map(|dmi_data| dmi_data.product_name.clone())
+        .map(|dmi_data| dmi_data.product_name.as_str())
         .unwrap_or_default();
 
-    if let Some(expected_version) = expected_nic_versions.get(&product_name)
+    if let Some(expected_version) = expected_nic_versions.get(product_name)
         && expected_version
             != machine
                 .discovery_info
                 .as_ref()
                 .and_then(|di| di.dpu_info.as_ref())
                 .map(|dpu| dpu.firmware_version.as_str())
-                .unwrap_or("")
+                .unwrap_or_default()
     {
         version_statuses.push("NIC Firmware update needed");
     }
@@ -656,9 +659,9 @@ pub async fn show_dpu_network_config(
             table.add_row(row![
                 "Config Loopback IP",
                 config
-                    .clone()
                     .managed_host_config
-                    .map(|x| x.loopback_ip)
+                    .as_ref()
+                    .map(|x| x.loopback_ip.as_str())
                     .unwrap_or_default()
             ]);
             table.add_row(row!["Config Version", config.managed_host_config_version]);
@@ -698,9 +701,8 @@ pub async fn show_dpu_network_config(
             async_write!(output_file, "{}", table)?;
 
             println!("Admin Interface:");
-            let admin_interface = config.admin_interface.clone();
 
-            if let Some(aintf) = admin_interface {
+            if let Some(aintf) = config.admin_interface.as_ref() {
                 let mut table = Table::new();
                 table.set_format(*format::consts::FORMAT_NO_LINESEP);
                 table.get_format().indent(4);

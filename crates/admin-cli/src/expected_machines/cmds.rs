@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::pin::Pin;
 
 use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use mac_address::MacAddress;
 use prettytable::{Table, row};
 
 use super::args::ShowExpectedMachineQuery;
@@ -59,13 +60,14 @@ pub async fn show_expected_machines(
     let expected_macs = expected_machines
         .expected_machines
         .iter()
-        .map(|x| x.bmc_mac_address.clone().to_lowercase())
-        .collect::<Vec<String>>();
+        .filter_map(|x| x.bmc_mac_address.parse().ok())
+        .collect::<Vec<MacAddress>>();
 
-    let expected_mi: HashMap<String, ::rpc::forge::MachineInterface> =
-        HashMap::from_iter(all_mi.interfaces.iter().filter_map(|x| {
-            if expected_macs.contains(&x.mac_address.to_lowercase()) {
-                Some((x.mac_address.clone().to_lowercase(), x.clone()))
+    let expected_mi: HashMap<MacAddress, ::rpc::forge::MachineInterface> =
+        HashMap::from_iter(all_mi.interfaces.into_iter().filter_map(|x| {
+            let mac = x.mac_address.parse().ok()?;
+            if expected_macs.contains(&mac) {
+                Some((mac, x))
             } else {
                 None
             }
@@ -73,8 +75,8 @@ pub async fn show_expected_machines(
 
     let bmc_ips = expected_mi
         .iter()
-        .filter_map(|x| {
-            let ip = x.1.address.first()?;
+        .filter_map(|(_mac, interface)| {
+            let ip = interface.address.first()?;
             Some(ip.clone())
         })
         .collect::<Vec<_>>();
@@ -85,10 +87,10 @@ pub async fn show_expected_machines(
             .find_machine_ids_by_bmc_ips(bmc_ips)
             .await?
             .pairs
-            .iter()
+            .into_iter()
             .map(|x| {
                 (
-                    x.bmc_ip.clone(),
+                    x.bmc_ip,
                     x.machine_id
                         .map(|x| x.to_string())
                         .unwrap_or("Unlinked".to_string()),
@@ -111,7 +113,7 @@ async fn convert_and_print_into_nice_table(
     output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
     expected_machines: &::rpc::forge::ExpectedMachineList,
     expected_discovered_machine_ids: &HashMap<String, String>,
-    expected_discovered_machine_interfaces: &HashMap<String, ::rpc::forge::MachineInterface>,
+    expected_discovered_machine_interfaces: &HashMap<MacAddress, ::rpc::forge::MachineInterface>,
 ) -> CarbideCliResult<()> {
     let mut table = Box::new(Table::new());
 
@@ -130,26 +132,36 @@ async fn convert_and_print_into_nice_table(
     ]);
 
     for expected_machine in &expected_machines.expected_machines {
-        let machine_interface = expected_discovered_machine_interfaces
-            .get(&expected_machine.bmc_mac_address.to_lowercase());
+        let default_pause_ingestion_and_poweron =
+            expected_machine.default_pause_ingestion_and_poweron();
+
+        let machine_interface = expected_machine
+            .bmc_mac_address
+            .parse::<MacAddress>()
+            .ok()
+            .and_then(|m| expected_discovered_machine_interfaces.get(&m));
         let machine_id = expected_discovered_machine_ids
             .get(
-                &machine_interface
-                    .and_then(|x| x.address.first().cloned())
-                    .unwrap_or("unknown".to_string()),
+                machine_interface
+                    .and_then(|x| x.address.first().map(String::as_str))
+                    .unwrap_or("unknown"),
             )
-            .cloned();
+            .map(String::as_str);
 
-        let metadata = expected_machine.metadata.clone().unwrap_or_default();
-        let labels = metadata
-            .labels
-            .iter()
-            .map(|label| {
-                let key = &label.key;
-                let value = label.value.clone().unwrap_or_default();
-                format!("\"{key}:{value}\"")
+        let labels = expected_machine
+            .metadata
+            .as_ref()
+            .map(|m| {
+                m.labels
+                    .iter()
+                    .map(|label| {
+                        let key = label.key.as_str();
+                        let value = label.value.as_deref().unwrap_or_default();
+                        format!("\"{key}:{value}\"")
+                    })
+                    .collect::<Vec<_>>()
             })
-            .collect::<Vec<_>>();
+            .unwrap_or_default();
 
         table.add_row(row![
             expected_machine.chassis_serial_number,
@@ -158,16 +170,20 @@ async fn convert_and_print_into_nice_table(
                 .map(|x| x.address.join("\n"))
                 .unwrap_or("Undiscovered".to_string()),
             expected_machine.fallback_dpu_serial_numbers.join("\n"),
-            machine_id.unwrap_or("Unlinked".to_string()),
-            metadata.name,
-            metadata.description,
-            labels.join(", "),
+            machine_id.unwrap_or("Unlinked"),
             expected_machine
-                .sku_id
+                .metadata
                 .as_ref()
-                .map(|x| x.to_string())
+                .map(|m| m.name.as_str())
                 .unwrap_or_default(),
-            expected_machine.default_pause_ingestion_and_poweron(),
+            expected_machine
+                .metadata
+                .as_ref()
+                .map(|m| m.description.as_str())
+                .unwrap_or_default(),
+            labels.join(", "),
+            expected_machine.sku_id.as_deref().unwrap_or_default(),
+            default_pause_ingestion_and_poweron,
             expected_machine.dpf_enabled.to_string(),
         ]);
     }

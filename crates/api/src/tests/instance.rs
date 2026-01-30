@@ -72,7 +72,9 @@ use crate::cfg::file::VmaasConfig;
 use crate::instance::{allocate_instance, allocate_network};
 use crate::network_segment::allocate::Ipv4PrefixAllocator;
 use crate::tests::common;
-use crate::tests::common::api_fixtures::instance::single_interface_network_config_with_vfs;
+use crate::tests::common::api_fixtures::instance::{
+    advance_created_instance_into_state, single_interface_network_config_with_vfs,
+};
 use crate::tests::common::api_fixtures::{
     TestEnv, create_managed_host_multi_dpu, create_managed_host_with_ek, update_time_params,
 };
@@ -1179,9 +1181,18 @@ async fn test_instance_deletion_before_provisioning_finishes(
     let instance = env.one_instance(instance_id).await;
     assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
 
-    // Advance the instance into the "ready" state. To the tenant it will however
-    // still show up as terminating
-    advance_created_instance_into_ready_state(&env, &mh).await;
+    // Advance the instance into the "ready" state and then cleanup.
+    // The next state that requires external input is HostPlatformConfiguration.
+    // To the tenant it will however still show up as terminating
+    advance_created_instance_into_state(&env, &mh, |machine| {
+        matches!(
+            machine.state.value,
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::HostPlatformConfiguration { .. },
+            }
+        )
+    })
+    .await;
     let instance = env.one_instance(instance_id).await;
     assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
 

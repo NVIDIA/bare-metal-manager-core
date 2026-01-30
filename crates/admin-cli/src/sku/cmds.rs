@@ -236,11 +236,11 @@ async fn show_sku_details(
             let model = sku
                 .components
                 .as_ref()
-                .and_then(|c| c.chassis.as_ref().map(|c| c.model.clone()));
+                .and_then(|c| c.chassis.as_ref().map(|c| c.model.as_str()));
             let architecture = sku
                 .components
                 .as_ref()
-                .and_then(|c| c.chassis.as_ref().map(|c| c.architecture.clone()));
+                .and_then(|c| c.chassis.as_ref().map(|c| c.architecture.as_str()));
 
             writeln!(output, "{:<width$}: {}", "Model", model.unwrap_or_default(),)?;
             writeln!(

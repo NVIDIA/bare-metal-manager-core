@@ -134,11 +134,15 @@ impl InstanceStatus {
                 // of the instance record in the DB is non-null), then things would
                 // have short-circuited to Terminating before ever even getting to
                 // this tenant_state function.
-                InstanceState::SwitchToAdminNetwork
-                | InstanceState::WaitingForNetworkReconfig
-                | InstanceState::WaitingForDpusToUp
-                | InstanceState::HostPlatformConfiguration { .. } => {
+                InstanceState::SwitchToAdminNetwork | InstanceState::WaitingForNetworkReconfig => {
                     tenant::TenantState::Terminating
+                }
+                // When tenants request a custom pxe reboot, the managed hosts
+                // will go through HostPlatformConfiguration and WaitingForDpusToUp
+                // before going back to Ready
+                InstanceState::WaitingForDpusToUp
+                | InstanceState::HostPlatformConfiguration { .. } => {
+                    tenant::TenantState::Configuring
                 }
                 InstanceState::BootingWithDiscoveryImage { .. }
                 | InstanceState::DPUReprovision { .. }

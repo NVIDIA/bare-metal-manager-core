@@ -144,7 +144,7 @@ impl TryFrom<MeasurementJournalPb> for MeasurementJournal {
 // the default table view, this gets used to print a pretty table.
 #[cfg(feature = "cli")]
 impl ToTable for MeasurementJournal {
-    fn to_table(&self) -> eyre::Result<String> {
+    fn into_table(self) -> eyre::Result<String> {
         let profile_id: String = match self.profile_id {
             Some(profile_id) => profile_id.to_string(),
             None => "<none>".to_string(),
