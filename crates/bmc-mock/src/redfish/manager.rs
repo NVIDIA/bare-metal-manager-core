@@ -44,7 +44,7 @@ pub fn resource<'a>(manager_id: &'a str) -> redfish::Resource<'a> {
 }
 
 pub fn reset_target(manager_id: &str) -> String {
-    format!("/redfish/v1/Managers/{manager_id}/Actions/Manager.Reset")
+    format!("{}/Actions/Manager.Reset", resource(manager_id).odata_id)
 }
 
 pub fn builder(resource: &redfish::Resource<'_>) -> ManagerBuilder {

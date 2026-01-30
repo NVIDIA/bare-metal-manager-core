@@ -43,6 +43,7 @@ use crate::CarbideResult;
 use crate::cfg::file::{CarbideConfig, FirmwareGlobal, TimePeriod};
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::preingestion_manager::PreingestionManager;
+use crate::redfish::test_support::RedfishSimAction;
 use crate::state_controller::machine::handler::MAX_FIRMWARE_UPGRADE_RETRIES;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env};
@@ -2185,8 +2186,19 @@ async fn test_preingestion_time_sync_reset_flow(
     .await?;
     txn.commit().await?;
 
+    // Capture timepoint before running iteration
+    let timepoint = env.redfish_sim.timepoint();
+
     // Run iteration - should initiate BMC reset and move to BMCWasReset
     mgr.run_single_iteration().await?;
+
+    // Verify that SetUtcTimezone was called during the Start phase
+    let actions = env.redfish_sim.actions_since(&timepoint);
+    let all_actions = actions.all_hosts();
+    assert!(
+        all_actions.contains(&RedfishSimAction::SetUtcTimezone),
+        "Expected SetUtcTimezone action to be called during TimeSyncReset Start phase"
+    );
 
     let mut txn = pool.begin().await.unwrap();
     let endpoints = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;

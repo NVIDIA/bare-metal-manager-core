@@ -185,11 +185,7 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
         tracing::trace!(iteration_data = ?locked_controller_iteration.iteration_data, "Starting iteration with ID ");
         iteration_metrics.iteration_id = Some(locked_controller_iteration.iteration_data.id);
 
-        self.enqueue_objects(
-            iteration_metrics,
-            locked_controller_iteration.iteration_data.id,
-        )
-        .await?;
+        self.enqueue_objects(iteration_metrics).await?;
 
         Ok(locked_controller_iteration.iteration_data)
     }
@@ -199,7 +195,6 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
     async fn enqueue_objects(
         &mut self,
         iteration_metrics: &mut PeriodicEnqueuerMetrics,
-        iteration_id: ControllerIterationId,
     ) -> Result<(), IterationError> {
         // We start by grabbing a list of objects that should be active
         // The list might change until we fetch more data. However that should be ok:
@@ -211,7 +206,7 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
 
         let queued_objects: Vec<_> = object_ids
             .iter()
-            .map(|object_id| (object_id.to_string(), iteration_id))
+            .map(|object_id| object_id.to_string())
             .collect();
         iteration_metrics.num_enqueued_objects =
             db::queue_objects(&mut txn, IO::DB_QUEUED_OBJECTS_TABLE_NAME, &queued_objects).await?;

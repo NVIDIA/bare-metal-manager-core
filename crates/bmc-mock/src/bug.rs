@@ -18,6 +18,8 @@ use arc_swap::ArcSwap;
 use duration_str::deserialize_option_duration;
 use serde::{Deserialize, Serialize};
 
+use crate::redfish;
+
 #[derive(Clone, Default)]
 pub struct InjectedBugs {
     all_dpu_lost_on_host: Arc<AtomicBool>,
@@ -80,25 +82,18 @@ pub struct AllDpuLostOnHost {}
 impl AllDpuLostOnHost {
     // This is Network adapter as it was reproduced in FORGE-7578.
     pub fn network_adapter(&self, chassis_id: &str, network_adapter_id: &str) -> serde_json::Value {
-        serde_json::json!({
-            "Id": network_adapter_id,
-            "Name": "Network Adpapter",
-            "Status": {
-                "State": "Enabled",
-                "Health": "OK"
-            },
-            "@odata.id": format!("/redfish/v1/Chassis/{chassis_id}/NetworkAdapters/{network_adapter_id}"),
-            "@odata.context": "/redfish/v1/$metadata#NetworkAdapter.NetworkAdapter",
-            "SKU": "",
-            "Model": "",
-            "Description": "A NetworkAdapter represents the physical network adapter capable of connecting to a computer network.",
-            "@odata.type": "#NetworkAdapter.v1_9_0.NetworkAdapter",
-            "SerialNumber": "",
-            "PartNumber": "",
-            "Manufacturer": "",
-            "NetworkDeviceFunctions": {
-                "@odata.id": format!("/redfish/v1/Chassis/{chassis_id}/NetworkAdapters/{network_adapter_id}/NetworkDeviceFunctions")
-            },
-        })
+        let resource = redfish::network_adapter::chassis_resource(chassis_id, network_adapter_id);
+        redfish::network_adapter::builder(&resource)
+            .status(redfish::resource::Status::Ok)
+            .model("")
+            .serial_number("")
+            .manufacturer("")
+            .part_number("")
+            .sku("")
+            .network_device_functions(&redfish::network_device_function::chassis_collection(
+                chassis_id,
+                network_adapter_id,
+            ))
+            .build()
     }
 }

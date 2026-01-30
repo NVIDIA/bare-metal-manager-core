@@ -13,6 +13,8 @@
 // connections/cmds.rs
 // Command handlers for connection operations.
 
+use std::borrow::Cow;
+
 use chrono::{DateTime, Utc};
 use prettytable::{Cell, Row, Table};
 use rpc::admin_cli::{CarbideCliResult, OutputFormat};
@@ -124,9 +126,9 @@ fn print_connections_table(connections: &[rpc::forge::ScoutStreamConnectionInfo]
             None => "null".to_string(),
         };
         let connect_time = if let Ok(dt) = conn.connected_at.parse::<DateTime<Utc>>() {
-            dt.format("%Y-%m-%d %H:%M:%S").to_string()
+            Cow::Owned(dt.format("%Y-%m-%d %H:%M:%S").to_string())
         } else {
-            conn.connected_at.clone()
+            Cow::Borrowed(&conn.connected_at)
         };
 
         table.add_row(Row::new(vec![

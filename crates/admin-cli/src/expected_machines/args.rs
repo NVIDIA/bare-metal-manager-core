@@ -13,6 +13,7 @@ use std::collections::HashMap;
 
 use clap::{ArgGroup, Parser};
 use mac_address::MacAddress;
+use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use serde::{Deserialize, Serialize};
 use utils::has_duplicates;
 
@@ -186,36 +187,51 @@ pub struct ExpectedMachine {
 }
 
 impl ExpectedMachine {
-    pub fn metadata(&self) -> Result<::rpc::forge::Metadata, eyre::Report> {
-        let mut labels = Vec::new();
-        if let Some(list) = &self.labels {
-            for label in list {
-                let label = match label.split_once(':') {
-                    Some((k, v)) => rpc::forge::Label {
-                        key: k.trim().to_string(),
-                        value: Some(v.trim().to_string()),
-                    },
-                    None => rpc::forge::Label {
-                        key: label.trim().to_string(),
-                        value: None,
-                    },
-                };
-                labels.push(label);
-            }
-        }
-
-        Ok(::rpc::forge::Metadata {
-            name: self.meta_name.clone().unwrap_or_default(),
-            description: self.meta_description.clone().unwrap_or_default(),
-            labels,
-        })
-    }
-
     pub fn has_duplicate_dpu_serials(&self) -> bool {
-        match self.fallback_dpu_serial_numbers.clone() {
-            Some(fallback_dpu_serial_numbers) => has_duplicates(fallback_dpu_serial_numbers),
-            None => false,
-        }
+        self.fallback_dpu_serial_numbers
+            .as_ref()
+            .is_some_and(has_duplicates)
+    }
+}
+
+impl TryFrom<ExpectedMachine> for rpc::forge::ExpectedMachine {
+    type Error = CarbideCliError;
+    fn try_from(value: ExpectedMachine) -> CarbideCliResult<Self> {
+        let labels = crate::metadata::parse_rpc_labels(value.labels.unwrap_or_default());
+        let metadata = rpc::Metadata {
+            name: value.meta_name.unwrap_or_default(),
+            description: value.meta_description.unwrap_or_default(),
+            labels,
+        };
+        let host_nics = value
+            .host_nics
+            .map(|s| serde_json::from_str::<Vec<MacAddress>>(&s))
+            .transpose()?
+            .unwrap_or_default()
+            .into_iter()
+            .map(|mac| rpc::forge::ExpectedHostNic {
+                mac_address: mac.to_string(),
+                nic_type: None,
+                fixed_ip: None,
+                fixed_mask: None,
+                fixed_gateway: None,
+            })
+            .collect();
+
+        Ok(rpc::forge::ExpectedMachine {
+            bmc_mac_address: value.bmc_mac_address.to_string(),
+            bmc_username: value.bmc_username,
+            bmc_password: value.bmc_password,
+            chassis_serial_number: value.chassis_serial_number,
+            fallback_dpu_serial_numbers: value.fallback_dpu_serial_numbers.unwrap_or_default(),
+            metadata: Some(metadata),
+            sku_id: value.sku_id,
+            id: value.id.map(Into::into),
+            host_nics,
+            rack_id: value.rack_id,
+            default_pause_ingestion_and_poweron: value.default_pause_ingestion_and_poweron,
+            dpf_enabled: value.dpf_enabled,
+        })
     }
 }
 
@@ -361,8 +377,10 @@ impl PatchExpectedMachine {
         {
             return Err("One of the following options must be specified: bmc-user-name and bmc-password or chassis-serial-number or fallback-dpu-serial-number".to_string());
         }
-        if let Some(dpu_serials) = self.fallback_dpu_serial_numbers.clone()
-            && has_duplicates(&dpu_serials)
+        if self
+            .fallback_dpu_serial_numbers
+            .as_ref()
+            .is_some_and(has_duplicates)
         {
             return Err("Duplicate dpu serial numbers found".to_string());
         }

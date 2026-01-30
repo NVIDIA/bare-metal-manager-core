@@ -15,7 +15,7 @@ use model::machine::LoadSnapshotOptions;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
-use crate::api::{Api, log_request_data};
+use crate::api::{Api, log_machine_id, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
 
 #[allow(txn_held_across_await)]
@@ -28,7 +28,30 @@ pub(crate) async fn clear_host_uefi_password(
     let mut txn = api.txn_begin().await?;
 
     let request = request.into_inner();
-    let machine_id = convert_and_log_machine_id(request.host_id.as_ref())?;
+
+    // https://github.com/NVIDIA/carbide-core/issues/116
+    // Resolve machine_id from machine_query first (preferred),
+    // otherwise fall back to the host_id (now deprecated).
+    let machine_id = if let Some(query) = request.machine_query {
+        match db::machine::find_by_query(&mut txn, &query).await? {
+            Some(machine) => {
+                log_machine_id(&machine.id);
+                machine.id
+            }
+            None => {
+                return Err(CarbideError::NotFoundError {
+                    kind: "machine",
+                    id: query,
+                }
+                .into());
+            }
+        }
+    } else {
+        // Old logic that used to assume machine ID only. If you
+        // use anything other than a machine ID here it's going
+        // to yell (e.g. old carbide-admin-cli).
+        convert_and_log_machine_id(request.host_id.as_ref())?
+    };
 
     if !machine_id.machine_type().is_host() {
         return Err(Status::invalid_argument(
@@ -77,16 +100,40 @@ pub(crate) async fn set_host_uefi_password(
     request: Request<rpc::SetHostUefiPasswordRequest>,
 ) -> Result<Response<rpc::SetHostUefiPasswordResponse>, Status> {
     log_request_data(&request);
+
+    let mut txn = api.txn_begin().await?;
+
     let request = request.into_inner();
-    let machine_id = convert_and_log_machine_id(request.host_id.as_ref())?;
+
+    // https://github.com/NVIDIA/carbide-core/issues/116
+    // Resolve machine_id from machine_query first (preferred),
+    // otherwise fall back to the host_id (now deprecated).
+    let machine_id = if let Some(query) = request.machine_query {
+        match db::machine::find_by_query(&mut txn, &query).await? {
+            Some(machine) => {
+                log_machine_id(&machine.id);
+                machine.id
+            }
+            None => {
+                return Err(CarbideError::NotFoundError {
+                    kind: "machine",
+                    id: query,
+                }
+                .into());
+            }
+        }
+    } else {
+        // Old logic that used to assume machine ID only. If you
+        // use anything other than a machine ID here it's going
+        // to yell (e.g. old carbide-admin-cli).
+        convert_and_log_machine_id(request.host_id.as_ref())?
+    };
 
     if !machine_id.machine_type().is_host() {
         return Err(Status::invalid_argument(
             "Carbide only supports setting the UEFI password on discovered hosts",
         ));
     }
-
-    let mut txn = api.txn_begin().await?;
 
     let snapshot = db::managed_host::load_snapshot(
         &mut txn,

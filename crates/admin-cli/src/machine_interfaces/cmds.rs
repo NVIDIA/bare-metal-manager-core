@@ -197,14 +197,11 @@ fn convert_machine_to_nice_format(
             machine_interface.domain_id.unwrap_or_default().to_string(),
         ),
         ("Domain Name", domain_name.unwrap().to_string()),
-        ("Hostname", machine_interface.hostname.clone()),
+        ("Hostname", machine_interface.hostname),
         ("Primary", machine_interface.primary_interface.to_string()),
-        ("MAC Address", machine_interface.mac_address.clone()),
+        ("MAC Address", machine_interface.mac_address),
         ("Addresses", machine_interface.address.join(",")),
-        (
-            "Vendor",
-            machine_interface.vendor.clone().unwrap_or_default(),
-        ),
+        ("Vendor", machine_interface.vendor.unwrap_or_default()),
     ];
     let mut lines = String::new();
 

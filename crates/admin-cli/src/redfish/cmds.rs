@@ -81,7 +81,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
     let pool = libredfish::RedfishClientPool::builder()
         .proxy(proxy)
         .build()?;
-    let redfish: Box<dyn Redfish> = match action.command.clone() {
+    let redfish: Box<dyn Redfish> = match &action.command {
         ChangeBmcPassword(_) => pool.create_standard_client(endpoint)?,
         _ => pool.create_client(endpoint).await?,
     };
@@ -125,7 +125,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
 
             redfish
                 .machine_setup(
-                    machine_setup_args.boot_interface_mac.clone().as_deref(),
+                    machine_setup_args.boot_interface_mac.as_deref(),
                     &bios_profiles,
                     selected_profile,
                 )
@@ -234,7 +234,6 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                 }
                 if dev.predicted_media_life_left_percent.is_none() {
                     // supermicro has percentage_drive_life_used in oem...
-                    // if dev.oem.is_some() && dev.oem.clone().unwrap().supermicro.is_some() {
                     if let Some(oem) = dev.oem
                         && let Some(supermicro) = oem.supermicro
                     {
@@ -712,17 +711,17 @@ fn convert_tasks_to_nice_table(tasks: Vec<Task>) -> Box<Table> {
         "Percentage Completed (%)",
         "Messages"
     ]);
-    for task in tasks {
+    for mut task in tasks {
         table.add_row(row![
             task.id,
             task.task_state
                 .unwrap_or(libredfish::model::task::TaskState::Exception)
                 .to_string(),
-            task.task_status.clone().unwrap_or("None".to_string()),
+            task.task_status.unwrap_or("None".to_string()),
             task.percent_complete.unwrap_or(0),
             task.messages
-                .last()
-                .map(|last_message| last_message.message.clone())
+                .pop()
+                .map(|last_message| last_message.message)
                 .unwrap_or("No Message".to_string())
         ]);
     }
@@ -898,53 +897,48 @@ fn convert_ethernet_interfaces_to_nice_table(eth_ifs: Vec<EthernetInterface>) ->
         "UefiDevicePath"
     ]);
 
-    for eth_if in &eth_ifs {
+    for eth_if in eth_ifs {
         let mut ips = Vec::new();
-        for ip in &eth_if.ipv4_addresses {
-            if let Some(ip) = ip.address.as_ref() {
-                ips.push(ip.clone());
+        for ip in eth_if.ipv4_addresses {
+            if let Some(ip) = ip.address {
+                ips.push(ip);
             }
         }
-        for ip in &eth_if.ipv6_addresses {
-            if let Some(ip) = ip.address.as_ref() {
-                ips.push(ip.clone());
+        for ip in eth_if.ipv6_addresses {
+            if let Some(ip) = ip.address {
+                ips.push(ip);
             }
         }
 
         let mut static_ips = Vec::new();
-        for ip in &eth_if.ipv4_static_addresses {
-            if let Some(ip) = ip.address.as_ref() {
-                static_ips.push(ip.clone());
+        for ip in eth_if.ipv4_static_addresses {
+            if let Some(ip) = ip.address {
+                static_ips.push(ip);
             }
         }
-        for ip in &eth_if.ipv6_static_addresses {
-            if let Some(ip) = ip.address.as_ref() {
-                static_ips.push(ip.clone());
+        for ip in eth_if.ipv6_static_addresses {
+            if let Some(ip) = ip.address {
+                static_ips.push(ip);
             }
         }
 
         table.add_row(row![
             eth_if.id.as_ref().unwrap_or(&"None".to_string()),
-            eth_if
-                .link_status
-                .as_ref()
-                .unwrap_or(&LinkStatus::NoLink)
-                .to_string(),
-            eth_if
-                .mac_address
-                .as_ref()
-                .map_or("None".to_string(), |mac| mac.clone()),
+            eth_if.link_status.unwrap_or(LinkStatus::NoLink).to_string(),
+            eth_if.mac_address.as_deref().unwrap_or("None"),
             ips.join(","),
             static_ips.join(","),
             eth_if
                 .mtu_size
                 .map(|mtu| mtu.to_string())
-                .unwrap_or("N/A".to_string()),
+                .as_deref()
+                .unwrap_or("N/A"),
             eth_if
                 .speed_mbps
                 .map(|s| s.to_string())
-                .unwrap_or("N/A".to_string()),
-            eth_if.uefi_device_path.clone().unwrap_or("N/A".to_string())
+                .as_deref()
+                .unwrap_or("N/A"),
+            eth_if.uefi_device_path.as_deref().unwrap_or("N/A")
         ]);
     }
     table.into()

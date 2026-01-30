@@ -64,7 +64,7 @@ pub struct CreateDpuRemediation {
 }
 
 impl CreateDpuRemediation {
-    pub fn metadata(&self) -> Option<::rpc::forge::Metadata> {
+    pub fn into_metadata(self) -> Option<::rpc::forge::Metadata> {
         if self.labels.is_none() && self.meta_name.is_none() && self.meta_description.is_none() {
             return None;
         }
@@ -87,8 +87,8 @@ impl CreateDpuRemediation {
         }
 
         Some(::rpc::forge::Metadata {
-            name: self.meta_name.clone().unwrap_or_default(),
-            description: self.meta_description.clone().unwrap_or_default(),
+            name: self.meta_name.unwrap_or_default(),
+            description: self.meta_description.unwrap_or_default(),
             labels,
         })
     }
