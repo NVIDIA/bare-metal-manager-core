@@ -11,11 +11,34 @@
  */
 use carbide_uuid::switch::SwitchId;
 use config_version::ConfigVersion;
-use model::switch::{SwitchControllerState, SwitchStateHistory};
-use model::switch_state_history::DbSwitchStateHistory;
-use sqlx::PgConnection;
+use model::switch::{SwitchControllerState, SwitchStateHistoryRecord};
+use sqlx::{FromRow, PgConnection};
 
 use crate::{DatabaseError, DatabaseResult};
+
+/// History of Switch states for a single Switch
+#[derive(Debug, Clone, FromRow)]
+pub struct DbSwitchStateHistoryRecord {
+    /// The ID of the switch that experienced the state change
+    pub switch_id: SwitchId,
+
+    /// The state that was entered
+    pub state: String,
+
+    /// Current version.
+    pub state_version: ConfigVersion,
+    // The timestamp of the state change, currently unused
+    //timestamp: DateTime<Utc>,
+}
+
+impl From<DbSwitchStateHistoryRecord> for SwitchStateHistoryRecord {
+    fn from(event: DbSwitchStateHistoryRecord) -> Self {
+        Self {
+            state: event.state,
+            state_version: event.state_version,
+        }
+    }
+}
 
 /// Retrieve the switch state history for a list of Switches
 ///
@@ -29,12 +52,12 @@ use crate::{DatabaseError, DatabaseResult};
 pub async fn find_by_switch_ids(
     txn: &mut PgConnection,
     ids: &[SwitchId],
-) -> DatabaseResult<std::collections::HashMap<SwitchId, Vec<SwitchStateHistory>>> {
+) -> DatabaseResult<std::collections::HashMap<SwitchId, Vec<SwitchStateHistoryRecord>>> {
     let query = "SELECT switch_id, state::TEXT, state_version, timestamp
         FROM switch_state_history
         WHERE switch_id=ANY($1)
         ORDER BY id ASC";
-    let query_results = sqlx::query_as::<_, DbSwitchStateHistory>(query)
+    let query_results = sqlx::query_as::<_, DbSwitchStateHistoryRecord>(query)
         .bind(ids)
         .fetch_all(txn)
         .await
@@ -42,8 +65,9 @@ pub async fn find_by_switch_ids(
 
     let mut histories = std::collections::HashMap::new();
     for result in query_results.into_iter() {
-        let events: &mut Vec<SwitchStateHistory> = histories.entry(result.switch_id).or_default();
-        events.push(SwitchStateHistory {
+        let events: &mut Vec<SwitchStateHistoryRecord> =
+            histories.entry(result.switch_id).or_default();
+        events.push(SwitchStateHistoryRecord {
             state: result.state,
             state_version: result.state_version,
         });
@@ -56,12 +80,12 @@ pub async fn find_by_switch_ids(
 pub async fn for_switch(
     txn: &mut PgConnection,
     id: &SwitchId,
-) -> DatabaseResult<Vec<SwitchStateHistory>> {
+) -> DatabaseResult<Vec<SwitchStateHistoryRecord>> {
     let query = "SELECT switch_id, state::TEXT, state_version, timestamp
         FROM switch_state_history
         WHERE switch_id=$1
         ORDER BY id ASC";
-    sqlx::query_as::<_, DbSwitchStateHistory>(query)
+    sqlx::query_as::<_, DbSwitchStateHistoryRecord>(query)
         .bind(id)
         .fetch_all(txn)
         .await
@@ -75,11 +99,11 @@ pub async fn persist(
     switch_id: &SwitchId,
     state: &SwitchControllerState,
     state_version: ConfigVersion,
-) -> DatabaseResult<SwitchStateHistory> {
+) -> DatabaseResult<SwitchStateHistoryRecord> {
     let query = "INSERT INTO switch_state_history (switch_id, state, state_version)
         VALUES ($1, $2, $3)
         RETURNING switch_id, state::TEXT, state_version, timestamp";
-    sqlx::query_as::<_, DbSwitchStateHistory>(query)
+    sqlx::query_as::<_, DbSwitchStateHistoryRecord>(query)
         .bind(switch_id)
         .bind(sqlx::types::Json(state))
         .bind(state_version)

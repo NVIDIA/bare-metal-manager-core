@@ -39,7 +39,7 @@ pub(super) struct MachineStateHistoryTable {
 
 #[derive(Debug, serde::Serialize)]
 pub(super) struct MachineStateHistoryRecord {
-    pub event: String,
+    pub state: String,
     pub version: String,
 }
 
@@ -56,7 +56,7 @@ pub async fn show_state_history(
     let records = records
         .into_iter()
         .map(|record| MachineStateHistoryRecord {
-            event: record.event,
+            state: record.event,
             version: record.version,
         })
         .collect();
