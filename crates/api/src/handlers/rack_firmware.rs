@@ -1053,6 +1053,7 @@ pub async fn apply(
 
             match rms_client
                 .update_firmware(
+                    req.rack_id.clone(),
                     device_id.clone(),
                     full_firmware_path.clone(),
                     target.clone(),

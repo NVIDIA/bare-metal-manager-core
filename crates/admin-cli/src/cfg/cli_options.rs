@@ -334,61 +334,6 @@ impl CliOptions {
     }
 }
 
-#[derive(Parser, Debug)]
-pub enum RmsActions {
-    #[clap(about = "Get Full Rms Inventory")]
-    Inventory,
-    #[clap(about = "Add a node to Rms")]
-    AddNode(AddNode),
-    #[clap(about = "Remove a node from Rms")]
-    RemoveNode(RemoveNode),
-    #[clap(about = "Get Poweron Order")]
-    PoweronOrder,
-    #[clap(about = "Get Power State for a given node")]
-    PowerState(PowerState),
-    #[clap(about = "Get Firmware Inventory for a given node")]
-    FirmwareInventory(FirmwareInventory),
-    #[clap(about = "Get Available Firmware Images for a given node")]
-    AvailableFwImages(AvailableFwImages),
-    #[clap(about = "Get BKC Files")]
-    BkcFiles,
-    #[clap(about = "Check BKC Compliance")]
-    CheckBkcCompliance,
-}
-
-#[derive(Parser, Debug)]
-pub struct AddNode {
-    pub node_id: String,
-    pub mac_address: String,
-    pub ip_address: String,
-    pub port: i32,
-    pub node_type: Option<i32>,
-}
-
-#[derive(Parser, Debug)]
-pub struct RemoveNode {
-    #[clap(help = "Node ID to remove")]
-    pub node_id: String,
-}
-
-#[derive(Parser, Debug)]
-pub struct PowerState {
-    #[clap(help = "Node ID to get power state for")]
-    pub node_id: String,
-}
-
-#[derive(Parser, Debug)]
-pub struct FirmwareInventory {
-    #[clap(help = "Node ID to get firmware inventory for")]
-    pub node_id: String,
-}
-
-#[derive(Parser, Debug)]
-pub struct AvailableFwImages {
-    #[clap(help = "Node ID to get available firmware images for")]
-    pub node_id: String,
-}
-
 // Rack Firmware Management
 
 #[derive(Parser, Debug)]

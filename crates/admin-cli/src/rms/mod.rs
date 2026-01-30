@@ -26,8 +26,9 @@ impl Dispatch for Cmd {
     async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
         match self {
             Cmd::Inventory => cmds::inventory(&ctx.rms_client).await,
+            Cmd::AddNode(args) => cmds::add_node(args, &ctx.rms_client).await,
             Cmd::RemoveNode(args) => cmds::remove_node(args, &ctx.rms_client).await,
-            Cmd::PoweronOrder => cmds::poweron_order(&ctx.rms_client).await,
+            Cmd::PoweronOrder(args) => cmds::poweron_order(args, &ctx.rms_client).await,
             Cmd::PowerState(args) => cmds::power_state(args, &ctx.rms_client).await,
             Cmd::FirmwareInventory(args) => cmds::firmware_inventory(args, &ctx.rms_client).await,
             Cmd::AvailableFwImages(args) => cmds::available_fw_images(args, &ctx.rms_client).await,
