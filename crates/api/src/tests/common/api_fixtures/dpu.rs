@@ -33,7 +33,7 @@ use tonic::Request;
 
 use super::site_explorer;
 use crate::cfg::file::DpuConfig as InitialDpuConfig;
-use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
+use crate::tests::common::api_fixtures::managed_host::{HardwareInfoTemplate, ManagedHostConfig};
 use crate::tests::common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, TestManagedHost};
 use crate::tests::common::mac_address_pool;
 use crate::tests::common::rpc_builder::DhcpDiscovery;
@@ -49,6 +49,9 @@ pub const TEST_DOCA_TELEMETRY_VERSION: &str = "1.14.2-doca2.2.0";
 pub const DPU_INFO_JSON: &[u8] =
     include_bytes!("../../../../../api-model/src/hardware_info/test_data/dpu_info.json");
 
+pub const DPU_BF3_INFO_JSON: &[u8] =
+    include_bytes!("../../../../../api-model/src/hardware_info/test_data/dpu_bf3_info.json");
+
 static NEXT_DPU_SERIAL: AtomicU32 = AtomicU32::new(1);
 
 #[derive(Clone, Debug)]
@@ -59,12 +62,20 @@ pub struct DpuConfig {
     pub bmc_mac_address: MacAddress,
     pub last_exploration_error: Option<EndpointExplorationError>,
     pub override_hosts_uefi_device_path: Option<UefiDevicePath>,
+    pub hardware_info_template: HardwareInfoTemplate,
 }
 
 impl DpuConfig {
     pub fn with_serial(serial: String) -> Self {
         Self {
             serial,
+            ..Default::default()
+        }
+    }
+
+    pub fn with_hardware_info_template(hardware_info_template: HardwareInfoTemplate) -> Self {
+        Self {
+            hardware_info_template,
             ..Default::default()
         }
     }
@@ -82,13 +93,18 @@ impl Default for DpuConfig {
             bmc_mac_address: mac_address_pool::DPU_BMC_MAC_ADDRESS_POOL.allocate(),
             last_exploration_error: None,
             override_hosts_uefi_device_path: None,
+            hardware_info_template: HardwareInfoTemplate::Default,
         }
     }
 }
 
 impl From<&DpuConfig> for HardwareInfo {
     fn from(value: &DpuConfig) -> Self {
-        let mut info = serde_json::from_slice::<HardwareInfo>(DPU_INFO_JSON).unwrap();
+        let template = match value.hardware_info_template {
+            HardwareInfoTemplate::Default => DPU_INFO_JSON,
+            HardwareInfoTemplate::Custom(data) => data,
+        };
+        let mut info = serde_json::from_slice::<HardwareInfo>(template).unwrap();
         info.dpu_info.as_mut().unwrap().factory_mac_address = value.host_mac_address.to_string();
         info.dpu_info.as_mut().unwrap().firmware_version = "24.42.1000".to_string();
         info.dmi_data.as_mut().unwrap().product_serial = value.serial.clone();

@@ -1263,6 +1263,9 @@ pub enum ReprovisionState {
     },
     // Deprecated
     FirmwareUpgrade,
+    DpfStates {
+        substate: DpfState,
+    },
     InstallDpuOs {
         substate: InstallDpuOsState,
     },
@@ -1281,16 +1284,26 @@ pub enum ReprovisionState {
 pub trait NextStateBFBSupport<A> {
     fn next_substate_based_on_bfb_support(
         enable_secure_boot: bool,
-        dpu_snapshots: &[&Machine],
+        state: &ManagedHostStateSnapshot,
+        dpf_enabled_at_site: bool,
     ) -> A;
 }
 
 impl NextStateBFBSupport<DpuDiscoveringState> for DpuDiscoveringState {
     fn next_substate_based_on_bfb_support(
         enable_secure_boot: bool,
-        dpu_snapshots: &[&Machine],
+        state: &ManagedHostStateSnapshot,
+        dpf_enabled_at_site: bool,
     ) -> DpuDiscoveringState {
-        if enable_secure_boot && bfb_install_support(dpu_snapshots) {
+        // DPF should be given priority over secure boot.
+        // DPF does not support Secure boot.
+        let is_dpf_based_provisioning_possible =
+            dpf_based_dpu_provisioning_possible(state, dpf_enabled_at_site);
+
+        if !is_dpf_based_provisioning_possible
+            && enable_secure_boot
+            && bfb_install_support(&state.dpu_snapshots)
+        {
             // Move with a redfish install path
             DpuDiscoveringState::EnableSecureBoot {
                 count: 0,
@@ -1308,9 +1321,19 @@ impl NextStateBFBSupport<DpuDiscoveringState> for DpuDiscoveringState {
 impl NextStateBFBSupport<ReprovisionState> for ReprovisionState {
     fn next_substate_based_on_bfb_support(
         enable_secure_boot: bool,
-        dpu_snapshots: &[&Machine],
+        state: &ManagedHostStateSnapshot,
+        dpf_enabled_at_site: bool,
     ) -> ReprovisionState {
-        if enable_secure_boot && bfb_install_support(dpu_snapshots) {
+        let bfb_support = bfb_install_support(&state.dpu_snapshots);
+        let is_dpf_based_provisioning_possible =
+            dpf_based_dpu_provisioning_possible(state, dpf_enabled_at_site);
+        if is_dpf_based_provisioning_possible {
+            ReprovisionState::DpfStates {
+                substate: DpfState::TriggerReprovisioing {
+                    phase: ReprovisioingPhase::UpdateDpuStatusToError,
+                },
+            }
+        } else if enable_secure_boot && bfb_support {
             tracing::info!("All DPUs support BFB install via Redfish");
             // Move with a redfish install path
             ReprovisionState::InstallDpuOs {
@@ -1322,8 +1345,8 @@ impl NextStateBFBSupport<ReprovisionState> for ReprovisionState {
     }
 }
 
-fn bfb_install_support(dpu_snapshots: &[&Machine]) -> bool {
-    let bfb_install_support_ = |dpu_snapshots: &[&Machine]| -> bool {
+fn bfb_install_support(dpu_snapshots: &[Machine]) -> bool {
+    let bfb_install_support_ = |dpu_snapshots: &[Machine]| -> bool {
         dpu_snapshots
             .iter()
             .all(|m| m.bmc_info.supports_bfb_install())
@@ -1553,12 +1576,42 @@ pub enum SetSecureBootState {
 #[serde(tag = "dpustate", rename_all = "lowercase")]
 pub enum DpuInitState {
     InstallDpuOs { substate: InstallDpuOsState },
+    DpfStates { state: DpfState },
     Init,
     WaitingForPlatformPowercycle { substate: PerformPowerOperation },
     WaitingForPlatformConfiguration,
     PollingBiosSetup,
     WaitingForNetworkConfig,
     WaitingForNetworkInstall, // Deprecated now, not used
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
+#[serde(tag = "dpfstate", rename_all = "lowercase")]
+pub enum DpfState {
+    CreateDpuDevice,
+    WaitForDpuDeviceToReady,
+    DpuDeviceCreated,
+    CreateDpuNode,
+    DpuDeviceReady,
+    TriggerReprovisioing { phase: ReprovisioingPhase }, // This is way to trigger re-provisioning of a DPU.
+    UpdateNodeEffectAnnotation,
+    WaitingForOsInstallToComplete,
+    WaitForNetworkConfigAndRemoveAnnotation,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
+#[serde(tag = "reprovisioningphase", rename_all = "lowercase")]
+pub enum ReprovisioingPhase {
+    // Only DPUs which needs reprovisioing will be updated to error phase and deleted.
+    UpdateDpuStatusToError,
+    DeleteDpu,
+    // Following is a sync state.
+    WaitingForAllDpusUnderReprovisioingToBeDeleted,
+}
+
+pub enum WaitForNetworkConfigAndRemoveAnnotationResult {
+    NetworkConfigPending(MachineId),
+    ConfigSyncedAndAnnotationRemoved,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
@@ -2167,7 +2220,10 @@ pub fn get_action_for_dpu_state(
                 .ok_or(ModelError::MissingDpu(*dpu_machine_id))?;
             match dpu_state {
                 ReprovisionState::BufferTime => (Action::Retry, None),
-                ReprovisionState::WaitingForNetworkInstall => (Action::Discovery, None),
+                ReprovisionState::WaitingForNetworkInstall
+                | ReprovisionState::DpfStates {
+                    substate: DpfState::WaitingForOsInstallToComplete,
+                } => (Action::Discovery, None),
                 _ => {
                     tracing::info!(
                         dpu_machine_id = %dpu_machine_id,
@@ -2186,7 +2242,10 @@ pub fn get_action_for_dpu_state(
                 .ok_or(ModelError::MissingDpu(*dpu_machine_id))?;
 
             match dpu_state {
-                DpuInitState::Init => (Action::Discovery, None),
+                DpuInitState::Init
+                | DpuInitState::DpfStates {
+                    state: DpfState::WaitingForOsInstallToComplete,
+                } => (Action::Discovery, None),
                 _ => {
                     tracing::info!(
                         dpu_machine_id = %dpu_machine_id,
@@ -2676,4 +2735,53 @@ pub enum HardwareHealthReportsConfig {
     MonitorOnly,
     /// Include successes, alerts, and classifications.
     Enabled,
+}
+
+pub fn dpf_based_dpu_provisioning_possible(
+    state: &ManagedHostStateSnapshot,
+    dpf_enabled_at_site: bool,
+) -> bool {
+    // DPF is disabled at site.
+    if !dpf_enabled_at_site {
+        return false;
+    }
+
+    // DPF should be enabled on all DPUs.
+    // This could have been merged with other iter, but kept is separate to make debugging easier.
+    if state.dpu_snapshots.iter().any(|dpu| !dpu.dpf_enabled) {
+        tracing::info!(
+            "DPF based DPU provisioning is not possible because DPF is not enabled on all DPUs {}.",
+            state.host_snapshot.id
+        );
+        return false;
+    }
+
+    // All DPUs should not be Bluefield 2.
+    if state.dpu_snapshots.iter().any(|dpu| {
+        dpu.hardware_info
+            .as_ref()
+            .and_then(|hardware_info| hardware_info.dpu_info.as_ref())
+            .map(|dpu_data| crate::site_explorer::is_bf2_dpu(&dpu_data.part_number))
+            .unwrap_or(false)
+    }) {
+        tracing::info!(
+            "DPF based DPU provisioning is not possible because some DPUs are Bluefield 2 in {}.",
+            state.host_snapshot.id
+        );
+        return false;
+    }
+
+    // All DPUs support BFB install via Redfish.
+    if !state
+        .dpu_snapshots
+        .iter()
+        .all(|dpu| dpu.bmc_info.supports_bfb_install())
+    {
+        tracing::info!(
+            "DPF based DPU provisioning is not possible because some DPUs do not support BFB install via Redfish."
+        );
+        return false;
+    }
+
+    true
 }

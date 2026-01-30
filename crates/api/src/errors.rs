@@ -231,6 +231,9 @@ pub enum CarbideError {
 
     #[error("Maximum one association per interface")]
     MaxOneInterfaceAssociation,
+
+    #[error("DPF error: {0}")]
+    DpfError(#[from] carbide_dpf::DpfError),
 }
 
 impl From<ModelError> for CarbideError {

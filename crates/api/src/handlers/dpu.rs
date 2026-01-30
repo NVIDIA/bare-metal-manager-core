@@ -35,6 +35,7 @@ use model::machine::{InstanceState, LoadSnapshotOptions, ManagedHostState};
 use model::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID;
 use model::network_segment::NetworkSegmentSearchConfig;
 use tonic::{Request, Response, Status};
+use utils::models::arch::CpuArchitecture;
 
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::cfg::file::VpcIsolationBehaviorType;
@@ -162,12 +163,25 @@ pub(crate) async fn get_managed_host_network_config_inner(
         network_virtualization_type = VpcVirtualizationType::Fnn;
     }
 
+    let booturl_override = if snapshot
+        .host_snapshot
+        .hardware_info
+        .as_ref()
+        .map(|h| h.machine_type)
+        == Some(CpuArchitecture::X86_64)
+    {
+        api.runtime_config.x86_pxe_boot_url_override.clone()
+    } else {
+        api.runtime_config.arm_pxe_boot_url_override.clone()
+    };
+
     let (admin_interface_rpc, host_interface_id) = ethernet_virtualization::admin_network(
         &mut txn,
         &snapshot.host_snapshot.id,
         &dpu_snapshot.id,
         use_fnn_over_admin_nw,
         &api.common_pools,
+        &booturl_override,
     )
     .await?;
 
@@ -427,7 +441,8 @@ pub(crate) async fn get_managed_host_network_config_inner(
                         match api.runtime_config.vpc_peering_policy_on_existing {
                             None => api.runtime_config.vpc_peering_policy,
                             Some(vpc_peering_policy) => Some(vpc_peering_policy)
-                        }
+                        },
+                        &booturl_override,
                 )
                 .await?;
 

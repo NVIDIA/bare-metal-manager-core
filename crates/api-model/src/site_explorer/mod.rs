@@ -1757,7 +1757,7 @@ pub fn is_bf3_supernic(model: &str) -> bool {
 }
 
 // returns true if the model is for a Bluefield-2
-fn is_bf2_dpu(model: &str) -> bool {
+pub fn is_bf2_dpu(model: &str) -> bool {
     let normalized_model = model.to_lowercase();
     // prefix matching for BlueField-2 DPU (https://docs.nvidia.com/nvidia-bluefield-2-ethernet-dpu-user-guide.pdf)
     normalized_model.starts_with("mbf2")

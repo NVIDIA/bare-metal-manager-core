@@ -1,55 +1,40 @@
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use http::{Request, Response};
+    use kube::Client;
     use kube::client::Body;
-    use kube::{Api, Client};
     use tokio::sync::Mutex;
     use tower_test::mock::Handle;
 
-    use crate::{
-        DpfError, KubeImpl, NAMESPACE, create_crds_and_secret_with_client, get_fw_update_data,
-    };
+    use crate::{DpfError, KubeImpl, create_crds_and_secret_with_client, get_fw_update_data};
 
-    struct Data {
-        client: Mutex<Client>,
-        handle: Mutex<Handle<Request<Body>, Response<Body>>>,
-    }
+    static CLIENT: LazyLock<Mutex<Option<Client>>> = LazyLock::new(|| Mutex::new(None));
+    #[allow(clippy::type_complexity)]
+    static HANDLE: LazyLock<Mutex<Option<Handle<Request<Body>, Response<Body>>>>> =
+        LazyLock::new(|| Mutex::new(None));
 
-    #[derive(Clone)]
-    struct TestKubeImpl {
-        data: std::sync::OnceLock<Arc<Data>>,
-    }
+    #[derive(Clone, Debug)]
+    pub struct TestKubeImpl {}
 
     #[async_trait::async_trait]
     impl KubeImpl for TestKubeImpl {
-        async fn get_object<K>(&self) -> Result<Api<K>, DpfError>
-        where
-            K: kube::Resource<Scope = k8s_openapi::NamespaceResourceScope>,
-            K: kube::Resource,
-            <K as kube::Resource>::DynamicType: Default,
-        {
-            let data = self.data.get().unwrap().clone();
-            Ok(Api::namespaced(data.client.lock().await.clone(), NAMESPACE))
+        async fn get_kube_client(&self) -> Result<kube::Client, DpfError> {
+            let client = CLIENT.lock().await;
+            Ok(client.clone().unwrap())
         }
     }
 
     #[tokio::test]
     async fn test_create_crds_and_secret() {
-        let mut kube_impl = TestKubeImpl {
-            data: std::sync::OnceLock::new(),
-        };
+        let kube_impl = TestKubeImpl {};
 
-        kube_impl.data.get_or_init(|| {
-            let (service, handle) = tower_test::mock::pair::<Request<Body>, Response<Body>>();
-            let client = Client::new(service, "default");
-            Arc::new(Data {
-                client: Mutex::new(client),
-                handle: Mutex::new(handle),
-            })
-        });
+        let (service, handle) = tower_test::mock::pair::<Request<Body>, Response<Body>>();
+        let client = Client::new(service, "default");
+        *CLIENT.lock().await = Some(client);
+        *HANDLE.lock().await = Some(handle);
 
         let kube_clone = kube_impl.clone();
         let fut = tokio::spawn(async move {
@@ -72,7 +57,8 @@ mod tests {
         });
 
         let server = tokio::spawn(async move {
-            let mut handle = kube_impl.data.get_mut().unwrap().handle.lock().await;
+            let mut handle = HANDLE.lock().await;
+            let mut handle = handle.take().unwrap();
             let (req, send) = handle.next_request().await.unwrap();
             assert_eq!(
                 req.uri(),

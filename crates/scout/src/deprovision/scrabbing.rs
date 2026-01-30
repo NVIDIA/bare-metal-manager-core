@@ -84,9 +84,9 @@ struct NvmeParams {
     fr: String,
 }
 
-fn get_nvme_params(nvmename: &String) -> Result<NvmeParams, CarbideClientError> {
+async fn get_nvme_params(nvmename: &str) -> Result<NvmeParams, CarbideClientError> {
     let nvme_params_lines =
-        cmdrun::run_prog(format!("{NVME_CLI_PROG} id-ctrl {nvmename} -o json"))?;
+        cmdrun::run_prog(NVME_CLI_PROG, ["id-ctrl", nvmename, "-o", "json"]).await?;
     let nvme_drive_params = match serde_json::from_str(&nvme_params_lines) {
         Ok(o) => o,
         Err(e) => {
@@ -98,10 +98,10 @@ fn get_nvme_params(nvmename: &String) -> Result<NvmeParams, CarbideClientError> 
     Ok(nvme_drive_params)
 }
 
-fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
+async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
     tracing::debug!("cleaning {}", nvmename);
 
-    let nvme_drive_params = get_nvme_params(nvmename)?;
+    let nvme_drive_params = get_nvme_params(nvmename).await?;
 
     let namespaces_supported = nvme_drive_params.oacs & 0x8 == 0x8;
 
@@ -118,16 +118,17 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
     );
 
     if nvme_drive_params.mn.trim() == "M.2 NVMe 2-Bay RAID Kit" {
-        let vd_out = cmdrun::run_prog(format!("{LENOVO_NVMI_CLI_PROG} info -o vd -i 0"))?;
+        let vd_out =
+            cmdrun::run_prog(LENOVO_NVMI_CLI_PROG, ["info", "-o", "vd", "-i", "0"]).await?;
 
         // Some of the legacy raid kits were built with raid1. We need to remove the raid1
         // and the raid kit will replace it with two raid0's next reboot.
         if vd_out.contains("RAID1") {
-            cmdrun::run_prog(format!("{LENOVO_NVMI_CLI_PROG} vd -a delete -i 0"))?;
+            cmdrun::run_prog(LENOVO_NVMI_CLI_PROG, ["vd", "-a", "delete", "-i", "0"]).await?;
         } else if vd_out.contains("RAID0") {
             // assume it is two raid 0s created by the RAID kit if we see a single raid0 output
-            cmdrun::run_prog(format!("{LENOVO_NVMI_CLI_PROG} vd -a delete -i 0"))?;
-            cmdrun::run_prog(format!("{LENOVO_NVMI_CLI_PROG} vd -a delete -i 1"))?;
+            cmdrun::run_prog(LENOVO_NVMI_CLI_PROG, ["vd", "-a", "delete", "-i", "0"]).await?;
+            cmdrun::run_prog(LENOVO_NVMI_CLI_PROG, ["vd", "-a", "delete", "-i", "1"]).await?;
         } else {
             return Err(CarbideClientError::GenericError(
                 "Could not find a RAID0 or RAID1 on the raid kit".to_string(),
@@ -135,15 +136,41 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
         }
 
         // Clean the disks
-        cmdrun::run_prog(format!(
-            "{LENOVO_NVMI_CLI_PROG} passthru -i 0 -o 0x80 -n 0xffffffff --cdw10=0x200 -r none"
-        ))?;
-        cmdrun::run_prog(format!(
-            "{LENOVO_NVMI_CLI_PROG} passthru -i 1 -o 0x80 -n 0xffffffff --cdw10=0x200 -r none"
-        ))?;
+        cmdrun::run_prog(
+            LENOVO_NVMI_CLI_PROG,
+            [
+                "passthru",
+                "-i",
+                "0",
+                "-o",
+                "0x80",
+                "-n",
+                "0xffffffff",
+                "--cdw10=0x200",
+                "-r",
+                "none",
+            ],
+        )
+        .await?;
+        cmdrun::run_prog(
+            LENOVO_NVMI_CLI_PROG,
+            [
+                "passthru",
+                "-i",
+                "1",
+                "-o",
+                "0x80",
+                "-n",
+                "0xffffffff",
+                "--cdw10=0x200",
+                "-r",
+                "none",
+            ],
+        )
+        .await?;
     } else {
         // list all namespaces
-        let nvmens_output = cmdrun::run_prog(format!("{NVME_CLI_PROG} list-ns {nvmename} -a"))?;
+        let nvmens_output = cmdrun::run_prog(NVME_CLI_PROG, ["list-ns", nvmename, "-a"]).await?;
 
         // iterate over namespaces
         for nsline in nvmens_output.lines() {
@@ -155,9 +182,9 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
             tracing::debug!("namespace {}", nsid);
 
             // format with "-s2" is secure erase
-            match cmdrun::run_prog(format!(
-                "{NVME_CLI_PROG} format {nvmename} -s2 -f -n {nsid}"
-            )) {
+            match cmdrun::run_prog(NVME_CLI_PROG, ["format", nvmename, "-s2", "-f", "-n", nsid])
+                .await
+            {
                 Ok(_) => (),
                 Err(e) => {
                     if namespaces_supported {
@@ -170,7 +197,7 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
             }
             if namespaces_supported {
                 // delete namespace
-                cmdrun::run_prog(format!("{NVME_CLI_PROG} delete-ns {nvmename} -n {nsid}"))?;
+                cmdrun::run_prog(NVME_CLI_PROG, ["delete-ns", nvmename, "-n", nsid]).await?;
             }
         }
 
@@ -178,9 +205,19 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
             let sectors = nvme_drive_params.tnvmcap / 512;
             // creating new namespace with all available sectors
             tracing::debug!("Creating namespace on {}", nvmename);
-            let line_created_ns_id = cmdrun::run_prog(format!(
-                "{NVME_CLI_PROG} create-ns {nvmename} --nsze={sectors} --ncap={sectors} --flbas 0 --dps=0"
-            ))?;
+            let line_created_ns_id = cmdrun::run_prog(
+                NVME_CLI_PROG,
+                [
+                    "create-ns",
+                    nvmename,
+                    &format!("--nsze={sectors}"),
+                    &format!("--ncap={sectors}"),
+                    "--flbas",
+                    "0",
+                    "--dps=0",
+                ],
+            )
+            .await?;
             let nsid = match NVME_NSID_RE.captures(&line_created_ns_id) {
                 Some(o) => o.get(1).map_or("", |m| m.as_str()),
                 None => {
@@ -190,17 +227,25 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
                 }
             };
             // attaching namespace to controller
-            cmdrun::run_prog(format!(
-                "{} attach-ns {} -n {} -c {}",
-                NVME_CLI_PROG, nvmename, nsid, nvme_drive_params.cntlid
-            ))?;
+            cmdrun::run_prog(
+                NVME_CLI_PROG,
+                [
+                    "attach-ns",
+                    nvmename,
+                    "-n",
+                    nsid,
+                    "-c",
+                    &nvme_drive_params.cntlid.to_string(),
+                ],
+            )
+            .await?;
         }
     }
     tracing::debug!("Cleanup completed for nvme device {}", nvmename);
     Ok(())
 }
 
-fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
+async fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
     let mut err_vec: Vec<String> = Vec::new();
 
     if let Ok(paths) = fs::read_dir("/dev") {
@@ -215,7 +260,7 @@ fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
 
             let nvmename = path.to_string_lossy().to_string();
             if NVME_DEV_RE.is_match(&nvmename) {
-                match clean_this_nvme(&nvmename) {
+                match clean_this_nvme(&nvmename).await {
                     Ok(_) => (),
                     Err(e) => err_vec.push(format!("NVME_CLEAN_ERROR:{}:{}", &nvmename, e)),
                 }
@@ -345,16 +390,19 @@ fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
 // This ensures the port link state remains up independent of host OS,
 // making the port visible to UFM regardless of driver state.
 // Sets P1 (required) and P2 (optional, for dual-port devices).
-fn set_ib_link_up() -> Result<(), CarbideClientError> {
+async fn set_ib_link_up() -> Result<(), CarbideClientError> {
     match discovery_ibs() {
         Ok(ibs) => {
             for ib in ibs {
                 if let Some(p) = ib.pci_properties {
                     let slot = p.slot.unwrap();
                     // Set P1 (required - all IB devices have P1)
-                    match cmdrun::run_prog(format!(
-                        "mstconfig -y -d {slot} set KEEP_IB_LINK_UP_P1=1"
-                    )) {
+                    match cmdrun::run_prog(
+                        "mstconfig",
+                        ["-y", "-d", &slot, "set", "KEEP_IB_LINK_UP_P1=1"],
+                    )
+                    .await
+                    {
                         Ok(_) => {
                             tracing::info!(
                                 "set KEEP_IB_LINK_UP_P1=1 on IB device {} successfully.",
@@ -367,9 +415,12 @@ fn set_ib_link_up() -> Result<(), CarbideClientError> {
                         }
                     }
                     // Set P2 (optional - only dual-port devices have P2)
-                    match cmdrun::run_prog(format!(
-                        "mstconfig -y -d {slot} set KEEP_IB_LINK_UP_P2=1"
-                    )) {
+                    match cmdrun::run_prog(
+                        "mstconfig",
+                        ["-y", "-d", &slot, "set", "KEEP_IB_LINK_UP_P2=1"],
+                    )
+                    .await
+                    {
                         Ok(_) => {
                             tracing::info!(
                                 "set KEEP_IB_LINK_UP_P2=1 on IB device {} successfully.",
@@ -403,13 +454,13 @@ fn set_ib_link_up() -> Result<(), CarbideClientError> {
 // in forge case, all the non-DPU device should be VPI device or IB-only device
 // `reset` will set the link_type to IB for all the devices.
 // It calls set_ib_link_up() to set KEEP_IB_LINK_UP for P1/P2 which is now default state.
-fn reset_ib_devices() -> Result<(), CarbideClientError> {
+async fn reset_ib_devices() -> Result<(), CarbideClientError> {
     match discovery_ibs() {
         Ok(ibs) => {
             for ib in ibs {
                 if let Some(p) = ib.pci_properties {
                     let slot = p.slot.unwrap();
-                    match cmdrun::run_prog(format!("mstconfig -y -d {slot} reset")) {
+                    match cmdrun::run_prog("mstconfig", ["-y", "-d", &slot, "reset"]).await {
                         Ok(_) => {
                             tracing::info!("reset IB device {} successfully.", slot);
                         }
@@ -429,7 +480,7 @@ fn reset_ib_devices() -> Result<(), CarbideClientError> {
         }
     }
 
-    set_ib_link_up()
+    set_ib_link_up().await
 }
 
 async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineCleanupInfo> {
@@ -449,7 +500,7 @@ async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineC
     };
 
     if stdin_link == "/dev/null" {
-        match all_nvme_cleanup() {
+        match all_nvme_cleanup().await {
             Ok(_) => {
                 cleanup_result.nvme = Some(rpc::machine_cleanup_info::CleanupStepResult {
                     result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
@@ -506,7 +557,7 @@ async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineC
     //     }
     // }
 
-    match reset_ib_devices() {
+    match reset_ib_devices().await {
         Ok(_) => {
             cleanup_result.ib = Some(rpc::machine_cleanup_info::CleanupStepResult {
                 result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
@@ -554,7 +605,7 @@ pub(crate) async fn run(config: &Options, machine_id: &MachineId) -> CarbideClie
     Ok(())
 }
 
-pub fn run_no_api() -> Result<(), CarbideClientError> {
+pub async fn run_no_api() -> Result<(), CarbideClientError> {
     if !is_host() {
         tracing::info!("No cleanup needed on DPU.");
         return Ok(());
@@ -567,7 +618,7 @@ pub fn run_no_api() -> Result<(), CarbideClientError> {
     tracing::info!("stdin is {}", stdin_link);
 
     if stdin_link == "/dev/null" {
-        match all_nvme_cleanup() {
+        match all_nvme_cleanup().await {
             Ok(_) => tracing::debug!("nvme cleanup OK"),
             Err(e) => tracing::error!("nvme cleanup error: {}", e),
         }
@@ -576,7 +627,7 @@ pub fn run_no_api() -> Result<(), CarbideClientError> {
     }
 
     // P1 errors are propagated (fail startup), P2 errors are handled internally in reset_ib_devices()
-    reset_ib_devices()?;
+    reset_ib_devices().await?;
     tracing::debug!("IB devices reset OK");
     Ok(())
 }

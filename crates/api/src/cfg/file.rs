@@ -412,6 +412,14 @@ pub struct CarbideConfig {
     // DPF Config
     #[serde(default)]
     pub dpf: DpfConfig,
+
+    /// The URL to use for overriding the PXE boot url on X86 machines.
+    #[serde(default)]
+    pub x86_pxe_boot_url_override: Option<String>,
+
+    /// The URL to use for overriding the PXE boot url on ARM machines.
+    #[serde(default)]
+    pub arm_pxe_boot_url_override: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
