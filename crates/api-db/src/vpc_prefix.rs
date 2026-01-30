@@ -204,10 +204,6 @@ pub async fn persist(
     value: NewVpcPrefix,
     txn: &mut PgConnection,
 ) -> Result<VpcPrefix, DatabaseError> {
-    value.metadata.validate(true).map_err(|e| {
-        DatabaseError::InvalidArgument(format!("Invalid metadata for VpcPrefix: {e}"))
-    })?;
-
     let insert_query = "INSERT INTO network_vpc_prefixes (id, prefix, name, labels, description, vpc_id) VALUES ($1, $2, $3, $4::json, $5, $6) RETURNING *";
     let vpc_prefix: VpcPrefix = sqlx::query_as(insert_query)
         .bind(value.id)
@@ -267,10 +263,6 @@ pub async fn update(
     update: &UpdateVpcPrefix,
     txn: &mut PgConnection,
 ) -> Result<VpcPrefix, DatabaseError> {
-    update.metadata.validate(true).map_err(|e| {
-        DatabaseError::InvalidArgument(format!("Invalid metadata for UpdateVpcPrefix: {e}"))
-    })?;
-
     let query = "UPDATE network_vpc_prefixes SET name=$1, labels=$2::json, description=$3 WHERE id=$4 RETURNING *";
     sqlx::query_as(query)
         .bind(&update.metadata.name)

@@ -135,6 +135,11 @@ pub async fn create(
         return Err(CarbideError::InvalidArgument(msg).into());
     }
 
+    new_prefix
+        .metadata
+        .validate(true)
+        .map_err(CarbideError::from)?;
+
     let vpc_prefix = db::persist(new_prefix, &mut txn).await?;
 
     // Associate all of the network segment prefixes with the new VPC prefix.
@@ -249,6 +254,11 @@ pub async fn update(
 
     let mut txn = api.txn_begin().await?;
 
+    update_prefix
+        .metadata
+        .validate(true)
+        .map_err(CarbideError::from)?;
+    
     let updated = db::update(&update_prefix, &mut txn).await?;
 
     txn.commit().await?;
