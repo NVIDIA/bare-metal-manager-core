@@ -19,6 +19,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use carbide_dpf::KubeImpl;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
@@ -99,7 +100,8 @@ use crate::state_controller::controller::{Enqueuer, StateController};
 use crate::state_controller::ib_partition::handler::IBPartitionStateHandler;
 use crate::state_controller::ib_partition::io::IBPartitionStateControllerIO;
 use crate::state_controller::machine::handler::{
-    MachineStateHandler, MachineStateHandlerBuilder, PowerOptionConfig, ReachabilityParams,
+    DpfConfig, MachineStateHandler, MachineStateHandlerBuilder, PowerOptionConfig,
+    ReachabilityParams,
 };
 use crate::state_controller::machine::io::MachineStateControllerIO;
 use crate::state_controller::network_segment::handler::NetworkSegmentStateHandler;
@@ -222,6 +224,21 @@ lazy_static! {
     ];
 }
 
+#[derive(Clone, Debug)]
+pub struct TestDpfKubeClient {}
+
+#[async_trait::async_trait]
+impl KubeImpl for TestDpfKubeClient {
+    async fn get_kube_client(&self) -> Result<kube::Client, carbide_dpf::DpfError> {
+        let (service, _handle) = tower_test::mock::pair::<
+            http::Request<kube::client::Body>,
+            http::Response<kube::client::Body>,
+        >();
+        let client = kube::Client::new(service, "default");
+        Ok(client)
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct TestEnvOverrides {
     pub allow_zero_dpu_hosts: Option<bool>,
@@ -232,6 +249,7 @@ pub struct TestEnvOverrides {
     pub prevent_allocations_on_stale_dpu_agent_version: Option<bool>,
     pub network_segments_drain_period: Option<chrono::Duration>,
     pub power_manager_enabled: Option<bool>,
+    pub dpf_config: Option<DpfConfig>,
 }
 
 impl TestEnvOverrides {
@@ -240,6 +258,11 @@ impl TestEnvOverrides {
             config: Some(config),
             ..Default::default()
         }
+    }
+
+    pub fn with_dpf_config(mut self, dpf_config: DpfConfig) -> Self {
+        self.dpf_config = Some(dpf_config);
+        self
     }
 
     pub fn no_network_segments() -> Self {
@@ -1318,6 +1341,7 @@ pub async fn create_test_env_with_overrides(
     let rms_sim = Arc::new(RmsSim);
 
     let api = Arc::new(Api {
+        kube_client_provider: Arc::new(TestDpfKubeClient {}),
         runtime_config: config.clone(),
         credential_provider: credential_provider.clone(),
         certificate_provider: certificate_provider.clone(),
@@ -1343,6 +1367,12 @@ pub async fn create_test_env_with_overrides(
         power_options.enabled = v;
     }
 
+    let dpf_config = if let Some(override_dpf_config) = overrides.dpf_config {
+        override_dpf_config
+    } else {
+        DpfConfig::from(config.dpf.clone(), Arc::new(carbide_dpf::Production {}))
+    };
+
     let machine_swap = SwapHandler {
         inner: Arc::new(Mutex::new(
             MachineStateHandlerBuilder::builder()
@@ -1362,6 +1392,7 @@ pub async fn create_test_env_with_overrides(
                     config.machine_updater.instance_autoreboot_period.clone(),
                 )
                 .power_options_config(power_options)
+                .dpf_config(dpf_config)
                 .build(),
         )),
     };
@@ -2115,6 +2146,22 @@ pub async fn create_managed_host(env: &TestEnv) -> TestManagedHost {
     }
 }
 
+/// Create a managed host with 1 DPU (default config)
+pub async fn create_managed_host_with_dpf(env: &TestEnv) -> TestManagedHost {
+    let dpu_config = DpuConfig::with_hardware_info_template(
+        managed_host::HardwareInfoTemplate::Custom(dpu::DPU_BF3_INFO_JSON),
+    );
+    let mh_config = ManagedHostConfig::with_dpus(vec![dpu_config]);
+    let mh = site_explorer::new_mock_host_with_dpf(env, mh_config)
+        .await
+        .expect("Failed to create a new host");
+    TestManagedHost {
+        id: mh.host_snapshot.id,
+        dpu_ids: mh.dpu_snapshots.iter().map(|dpu| dpu.id).collect(),
+        api: env.api.clone(),
+    }
+}
+
 pub async fn create_managed_host_with_ek(env: &TestEnv, ek_cert: &[u8]) -> TestManagedHost {
     let host_config = ManagedHostConfig {
         tpm_ek_cert: TpmEkCertificate::from(ek_cert.to_vec()),
@@ -2431,7 +2478,7 @@ pub async fn get_vpc_fixture_id(env: &TestEnv) -> VpcId {
 /// state controller (which leads to stale metrics being saved).
 #[derive(Debug, Clone)]
 pub struct SwapHandler<H: StateHandler> {
-    inner: Arc<Mutex<H>>,
+    pub inner: Arc<Mutex<H>>,
 }
 
 #[async_trait::async_trait]

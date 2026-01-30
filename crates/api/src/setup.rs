@@ -378,6 +378,7 @@ pub async fn start_api(
         rms_client: rms_client.clone(),
         nmxm_pool: shared_nmxm_pool,
         work_lock_manager_handle,
+        kube_client_provider: Arc::new(carbide_dpf::Production {}),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool),
     });
 
@@ -688,6 +689,10 @@ pub async fn initialize_and_start_controllers(
                 )
                 .credential_provider(api_service.credential_provider.clone())
                 .power_options_config(carbide_config.power_manager_options.clone().into())
+                .dpf_config(crate::state_controller::machine::handler::DpfConfig::from(
+                    carbide_config.dpf.clone(),
+                    Arc::new(carbide_dpf::Production {}) as Arc<dyn carbide_dpf::KubeImpl>,
+                ))
                 .build(),
         ))
         .io(Arc::new(MachineStateControllerIO {
