@@ -1798,8 +1798,7 @@ message NetworkPrefix {
   string prefix = 2;
   optional string gateway = 3;
   int32 reserve_first = 4;
-  VpcResourceState state = 5;
-  repeated NetworkPrefixEvent events = 6;
+  reserved 5,6; // deprecated state and events
   // deprecated circuit id.
   reserved 7;
   uint32 free_ip_count = 8;
@@ -3685,40 +3684,6 @@ message ForgeScoutErrorReport {
 }
 
 message ForgeScoutErrorReportResult {
-}
-
-message VpcResourceState {
-  string state = 1;
-}
-
-message NetworkPrefixEvent {
-  int64 id = 1;
-
-  common.NetworkPrefixId network_prefix_id = 2;
-
-  VpcResourceAction event = 3;
-
-  google.protobuf.Timestamp time = 4;
-}
-
-message VpcResourceLeafEvent {
-  int64 id = 1;
-
-  common.UUID vpc_leaf_id = 2;
-
-  VpcResourceAction event = 3;
-
-  google.protobuf.Timestamp time = 4;
-}
-
-enum VpcResourceAction {
-  VPC_INITIALIZE = 0;
-  VPC_SUBMIT = 1;
-  VPC_ACCEPT = 2;
-  VPC_WAIT = 3;
-  VPC_FAIL = 4;
-  VPC_SUCCESS = 5;
-  VPC_RECOMMISSION = 6;
 }
 
 message PxeInstructionRequest {

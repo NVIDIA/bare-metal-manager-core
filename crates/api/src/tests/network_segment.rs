@@ -195,8 +195,6 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
             prefix: "192.0.2.12/30".to_string(), // is inside 192.0.2.0/24
             gateway: Some("192.0.2.13".to_string()),
             reserve_first: 1,
-            state: None,
-            events: vec![],
             free_ip_count: 0,
             svi_ip: None,
         }],
@@ -578,8 +576,6 @@ async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Repo
             prefix: "192.0.2.12/31".to_string(),
             gateway: Some("192.0.2.13".to_string()),
             reserve_first: 1,
-            state: None,
-            events: vec![],
             free_ip_count: 0,
             svi_ip: None,
         }],

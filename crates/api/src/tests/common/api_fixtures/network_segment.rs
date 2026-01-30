@@ -191,8 +191,6 @@ pub async fn create_network_segment(
             prefix: prefix.to_string(),
             gateway: Some(gateway.to_string()),
             reserve_first: 3,
-            state: None,
-            events: vec![],
             free_ip_count: 0,
             svi_ip: None,
         }],

@@ -810,8 +810,6 @@ impl ApiClient {
                 prefix,
                 gateway,
                 reserve_first: 0,
-                state: None,
-                events: vec![],
                 free_ip_count: 1,
                 svi_ip: None,
             }],
