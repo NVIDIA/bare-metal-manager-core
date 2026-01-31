@@ -10,24 +10,50 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::borrow::Cow;
+
 use axum::Router;
-use axum::body::Body;
-use axum::extract::{Path, Request, State};
-use axum::http::{Method, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use axum::response::Response;
 use axum::routing::get;
 use serde_json::json;
 
-use crate::json::JsonExt;
+use crate::json::{JsonExt, JsonPatch};
 use crate::mock_machine_router::MockWrapperState;
-use crate::{MachineInfo, redfish};
+use crate::redfish;
+
+pub fn resource<'a>(chassis_id: &'a str) -> redfish::Resource<'a> {
+    let odata_id = format!("{}/{chassis_id}", collection().odata_id);
+    redfish::Resource {
+        odata_id: Cow::Owned(odata_id),
+        odata_type: Cow::Borrowed("#Chassis.v1_23_0.Chassis"),
+        id: Cow::Borrowed(chassis_id),
+        name: Cow::Borrowed("Chassis"),
+    }
+}
+
+pub fn collection() -> redfish::Collection<'static> {
+    redfish::Collection {
+        odata_id: Cow::Borrowed("/redfish/v1/Chassis"),
+        odata_type: Cow::Borrowed("#ChassisCollection.ChassisCollection"),
+        name: Cow::Borrowed("Chassis Collection"),
+    }
+}
+
+pub fn builder(resource: &redfish::Resource) -> ChassisBuilder {
+    ChassisBuilder {
+        value: resource.json_patch(),
+    }
+}
 
 pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
     const CHASSIS_ID: &str = "{chassis_id}";
     const NET_ADAPTER_ID: &str = "{network_adapter_id}";
     const NET_FUNC_ID: &str = "{function_id}";
     const PCIE_DEVICE_ID: &str = "{pcie_device_id}";
-    r.route("/redfish/v1/Chassis/{chassis_id}", get(get_chassis))
+    r.route(&collection().odata_id, get(get_chassis_collection))
+        .route(&resource(CHASSIS_ID).odata_id, get(get_chassis))
         .route(
             &redfish::network_adapter::chassis_collection(CHASSIS_ID).odata_id,
             get(get_chassis_network_adapters),
@@ -60,291 +86,267 @@ pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
         )
 }
 
-const MAT_DPU_PCIE_DEVICE_PREFIX: &str = "mat_dpu";
+pub struct SingleChassisConfig {
+    pub id: Cow<'static, str>,
+    pub serial_number: Option<String>,
+    pub network_adapters: Option<Vec<redfish::network_adapter::NetworkAdapter>>,
+    pub pcie_devices: Option<Vec<redfish::pcie_device::PCIeDevice>>,
+}
 
-pub fn gen_dpu_pcie_device_resource(chassis_id: &str, index: usize) -> redfish::Resource<'static> {
-    let device_id = format!("{MAT_DPU_PCIE_DEVICE_PREFIX}_{index}");
-    redfish::pcie_device::chassis_resource(chassis_id, &device_id)
+pub struct ChassisConfig {
+    pub chassis: Vec<SingleChassisConfig>,
+}
+
+pub struct ChassisState {
+    chassis: Vec<SingleChassisState>,
+}
+
+impl ChassisState {
+    pub fn from_config(config: ChassisConfig) -> Self {
+        let chassis = config
+            .chassis
+            .into_iter()
+            .map(SingleChassisState::new)
+            .collect();
+        Self { chassis }
+    }
+
+    pub fn find(&self, chassis_id: &str) -> Option<&SingleChassisState> {
+        self.chassis
+            .iter()
+            .find(|c| c.config.id.as_ref() == chassis_id)
+    }
+}
+
+pub struct SingleChassisState {
+    pub config: SingleChassisConfig,
+}
+
+impl SingleChassisState {
+    fn new(config: SingleChassisConfig) -> Self {
+        Self { config }
+    }
+
+    pub fn pcie_devices_resources(&self) -> Vec<redfish::Resource<'static>> {
+        self.config
+            .pcie_devices
+            .iter()
+            .flat_map(|v| v.iter())
+            .map(|dev| redfish::pcie_device::chassis_resource(&self.config.id, &dev.id))
+            .collect::<Vec<_>>()
+    }
+
+    fn find_network_adapter(&self, id: &str) -> Option<&redfish::network_adapter::NetworkAdapter> {
+        self.config
+            .network_adapters
+            .as_ref()
+            .and_then(|adapters| adapters.iter().find(|na| na.id == id))
+    }
+
+    fn find_pcie_device(&self, id: &str) -> Option<&redfish::pcie_device::PCIeDevice> {
+        self.config
+            .pcie_devices
+            .as_ref()
+            .and_then(|devs| devs.iter().find(|v| v.id == id))
+    }
+}
+
+async fn get_chassis_collection(State(state): State<MockWrapperState>) -> Response {
+    let members = state
+        .bmc_state
+        .chassis_state
+        .chassis
+        .iter()
+        .map(|chassis| resource(&chassis.config.id).entity_ref())
+        .collect::<Vec<_>>();
+    collection().with_members(&members).into_ok_response()
 }
 
 async fn get_chassis(
-    State(mut state): State<MockWrapperState>,
-    request: Request<Body>,
+    State(state): State<MockWrapperState>,
+    Path(chassis_id): Path<String>,
 ) -> Response {
-    state
-        .call_inner_router(request)
-        .await
-        .map(|body| {
-            body.patch(json!({"SerialNumber": state.machine_info.chassis_serial()}))
-                .into_ok_response()
-        })
-        .unwrap_or_else(|err| err.into_response())
+    let Some(chassis_state) = state.bmc_state.chassis_state.find(&chassis_id) else {
+        return not_found();
+    };
+    let b = builder(&resource(&chassis_id))
+        .network_adapters(redfish::network_adapter::chassis_collection(&chassis_id))
+        .pcie_devices(redfish::pcie_device::chassis_collection(&chassis_id));
+
+    let b = if let Some(serial) = &chassis_state.config.serial_number {
+        b.serial_number(serial)
+    } else {
+        b
+    };
+    b.build().into_ok_response()
 }
 
 async fn get_chassis_network_adapters(
-    State(mut state): State<MockWrapperState>,
+    State(state): State<MockWrapperState>,
     Path(chassis_id): Path<String>,
-    request: Request<Body>,
 ) -> Response {
-    if chassis_id != "System.Embedded.1" {
-        return state.proxy_inner(request).await;
-    }
-    let MachineInfo::Host(host) = state.machine_info else {
-        return state.proxy_inner(request).await;
-    };
-
-    // Add stock adapters, embedded and integrated
-    let mut members = vec![
-        redfish::network_adapter::chassis_resource(&chassis_id, "NIC.Embedded.1").entity_ref(),
-        redfish::network_adapter::chassis_resource(&chassis_id, "NIC.Integrated.1").entity_ref(),
-    ];
-
-    // Add a network adapter for every DPU, or if there are no DPUs, mock a single non-DPU NIC.
-    let count = if host.dpus.is_empty() {
-        1
-    } else {
-        host.dpus.len()
-    };
-    for index in 1..=count {
-        members.push(
-            redfish::network_adapter::chassis_resource(&chassis_id, &format!("NIC.Slot.{}", index))
-                .entity_ref(),
-        )
-    }
-
-    redfish::network_adapter::chassis_collection(&chassis_id)
-        .with_members(&members)
-        .into_ok_response()
+    state
+        .bmc_state
+        .chassis_state
+        .find(&chassis_id)
+        .and_then(|chassis_state| chassis_state.config.network_adapters.as_ref())
+        .map(|network_adapters| {
+            network_adapters
+                .iter()
+                .map(|na| {
+                    redfish::network_adapter::chassis_resource(&chassis_id, &na.id).entity_ref()
+                })
+                .collect::<Vec<_>>()
+        })
+        .map(|members| {
+            redfish::network_adapter::chassis_collection(&chassis_id)
+                .with_members(&members)
+                .into_ok_response()
+        })
+        .unwrap_or_else(not_found)
 }
 
 async fn get_chassis_network_adapter(
-    State(mut state): State<MockWrapperState>,
+    State(state): State<MockWrapperState>,
     Path((chassis_id, network_adapter_id)): Path<(String, String)>,
-    request: Request<Body>,
 ) -> Response {
-    let MachineInfo::Host(host) = &state.machine_info else {
-        return state.proxy_inner(request).await;
+    let Some(chassis_state) = state.bmc_state.chassis_state.find(&chassis_id) else {
+        return not_found();
     };
-
-    if !network_adapter_id.starts_with("NIC.Slot.") {
-        return state.proxy_inner(request).await;
+    if let Some(helper) = state.bmc_state.injected_bugs.all_dpu_lost_on_host() {
+        return helper
+            .network_adapter(&chassis_id, &network_adapter_id)
+            .into_ok_response();
     }
-
-    if host.dpus.is_empty() {
-        let Some(mac) = host.non_dpu_mac_address else {
-            tracing::error!(
-                "Request for NIC ID {}, but machine has no NICs (zero DPUs and no non_dpu_mac_address set.) This is a bug.",
-                network_adapter_id
-            );
-            return state.proxy_inner(request).await;
-        };
-        let serial = mac.to_string().replace(':', "");
-
-        // Build a non-DPU NetworkAdapter
-        let resource = redfish::network_adapter::chassis_resource(&chassis_id, &network_adapter_id);
-        redfish::network_adapter::builder(&resource)
-            .manufacturer("Rooftop Technologies")
-            .model("Rooftop 10 Kilobit Ethernet Adapter")
-            .part_number("31337")
-            .serial_number(&serial)
-            .status(redfish::resource::Status::Ok)
-            .build()
-            .into_ok_response()
-    } else {
-        let Some(dpu) = state.find_dpu(&network_adapter_id) else {
-            return state.proxy_inner(request).await;
-        };
-
-        if let Some(helper) = state.bmc_state.injected_bugs.all_dpu_lost_on_host() {
-            return helper
-                .network_adapter(&chassis_id, &network_adapter_id)
-                .into_ok_response();
-        }
-
-        // Build a NetworkAdapter from our mock DPU info (mainly just the serial number)
-        let resource = redfish::network_adapter::chassis_resource(&chassis_id, &network_adapter_id);
-        redfish::network_adapter::builder(&resource)
-            .manufacturer("Mellanox Technologies")
-            .model("BlueField-2 SmartNIC Main Card")
-            .part_number("MBF2H5")
-            .serial_number(&dpu.serial)
-            .network_device_functions(&redfish::network_device_function::chassis_collection(
-                &chassis_id,
-                &network_adapter_id,
-            ))
-            .status(redfish::resource::Status::Ok)
-            .build()
-            .into_ok_response()
-    }
+    chassis_state
+        .find_network_adapter(&network_adapter_id)
+        .map(|eth| eth.to_json().into_ok_response())
+        .unwrap_or_else(not_found)
 }
 
 async fn get_chassis_network_adapters_network_device_functions_list(
-    State(mut state): State<MockWrapperState>,
+    State(state): State<MockWrapperState>,
     Path((chassis_id, network_adapter_id)): Path<(String, String)>,
-    request: Request<Body>,
 ) -> Response {
-    let Some(_dpu) = state.find_dpu(&network_adapter_id) else {
-        return state.proxy_inner(request).await;
-    };
-
-    let function_id = format!("{network_adapter_id}-1");
-    let resource = redfish::network_device_function::chassis_resource(
-        &chassis_id,
-        &network_adapter_id,
-        &function_id,
-    );
-    redfish::network_device_function::chassis_collection(&chassis_id, &network_adapter_id)
-        .with_members(std::slice::from_ref(&resource.entity_ref()))
-        .into_ok_response()
+    state
+        .bmc_state
+        .chassis_state
+        .find(&chassis_id)
+        .and_then(|chassis_state| chassis_state.find_network_adapter(&network_adapter_id))
+        .map(|network_adapter| {
+            let members = network_adapter
+                .functions
+                .iter()
+                .map(|f| {
+                    redfish::network_device_function::chassis_resource(
+                        &chassis_id,
+                        &network_adapter_id,
+                        &f.id,
+                    )
+                    .entity_ref()
+                })
+                .collect::<Vec<_>>();
+            redfish::network_device_function::chassis_collection(&chassis_id, &network_adapter_id)
+                .with_members(&members)
+                .into_ok_response()
+        })
+        .unwrap_or_else(not_found)
 }
 
 async fn get_chassis_network_adapters_network_device_function(
-    State(mut state): State<MockWrapperState>,
+    State(state): State<MockWrapperState>,
     Path((chassis_id, network_adapter_id, function_id)): Path<(String, String, String)>,
-    request: Request<Body>,
 ) -> Response {
-    let Some(dpu) = state.find_dpu(&network_adapter_id) else {
-        return state.proxy_inner(request).await;
-    };
-
-    let resource = redfish::network_device_function::chassis_resource(
-        &chassis_id,
-        &network_adapter_id,
-        &function_id,
-    );
-    redfish::network_device_function::builder(&resource)
-        .ethernet(json!({
-            "MACAddress": &dpu.host_mac_address,
-        }))
-        .oem(redfish::oem::dell::network_device_function::dpu_dell_nic_info(&function_id, &dpu))
-        .build()
-        .into_ok_response()
+    state
+        .bmc_state
+        .chassis_state
+        .find(&chassis_id)
+        .and_then(|chassis_state| chassis_state.find_network_adapter(&network_adapter_id))
+        .and_then(|network_adapter| network_adapter.find_function(&function_id))
+        .map(|function| function.to_json().into_ok_response())
+        .unwrap_or_else(not_found)
 }
 
 async fn get_pcie_device(
-    State(mut state): State<MockWrapperState>,
+    State(state): State<MockWrapperState>,
     Path((chassis_id, pcie_device_id)): Path<(String, String)>,
-    request: Request<Body>,
 ) -> Response {
-    let MachineInfo::Host(host) = &state.machine_info else {
-        return state.proxy_inner(request).await;
-    };
-
-    if !pcie_device_id.starts_with(MAT_DPU_PCIE_DEVICE_PREFIX) {
-        return state.proxy_inner(request).await;
-    }
-
-    if state
+    state
         .bmc_state
-        .injected_bugs
-        .all_dpu_lost_on_host()
-        .is_some()
-    {
-        return json!("All DPU lost bug injected").into_response(StatusCode::NOT_FOUND);
-    }
-
-    let Some(dpu_index) = pcie_device_id
-        .chars()
-        .last()
-        .and_then(|c| c.to_digit(10))
-        .map(|i| i as usize)
-    else {
-        tracing::error!("Invalid Pcie Device ID: {}", pcie_device_id);
-        return state.proxy_inner(request).await;
-    };
-
-    let Some(dpu) = host.dpus.get(dpu_index - 1) else {
-        tracing::error!(
-            "Request for Pcie Device ID {}, which we don't have a DPU for (we have {} DPUs), not rewriting request",
-            pcie_device_id,
-            host.dpus.len()
-        );
-        return state.proxy_inner(request).await;
-    };
-
-    // Mock a BF3 for all mocked DPUs. Response modeled from a real Dell in dev (10.217.132.202)
-
-    // Set the BF3 Part Number based on whether the DPU is supposed to be in NIC mode or not
-    // Use a BF3 SuperNIC OPN if the DPU is supposed to be in NIC mode. Otherwise, use
-    // a BF3 DPU OPN. Site explorer assumes that BF3 SuperNICs must be in NIC mode and that
-    // BF3 DPUs must be in DPU mode. It will not ingest a host if any of the BF3 DPUs in the host
-    // are in NIC mode or if any of the BF3 SuperNICs in the host are in DPU mode.
-    // OPNs taken from: https://docs.nvidia.com/networking/display/bf3dpu
-    let part_number = match dpu.nic_mode {
-        true => "900-9D3B4-00CC-EA0",
-        false => "900-9D3B6-00CV-AA0",
-    };
-
-    let resource = redfish::pcie_device::chassis_resource(&chassis_id, &pcie_device_id)
-        .with_name("MT43244 BlueField-3 integrated ConnectX-7 network controller");
-
-    redfish::pcie_device::builder(&resource)
-        .description("MT43244 BlueField-3 integrated ConnectX-7 network controller")
-        .firmware_version("32.41.1000")
-        .manufacturer("Mellanox Technologies")
-        .part_number(part_number)
-        .serial_number(&dpu.serial)
-        .status(redfish::resource::Status::Ok)
-        .build()
-        .into_ok_response()
+        .chassis_state
+        .find(&chassis_id)
+        .and_then(|chassis_state| chassis_state.find_pcie_device(&pcie_device_id))
+        .map(|pcie_device| {
+            if pcie_device.is_mat_dpu
+                && state
+                    .bmc_state
+                    .injected_bugs
+                    .all_dpu_lost_on_host()
+                    .is_some()
+            {
+                json!("All DPU lost bug injected").into_response(StatusCode::NOT_FOUND)
+            } else {
+                pcie_device.to_json().into_ok_response()
+            }
+        })
+        .unwrap_or_else(not_found)
 }
 
 async fn get_chassis_pcie_devices(
-    State(mut state): State<MockWrapperState>,
+    State(state): State<MockWrapperState>,
     Path(chassis_id): Path<String>,
-    request: Request<Body>,
 ) -> Response {
-    let is_host_with_dpus = matches!(state.machine_info, MachineInfo::Host(_));
-    let dpu_count = if let MachineInfo::Host(ref host) = state.machine_info {
-        host.dpus.len()
-    } else {
-        0
-    };
+    state
+        .bmc_state
+        .chassis_state
+        .find(&chassis_id)
+        .and_then(|chassis_state| chassis_state.config.pcie_devices.as_ref())
+        .map(|pcie_devices| {
+            pcie_devices
+                .iter()
+                .map(|v| redfish::pcie_device::chassis_resource(&chassis_id, &v.id).entity_ref())
+                .collect::<Vec<_>>()
+        })
+        .map(|members| {
+            redfish::pcie_device::chassis_collection(&chassis_id)
+                .with_members(&members)
+                .into_ok_response()
+        })
+        .unwrap_or_else(not_found)
+}
 
-    if !is_host_with_dpus {
-        return state.proxy_inner(request).await;
+pub struct ChassisBuilder {
+    value: serde_json::Value,
+}
+
+impl ChassisBuilder {
+    pub fn serial_number(self, v: &str) -> Self {
+        self.add_str_field("SerialNumber", v)
     }
 
-    let mut collection = match state.call_inner_router(request).await {
-        Ok(json) => json,
-        Err(err) => return err.into_response(),
-    };
+    pub fn network_adapters(self, v: redfish::Collection<'_>) -> Self {
+        self.apply_patch(v.nav_property("NetworkAdapters"))
+    }
 
-    let mut members = Vec::new();
-    if let Some(existing_members) = collection
-        .get_mut("Members")
-        .and_then(serde_json::Value::as_array_mut)
-        .map(std::mem::take)
-    {
-        for member in existing_members {
-            let Some(odata_id) = member["@odata.id"].as_str() else {
-                continue;
-            };
-            let valid_entry = state
-                .call_inner_router(
-                    Request::builder()
-                        .method(Method::GET)
-                        .uri(odata_id)
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .ok()
-                .and_then(|mut pcie_dev| pcie_dev.get_mut("Manufacturer").map(std::mem::take))
-                .is_some_and(|m| m.as_str().is_some_and(|v| v != "Mellanox Technologies"));
+    pub fn pcie_devices(self, v: redfish::Collection<'_>) -> Self {
+        self.apply_patch(v.nav_property("PCIeDevices"))
+    }
 
-            // Keep all default PCIE devices. Just remove any of the DPU entries
-            if valid_entry {
-                members.push(member);
-            }
+    pub fn build(self) -> serde_json::Value {
+        self.value
+    }
+
+    fn add_str_field(self, name: &str, value: &str) -> Self {
+        self.apply_patch(json!({ name: value }))
+    }
+
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
         }
     }
+}
 
-    for index in 1..=dpu_count {
-        members.push(gen_dpu_pcie_device_resource(&chassis_id, index).entity_ref());
-    }
-
-    redfish::pcie_device::chassis_collection(&chassis_id)
-        .with_members(&members)
-        .into_ok_response()
+fn not_found() -> Response {
+    json!("").into_response(StatusCode::NOT_FOUND)
 }

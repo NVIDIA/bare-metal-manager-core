@@ -79,9 +79,9 @@ pub struct SingleSystemConfig {
     pub id: Cow<'static, str>,
     pub eth_interfaces: Vec<redfish::ethernet_interface::EthernetInterface>,
     pub serial_number: String,
-    pub pcie_dpu_count: usize,
     pub boot_order_mode: BootOrderMode,
     pub power_control: Option<Arc<dyn PowerControl>>,
+    pub chassis: Vec<Cow<'static, str>>,
 }
 
 pub struct SystemConfig {
@@ -169,7 +169,8 @@ async fn get_system(
     let mut b = builder(&resource(&system_id))
         .ethernet_interfaces(redfish::ethernet_interface::system_collection(&system_id))
         .serial_number(&system_state.config.serial_number)
-        .boot_options(&redfish::boot_options::system_collection(&system_id));
+        .boot_options(&redfish::boot_options::system_collection(&system_id))
+        .link_chassis(&system_state.config.chassis);
 
     if let Some(state) = system_state
         .config
@@ -184,17 +185,13 @@ async fn get_system(
         b = b.boot_order(&boot_order)
     }
 
-    let dpu_count = system_state.config.pcie_dpu_count;
-    if dpu_count == 0 {
-        return b.build().into_ok_response();
-    }
-
-    let mut pcie_devices = Vec::new();
-    for index in 1..=dpu_count {
-        pcie_devices.push(redfish::chassis::gen_dpu_pcie_device_resource(
-            &system_id, index,
-        ));
-    }
+    let pcie_devices = system_state
+        .config
+        .chassis
+        .iter()
+        .flat_map(|chassis_id| state.bmc_state.chassis_state.find(chassis_id))
+        .flat_map(|chassis| chassis.pcie_devices_resources().into_iter())
+        .collect::<Vec<_>>();
     b.pcie_devices(&pcie_devices).build().into_ok_response()
 }
 
@@ -349,6 +346,14 @@ impl SystemBuilder {
             }
         };
         self.add_str_field("PowerState", power_state)
+    }
+
+    pub fn link_chassis(self, ids: &[Cow<'static, str>]) -> Self {
+        let chassis = ids
+            .iter()
+            .map(|id| redfish::chassis::resource(id).entity_ref())
+            .collect::<Vec<_>>();
+        self.apply_patch(json!({"Links": {"Chassis": chassis}}))
     }
 
     pub fn build(self) -> serde_json::Value {
