@@ -169,10 +169,17 @@ async fn get_chassis(
     let Some(chassis_state) = state.bmc_state.chassis_state.find(&chassis_id) else {
         return not_found();
     };
-    let b = builder(&resource(&chassis_id))
-        .network_adapters(redfish::network_adapter::chassis_collection(&chassis_id))
-        .pcie_devices(redfish::pcie_device::chassis_collection(&chassis_id));
-
+    let b = builder(&resource(&chassis_id));
+    let b = if chassis_state.config.pcie_devices.is_some() {
+        b.pcie_devices(redfish::pcie_device::chassis_collection(&chassis_id))
+    } else {
+        b
+    };
+    let b = if chassis_state.config.network_adapters.is_some() {
+        b.network_adapters(redfish::network_adapter::chassis_collection(&chassis_id))
+    } else {
+        b
+    };
     let b = if let Some(serial) = &chassis_state.config.serial_number {
         b.serial_number(serial)
     } else {

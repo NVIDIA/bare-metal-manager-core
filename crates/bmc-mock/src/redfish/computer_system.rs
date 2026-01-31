@@ -85,7 +85,6 @@ pub struct SingleSystemConfig {
 }
 
 pub struct SystemConfig {
-    pub bmc_vendor: redfish::oem::BmcVendor,
     pub systems: Vec<SingleSystemConfig>,
 }
 

@@ -17,6 +17,7 @@ use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
 use crate::redfish;
+use crate::redfish::update_service::UpdateServiceConfig;
 
 static NEXT_MAC_ADDRESS: AtomicU32 = AtomicU32::new(1);
 
@@ -132,6 +133,12 @@ impl MachineInfo {
             },
         }
     }
+    pub fn bmc_vendor(&self) -> redfish::oem::BmcVendor {
+        match self {
+            MachineInfo::Host(_) => redfish::oem::BmcVendor::Dell,
+            MachineInfo::Dpu(_) => redfish::oem::BmcVendor::Nvidia,
+        }
+    }
 
     pub fn system_config(
         &self,
@@ -158,7 +165,6 @@ impl MachineInfo {
                     })
                     .collect();
                 redfish::computer_system::SystemConfig {
-                    bmc_vendor: redfish::oem::BmcVendor::Dell,
                     systems: vec![redfish::computer_system::SingleSystemConfig {
                         id: Cow::Borrowed("System.Embedded.1"),
                         eth_interfaces,
@@ -170,7 +176,6 @@ impl MachineInfo {
                 }
             }
             MachineInfo::Dpu(dpu) => redfish::computer_system::SystemConfig {
-                bmc_vendor: redfish::oem::BmcVendor::Nvidia,
                 systems: vec![redfish::computer_system::SingleSystemConfig {
                     id: Cow::Borrowed("Bluefield"),
                     eth_interfaces: vec![
@@ -254,6 +259,53 @@ impl MachineInfo {
                             pcie_devices: Some(vec![]),
                         },
                     ],
+                }
+            }
+        }
+    }
+
+    pub fn update_service_config(&self) -> UpdateServiceConfig {
+        let fw_inv_builder = |id: &str| {
+            redfish::software_inventory::builder(
+                &redfish::software_inventory::firmware_inventory_resource(id),
+            )
+        };
+        match self {
+            Self::Host(_) => UpdateServiceConfig {
+                firmware_inventory: vec![],
+            },
+            Self::Dpu(dpu) => {
+                let base_mac = dpu.host_mac_address.to_string().replace(':', "");
+                let sys_image = format!(
+                    "{}:{}00:00{}:{}",
+                    &base_mac[0..4],
+                    &base_mac[4..6],
+                    &base_mac[6..8],
+                    &base_mac[8..12]
+                );
+                UpdateServiceConfig {
+                    firmware_inventory: vec![
+                        Some(fw_inv_builder("DPU_SYS_IMAGE").version(&sys_image).build()),
+                        dpu.firmware_versions
+                            .bmc
+                            .as_ref()
+                            .map(|v| fw_inv_builder("BMC_Firmware").version(v).build()),
+                        dpu.firmware_versions
+                            .cec
+                            .as_ref()
+                            .map(|v| fw_inv_builder("Bluefield_FW_ERoT").version(v).build()),
+                        dpu.firmware_versions
+                            .uefi
+                            .as_ref()
+                            .map(|v| fw_inv_builder("DPU_UEFI").version(v).build()),
+                        dpu.firmware_versions
+                            .nic
+                            .as_ref()
+                            .map(|v| fw_inv_builder("DPU_NIC").version(v).build()),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .collect(),
                 }
             }
         }

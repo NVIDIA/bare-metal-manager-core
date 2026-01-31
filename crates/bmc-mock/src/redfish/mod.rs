@@ -26,6 +26,8 @@ pub mod oem;
 pub mod pcie_device;
 pub mod resource;
 pub mod secure_boot;
+pub mod service_root;
+pub mod software_inventory;
 pub mod task_service;
 pub mod update_service;
 

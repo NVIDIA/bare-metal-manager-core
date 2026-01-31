@@ -22,6 +22,12 @@ pub enum BmcVendor {
 }
 
 impl BmcVendor {
+    pub fn service_root_value(&self) -> &'static str {
+        match self {
+            BmcVendor::Nvidia => "Nvidia",
+            BmcVendor::Dell => "Dell",
+        }
+    }
     // This function creates settings of the resource from the resource
     // id. Real identifier is different for different BMC vendors.
     pub fn make_settings_odata_id(&self, resource: &Resource<'_>) -> String {

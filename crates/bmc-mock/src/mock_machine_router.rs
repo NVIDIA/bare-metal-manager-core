@@ -81,12 +81,15 @@ pub fn wrap_router_with_mock_machine(
 ) -> Router {
     let system_config = machine_info.system_config(power_control);
     let chassis_config = machine_info.chassis_config();
+    let update_service_config = machine_info.update_service_config();
+    let bmc_vendor = machine_info.bmc_vendor();
     let router = Router::new()
         // Couple routes for bug injection.
         .route(
             "/InjectedBugs",
             get(get_injected_bugs).post(post_injected_bugs),
         )
+        .add_routes(crate::redfish::service_root::add_routes)
         .add_routes(crate::redfish::chassis::add_routes)
         .add_routes(crate::redfish::manager::add_routes)
         .add_routes(crate::redfish::boot_options::add_routes)
@@ -94,9 +97,7 @@ pub fn wrap_router_with_mock_machine(
         .add_routes(crate::redfish::task_service::add_routes)
         .add_routes(crate::redfish::secure_boot::add_routes)
         .add_routes(crate::redfish::account_service::add_routes)
-        .add_routes(|routes| {
-            crate::redfish::computer_system::add_routes(routes, system_config.bmc_vendor)
-        })
+        .add_routes(|routes| crate::redfish::computer_system::add_routes(routes, bmc_vendor))
         .add_routes(crate::redfish::bios::add_routes);
     let router = match &machine_info {
         MachineInfo::Dpu(_) => {
@@ -111,6 +112,9 @@ pub fn wrap_router_with_mock_machine(
     let chassis_state = Arc::new(crate::redfish::chassis::ChassisState::from_config(
         chassis_config,
     ));
+    let update_service_state = Arc::new(
+        crate::redfish::update_service::UpdateServiceState::from_config(update_service_config),
+    );
     let injected_bugs = Arc::new(InjectedBugs::default());
     let router = router
         .fallback(fallback_to_inner_router)
@@ -118,11 +122,13 @@ pub fn wrap_router_with_mock_machine(
             machine_info,
             inner_router,
             bmc_state: BmcState {
+                bmc_vendor,
                 jobs: Arc::new(Mutex::new(HashMap::new())),
                 secure_boot_enabled: Arc::new(AtomicBool::new(false)),
                 manager,
                 system_state,
                 chassis_state,
+                update_service_state,
                 bios: Arc::new(Mutex::new(serde_json::json!({}))),
                 dell_attrs: Arc::new(Mutex::new(serde_json::json!({}))),
                 injected_bugs: injected_bugs.clone(),

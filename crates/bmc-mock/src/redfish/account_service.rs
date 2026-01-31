@@ -23,21 +23,23 @@ use crate::json::JsonExt;
 use crate::mock_machine_router::MockWrapperState;
 use crate::redfish;
 
+pub fn resource() -> redfish::Resource<'static> {
+    redfish::Resource {
+        odata_id: Cow::Borrowed("/redfish/v1/AccountService"),
+        odata_type: Cow::Borrowed("#AccountService.v1_9_0.AccountService"),
+        id: Cow::Borrowed("AccountService"),
+        name: Cow::Borrowed("Account Service"),
+    }
+}
+
 pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
-    r.route(&SERVICE_RESOURCE.odata_id, get(get_root))
+    r.route(&resource().odata_id, get(get_root))
         .route(&ACCOUNTS_COLLECTION_RESOURCE.odata_id, get(get_accounts))
         .route(
             format!("{}/{{account_id}}", ACCOUNTS_COLLECTION_RESOURCE.odata_id).as_str(),
             get(get_account).patch(patch_account),
         )
 }
-
-const SERVICE_RESOURCE: redfish::Resource<'static> = redfish::Resource {
-    odata_id: Cow::Borrowed("/redfish/v1/AccountService"),
-    odata_type: Cow::Borrowed("#AccountService.v1_9_0.AccountService"),
-    id: Cow::Borrowed("AccountService"),
-    name: Cow::Borrowed("Account Service"),
-};
 
 const ACCOUNTS_COLLECTION_RESOURCE: redfish::Collection<'static> = redfish::Collection {
     odata_id: Cow::Borrowed("/redfish/v1/AccountService/Accounts"),
@@ -56,7 +58,7 @@ pub async fn get_root() -> Response {
         "MinPasswordLength": 0,
     });
     service_attrs
-        .patch(SERVICE_RESOURCE)
+        .patch(resource())
         .patch(ACCOUNTS_COLLECTION_RESOURCE.nav_property("Accounts"))
         .into_ok_response()
 }
