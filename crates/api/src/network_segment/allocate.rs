@@ -102,7 +102,7 @@ impl Ipv4PrefixAllocator {
         let prefix = self.next_free_prefix(txn).await?;
 
         let name = format!("vpc_prefix_{}", prefix.network());
-        let segment_id = NetworkSegmentId(uuid::Uuid::new_v4());
+        let segment_id = NetworkSegmentId::new();
 
         let ns = NewNetworkSegment {
             id: segment_id,

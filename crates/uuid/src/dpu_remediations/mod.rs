@@ -11,57 +11,20 @@
  */
 
 use std::convert::TryFrom;
-use std::fmt;
-use std::str::FromStr;
-
-use serde::{Deserialize, Serialize};
-#[cfg(feature = "sqlx")]
-use sqlx::{
-    postgres::{PgHasArrayType, PgTypeInfo},
-    {FromRow, Type},
-};
 
 use crate::typed_uuids::{TypedUuid, UuidSubtype};
-use crate::{UuidConversionError, grpc_uuid_message};
+
+/// Marker type for RemediationId
+pub struct RemediationIdMarker;
+
+impl UuidSubtype for RemediationIdMarker {
+    const TYPE_NAME: &'static str = "RemediationId";
+}
 
 /// RemediationId is a strongly typed UUID specific to a Remediation ID, with
 /// trait implementations allowing it to be passed around as
 /// a UUID, an RPC UUID, bound to sqlx queries, etc.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, Eq, Hash, PartialEq)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct RemediationId(pub uuid::Uuid);
-
-grpc_uuid_message!(RemediationId);
-
-impl From<RemediationId> for uuid::Uuid {
-    fn from(id: RemediationId) -> Self {
-        id.0
-    }
-}
-
-impl From<uuid::Uuid> for RemediationId {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
-    }
-}
-impl FromStr for RemediationId {
-    type Err = UuidConversionError;
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "RemediationId",
-                value: input.to_string(),
-            }
-        })?))
-    }
-}
-
-impl fmt::Display for RemediationId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+pub type RemediationId = TypedUuid<RemediationIdMarker>;
 
 impl From<RemediationId> for Option<uuid::Uuid> {
     fn from(val: RemediationId) -> Self {
@@ -79,21 +42,100 @@ impl TryFrom<Option<uuid::Uuid>> for RemediationId {
     }
 }
 
-#[cfg(feature = "sqlx")]
-impl PgHasArrayType for RemediationId {
-    fn array_type_info() -> PgTypeInfo {
-        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
-    }
-
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
-    }
-}
-
-pub struct RemediationPrefixMarker {}
+/// Marker type for RemediationPrefixId
+pub struct RemediationPrefixMarker;
 
 impl UuidSubtype for RemediationPrefixMarker {
     const TYPE_NAME: &'static str = "RemediationPrefixId";
 }
 
 pub type RemediationPrefixId = TypedUuid<RemediationPrefixMarker>;
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::str::FromStr;
+
+    use super::*;
+
+    #[test]
+    fn test_uuid_round_trip() {
+        let orig = uuid::Uuid::new_v4();
+        let id = RemediationId::from(orig);
+        let back = uuid::Uuid::from(id);
+        assert_eq!(orig, back);
+    }
+
+    #[test]
+    fn test_string_round_trip() {
+        let orig = uuid::Uuid::new_v4();
+        let id = RemediationId::from(orig);
+        let as_string = id.to_string();
+        let parsed = RemediationId::from_str(&as_string).expect("failed to parse");
+        assert_eq!(id, parsed);
+    }
+
+    #[test]
+    fn test_json_round_trip() {
+        let id = RemediationId::new();
+        let json = serde_json::to_string(&id).expect("failed to serialize");
+        let parsed: RemediationId = serde_json::from_str(&json).expect("failed to deserialize");
+        assert_eq!(id, parsed);
+        assert!(json.starts_with('"') && json.ends_with('"'));
+    }
+
+    #[test]
+    fn test_ordering() {
+        let id1 = RemediationId::from(uuid::Uuid::nil());
+        let id2 = RemediationId::from(uuid::Uuid::max());
+        assert!(id1 < id2);
+    }
+
+    #[test]
+    fn test_default() {
+        let id = RemediationId::default();
+        assert_eq!(uuid::Uuid::from(id), uuid::Uuid::nil());
+    }
+
+    #[test]
+    fn test_copy() {
+        let id1 = RemediationId::new();
+        let id2 = id1;
+        assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn test_hash_consistency() {
+        let uuid = uuid::Uuid::new_v4();
+        let id1 = RemediationId::from(uuid);
+        let id2 = RemediationId::from(uuid);
+        let mut set = HashSet::new();
+        set.insert(id1);
+        assert!(set.contains(&id2));
+    }
+
+    #[test]
+    fn test_debug_includes_type_name() {
+        let id = RemediationId::from(uuid::Uuid::nil());
+        let debug = format!("{:?}", id);
+        assert!(debug.contains("RemediationId"));
+    }
+
+    #[test]
+    fn test_into_option_uuid() {
+        let id = RemediationId::new();
+        let opt: Option<uuid::Uuid> = id.into();
+        assert!(opt.is_some());
+        assert_eq!(opt.unwrap(), uuid::Uuid::from(id));
+    }
+
+    #[test]
+    fn test_try_from_option_uuid() {
+        let uuid = uuid::Uuid::new_v4();
+        let id = RemediationId::try_from(Some(uuid)).expect("failed to convert");
+        assert_eq!(uuid::Uuid::from(id), uuid);
+
+        let err = RemediationId::try_from(None);
+        assert!(err.is_err());
+    }
+}

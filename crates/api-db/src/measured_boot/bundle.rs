@@ -827,8 +827,8 @@ mod tests {
         values: Vec<MeasurementBundleValueRecord>,
     ) -> MeasurementBundle {
         MeasurementBundle {
-            bundle_id: MeasurementBundleId(bundle_uuid),
-            profile_id: MeasurementSystemProfileId(profile_uuid),
+            bundle_id: MeasurementBundleId::from(bundle_uuid),
+            profile_id: MeasurementSystemProfileId::from(profile_uuid),
             name: "funny-rabbit".to_string(),
             state: MeasurementBundleState::Active,
             values,
@@ -843,8 +843,8 @@ mod tests {
         sha_any: &str,
     ) -> MeasurementBundleValueRecord {
         MeasurementBundleValueRecord {
-            value_id: MeasurementBundleValueId(record_uuid),
-            bundle_id: MeasurementBundleId(bundle_uuid),
+            value_id: MeasurementBundleValueId::from(record_uuid),
+            bundle_id: MeasurementBundleId::from(bundle_uuid),
             pcr_register,
             sha_any: sha_any.to_string(),
             ts: chrono::DateTime::from_timestamp(1431648000, 0).unwrap(),
@@ -1038,7 +1038,8 @@ mod tests {
             .flatten()
         {
             assert_eq!(
-                MEASUREMENT_BUNDLE_UUID_3, bundle_id.0,
+                MEASUREMENT_BUNDLE_UUID_3,
+                uuid::Uuid::from(bundle_id),
                 "Incorrect bundle was selected"
             );
         } else {
@@ -1086,7 +1087,8 @@ mod tests {
             .flatten()
         {
             assert_eq!(
-                MEASUREMENT_BUNDLE_UUID_2, bundle_id.0,
+                MEASUREMENT_BUNDLE_UUID_2,
+                uuid::Uuid::from(bundle_id),
                 "Incorrect bundle was selected"
             );
         } else {
@@ -1120,7 +1122,8 @@ mod tests {
         {
             // the correct bundle just happens to be the first one added
             assert_eq!(
-                MEASUREMENT_BUNDLE_UUID_2, bundle_id.0,
+                MEASUREMENT_BUNDLE_UUID_2,
+                uuid::Uuid::from(bundle_id),
                 "Incorrect bundle was selected"
             );
         } else {

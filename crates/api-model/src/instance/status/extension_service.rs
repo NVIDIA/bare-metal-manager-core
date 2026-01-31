@@ -397,7 +397,7 @@ impl TryFrom<InstanceExtensionServiceStatus> for rpc::InstanceDpuExtensionServic
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Self {
-            service_id: status.service_id.to_string(),
+            service_id: status.service_id.into(),
             version: status.version.to_string(),
             deployment_status: rpc::DpuExtensionServiceDeploymentStatus::from(
                 status.overall_status,
@@ -482,7 +482,7 @@ impl TryFrom<rpc::DpuExtensionServiceStatusObservation> for ExtensionServiceStat
 impl From<ExtensionServiceStatusObservation> for rpc::DpuExtensionServiceStatusObservation {
     fn from(observation: ExtensionServiceStatusObservation) -> Self {
         Self {
-            service_id: observation.service_id.to_string(),
+            service_id: observation.service_id.into(),
             service_type: rpc::DpuExtensionServiceType::from(observation.service_type).into(),
             service_name: observation.service_name,
             version: observation.version.to_string(),

@@ -203,7 +203,7 @@ async fn test_zero_dpu_instance_allocation_explicit_network_config(
                 network: Some(forge::InstanceNetworkConfig {
                     interfaces: vec![forge::InstanceInterfaceConfig {
                         function_type: forge::InterfaceFunctionType::Physical as i32,
-                        network_segment_id: Some(host_inband_segment.id.0.into()),
+                        network_segment_id: Some(host_inband_segment.id),
                         network_details: None,
                         device: None,
                         device_instance: 0u32,
@@ -239,7 +239,7 @@ async fn test_zero_dpu_instance_allocation_explicit_network_config(
     );
     assert_eq!(
         instance_network_restrictions.network_segment_ids,
-        vec![host_inband_segment.id.0.into()],
+        vec![host_inband_segment.id],
         "Machine that was just ingested should have instance network restrictions listing its network segment ID's",
     );
 
@@ -680,7 +680,7 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
             .iter()
             .contains(&host_inband_segment.id),
         "Machine that was just ingested should have instance network restrictions showing host_inband_segment {}",
-        host_inband_segment.id.0,
+        host_inband_segment.id,
     );
     assert!(
         instance_network_restrictions
@@ -688,7 +688,7 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
             .iter()
             .contains(&host_inband_2_segment.id),
         "Machine that was just ingested should have instance network restrictions showing host_inband_2_segment {}",
-        host_inband_2_segment.id.0,
+        host_inband_2_segment.id,
     );
 
     // Allocate an instance without specifying a network config

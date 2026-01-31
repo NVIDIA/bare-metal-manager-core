@@ -451,7 +451,9 @@ impl AssignIpsFrom<(&Machine, &NetworkPrefix)> for InstanceInterfaceConfig {
                 "Managed host has multiple interfaces in the desired network segment. Cannot know which to assign to the instance config."
             );
             return Err(DatabaseError::FindOneReturnedManyResultsError(
-                self.network_segment_id.map(|a| a.0).unwrap_or_default(),
+                self.network_segment_id
+                    .map(uuid::Uuid::from)
+                    .unwrap_or_default(),
             ));
         }
 

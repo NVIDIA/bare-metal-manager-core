@@ -26,7 +26,7 @@ pub async fn create_vpc(
 ) -> (VpcId, rpc::Vpc) {
     let tenant_config = default_tenant_config();
 
-    let vpc_id = VpcId::from(uuid::Uuid::new_v4());
+    let vpc_id = VpcId::new();
     let request = VpcCreationRequest::builder(
         "",
         tenant_org_id.unwrap_or(tenant_config.tenant_organization_id),

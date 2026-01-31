@@ -114,7 +114,7 @@ pub async fn find_optional(
         0 => Ok(None),
         1 => Ok(Some(interfaces.remove(0))),
         _ => Err(DatabaseError::FindOneReturnedManyResultsError(
-            machine_interface_id.0,
+            machine_interface_id.into(),
         )),
     }
 }

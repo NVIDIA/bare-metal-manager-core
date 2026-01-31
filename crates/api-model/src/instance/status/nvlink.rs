@@ -95,7 +95,7 @@ impl InstanceNvLinkStatus {
                     configs_synced = SyncState::Pending;
                     InstanceNvLinkGpuStatus {
                         logical_partition_id: None,
-                        domain_id: NvLinkDomainId(uuid::Uuid::nil()),
+                        domain_id: NvLinkDomainId::default(),
                         gpu_guid: "".to_string(), // just an empty string as status is not ready yet
                     }
                 }
@@ -115,7 +115,7 @@ impl InstanceNvLinkStatus {
                 .iter()
                 .map(|cfg| InstanceNvLinkGpuStatus {
                     logical_partition_id: None,
-                    domain_id: NvLinkDomainId(uuid::Uuid::nil()),
+                    domain_id: NvLinkDomainId::default(),
                     gpu_guid: cfg.device_instance.to_string(), // just fill it with the index as status is not ready.
                 })
                 .collect(),
@@ -148,9 +148,7 @@ impl TryFrom<rpc::InstanceNvLinkGpuStatus> for InstanceNvLinkGpuStatus {
         Ok(Self {
             logical_partition_id: status.logical_partition_id,
             gpu_guid: status.gpu_guid.unwrap_or_default(),
-            domain_id: status
-                .domain_id
-                .unwrap_or(NvLinkDomainId(uuid::Uuid::nil())),
+            domain_id: status.domain_id.unwrap_or_default(),
         })
     }
 }

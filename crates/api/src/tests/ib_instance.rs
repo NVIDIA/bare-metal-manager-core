@@ -1051,7 +1051,7 @@ pub async fn try_allocate_instance(
         .await?;
 
     let instance = instance.into_inner();
-    let instance_id = uuid::Uuid::from(instance.id.expect("Missing instance ID"));
+    let instance_id: uuid::Uuid = instance.id.expect("Missing instance ID").into();
     Ok((instance_id, instance))
 }
 

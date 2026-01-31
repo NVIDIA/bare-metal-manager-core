@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -84,11 +84,31 @@ impl<T> TypedUuid<T>
 where
     T: UuidSubtype,
 {
+    /// Creates a nil (all zeros) TypedUuid. This is a const function so it can
+    /// be used to initialize constants.
+    pub const fn nil() -> Self {
+        Self {
+            uuid: Uuid::nil(),
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    /// Creates a new random v4 TypedUuid.
+    pub fn new() -> Self {
+        Uuid::new_v4().into()
+    }
+
     fn try_parse(input: &str) -> Result<Self, UuidError> {
         Uuid::try_parse(input).map(|uuid| Self {
             uuid,
             _marker: std::marker::PhantomData,
         })
+    }
+
+    /// Returns a new TypedUuid with its underlying u128 value offset by `n`.
+    /// Useful for creating sequential UUIDs in tests.
+    pub fn offset(self, n: u128) -> Self {
+        Uuid::from_u128(self.uuid.as_u128() + n).into()
     }
 }
 
@@ -134,6 +154,24 @@ where
 
 impl<T> Eq for TypedUuid<T> where T: UuidSubtype {}
 
+impl<T> PartialOrd for TypedUuid<T>
+where
+    T: UuidSubtype,
+{
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T> Ord for TypedUuid<T>
+where
+    T: UuidSubtype,
+{
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.uuid.cmp(&other.uuid)
+    }
+}
+
 impl<T> std::hash::Hash for TypedUuid<T>
 where
     T: 'static + UuidSubtype,
@@ -176,6 +214,15 @@ where
             uuid,
             _marker: std::marker::PhantomData,
         }
+    }
+}
+
+impl<T> From<TypedUuid<T>> for String
+where
+    T: UuidSubtype,
+{
+    fn from(typed: TypedUuid<T>) -> String {
+        typed.to_string()
     }
 }
 
@@ -252,6 +299,12 @@ where
 {
     fn array_type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::types::Uuid::array_type_info()
+    }
+}
+
+impl<T: UuidSubtype> crate::DbPrimaryUuid for TypedUuid<T> {
+    fn db_primary_uuid_name() -> &'static str {
+        T::DB_COLUMN_NAME
     }
 }
 

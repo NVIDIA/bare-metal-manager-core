@@ -23,7 +23,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::DbPrimaryUuid;
-use crate::UuidConversionError;
 
 static MACHINE_ID_PREFIX: &str = "fm100";
 
@@ -32,63 +31,20 @@ use sqlx::{
     encode::IsNull,
     error::BoxDynError,
     postgres::{PgHasArrayType, PgTypeInfo},
-    {Database, Postgres, Row}, {FromRow, Type},
+    {Database, Postgres, Row},
 };
 
-use crate::grpc_uuid_message;
+use crate::typed_uuids::{TypedUuid, UuidSubtype};
 
-/// MachineInterfaceId is a strongly typed UUID specific to an Infiniband
-/// segment ID, with trait implementations allowing it to be passed
-/// around as a UUID, an RPC UUID, bound to sqlx queries, etc. This
-/// is similar to what we do for MachineId, VpcId, InstanceId,
-/// NetworkSegmentId, and basically all of the IDs in measured boot.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct MachineInterfaceId(pub uuid::Uuid);
+/// Marker type for MachineInterfaceId
+pub struct MachineInterfaceIdMarker;
 
-grpc_uuid_message!(MachineInterfaceId);
-
-impl From<MachineInterfaceId> for uuid::Uuid {
-    fn from(id: MachineInterfaceId) -> Self {
-        id.0
-    }
+impl UuidSubtype for MachineInterfaceIdMarker {
+    const TYPE_NAME: &'static str = "MachineInterfaceId";
 }
 
-impl From<uuid::Uuid> for MachineInterfaceId {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
-    }
-}
-
-impl FromStr for MachineInterfaceId {
-    type Err = UuidConversionError;
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "MachineInterfaceId",
-                value: input.to_string(),
-            }
-        })?))
-    }
-}
-
-impl fmt::Display for MachineInterfaceId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[cfg(feature = "sqlx")]
-impl PgHasArrayType for MachineInterfaceId {
-    fn array_type_info() -> PgTypeInfo {
-        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
-    }
-
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
-    }
-}
+/// MachineInterfaceId is a strongly typed UUID for machine interfaces.
+pub type MachineInterfaceId = TypedUuid<MachineInterfaceIdMarker>;
 
 /// This is a fixed-size hash of the machine hardware.
 pub type HardwareHash = [u8; 32];

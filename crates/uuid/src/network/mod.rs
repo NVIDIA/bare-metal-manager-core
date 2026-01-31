@@ -10,143 +10,126 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::fmt;
-use std::fmt::{Display, Formatter};
-use std::str::FromStr;
+use crate::typed_uuids::{TypedUuid, UuidSubtype};
 
-use serde::{Deserialize, Serialize};
-#[cfg(feature = "sqlx")]
-use sqlx::{
-    postgres::{PgHasArrayType, PgTypeInfo},
-    {FromRow, Type},
-};
+/// Marker type for NetworkSegmentId
+pub struct NetworkSegmentIdMarker;
 
-use crate::{UuidConversionError, grpc_uuid_message};
+impl UuidSubtype for NetworkSegmentIdMarker {
+    const TYPE_NAME: &'static str = "NetworkSegmentId";
+}
 
 /// NetworkSegmentId is a strongly typed UUID specific to a network
 /// segment ID, with trait implementations allowing it to be passed
-/// around as a UUID, an RPC UUID, bound to sqlx queries, etc. This
-/// is similar to what we do for MachineId, VpcId, InstanceId, and
-/// basically all of the IDs in measured boot.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq, Default)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct NetworkSegmentId(pub uuid::Uuid);
+/// around as a UUID, an RPC UUID, bound to sqlx queries, etc.
+pub type NetworkSegmentId = TypedUuid<NetworkSegmentIdMarker>;
 
-grpc_uuid_message!(NetworkSegmentId);
+/// Marker type for NetworkPrefixId
+pub struct NetworkPrefixIdMarker;
 
-impl From<NetworkSegmentId> for uuid::Uuid {
-    fn from(id: NetworkSegmentId) -> Self {
-        id.0
-    }
+impl UuidSubtype for NetworkPrefixIdMarker {
+    const TYPE_NAME: &'static str = "NetworkPrefixId";
 }
 
-impl From<uuid::Uuid> for NetworkSegmentId {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
-    }
-}
+/// NetworkPrefixId is a strongly typed UUID for network prefixes.
+pub type NetworkPrefixId = TypedUuid<NetworkPrefixIdMarker>;
 
-impl FromStr for NetworkSegmentId {
-    type Err = UuidConversionError;
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "NetworkSegmentId",
-                value: input.to_string(),
-            }
-        })?))
-    }
-}
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::str::FromStr;
 
-impl fmt::Display for NetworkSegmentId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+    use super::*;
 
-#[cfg(feature = "sqlx")]
-impl PgHasArrayType for NetworkSegmentId {
-    fn array_type_info() -> PgTypeInfo {
-        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
+    // NetworkSegmentId tests
+    #[test]
+    fn test_segment_id_uuid_round_trip() {
+        let orig = uuid::Uuid::new_v4();
+        let id = NetworkSegmentId::from(orig);
+        let back = uuid::Uuid::from(id);
+        assert_eq!(orig, back);
     }
 
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
-    }
-}
-
-#[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialOrd, Ord, Eq, PartialEq, Hash, Default,
-)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-#[repr(transparent)]
-pub struct NetworkPrefixId(pub uuid::Uuid);
-
-grpc_uuid_message!(NetworkPrefixId);
-
-impl Display for NetworkPrefixId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl From<NetworkPrefixId> for uuid::Uuid {
-    fn from(id: NetworkPrefixId) -> Self {
-        id.0
-    }
-}
-
-impl From<&NetworkPrefixId> for uuid::Uuid {
-    fn from(id: &NetworkPrefixId) -> Self {
-        id.0
-    }
-}
-
-impl From<uuid::Uuid> for NetworkPrefixId {
-    fn from(value: uuid::Uuid) -> Self {
-        NetworkPrefixId(value)
-    }
-}
-
-impl From<&uuid::Uuid> for NetworkPrefixId {
-    fn from(value: &uuid::Uuid) -> Self {
-        NetworkPrefixId(*value)
-    }
-}
-
-impl FromStr for NetworkPrefixId {
-    type Err = UuidConversionError;
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "NetworkSegmentId",
-                value: input.to_string(),
-            }
-        })?))
-    }
-}
-
-#[cfg(feature = "sqlx")]
-impl PgHasArrayType for NetworkPrefixId {
-    fn array_type_info() -> PgTypeInfo {
-        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
+    #[test]
+    fn test_segment_id_string_round_trip() {
+        let orig = uuid::Uuid::new_v4();
+        let id = NetworkSegmentId::from(orig);
+        let as_string = id.to_string();
+        let parsed = NetworkSegmentId::from_str(&as_string).expect("failed to parse");
+        assert_eq!(id, parsed);
     }
 
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
+    #[test]
+    fn test_segment_id_json_round_trip() {
+        let id = NetworkSegmentId::new();
+        let json = serde_json::to_string(&id).expect("failed to serialize");
+        let parsed: NetworkSegmentId = serde_json::from_str(&json).expect("failed to deserialize");
+        assert_eq!(id, parsed);
+        assert!(json.starts_with('"') && json.ends_with('"'));
     }
-}
 
-#[test]
-fn test_network_prefix_id_serialization() {
-    // Make sure NetworkPrefixId serializes as a simple UUID.
-    let id = uuid::Uuid::new_v4();
-    let network_prefix_id = NetworkPrefixId::from(id);
+    #[test]
+    fn test_segment_id_ordering() {
+        let id1 = NetworkSegmentId::from(uuid::Uuid::nil());
+        let id2 = NetworkSegmentId::from(uuid::Uuid::max());
+        assert!(id1 < id2);
+    }
 
-    let uuid_json = serde_json::to_string(&id).unwrap();
-    let nsid_json = serde_json::to_string(&network_prefix_id).unwrap();
+    #[test]
+    fn test_segment_id_default() {
+        let id = NetworkSegmentId::default();
+        assert_eq!(uuid::Uuid::from(id), uuid::Uuid::nil());
+    }
 
-    assert_eq!(uuid_json, nsid_json);
+    #[test]
+    fn test_segment_id_copy() {
+        let id1 = NetworkSegmentId::new();
+        let id2 = id1;
+        assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn test_segment_id_hash_consistency() {
+        let uuid = uuid::Uuid::new_v4();
+        let id1 = NetworkSegmentId::from(uuid);
+        let id2 = NetworkSegmentId::from(uuid);
+        let mut set = HashSet::new();
+        set.insert(id1);
+        assert!(set.contains(&id2));
+    }
+
+    #[test]
+    fn test_segment_id_debug_includes_type_name() {
+        let id = NetworkSegmentId::from(uuid::Uuid::nil());
+        let debug = format!("{:?}", id);
+        assert!(debug.contains("NetworkSegmentId"));
+    }
+
+    // NetworkPrefixId tests
+    #[test]
+    fn test_network_prefix_id_serialization() {
+        // Make sure NetworkPrefixId serializes as a simple UUID.
+        let id = uuid::Uuid::new_v4();
+        let network_prefix_id = NetworkPrefixId::from(id);
+
+        let uuid_json = serde_json::to_string(&id).unwrap();
+        let nsid_json = serde_json::to_string(&network_prefix_id).unwrap();
+
+        assert_eq!(uuid_json, nsid_json);
+    }
+
+    #[test]
+    fn test_prefix_id_uuid_round_trip() {
+        let orig = uuid::Uuid::new_v4();
+        let id = NetworkPrefixId::from(orig);
+        let back = uuid::Uuid::from(id);
+        assert_eq!(orig, back);
+    }
+
+    #[test]
+    fn test_prefix_id_debug_includes_type_name() {
+        let id = NetworkPrefixId::from(uuid::Uuid::nil());
+        let debug = format!("{:?}", id);
+        assert!(debug.contains("NetworkPrefixId"));
+    }
 }

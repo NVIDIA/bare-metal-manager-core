@@ -664,9 +664,7 @@ impl From<NetworkDetails> for rpc::forge::instance_interface_config::NetworkDeta
     fn from(value: NetworkDetails) -> Self {
         match value {
             NetworkDetails::NetworkSegment(network_segment_id) => {
-                rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
-                    network_segment_id.0.into(),
-                )
+                rpc::forge::instance_interface_config::NetworkDetails::SegmentId(network_segment_id)
             }
             NetworkDetails::VpcPrefixId(uuid) => {
                 rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(uuid)
@@ -829,7 +827,7 @@ where
 {
     let mut out_map = s.serialize_map(Some(map.len()))?;
     for (k, v) in map {
-        let uuid: uuid::Uuid = k.into();
+        let uuid: uuid::Uuid = (*k).into();
         out_map.serialize_entry(&uuid, v)?
     }
     out_map.end()

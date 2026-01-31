@@ -1622,7 +1622,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
     let host_config = env.managed_host_config();
     let dpu_machine_id = dpu::create_dpu_machine(&env, &host_config).await;
     let request = crate::instance::InstanceAllocationRequest {
-        instance_id: InstanceId::from(uuid::Uuid::new_v4()),
+        instance_id: InstanceId::new(),
         machine_id: dpu_machine_id,
         instance_type_id: None,
         config: model::instance::config::InstanceConfig {
@@ -5907,7 +5907,7 @@ async fn test_allocate_instance_with_invalid_ib_partition(
     let mh = create_managed_host(&env).await;
 
     // Use a non-existent IB partition ID
-    let invalid_partition_id = carbide_uuid::infiniband::IBPartitionId::from(uuid::Uuid::new_v4());
+    let invalid_partition_id = carbide_uuid::infiniband::IBPartitionId::new();
 
     let ib_config = rpc::forge::InstanceInfinibandConfig {
         ib_interfaces: vec![rpc::forge::InstanceIbInterfaceConfig {
