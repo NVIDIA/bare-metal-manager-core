@@ -535,6 +535,30 @@ impl InstanceExtensionServiceStatusObservation {
             })
             .collect()
     }
+
+    pub fn any_observed_version_changed(&self, other: &Self) -> bool {
+        if (self.config_version != other.config_version)
+            || (self.instance_config_version != other.instance_config_version)
+        {
+            return true;
+        }
+
+        let self_extension_service_versions: HashMap<ExtensionServiceId, ConfigVersion> =
+            HashMap::from_iter(
+                self.extension_service_statuses
+                    .iter()
+                    .map(|svc| (svc.service_id, svc.version)),
+            );
+        let other_extension_service_versions: HashMap<ExtensionServiceId, ConfigVersion> =
+            HashMap::from_iter(
+                other
+                    .extension_service_statuses
+                    .iter()
+                    .map(|svc| (svc.service_id, svc.version)),
+            );
+
+        self_extension_service_versions != other_extension_service_versions
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
