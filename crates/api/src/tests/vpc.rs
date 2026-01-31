@@ -524,7 +524,7 @@ async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 #[crate::sqlx_test]
 async fn find_vpc_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
-    let vpc_id = VpcId::from(uuid::Uuid::new_v4());
+    let vpc_id = VpcId::new();
 
     sqlx::query(r#"
         INSERT INTO vpcs (id, name, organization_id, version) VALUES ($1, 'test vpc 1', '2829bbe3-c169-4cd9-8b2a-19a8b1618a93', 'V1-T1666644937952267');
@@ -543,7 +543,7 @@ async fn find_vpc_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Er
 #[crate::sqlx_test]
 async fn test_vpc_with_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let id = VpcId::from(uuid::Uuid::new_v4());
+    let id = VpcId::new();
 
     // No network_virtualization_type, should default
     let forge_vpc = env

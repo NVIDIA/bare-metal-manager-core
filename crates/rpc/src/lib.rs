@@ -868,8 +868,9 @@ mod tests {
     /// Test to check that serializing a type with a custom Timestamp implementation works
     #[test]
     fn test_serialize_domain() {
-        let uuid =
-            carbide_uuid::domain::DomainId(::uuid::uuid!("91609f10-c91d-470d-a260-1234560c0000"));
+        let uuid = carbide_uuid::domain::DomainId::from(::uuid::uuid!(
+            "91609f10-c91d-470d-a260-1234560c0000"
+        ));
         let ts = std::time::SystemTime::now();
         let ts2 = ts.checked_add(Duration::from_millis(1500)).unwrap();
 

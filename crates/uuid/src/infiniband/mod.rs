@@ -10,75 +10,95 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::fmt;
-use std::str::FromStr;
+use crate::typed_uuids::{TypedUuid, UuidSubtype};
 
-use serde::{Deserialize, Serialize};
-#[cfg(feature = "sqlx")]
-use sqlx::{
-    postgres::{PgHasArrayType, PgTypeInfo},
-    {FromRow, Type},
-};
+/// Marker type for IBPartitionId
+pub struct IBPartitionIdMarker;
 
-use crate::{UuidConversionError, grpc_uuid_message};
+impl UuidSubtype for IBPartitionIdMarker {
+    const TYPE_NAME: &'static str = "IBPartitionId";
+}
 
 /// IBPartitionId is a strongly typed UUID specific to an Infiniband
 /// segment ID, with trait implementations allowing it to be passed
-/// around as a UUID, an RPC UUID, bound to sqlx queries, etc. This
-/// is similar to what we do for MachineId, VpcId, InstanceId,
-/// NetworkSegmentId, and basically all of the IDs in measured boot.
-#[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default, Ord, PartialOrd,
-)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct IBPartitionId(pub uuid::Uuid);
+/// around as a UUID, an RPC UUID, bound to sqlx queries, etc.
+pub type IBPartitionId = TypedUuid<IBPartitionIdMarker>;
 
-grpc_uuid_message!(IBPartitionId);
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::str::FromStr;
 
-impl From<IBPartitionId> for uuid::Uuid {
-    fn from(id: IBPartitionId) -> Self {
-        id.0
-    }
-}
+    use super::*;
 
-impl From<uuid::Uuid> for IBPartitionId {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
-    }
-}
-
-impl FromStr for IBPartitionId {
-    type Err = UuidConversionError;
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "IBPartitionId",
-                value: input.to_string(),
-            }
-        })?))
-    }
-}
-
-impl fmt::Display for IBPartitionId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<IBPartitionId> for String {
-    fn from(id: IBPartitionId) -> Self {
-        id.to_string()
-    }
-}
-
-#[cfg(feature = "sqlx")]
-impl PgHasArrayType for IBPartitionId {
-    fn array_type_info() -> PgTypeInfo {
-        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
+    #[test]
+    fn test_uuid_round_trip() {
+        let orig = uuid::Uuid::new_v4();
+        let id = IBPartitionId::from(orig);
+        let back = uuid::Uuid::from(id);
+        assert_eq!(orig, back);
     }
 
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
+    #[test]
+    fn test_string_round_trip() {
+        let orig = uuid::Uuid::new_v4();
+        let id = IBPartitionId::from(orig);
+        let as_string = id.to_string();
+        let parsed = IBPartitionId::from_str(&as_string).expect("failed to parse");
+        assert_eq!(id, parsed);
+    }
+
+    #[test]
+    fn test_json_round_trip() {
+        let id = IBPartitionId::new();
+        let json = serde_json::to_string(&id).expect("failed to serialize");
+        let parsed: IBPartitionId = serde_json::from_str(&json).expect("failed to deserialize");
+        assert_eq!(id, parsed);
+        assert!(json.starts_with('"') && json.ends_with('"'));
+    }
+
+    #[test]
+    fn test_ordering() {
+        let id1 = IBPartitionId::from(uuid::Uuid::nil());
+        let id2 = IBPartitionId::from(uuid::Uuid::max());
+        assert!(id1 < id2);
+    }
+
+    #[test]
+    fn test_default() {
+        let id = IBPartitionId::default();
+        assert_eq!(uuid::Uuid::from(id), uuid::Uuid::nil());
+    }
+
+    #[test]
+    fn test_copy() {
+        let id1 = IBPartitionId::new();
+        let id2 = id1;
+        assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn test_hash_consistency() {
+        let uuid = uuid::Uuid::new_v4();
+        let id1 = IBPartitionId::from(uuid);
+        let id2 = IBPartitionId::from(uuid);
+        let mut set = HashSet::new();
+        set.insert(id1);
+        assert!(set.contains(&id2));
+    }
+
+    #[test]
+    fn test_debug_includes_type_name() {
+        let id = IBPartitionId::from(uuid::Uuid::nil());
+        let debug = format!("{:?}", id);
+        assert!(debug.contains("IBPartitionId"));
+    }
+
+    #[test]
+    fn test_into_string() {
+        let uuid = uuid::Uuid::new_v4();
+        let id = IBPartitionId::from(uuid);
+        let s: String = id.into();
+        assert_eq!(s, uuid.to_string());
     }
 }

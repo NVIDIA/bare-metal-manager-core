@@ -258,7 +258,7 @@ pub async fn show_attestation_results(
 
     let attestation_results = AttestationResults {
         journal_time: latest_journal.ts.to_string(),
-        journal_id: latest_journal.journal_id.0.to_string(),
+        journal_id: latest_journal.journal_id.to_string(),
         attestation_status: if latest_journal.bundle_id.is_some() {
             ATTESTED.to_string()
         } else {

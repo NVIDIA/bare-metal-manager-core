@@ -109,9 +109,9 @@ impl TryFrom<rpc::forge::VpcPrefixCreationRequest> for NewVpcPrefix {
             metadata,
         } = value;
 
-        let id = id.unwrap_or_else(|| VpcPrefixId::from(uuid::Uuid::new_v4()));
+        let id = id.unwrap_or_else(VpcPrefixId::new);
         let vpc_id = vpc_id.ok_or(RpcDataConversionError::MissingArgument("vpc_id"))?;
-        // let id = VpcPrefixId::from(uuid::Uuid::new_v4());
+        // let id = VpcPrefixId::new();
 
         Ok(Self {
             id,

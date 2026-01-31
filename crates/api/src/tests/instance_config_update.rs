@@ -432,7 +432,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .interfaces
         .push(rpc::forge::InstanceInterfaceConfig {
             function_type: rpc::forge::InterfaceFunctionType::Virtual as _,
-            network_segment_id: Some(NetworkSegmentId::from(uuid::Uuid::new_v4())),
+            network_segment_id: Some(NetworkSegmentId::new()),
             network_details: None,
             device: None,
             device_instance: 0u32,

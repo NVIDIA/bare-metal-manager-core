@@ -244,7 +244,7 @@ impl<'r> FromRow<'r, PgRow> for ExtensionServiceSnapshot {
 impl From<ExtensionServiceSnapshot> for rpc::DpuExtensionService {
     fn from(snapshot: ExtensionServiceSnapshot) -> Self {
         Self {
-            service_id: snapshot.service_id.to_string(),
+            service_id: snapshot.service_id.into(),
             service_type: snapshot.service_type as i32,
             service_name: snapshot.service_name,
             tenant_organization_id: snapshot.tenant_organization_id.to_string(),

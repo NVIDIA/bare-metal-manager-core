@@ -177,7 +177,7 @@ async fn test_find_vpcs_by_ids_none(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn find_vpc_by_name(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
-    let vpc_id = VpcId::from(uuid::Uuid::new_v4());
+    let vpc_id = VpcId::new();
 
     sqlx::query(r#"
         INSERT INTO vpcs (id, name, organization_id, version) VALUES ($1, 'test vpc 1', '2829bbe3-c169-4cd9-8b2a-19a8b1618a93', 'V1-T1666644937952267');

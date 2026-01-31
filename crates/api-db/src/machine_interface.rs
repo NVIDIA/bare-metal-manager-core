@@ -257,10 +257,12 @@ pub async fn find_one(
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     let mut interfaces = find_by(txn, ObjectColumnFilter::One(IdColumn, &interface_id)).await?;
     match interfaces.len() {
-        0 => Err(DatabaseError::FindOneReturnedNoResultsError(interface_id.0)),
+        0 => Err(DatabaseError::FindOneReturnedNoResultsError(
+            interface_id.into(),
+        )),
         1 => Ok(interfaces.remove(0)),
         _ => Err(DatabaseError::FindOneReturnedManyResultsError(
-            interface_id.0,
+            interface_id.into(),
         )),
     }
 }

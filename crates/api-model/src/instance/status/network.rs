@@ -756,19 +756,17 @@ mod tests {
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
-                    network_segment_id: Some(
-                        uuid::Uuid::from_u128(base_uuid.0.as_u128() + 1).into(),
-                    ),
+                    network_segment_id: Some(base_uuid.offset(1)),
                     ip_addrs: HashMap::from([(
-                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 1).into(),
+                        prefix_uuid.offset(1),
                         "127.0.0.2".parse().unwrap(),
                     )]),
                     interface_prefixes: HashMap::from([(
-                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 1).into(),
+                        prefix_uuid.offset(1),
                         "127.0.0.2/32".parse().unwrap(),
                     )]),
                     network_segment_gateways: HashMap::from([(
-                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 1).into(),
+                        prefix_uuid.offset(1),
                         "127.0.0.2/32".parse().unwrap(),
                     )]),
                     host_inband_mac_address: None,
@@ -778,19 +776,17 @@ mod tests {
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
-                    network_segment_id: Some(
-                        uuid::Uuid::from_u128(base_uuid.0.as_u128() + 2).into(),
-                    ),
+                    network_segment_id: Some(base_uuid.offset(2)),
                     ip_addrs: HashMap::from([(
-                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 2).into(),
+                        prefix_uuid.offset(2),
                         "127.0.0.3".parse().unwrap(),
                     )]),
                     interface_prefixes: HashMap::from([(
-                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 2).into(),
+                        prefix_uuid.offset(2),
                         "127.0.0.3/32".parse().unwrap(),
                     )]),
                     network_segment_gateways: HashMap::from([(
-                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 2).into(),
+                        prefix_uuid.offset(2),
                         "127.0.0.3/32".parse().unwrap(),
                     )]),
                     host_inband_mac_address: None,
@@ -832,19 +828,17 @@ mod tests {
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
-                    network_segment_id: Some(
-                        uuid::Uuid::from_u128(base_uuid.0.as_u128() + 1).into(),
-                    ),
+                    network_segment_id: Some(base_uuid.offset(1)),
                     ip_addrs: HashMap::from([(
-                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 1).into(),
+                        prefix_uuid.offset(1),
                         "127.0.2.2".parse().unwrap(),
                     )]),
                     interface_prefixes: HashMap::from([(
-                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 1).into(),
+                        prefix_uuid.offset(1),
                         "127.0.2.0/24".parse().unwrap(),
                     )]),
                     network_segment_gateways: HashMap::from([(
-                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 1).into(),
+                        prefix_uuid.offset(1),
                         "127.0.2.1/24".parse().unwrap(),
                     )]),
                     host_inband_mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 16])),
@@ -854,19 +848,17 @@ mod tests {
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
-                    network_segment_id: Some(
-                        uuid::Uuid::from_u128(base_uuid.0.as_u128() + 2).into(),
-                    ),
+                    network_segment_id: Some(base_uuid.offset(2)),
                     ip_addrs: HashMap::from([(
-                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 2).into(),
+                        prefix_uuid.offset(2),
                         "127.0.3.2".parse().unwrap(),
                     )]),
                     interface_prefixes: HashMap::from([(
-                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 2).into(),
+                        prefix_uuid.offset(2),
                         "127.0.3.0/24".parse().unwrap(),
                     )]),
                     network_segment_gateways: HashMap::from([(
-                        uuid::Uuid::from_u128(prefix_uuid.0.as_u128() + 2).into(),
+                        prefix_uuid.offset(2),
                         "127.0.3.1/24".parse().unwrap(),
                     )]),
                     host_inband_mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 26])),
