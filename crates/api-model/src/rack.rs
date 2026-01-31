@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -13,6 +13,7 @@ use std::fmt::Display;
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::rack::RackId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use mac_address::MacAddress;
@@ -26,7 +27,7 @@ use crate::controller_outcome::PersistentStateHandlerOutcome;
 
 #[derive(Debug, Clone)]
 pub struct Rack {
-    pub id: String,
+    pub id: RackId,
     pub config: RackConfig,
     pub controller_state: Versioned<RackState>,
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
@@ -38,7 +39,7 @@ pub struct Rack {
 impl From<Rack> for rpc::forge::Rack {
     fn from(value: Rack) -> Self {
         rpc::forge::Rack {
-            id: value.id,
+            id: Some(value.id),
             rack_state: value.controller_state.value.to_string(),
             expected_compute_trays: value
                 .config

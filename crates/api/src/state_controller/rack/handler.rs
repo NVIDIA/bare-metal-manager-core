@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -12,6 +12,7 @@
 
 use std::cmp::Ordering;
 
+use carbide_uuid::rack::RackId;
 use db::{expected_machine as db_expected_machine, rack as db_rack};
 use model::machine::{LoadSnapshotOptions, ManagedHostState};
 use model::rack::{
@@ -31,7 +32,7 @@ pub struct RackStateHandler {}
 
 #[async_trait::async_trait]
 impl StateHandler for RackStateHandler {
-    type ObjectId = String;
+    type ObjectId = RackId;
     type State = Rack;
     type ControllerState = RackState;
     type ContextObjects = RackStateHandlerContextObjects;
@@ -64,7 +65,7 @@ impl StateHandler for RackStateHandler {
                                         && !config.compute_trays.contains(&machine_id)
                                     {
                                         config.compute_trays.push(machine_id);
-                                        db_rack::update(&mut txn, id, &config).await?;
+                                        db_rack::update(&mut txn, *id, &config).await?;
                                     }
                                 }
                                 Err(_) => {

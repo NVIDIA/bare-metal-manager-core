@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -25,6 +25,7 @@ pub mod network;
 pub mod network_security_group;
 pub mod nvlink;
 pub mod power_shelf;
+pub mod rack;
 pub mod switch;
 pub mod typed_uuids;
 pub mod vpc;

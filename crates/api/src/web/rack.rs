@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -92,7 +92,7 @@ async fn fetch_racks(api: &Api) -> Result<Vec<RackRecord>, (http::StatusCode, St
                 .join(", ");
 
             RackRecord {
-                id: rack.id,
+                id: rack.id.map(|id| id.to_string()).unwrap_or_default(),
                 rack_state: rack.rack_state,
                 expected_compute_trays: if expected_compute_trays.is_empty() {
                     "N/A".to_string()

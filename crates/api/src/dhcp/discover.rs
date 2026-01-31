@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -14,6 +14,7 @@ use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::rack::RackId;
 use db::dhcp_entry::DhcpEntry;
 use db::{self, expected_machine, machine_interface};
 use mac_address::MacAddress;
@@ -313,8 +314,9 @@ async fn update_rack_config_predicted_id_with_actual(
         false => racks[0].clone(),
         true => {
             let expected_compute_trays = vec![*parsed_mac];
-            let rack_id: String = Default::default();
-            let rack = db::rack::create(txn, &rack_id, expected_compute_trays, vec![], vec![])
+            #[allow(deprecated)]
+            let rack_id: RackId = RackId::default();
+            let rack = db::rack::create(txn, rack_id, expected_compute_trays, vec![], vec![])
                 .await
                 .map_err(CarbideError::from)?;
             tracing::warn!(
@@ -331,7 +333,7 @@ async fn update_rack_config_predicted_id_with_actual(
         .find(|item| *item == predicted)
     {
         *item = *actual;
-        db::rack::update(txn, &rack.id, &config)
+        db::rack::update(txn, rack.id, &config)
             .await
             .map_err(CarbideError::from)?;
     }

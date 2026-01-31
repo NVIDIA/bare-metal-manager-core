@@ -1564,7 +1564,7 @@ message ExpectedPowerShelf {
   string ip_address = 5;
   // Metadata that will automatically get associated with a newly created PowerShelf
   Metadata metadata = 6;
-  optional string rack_id = 7;
+  optional common.RackId rack_id = 7;
 }
 
 message ExpectedPowerShelfRequest {
@@ -1680,7 +1680,7 @@ message ExpectedSwitch {
   string switch_serial_number = 4;
   // Metadata that will automatically get associated with a newly created Switch
   Metadata metadata = 5;
-  optional string rack_id = 6;
+  optional common.RackId rack_id = 6;
   optional string nvos_username = 7;
   optional string nvos_password = 8;
 }
@@ -4510,7 +4510,7 @@ message ExpectedMachine {
   // Unique identifier for the expected machine. When omitted, server generates one.
   optional common.UUID id = 8;
   repeated ExpectedHostNic host_nics = 9;
-  optional string rack_id = 10;
+  optional common.RackId rack_id = 10;
   optional bool default_pause_ingestion_and_poweron = 11;
   bool dpf_enabled = 12;
 }
@@ -5635,7 +5635,7 @@ message GetRackResponse {
 }
 
 message Rack {
-  string id = 1;
+  common.RackId id = 1;
   string rack_state = 2;
   repeated string expected_compute_trays = 3;
   repeated string expected_power_shelves = 4;
@@ -6419,7 +6419,7 @@ message RackFirmwareDeleteRequest {
 }
 
 message RackFirmwareApplyRequest {
-  string rack_id = 1;
+  common.RackId rack_id = 1;
   string firmware_id = 2;
   string firmware_type = 3; // "dev" or "prod"
 }

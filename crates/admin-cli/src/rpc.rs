@@ -34,6 +34,7 @@ use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::nvlink::{NvLinkLogicalPartitionId, NvLinkPartitionId};
+use carbide_uuid::rack::RackId;
 use carbide_uuid::vpc::VpcId;
 use mac_address::MacAddress;
 
@@ -473,7 +474,7 @@ impl ApiClient {
         meta_description: Option<String>,
         labels: Option<Vec<String>>,
         sku_id: Option<String>,
-        rack_id: Option<String>,
+        rack_id: Option<RackId>,
         default_pause_ingestion_and_poweron: Option<bool>,
         dpf_enabled: bool,
     ) -> Result<(), CarbideCliError> {
@@ -548,7 +549,7 @@ impl ApiClient {
         bmc_username: Option<String>,
         bmc_password: Option<String>,
         shelf_serial_number: Option<String>,
-        rack_id: Option<String>,
+        rack_id: Option<RackId>,
         ip_address: Option<String>,
         metadata: ::rpc::forge::Metadata,
     ) -> Result<(), CarbideCliError> {
@@ -580,7 +581,7 @@ impl ApiClient {
         bmc_username: Option<String>,
         bmc_password: Option<String>,
         switch_serial_number: Option<String>,
-        rack_id: Option<String>,
+        rack_id: Option<RackId>,
         nvos_username: Option<String>,
         nvos_password: Option<String>,
         metadata: ::rpc::forge::Metadata,

@@ -11,6 +11,7 @@
  */
 use std::path::PathBuf;
 
+use carbide_uuid::rack::RackId;
 use clap::{Parser, ValueEnum, ValueHint};
 use rpc::admin_cli::OutputFormat;
 
@@ -383,7 +384,7 @@ pub struct RackFirmwareDelete {
 #[derive(Parser, Debug)]
 pub struct RackFirmwareApply {
     #[clap(help = "Rack ID to apply firmware to")]
-    pub rack_id: String,
+    pub rack_id: RackId,
 
     #[clap(help = "Firmware configuration ID to apply")]
     pub firmware_id: String,

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -31,8 +31,6 @@ pub async fn add_expected_switch(
     let metadata = model::metadata::Metadata::try_from(metadata)
         .map_err(|e| Status::invalid_argument(format!("Invalid metadata: {}", e)))?;
 
-    let rack_id = expected_switch.rack_id.filter(|s| !s.is_empty());
-
     let mut txn = api
         .database_connection
         .begin()
@@ -46,7 +44,7 @@ pub async fn add_expected_switch(
         expected_switch.bmc_password,
         expected_switch.switch_serial_number,
         metadata,
-        rack_id,
+        expected_switch.rack_id,
         expected_switch.nvos_username,
         expected_switch.nvos_password,
     )
@@ -99,8 +97,6 @@ pub async fn update_expected_switch(
     let metadata = model::metadata::Metadata::try_from(metadata)
         .map_err(|e| Status::invalid_argument(format!("Invalid metadata: {}", e)))?;
 
-    let rack_id = expected_switch.rack_id.filter(|s| !s.is_empty());
-
     let mut txn = api
         .database_connection
         .begin()
@@ -124,7 +120,7 @@ pub async fn update_expected_switch(
         expected_switch.bmc_password,
         expected_switch.switch_serial_number,
         metadata,
-        rack_id,
+        expected_switch.rack_id,
         expected_switch.nvos_username,
         expected_switch.nvos_password,
     )
@@ -223,8 +219,6 @@ pub async fn replace_all_expected_switches(
         let metadata = model::metadata::Metadata::try_from(metadata)
             .map_err(|e| Status::invalid_argument(format!("Invalid metadata: {}", e)))?;
 
-        let rack_id = expected_switch.rack_id.filter(|s| !s.is_empty());
-
         db_expected_switch::create(
             &mut txn,
             bmc_mac_address,
@@ -232,7 +226,7 @@ pub async fn replace_all_expected_switches(
             expected_switch.bmc_password,
             expected_switch.switch_serial_number,
             metadata,
-            rack_id,
+            expected_switch.rack_id,
             expected_switch.nvos_username,
             expected_switch.nvos_password,
         )
