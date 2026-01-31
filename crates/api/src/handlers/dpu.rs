@@ -18,8 +18,8 @@ use ::rpc::errors::RpcDataConversionError;
 use ::rpc::{common as rpc_common, forge as rpc};
 use carbide_uuid::machine::MachineId;
 use db::{
-    ObjectColumnFilter, WithTransaction, dpu_agent_upgrade_policy, network_security_group,
-    network_segment,
+    DatabaseError, ObjectColumnFilter, WithTransaction, dpu_agent_upgrade_policy,
+    network_security_group, network_segment,
 };
 use forge_network::virtualization::VpcVirtualizationType;
 use futures_util::FutureExt;
@@ -824,6 +824,11 @@ pub(crate) async fn record_dpu_network_status(
         obs
     };
 
+    let any_observed_version_changed = match dpu_machine.network_status_observation {
+        None => true,
+        Some(old_observation) => old_observation.any_observed_version_changed(&machine_obs),
+    };
+
     // Instance network observation is the part of network observation now.
     db::machine::update_network_status_observation(&mut txn, &dpu_machine_id, &machine_obs).await?;
     tracing::trace!(
@@ -906,7 +911,35 @@ pub(crate) async fn record_dpu_network_status(
         tracing::Span::current().record("logfmt.suppress", true);
     }
 
+    // After everything else is done and the transaction is actually committed - wakeup
+    // the host state handler to speed up reaction on the state change.
+    // We only do this wakeup in case anything interesting changed to avoid the
+    // state handler running unnecessarily.
+    if any_observed_version_changed
+        && let Err(err) = wakeup_host_state_handler_by_dpu_id(api, &dpu_machine_id).await
+    {
+        tracing::warn!(%err, %dpu_machine_id, "Failed to wakeup state handler for host machine");
+    }
+
     Ok(Response::new(()))
+}
+
+async fn wakeup_host_state_handler_by_dpu_id(
+    api: &Api,
+    dpu_machine_id: &MachineId,
+) -> Result<(), DatabaseError> {
+    let mut txn = api.txn_begin().await?;
+    let host_machine =
+        db::machine::lookup_host_machine_ids_by_dpu_ids(&mut txn, &[*dpu_machine_id]).await?;
+    txn.rollback().await?;
+
+    if let Some(host_machine_id) = host_machine.first() {
+        api.machine_state_handler_enqueuer
+            .enqueue_object(host_machine_id)
+            .await?;
+    }
+
+    Ok(())
 }
 
 /// Network status of each managed host, as reported by forge-dpu-agent.

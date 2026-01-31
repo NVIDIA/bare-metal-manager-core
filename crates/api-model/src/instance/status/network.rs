@@ -472,6 +472,11 @@ pub struct InstanceNetworkStatusObservation {
 }
 
 impl InstanceNetworkStatusObservation {
+    pub fn any_observed_version_changed(&self, other: &Self) -> bool {
+        self.config_version != other.config_version
+            || self.instance_config_version != other.instance_config_version
+    }
+
     pub fn aggregate_instance_observation(
         dpu_snapshots: &[Machine],
     ) -> HashMap<MachineId, InstanceNetworkStatusObservation> {
