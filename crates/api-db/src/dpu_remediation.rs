@@ -269,7 +269,7 @@ pub async fn find_remediations_by_remediation_id_and_machine(
     let query = "SELECT * FROM applied_dpu_remediations WHERE id=$1 AND dpu_machine_id=$2 ORDER BY attempt DESC";
     sqlx::query_as(query)
         .bind(remediation_id)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_all(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(query, e))

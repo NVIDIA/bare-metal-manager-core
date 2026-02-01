@@ -149,7 +149,7 @@ pub async fn find_id_by_machine_id(
 ) -> Result<Option<InstanceId>, DatabaseError> {
     let query = "SELECT id from instances WHERE machine_id = $1";
     sqlx::query_as(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
@@ -161,7 +161,7 @@ pub async fn find_by_machine_id(
 ) -> Result<Option<InstanceSnapshot>, DatabaseError> {
     let query = "SELECT row_to_json(i.*) from instances i WHERE machine_id = $1";
     sqlx::query_as(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
@@ -216,7 +216,7 @@ pub async fn use_custom_ipxe_on_next_boot(
     // Fetch one to make sure atleast one row is updated.
     let _: (MachineId,) = sqlx::query_as(query)
         .bind(boot_with_custom_ipxe)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -236,7 +236,7 @@ pub async fn set_custom_pxe_reboot_requested(
     let query = "UPDATE instances SET custom_pxe_reboot_requested=$1::bool WHERE machine_id=$2 RETURNING machine_id";
     let _: (MachineId,) = sqlx::query_as(query)
         .bind(requested)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;

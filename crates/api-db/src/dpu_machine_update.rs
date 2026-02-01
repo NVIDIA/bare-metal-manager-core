@@ -58,7 +58,7 @@ pub async fn trigger_reprovisioning_for_managed_host(
         let query = r#"UPDATE machines SET reprovisioning_requested=$1 WHERE controller_state = '{"state": "ready"}' AND id=$2 RETURNING id"#;
         sqlx::query(query)
             .bind(sqlx::types::Json(req))
-            .bind(machine_update.dpu_machine_id.to_string())
+            .bind(machine_update.dpu_machine_id)
             .fetch_one(inner_txn.as_pgconn())
             .await
             .map_err(|err: sqlx::Error| match err {

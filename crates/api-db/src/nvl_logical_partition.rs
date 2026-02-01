@@ -236,8 +236,8 @@ impl NewLogicalPartition {
 
         let partition: LogicalPartitionSnapshotPgJson = sqlx::query_as(query)
             .bind(self.id)
-            .bind(config.metadata.name.clone())
-            .bind(config.metadata.description.clone())
+            .bind(&config.metadata.name)
+            .bind(&config.metadata.description)
             .bind(config.tenant_organization_id.to_string())
             .bind(config_version)
             .bind(sqlx::types::Json(&state))
@@ -371,7 +371,7 @@ pub async fn update(
 
     let partition: NvLinkLogicalPartitionId = sqlx::query_as(query)
         .bind(name)
-        .bind(partition.description.clone())
+        .bind(&partition.description)
         .bind(partition.id)
         .fetch_one(txn)
         .await
