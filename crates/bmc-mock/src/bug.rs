@@ -90,10 +90,14 @@ impl AllDpuLostOnHost {
             .manufacturer("")
             .part_number("")
             .sku("")
-            .network_device_functions(&redfish::network_device_function::chassis_collection(
-                chassis_id,
-                network_adapter_id,
-            ))
+            .network_device_functions(
+                &redfish::network_device_function::chassis_collection(
+                    chassis_id,
+                    network_adapter_id,
+                ),
+                vec![],
+            )
             .build()
+            .to_json()
     }
 }

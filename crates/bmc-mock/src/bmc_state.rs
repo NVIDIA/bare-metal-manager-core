@@ -18,6 +18,7 @@ use rand::distr::StandardUniform;
 
 use crate::bug::InjectedBugs;
 use crate::json::json_patch;
+use crate::redfish::chassis::ChassisState;
 use crate::redfish::computer_system::SystemState;
 use crate::redfish::manager::ManagerState;
 
@@ -53,6 +54,7 @@ pub struct BmcState {
     pub secure_boot_enabled: Arc<AtomicBool>,
     pub manager: Arc<ManagerState>,
     pub system_state: Arc<SystemState>,
+    pub chassis_state: Arc<ChassisState>,
     pub bios: Arc<Mutex<serde_json::Value>>,
     pub dell_attrs: Arc<Mutex<serde_json::Value>>,
     pub injected_bugs: Arc<InjectedBugs>,

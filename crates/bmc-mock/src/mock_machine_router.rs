@@ -27,8 +27,7 @@ use crate::bug::InjectedBugs;
 use crate::json::JsonExt;
 use crate::redfish::manager::ManagerState;
 use crate::{
-    DpuMachineInfo, MachineInfo, PowerControl, SetSystemPowerReq, call_router_with_new_request,
-    middleware_router,
+    MachineInfo, PowerControl, SetSystemPowerReq, call_router_with_new_request, middleware_router,
 };
 
 #[derive(Clone)]
@@ -81,6 +80,7 @@ pub fn wrap_router_with_mock_machine(
     mat_host_id: String,
 ) -> Router {
     let system_config = machine_info.system_config(power_control);
+    let chassis_config = machine_info.chassis_config();
     let router = Router::new()
         // Couple routes for bug injection.
         .route(
@@ -108,6 +108,9 @@ pub fn wrap_router_with_mock_machine(
     let system_state = Arc::new(crate::redfish::computer_system::SystemState::from_config(
         system_config,
     ));
+    let chassis_state = Arc::new(crate::redfish::chassis::ChassisState::from_config(
+        chassis_config,
+    ));
     let injected_bugs = Arc::new(InjectedBugs::default());
     let router = router
         .fallback(fallback_to_inner_router)
@@ -119,6 +122,7 @@ pub fn wrap_router_with_mock_machine(
                 secure_boot_enabled: Arc::new(AtomicBool::new(false)),
                 manager,
                 system_state,
+                chassis_state,
                 bios: Arc::new(Mutex::new(serde_json::json!({}))),
                 dell_attrs: Arc::new(Mutex::new(serde_json::json!({}))),
                 injected_bugs: injected_bugs.clone(),
@@ -152,36 +156,6 @@ impl MockWrapperState {
 
     pub(crate) async fn proxy_inner(&mut self, request: Request<Body>) -> Response {
         call_router_with_new_request(&mut self.inner_router, request).await
-    }
-
-    /// Given an identifier like NIC.Slot.1, get the DPU corresponding to it
-    pub(crate) fn find_dpu(&self, identifier: &str) -> Option<DpuMachineInfo> {
-        let MachineInfo::Host(host) = &self.machine_info else {
-            return None;
-        };
-        if !identifier.starts_with("NIC.Slot.") {
-            return None;
-        }
-        let Some(dpu_index) = identifier
-            .chars()
-            .last()
-            .and_then(|c| c.to_digit(10))
-            .map(|i| i as usize)
-        else {
-            tracing::error!("Invalid NIC slot: {}", identifier);
-            return None;
-        };
-
-        let Some(dpu) = host.dpus.get(dpu_index - 1) else {
-            tracing::error!(
-                "Request for NIC ID {}, which we don't have a DPU for (we have {} DPUs), not rewriting request",
-                identifier,
-                host.dpus.len()
-            );
-            return None;
-        };
-
-        Some(dpu.clone())
     }
 }
 
