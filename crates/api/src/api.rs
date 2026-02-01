@@ -50,7 +50,7 @@ use crate::scout_stream::ConnectionRegistry;
 use crate::site_explorer::EndpointExplorer;
 use crate::state_controller::controller::Enqueuer;
 use crate::state_controller::machine::io::MachineStateControllerIO;
-use crate::{CarbideError, CarbideResult, measured_boot};
+use crate::{CarbideError, CarbideResult};
 
 pub struct Api {
     pub(crate) database_connection: sqlx::PgPool,
@@ -1520,78 +1520,42 @@ impl Forge for Api {
         &self,
         request: Request<measured_boot_pb::CreateMeasurementSystemProfileRequest>,
     ) -> Result<Response<measured_boot_pb::CreateMeasurementSystemProfileResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::profile::handle_create_system_measurement_profile(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::create_system_profile(self, request).await
     }
 
     async fn delete_measurement_system_profile(
         &self,
         request: Request<measured_boot_pb::DeleteMeasurementSystemProfileRequest>,
     ) -> Result<Response<measured_boot_pb::DeleteMeasurementSystemProfileResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::profile::handle_delete_measurement_system_profile(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::delete_system_profile(self, request).await
     }
 
     async fn rename_measurement_system_profile(
         &self,
         request: Request<measured_boot_pb::RenameMeasurementSystemProfileRequest>,
     ) -> Result<Response<measured_boot_pb::RenameMeasurementSystemProfileResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::profile::handle_rename_measurement_system_profile(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::rename_system_profile(self, request).await
     }
 
     async fn show_measurement_system_profile(
         &self,
         request: Request<measured_boot_pb::ShowMeasurementSystemProfileRequest>,
     ) -> Result<Response<measured_boot_pb::ShowMeasurementSystemProfileResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::profile::handle_show_measurement_system_profile(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::show_system_profile(self, request).await
     }
 
     async fn show_measurement_system_profiles(
         &self,
         request: Request<measured_boot_pb::ShowMeasurementSystemProfilesRequest>,
     ) -> Result<Response<measured_boot_pb::ShowMeasurementSystemProfilesResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::profile::handle_show_measurement_system_profiles(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::show_system_profiles(self, request).await
     }
 
     async fn list_measurement_system_profiles(
         &self,
         request: Request<measured_boot_pb::ListMeasurementSystemProfilesRequest>,
     ) -> Result<Response<measured_boot_pb::ListMeasurementSystemProfilesResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::profile::handle_list_measurement_system_profiles(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::list_system_profiles(self, request).await
     }
 
     async fn list_measurement_system_profile_bundles(
@@ -1599,13 +1563,7 @@ impl Forge for Api {
         request: Request<measured_boot_pb::ListMeasurementSystemProfileBundlesRequest>,
     ) -> Result<Response<measured_boot_pb::ListMeasurementSystemProfileBundlesResponse>, Status>
     {
-        Ok(Response::new(
-            measured_boot::rpc::profile::handle_list_measurement_system_profile_bundles(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::list_system_profile_bundles(self, request).await
     }
 
     async fn list_measurement_system_profile_machines(
@@ -1613,429 +1571,252 @@ impl Forge for Api {
         request: Request<measured_boot_pb::ListMeasurementSystemProfileMachinesRequest>,
     ) -> Result<Response<measured_boot_pb::ListMeasurementSystemProfileMachinesResponse>, Status>
     {
-        Ok(Response::new(
-            measured_boot::rpc::profile::handle_list_measurement_system_profile_machines(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::list_system_profile_machines(self, request).await
     }
 
     async fn create_measurement_report(
         &self,
         request: Request<measured_boot_pb::CreateMeasurementReportRequest>,
     ) -> Result<Response<measured_boot_pb::CreateMeasurementReportResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::report::handle_create_measurement_report(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::create_report(self, request).await
     }
 
     async fn delete_measurement_report(
         &self,
         request: Request<measured_boot_pb::DeleteMeasurementReportRequest>,
     ) -> Result<Response<measured_boot_pb::DeleteMeasurementReportResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::report::handle_delete_measurement_report(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::delete_report(self, request).await
     }
 
     async fn promote_measurement_report(
         &self,
         request: Request<measured_boot_pb::PromoteMeasurementReportRequest>,
     ) -> Result<Response<measured_boot_pb::PromoteMeasurementReportResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::report::handle_promote_measurement_report(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::promote_report(self, request).await
     }
 
     async fn revoke_measurement_report(
         &self,
         request: Request<measured_boot_pb::RevokeMeasurementReportRequest>,
     ) -> Result<Response<measured_boot_pb::RevokeMeasurementReportResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::report::handle_revoke_measurement_report(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::revoke_report(self, request).await
     }
 
     async fn show_measurement_report_for_id(
         &self,
         request: Request<measured_boot_pb::ShowMeasurementReportForIdRequest>,
     ) -> Result<Response<measured_boot_pb::ShowMeasurementReportForIdResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::report::handle_show_measurement_report_for_id(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::show_report_for_id(self, request).await
     }
 
     async fn show_measurement_reports_for_machine(
         &self,
         request: Request<measured_boot_pb::ShowMeasurementReportsForMachineRequest>,
     ) -> Result<Response<measured_boot_pb::ShowMeasurementReportsForMachineResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::report::handle_show_measurement_reports_for_machine(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::show_reports_for_machine(self, request).await
     }
 
     async fn show_measurement_reports(
         &self,
         request: Request<measured_boot_pb::ShowMeasurementReportsRequest>,
     ) -> Result<Response<measured_boot_pb::ShowMeasurementReportsResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::report::handle_show_measurement_reports(self, request.into_inner())
-                .await?,
-        ))
+        crate::handlers::measured_boot::show_reports(self, request).await
     }
 
     async fn list_measurement_report(
         &self,
         request: Request<measured_boot_pb::ListMeasurementReportRequest>,
     ) -> Result<Response<measured_boot_pb::ListMeasurementReportResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::report::handle_list_measurement_report(self, request.into_inner())
-                .await?,
-        ))
+        crate::handlers::measured_boot::list_report(self, request).await
     }
 
     async fn match_measurement_report(
         &self,
         request: Request<measured_boot_pb::MatchMeasurementReportRequest>,
     ) -> Result<Response<measured_boot_pb::MatchMeasurementReportResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::report::handle_match_measurement_report(self, request.into_inner())
-                .await?,
-        ))
+        crate::handlers::measured_boot::match_report(self, request).await
     }
 
     async fn create_measurement_bundle(
         &self,
         request: Request<measured_boot_pb::CreateMeasurementBundleRequest>,
     ) -> Result<Response<measured_boot_pb::CreateMeasurementBundleResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::bundle::handle_create_measurement_bundle(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::create_bundle(self, request).await
     }
 
     async fn delete_measurement_bundle(
         &self,
         request: Request<measured_boot_pb::DeleteMeasurementBundleRequest>,
     ) -> Result<Response<measured_boot_pb::DeleteMeasurementBundleResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::bundle::handle_delete_measurement_bundle(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::delete_bundle(self, request).await
     }
 
     async fn rename_measurement_bundle(
         &self,
         request: Request<measured_boot_pb::RenameMeasurementBundleRequest>,
     ) -> Result<Response<measured_boot_pb::RenameMeasurementBundleResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::bundle::handle_rename_measurement_bundle(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::rename_bundle(self, request).await
     }
 
     async fn update_measurement_bundle(
         &self,
         request: Request<measured_boot_pb::UpdateMeasurementBundleRequest>,
     ) -> Result<Response<measured_boot_pb::UpdateMeasurementBundleResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::bundle::handle_update_measurement_bundle(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::update_bundle(self, request).await
     }
 
     async fn show_measurement_bundle(
         &self,
         request: Request<measured_boot_pb::ShowMeasurementBundleRequest>,
     ) -> Result<Response<measured_boot_pb::ShowMeasurementBundleResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::bundle::handle_show_measurement_bundle(self, request.into_inner())
-                .await?,
-        ))
+        crate::handlers::measured_boot::show_bundle(self, request).await
     }
 
     async fn show_measurement_bundles(
         &self,
         request: Request<measured_boot_pb::ShowMeasurementBundlesRequest>,
     ) -> Result<Response<measured_boot_pb::ShowMeasurementBundlesResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::bundle::handle_show_measurement_bundles(self, request.into_inner())
-                .await?,
-        ))
+        crate::handlers::measured_boot::show_bundles(self, request).await
     }
 
     async fn list_measurement_bundles(
         &self,
         request: Request<measured_boot_pb::ListMeasurementBundlesRequest>,
     ) -> Result<Response<measured_boot_pb::ListMeasurementBundlesResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::bundle::handle_list_measurement_bundles(self, request.into_inner())
-                .await?,
-        ))
+        crate::handlers::measured_boot::list_bundles(self, request).await
     }
 
     async fn list_measurement_bundle_machines(
         &self,
         request: Request<measured_boot_pb::ListMeasurementBundleMachinesRequest>,
     ) -> Result<Response<measured_boot_pb::ListMeasurementBundleMachinesResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::bundle::handle_list_measurement_bundle_machines(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::list_bundle_machines(self, request).await
     }
 
     async fn find_closest_bundle_match(
         &self,
         request: Request<measured_boot_pb::FindClosestBundleMatchRequest>,
     ) -> Result<Response<measured_boot_pb::ShowMeasurementBundleResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::bundle::handle_find_closest_match(self, request.into_inner())
-                .await?,
-        ))
+        crate::handlers::measured_boot::find_closest_bundle_match(self, request).await
     }
 
     async fn delete_measurement_journal(
         &self,
         request: Request<measured_boot_pb::DeleteMeasurementJournalRequest>,
     ) -> Result<Response<measured_boot_pb::DeleteMeasurementJournalResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::journal::handle_delete_measurement_journal(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::delete_journal(self, request).await
     }
 
     async fn show_measurement_journal(
         &self,
         request: Request<measured_boot_pb::ShowMeasurementJournalRequest>,
     ) -> Result<Response<measured_boot_pb::ShowMeasurementJournalResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::journal::handle_show_measurement_journal(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::show_journal(self, request).await
     }
 
     async fn show_measurement_journals(
         &self,
         request: Request<measured_boot_pb::ShowMeasurementJournalsRequest>,
     ) -> Result<Response<measured_boot_pb::ShowMeasurementJournalsResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::journal::handle_show_measurement_journals(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::show_journals(self, request).await
     }
 
     async fn list_measurement_journal(
         &self,
         request: Request<measured_boot_pb::ListMeasurementJournalRequest>,
     ) -> Result<Response<measured_boot_pb::ListMeasurementJournalResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::journal::handle_list_measurement_journal(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::list_journal(self, request).await
     }
 
     async fn attest_candidate_machine(
         &self,
         request: Request<measured_boot_pb::AttestCandidateMachineRequest>,
     ) -> Result<Response<measured_boot_pb::AttestCandidateMachineResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::machine::handle_attest_candidate_machine(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::attest_candidate_machine(self, request).await
     }
 
     async fn show_candidate_machine(
         &self,
         request: Request<measured_boot_pb::ShowCandidateMachineRequest>,
     ) -> Result<Response<measured_boot_pb::ShowCandidateMachineResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::machine::handle_show_candidate_machine(self, request.into_inner())
-                .await?,
-        ))
+        crate::handlers::measured_boot::show_candidate_machine(self, request).await
     }
 
     async fn show_candidate_machines(
         &self,
         request: Request<measured_boot_pb::ShowCandidateMachinesRequest>,
     ) -> Result<Response<measured_boot_pb::ShowCandidateMachinesResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::machine::handle_show_candidate_machines(self, request.into_inner())
-                .await?,
-        ))
+        crate::handlers::measured_boot::show_candidate_machines(self, request).await
     }
 
     async fn list_candidate_machines(
         &self,
         request: Request<measured_boot_pb::ListCandidateMachinesRequest>,
     ) -> Result<Response<measured_boot_pb::ListCandidateMachinesResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::machine::handle_list_candidate_machines(self, request.into_inner())
-                .await?,
-        ))
+        crate::handlers::measured_boot::list_candidate_machines(self, request).await
     }
 
     async fn import_site_measurements(
         &self,
         request: Request<measured_boot_pb::ImportSiteMeasurementsRequest>,
     ) -> Result<Response<measured_boot_pb::ImportSiteMeasurementsResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::site::handle_import_site_measurements(self, request.into_inner())
-                .await?,
-        ))
+        crate::handlers::measured_boot::import_site_measurements(self, request).await
     }
 
     async fn export_site_measurements(
         &self,
         request: Request<measured_boot_pb::ExportSiteMeasurementsRequest>,
     ) -> Result<Response<measured_boot_pb::ExportSiteMeasurementsResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::site::handle_export_site_measurements(self, request.into_inner())
-                .await?,
-        ))
+        crate::handlers::measured_boot::export_site_measurements(self, request).await
     }
 
     async fn add_measurement_trusted_machine(
         &self,
         request: Request<measured_boot_pb::AddMeasurementTrustedMachineRequest>,
     ) -> Result<Response<measured_boot_pb::AddMeasurementTrustedMachineResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::site::handle_add_measurement_trusted_machine(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::add_trusted_machine(self, request).await
     }
 
     async fn remove_measurement_trusted_machine(
         &self,
         request: Request<measured_boot_pb::RemoveMeasurementTrustedMachineRequest>,
     ) -> Result<Response<measured_boot_pb::RemoveMeasurementTrustedMachineResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::site::handle_remove_measurement_trusted_machine(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::remove_trusted_machine(self, request).await
     }
 
     async fn list_measurement_trusted_machines(
         &self,
         request: Request<measured_boot_pb::ListMeasurementTrustedMachinesRequest>,
     ) -> Result<Response<measured_boot_pb::ListMeasurementTrustedMachinesResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::site::handle_list_measurement_trusted_machines(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::list_trusted_machines(self, request).await
     }
 
     async fn add_measurement_trusted_profile(
         &self,
         request: Request<measured_boot_pb::AddMeasurementTrustedProfileRequest>,
     ) -> Result<Response<measured_boot_pb::AddMeasurementTrustedProfileResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::site::handle_add_measurement_trusted_profile(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::add_trusted_profile(self, request).await
     }
 
     async fn remove_measurement_trusted_profile(
         &self,
         request: Request<measured_boot_pb::RemoveMeasurementTrustedProfileRequest>,
     ) -> Result<Response<measured_boot_pb::RemoveMeasurementTrustedProfileResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::site::handle_remove_measurement_trusted_profile(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::remove_trusted_profile(self, request).await
     }
 
     async fn list_measurement_trusted_profiles(
         &self,
         request: Request<measured_boot_pb::ListMeasurementTrustedProfilesRequest>,
     ) -> Result<Response<measured_boot_pb::ListMeasurementTrustedProfilesResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::site::handle_list_measurement_trusted_profiles(
-                self,
-                request.into_inner(),
-            )
-            .await?,
-        ))
+        crate::handlers::measured_boot::list_trusted_profiles(self, request).await
     }
 
     async fn list_attestation_summary(
         &self,
         request: Request<measured_boot_pb::ListAttestationSummaryRequest>,
     ) -> Result<Response<measured_boot_pb::ListAttestationSummaryResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::site::handle_list_attestation_summary(self, request.into_inner())
-                .await?,
-        ))
+        crate::handlers::measured_boot::list_attestation_summary(self, request).await
     }
 
     // Host has rebooted
