@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rand::Rng;
@@ -54,7 +53,6 @@ impl Job {
 pub struct BmcState {
     pub bmc_vendor: redfish::oem::BmcVendor,
     pub jobs: Arc<Mutex<HashMap<String, Job>>>,
-    pub secure_boot_enabled: Arc<AtomicBool>,
     pub manager: Arc<ManagerState>,
     pub system_state: Arc<SystemState>,
     pub chassis_state: Arc<ChassisState>,
@@ -109,10 +107,6 @@ impl BmcState {
             job.end_time = Some(chrono::offset::Utc::now());
             jobs.insert(job.job_id.clone(), job);
         }
-    }
-
-    pub fn set_secure_boot_enabled(&mut self, enabled: bool) {
-        self.secure_boot_enabled.store(enabled, Ordering::Relaxed);
     }
 
     pub fn update_bios(&mut self, v: serde_json::Value) {

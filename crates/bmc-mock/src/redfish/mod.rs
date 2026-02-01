@@ -12,7 +12,7 @@
 
 pub mod account_service;
 pub mod bios;
-pub mod boot_options;
+pub mod boot_option;
 pub mod chassis;
 pub mod collection;
 pub mod computer_system;

@@ -11,6 +11,7 @@
  */
 
 use std::borrow::Cow;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use axum::Router;
@@ -55,6 +56,7 @@ pub fn add_routes(
 ) -> Router<MockWrapperState> {
     const SYSTEM_ID: &str = "{system_id}";
     const ETH_ID: &str = "{eth_id}";
+    const BOOT_OPTION_ID: &str = "{boot_option_id}";
     r.route(&collection().odata_id, get(get_system_collection))
         .route(
             &resource(SYSTEM_ID).odata_id,
@@ -63,7 +65,7 @@ pub fn add_routes(
         .route(&reset_target(SYSTEM_ID), post(post_reset_system))
         .route(
             &bmc_vendor.make_settings_odata_id(&resource(SYSTEM_ID)),
-            patch(patch_dpu_settings),
+            patch(patch_settings),
         )
         .route(
             &redfish::ethernet_interface::system_resource(SYSTEM_ID, ETH_ID).odata_id,
@@ -72,6 +74,18 @@ pub fn add_routes(
         .route(
             &redfish::ethernet_interface::system_collection(SYSTEM_ID).odata_id,
             get(get_ethernet_interface_collection),
+        )
+        .route(
+            &redfish::secure_boot::resource(SYSTEM_ID).odata_id,
+            get(get_secure_boot).patch(patch_secure_boot),
+        )
+        .route(
+            &redfish::boot_option::collection(SYSTEM_ID).odata_id,
+            get(get_boot_options_collection),
+        )
+        .route(
+            &redfish::boot_option::resource(SYSTEM_ID, BOOT_OPTION_ID).odata_id,
+            get(get_boot_option),
         )
 }
 
@@ -82,6 +96,7 @@ pub struct SingleSystemConfig {
     pub boot_order_mode: BootOrderMode,
     pub power_control: Option<Arc<dyn PowerControl>>,
     pub chassis: Vec<Cow<'static, str>>,
+    pub boot_options: Vec<redfish::boot_option::BootOption>,
 }
 
 pub struct SystemConfig {
@@ -95,6 +110,7 @@ pub struct SystemState {
 pub struct SingleSystemState {
     config: SingleSystemConfig,
     boot_order_override: Mutex<Option<Vec<String>>>,
+    secure_boot_enabled: Arc<AtomicBool>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -118,11 +134,6 @@ impl SystemState {
             .find(|system| system.config.id.as_ref() == system_id)
     }
 
-    pub fn boot_order_override(&self, system_id: &str) -> Option<Vec<String>> {
-        self.find(system_id)
-            .and_then(|system| system.boot_order_override())
-    }
-
     fn from_configs(configs: Vec<SingleSystemConfig>) -> Self {
         let systems = configs.into_iter().map(SingleSystemState::new).collect();
         Self { systems }
@@ -134,7 +145,12 @@ impl SingleSystemState {
         Self {
             config,
             boot_order_override: Mutex::new(None),
+            secure_boot_enabled: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    pub fn find_boot_option(&self, option_id: &str) -> Option<&redfish::boot_option::BootOption> {
+        self.config.boot_options.iter().find(|v| v.id == option_id)
     }
 
     fn set_boot_order_override(&self, boot_order: Vec<String>) {
@@ -168,7 +184,7 @@ async fn get_system(
     let mut b = builder(&resource(&system_id))
         .ethernet_interfaces(redfish::ethernet_interface::system_collection(&system_id))
         .serial_number(&system_state.config.serial_number)
-        .boot_options(&redfish::boot_options::system_collection(&system_id))
+        .boot_options(&redfish::boot_option::collection(&system_id))
         .link_chassis(&system_state.config.chassis);
 
     if let Some(state) = system_state
@@ -228,7 +244,7 @@ async fn get_ethernet_interface_collection(
         .into_ok_response()
 }
 
-async fn patch_dpu_settings() -> Response {
+async fn patch_settings() -> Response {
     json!({}).into_ok_response()
 }
 
@@ -294,6 +310,89 @@ async fn post_reset_system(
         .set_power_state(reset_type)
         .map_err(MockWrapperError::from)
         .into_response()
+}
+
+async fn get_secure_boot(
+    State(state): State<MockWrapperState>,
+    Path(system_id): Path<String>,
+) -> Response {
+    let Some(system_state) = state.bmc_state.system_state.find(&system_id) else {
+        return not_found();
+    };
+    let secure_boot_enabled = system_state.secure_boot_enabled.load(Ordering::Relaxed);
+    redfish::secure_boot::builder(&redfish::secure_boot::resource(&system_id))
+        .secure_boot_enable(secure_boot_enabled)
+        .secure_boot_current_boot(secure_boot_enabled)
+        .build()
+        .into_ok_response()
+}
+
+async fn patch_secure_boot(
+    State(state): State<MockWrapperState>,
+    Path(system_id): Path<String>,
+    Json(secure_boot_request): Json<serde_json::Value>,
+) -> Response {
+    let Some(system_state) = state.bmc_state.system_state.find(&system_id) else {
+        return not_found();
+    };
+    if let Some(v) = secure_boot_request
+        .get("SecureBootEnable")
+        .and_then(serde_json::Value::as_bool)
+    {
+        system_state.secure_boot_enabled.store(v, Ordering::Relaxed);
+    }
+    json!({}).into_ok_response()
+}
+
+async fn get_boot_options_collection(
+    State(state): State<MockWrapperState>,
+    Path(system_id): Path<String>,
+) -> Response {
+    let Some(system_state) = state.bmc_state.system_state.find(&system_id) else {
+        return not_found();
+    };
+    let boot_options = &system_state.config.boot_options;
+    let boot_options_order = match system_state.config.boot_order_mode {
+        BootOrderMode::DellOem => {
+            // Carbide relies that Dell sorts boot options in according to boot
+            // order. Code below simulates the same.
+            if let Some(boot_order) = system_state.boot_order_override() {
+                let mut indices = (0..boot_options.len()).collect::<Vec<_>>();
+                indices.sort_by_key(|&i| {
+                    boot_order
+                        .iter()
+                        .enumerate()
+                        .find(|(_, id)| *id == &boot_options[i].id)
+                        .map(|(idx, _)| idx)
+                        .unwrap_or(boot_options.len())
+                });
+                indices
+            } else {
+                (0..boot_options.len()).collect::<Vec<_>>()
+            }
+        }
+        BootOrderMode::Generic => (0..boot_options.len()).collect(),
+    };
+    let members = boot_options_order
+        .into_iter()
+        .map(|idx| redfish::boot_option::resource(&system_id, &boot_options[idx].id).entity_ref())
+        .collect::<Vec<_>>();
+    redfish::boot_option::collection(&system_id)
+        .with_members(&members)
+        .into_ok_response()
+}
+
+async fn get_boot_option(
+    State(state): State<MockWrapperState>,
+    Path((system_id, boot_option_id)): Path<(String, String)>,
+) -> Response {
+    state
+        .bmc_state
+        .system_state
+        .find(&system_id)
+        .and_then(|system_state| system_state.find_boot_option(&boot_option_id))
+        .map(|boot_option| boot_option.to_json().into_ok_response())
+        .unwrap_or_else(not_found)
 }
 
 fn not_found() -> Response {
