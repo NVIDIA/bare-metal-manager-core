@@ -496,6 +496,17 @@ service Forge {
   rpc GetOsImage(common.UUID) returns (OsImage);
   rpc UpdateOsImage(OsImageAttributes) returns (OsImage);
 
+  // New template-based OS management endpoints
+  rpc CreateIpxeOsDef(CreateIpxeOsDefRequest) returns (IpxeOsDefinition);
+  rpc GetIpxeOsDef(common.UUID) returns (IpxeOsDefinition);
+  rpc ListIpxeOsDefs(ListIpxeOsDefsRequest) returns (ListIpxeOsDefsResponse);
+  rpc UpdateIpxeOsDef(UpdateIpxeOsDefRequest) returns (IpxeOsDefinition);
+  rpc DeleteIpxeOsDef(common.UUID) returns (google.protobuf.Empty);
+  
+  // Template management
+  rpc GetIpxeTemplate(GetIpxeTemplateRequest) returns (IpxeTemplate);
+  rpc ListIpxeTemplates(ListIpxeTemplatesRequest) returns (ListIpxeTemplatesResponse);
+
   rpc RebootCompleted(MachineRebootCompletedRequest) returns (MachineRebootCompletedResponse);
 
   // Validation result Persist
@@ -2012,6 +2023,79 @@ message BatchInstanceAllocationResponse {
   repeated Instance instances = 1;
 }
 
+// OS scope enum (for hybrid architecture support)
+enum OsScope {
+  OS_SCOPE_UNSPECIFIED = 0;
+  OS_SCOPE_GLOBAL = 1;  // Cloud-managed, synced to sites (read-only at sites)
+  OS_SCOPE_LOCAL = 2;   // Site-managed, editable locally
+}
+
+// Parameter for iPXE template substitution or kernel command line
+// Can be used to replace variables in iPXE templates or add parameters to kernel command line
+// Some are "well known" like 'console', others can be custom defined by users
+message IpxeOsParameter {
+  string name = 1;   // Name of the parameter (used as variable in template)
+  string value = 2;  // Value of the parameter
+}
+
+// Artifact cache strategy
+enum ArtifactCacheStrategy {
+  ARTIFACT_CACHE_STRATEGY_UNSPECIFIED = 0;
+  CACHE_AS_NEEDED = 1;   // Download and cache artifact locally per policy (default)
+  LOCAL_ONLY = 2;        // Artifact can only be used locally, fail if not available
+  REMOTE_ONLY = 3;       // Always fetch from remote URL, never cache locally
+}
+
+// Remote artifact to be cached locally before booting
+// Examples: kernel, initrd, rootfs, qcow-imager.efi, OS image, ...
+message IpxeOsArtifact {
+  string name = 1;                          // Name of the artifact (can be used as variable in template)
+  string url = 2;                           // Original URL for the artifact
+  optional string sha = 3;                  // Optional SHA256 checksum for the artifact
+  optional string auth_type = 4;            // Auth type: "None", "Basic", "Bearer"
+  optional string auth_token = 5;           // Optional auth token for the artifact
+  ArtifactCacheStrategy cache_strategy = 6; // How to handle caching for this artifact
+  optional string local_url = 7;            // Local cached URL, set by carbide-core on successful download. If present overrides 'url' at boot time.
+}
+
+// Template-based iPXE OS definition (NEW variant for OperatingSystem)
+// This is the recommended approach for defining iPXE-based OS
+message IpxeOsDefinition {
+  // Basic info
+  optional common.UUID id = 1;
+  string name = 2;
+  optional string description = 3;
+  string hash = 4;  // hash of the definition for change detection
+  
+  // Relationships
+//  optional common.UUID infrastructure_provider_id = 5;
+  optional string tenant_id = 6; // org name for tenant
+  
+  // Scope
+  optional OsScope scope = 8;  // Global or Local, unused until DB sync is needed
+  
+  // Core iPXE OS definition
+  string ipxe_template_name = 9;                    // Name of iPXE script template (carbide-core has the list)
+  repeated IpxeOsParameter parameters = 10;         // Parameters to replace in template or add to kernel command line
+  repeated IpxeOsArtifact artifacts = 11;           // Artifacts to be downloaded (remote or local/cached)
+  
+  bool allow_override = 13;
+  
+  // Timestamps
+  string created = 17;
+  string updated = 18;
+  common.UUID created_by = 19;
+}
+
+// Template management messages
+message IpxeTemplate {
+  string name = 1;
+  string template = 2;
+  repeated string required_params = 3;  // Error if these params are not provided or empty
+  repeated string reserved_params = 5;  // Error if these params are provided
+  string description = 4;
+}
+
 // Tenant related configuration that is set once the instance is allocated
 // by a tenant
 message TenantConfig {
@@ -2034,6 +2118,7 @@ message OperatingSystem {
   oneof variant {
     InlineIpxe ipxe = 1;
     common.UUID os_image_id = 2;
+    IpxeOsDefinition ipxe_os_def = 3;                // NEW: Template-based iPXE with caching
   }
 
   // If this flag is set to `true` the instance will not transition to a Ready state until
@@ -4554,6 +4639,46 @@ message DeleteOsImageRequest {
 }
 
 message DeleteOsImageResponse {
+}
+
+// Request/Response messages for iPXE OS management
+message CreateIpxeOsDefRequest {
+  IpxeOsDefinition os = 1;
+}
+
+message UpdateIpxeOsDefRequest {
+  IpxeOsDefinition os = 1;
+}
+
+message ListIpxeOsDefsRequest {
+  optional string org = 1;
+  optional OsScope scope = 2;
+  optional bool is_active = 3;
+  repeated string names = 4;
+  optional common.UUID tenant_id = 5;
+  optional string ipxe_template_name = 6;  // Filter by template
+  optional common.UUID provider_id = 10;   // Filter by infrastructure provider
+  
+  // Pagination
+  optional int32 page_size = 7;
+  optional int32 page_number = 8;
+  optional string order_by = 9;
+}
+
+message ListIpxeOsDefsResponse {
+  repeated IpxeOsDefinition os_images = 1;
+}
+
+message GetIpxeTemplateRequest {
+  string name = 1;  // Template name
+}
+
+message ListIpxeTemplatesRequest {
+  // Empty for now
+}
+
+message ListIpxeTemplatesResponse {
+  repeated IpxeTemplate templates = 1;
 }
 
 

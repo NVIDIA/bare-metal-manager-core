@@ -2873,6 +2873,67 @@ impl Forge for Api {
         crate::handlers::power_options::allow_ingestion_and_power_on(self, &request.into_inner())
             .await
     }
+
+    async fn create_ipxe_os_def(
+        &self,
+        _request: tonic::Request<::rpc::forge::CreateIpxeOsDefRequest>,
+    ) -> Result<tonic::Response<::rpc::forge::IpxeOsDefinition>, Status> {
+        Err(Status::unimplemented(
+            "create_ipxe_os_def not yet implemented",
+        ))
+    }
+
+    async fn get_ipxe_os_def(
+        &self,
+        _request: tonic::Request<::rpc::Uuid>,
+    ) -> Result<tonic::Response<::rpc::forge::IpxeOsDefinition>, Status> {
+        Err(Status::unimplemented("get_ipxe_os_def not yet implemented"))
+    }
+
+    async fn list_ipxe_os_defs(
+        &self,
+        _request: tonic::Request<::rpc::forge::ListIpxeOsDefsRequest>,
+    ) -> Result<tonic::Response<::rpc::forge::ListIpxeOsDefsResponse>, Status> {
+        Err(Status::unimplemented(
+            "list_ipxe_os_defs not yet implemented",
+        ))
+    }
+
+    async fn update_ipxe_os_def(
+        &self,
+        _request: tonic::Request<::rpc::forge::UpdateIpxeOsDefRequest>,
+    ) -> Result<tonic::Response<::rpc::forge::IpxeOsDefinition>, Status> {
+        Err(Status::unimplemented(
+            "update_ipxe_os_def not yet implemented",
+        ))
+    }
+
+    async fn delete_ipxe_os_def(
+        &self,
+        _request: tonic::Request<::rpc::Uuid>,
+    ) -> Result<tonic::Response<()>, Status> {
+        Err(Status::unimplemented(
+            "delete_ipxe_os_def not yet implemented",
+        ))
+    }
+
+    async fn get_ipxe_template(
+        &self,
+        _request: tonic::Request<::rpc::forge::GetIpxeTemplateRequest>,
+    ) -> Result<tonic::Response<::rpc::forge::IpxeTemplate>, Status> {
+        Err(Status::unimplemented(
+            "get_ipxe_template not yet implemented",
+        ))
+    }
+
+    async fn list_ipxe_templates(
+        &self,
+        _request: tonic::Request<::rpc::forge::ListIpxeTemplatesRequest>,
+    ) -> Result<tonic::Response<::rpc::forge::ListIpxeTemplatesResponse>, Status> {
+        Err(Status::unimplemented(
+            "list_ipxe_templates not yet implemented",
+        ))
+    }
 }
 
 pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {

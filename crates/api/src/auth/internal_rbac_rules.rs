@@ -364,6 +364,13 @@ impl InternalRBACRules {
         x.perm("ListOsImage", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("GetOsImage", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateOsImage", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("CreateIpxeOsDef", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("DeleteIpxeOsDef", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("ListIpxeOsDefs", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("GetIpxeOsDef", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("UpdateIpxeOsDef", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("GetIpxeTemplate", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("ListIpxeTemplates", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateRackFirmware", vec![ForgeAdminCLI]);
         x.perm("DeleteRackFirmware", vec![ForgeAdminCLI]);
         x.perm("FindRackStateHistories", vec![ForgeAdminCLI, Machineatron]);

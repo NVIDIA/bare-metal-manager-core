@@ -124,6 +124,12 @@ impl TryFrom<rpc::forge::OperatingSystem> for OperatingSystem {
                     RpcDataConversionError::InvalidUuid("os_image_id: ", e.to_string())
                 })?)
             }
+            rpc::forge::operating_system::Variant::IpxeOsDef(_ipxe_os_def) => {
+                // IpxeOsDef is not yet supported for instance configuration conversion
+                return Err(RpcDataConversionError::InvalidArgument(
+                    "IpxeOsDef variant not supported in instance configuration".to_string(),
+                ));
+            }
         };
 
         Ok(Self {
