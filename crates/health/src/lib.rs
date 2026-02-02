@@ -256,11 +256,13 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
                 ));
                 let switch_config = config_arc.collectors.switch.clone();
                 let switch_registry = registry.clone();
+                let shard_manager = ShardManager::new(config_arc.shard, config_arc.shards_count);
 
                 Some(tokio::spawn(async move {
                     switch_collector::run_switch_collector(
                         api_client,
                         switch_config,
+                        shard_manager,
                         &switch_registry,
                     )
                     .await

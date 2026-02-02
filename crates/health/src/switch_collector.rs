@@ -133,10 +133,13 @@ async fn scrape_switch_nmxt_metrics(
     Ok(parse_prometheus_metrics(&body))
 }
 
+use crate::sharding::ShardManager;
+
 pub struct SwitchCollector {
     api_client: Arc<ApiClientWrapper>,
     http_client: reqwest::Client,
     config: SwitchCollectorConfig,
+    shard_manager: ShardManager,
     effective_ber_gauge: GaugeVec,
     symbol_error_gauge: GaugeVec,
     link_down_gauge: GaugeVec,
@@ -146,6 +149,7 @@ impl SwitchCollector {
     pub fn new(
         api_client: Arc<ApiClientWrapper>,
         config: SwitchCollectorConfig,
+        shard_manager: ShardManager,
         registry: &Registry,
     ) -> Result<Self, HealthError> {
         let http_client = reqwest::Client::builder()
@@ -186,27 +190,36 @@ impl SwitchCollector {
             api_client,
             http_client,
             config,
+            shard_manager,
             effective_ber_gauge,
             symbol_error_gauge,
             link_down_gauge,
         })
     }
 
-    /// scrapes metrics from all switches with IP addresses
+    /// Scrapes metrics from switches assigned to this shard.
     pub async fn scrape_iteration(&self) -> Result<(), HealthError> {
         let endpoints = self.api_client.fetch_switch_endpoints().await?;
+        let total_count = endpoints.len();
 
-        if endpoints.is_empty() {
-            tracing::debug!("No switch endpoints found to scrape");
+        // Filter to only endpoints assigned to this shard
+        let sharded_endpoints: Vec<_> = endpoints
+            .into_iter()
+            .filter(|ep| self.shard_manager.should_monitor_key(ep.addr.hash_key()))
+            .collect();
+
+        if sharded_endpoints.is_empty() {
+            tracing::debug!("No switch endpoints assigned to this shard");
             return Ok(());
         }
 
         tracing::info!(
-            count = endpoints.len(),
+            total = total_count,
+            sharded = sharded_endpoints.len(),
             "Scraping switch NMX-T metrics"
         );
 
-        for endpoint in &endpoints {
+        for endpoint in &sharded_endpoints {
             let switch_ip = endpoint.addr.ip.to_string();
             let switch_id = &endpoint.addr.serial;
 
@@ -265,6 +278,7 @@ impl SwitchCollector {
 pub async fn run_switch_collector(
     api_client: Arc<ApiClientWrapper>,
     config: Configurable<SwitchCollectorConfig>,
+    shard_manager: ShardManager,
     registry: &Registry,
 ) -> Result<(), HealthError> {
     let config = match config {
@@ -275,7 +289,7 @@ pub async fn run_switch_collector(
         }
     };
 
-    let collector = SwitchCollector::new(api_client, config, registry)?;
+    let collector = SwitchCollector::new(api_client, config, shard_manager, registry)?;
 
     loop {
         let start = std::time::Instant::now();
