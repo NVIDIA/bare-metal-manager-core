@@ -959,6 +959,7 @@ pub fn get_config() -> CarbideConfig {
         site_global_vpc_vni: None,
         listen: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 1079),
         metrics_endpoint: None,
+        alt_metric_prefix: None,
         database_url: "pgsql:://localhost".to_string(),
         max_database_connections: 1000,
         asn: 0,
@@ -1421,7 +1422,7 @@ pub async fn create_test_env_with_overrides(
 
     let machine_controller = StateController::<MachineStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
-        .meter("forge_machines", test_meter.meter())
+        .meter("carbide_machines", test_meter.meter())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(machine_swap.clone()))
@@ -1447,7 +1448,7 @@ pub async fn create_test_env_with_overrides(
 
     let ib_controller = StateController::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
-        .meter("forge_machines", test_meter.meter())
+        .meter("carbide_machines", test_meter.meter())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(ib_swap.clone()))
@@ -1466,7 +1467,7 @@ pub async fn create_test_env_with_overrides(
 
     let mut network_controller = StateController::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
-        .meter("forge_machines", test_meter.meter())
+        .meter("carbide_machines", test_meter.meter())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(network_swap.clone()))

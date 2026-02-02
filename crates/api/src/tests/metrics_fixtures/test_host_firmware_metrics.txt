@@ -1,6 +1,6 @@
-# HELP forge_active_host_firmware_update_count The number of host machines in the system currently working on updating their firmware.
-# TYPE forge_active_host_firmware_update_count gauge
-forge_active_host_firmware_update_count 10
-# HELP forge_pending_host_firmware_update_count The number of host machines in the system that need a firmware update.
-# TYPE forge_pending_host_firmware_update_count gauge
-forge_pending_host_firmware_update_count 5
+# HELP carbide_active_host_firmware_update_count The number of host machines in the system currently working on updating their firmware.
+# TYPE carbide_active_host_firmware_update_count gauge
+carbide_active_host_firmware_update_count 10
+# HELP carbide_pending_host_firmware_update_count The number of host machines in the system that need a firmware update.
+# TYPE carbide_pending_host_firmware_update_count gauge
+carbide_pending_host_firmware_update_count 5

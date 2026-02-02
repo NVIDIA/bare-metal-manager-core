@@ -703,13 +703,13 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_pending_host_firmware_update_count")
+            .formatted_metric("carbide_pending_host_firmware_update_count")
             .unwrap(),
         "0"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_active_host_firmware_update_count")
+            .formatted_metric("carbide_active_host_firmware_update_count")
             .unwrap(),
         "0"
     );

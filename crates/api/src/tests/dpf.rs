@@ -752,9 +752,9 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
 
     assert!(matches!(dpu.current_state(), ManagedHostState::Ready));
 
-    let forge_machines_per_state = env.test_meter.parsed_metrics("forge_machines_per_state");
+    let carbide_machines_per_state = env.test_meter.parsed_metrics("carbide_machines_per_state");
 
-    assert!(forge_machines_per_state.contains(&(
+    assert!(carbide_machines_per_state.contains(&(
         "{fresh=\"true\",state=\"ready\",substate=\"\"}".to_string(),
         "2".to_string()
     )));
@@ -784,7 +784,7 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
 
     let states_entered = env
         .test_meter
-        .parsed_metrics("forge_machines_state_entered_total");
+        .parsed_metrics("carbide_machines_state_entered_total");
 
     for expected in expected_states_entered.iter() {
         let actual = states_entered
@@ -828,7 +828,7 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
 
     let states_exited = env
         .test_meter
-        .parsed_metrics("forge_machines_state_exited_total");
+        .parsed_metrics("carbide_machines_state_exited_total");
 
     for expected in expected_states_exited.iter() {
         let actual = states_exited
