@@ -61,15 +61,25 @@ pub async fn find_switch(
         .map_err(|e| Status::internal(format!("Failed to find switch: {}", e)))?
     };
 
-    let ip_map = if query.include_ip_addresses {
-        let serial_numbers: Vec<String> =
-            switch_list.iter().map(|s| s.config.name.clone()).collect();
-        db_switch::get_switch_ips_by_serials(&mut txn, &serial_numbers)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to get switch IPs: {}", e)))?
-    } else {
-        std::collections::HashMap::new()
-    };
+    // if include_addresses, attempt to get IP address and BMC MAC address for each switch
+    let address_map: std::collections::HashMap<String, (String, String)> =
+        if query.include_addresses.unwrap_or(false) {
+            let endpoints = db_switch::get_switch_endpoints_from_dhcp(&mut txn)
+                .await
+                .map_err(|e| Status::internal(format!("Failed to get switch addresses: {}", e)))?;
+
+            endpoints
+                .into_iter()
+                .map(|ep| {
+                    (
+                        ep.serial_number,
+                        (ep.ip_address.to_string(), ep.bmc_mac_address.to_string()),
+                    )
+                })
+                .collect()
+        } else {
+            std::collections::HashMap::new()
+        };
 
     txn.commit()
         .await
@@ -79,9 +89,14 @@ pub async fn find_switch(
         .into_iter()
         .map(|s| {
             let serial = s.config.name.clone();
-            let ip_address = ip_map.get(&serial).map(|ip| ip.to_string());
+            let (ip_address, bmc_mac_address) = address_map
+                .get(&serial)
+                .map(|(ip, mac)| (Some(ip.clone()), Some(mac.clone())))
+                .unwrap_or((None, None));
+
             rpc::Switch::try_from(s).map(|mut rpc_switch| {
                 rpc_switch.ip_address = ip_address;
+                rpc_switch.bmc_mac_address = bmc_mac_address;
                 rpc_switch
             })
         })
