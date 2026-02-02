@@ -117,13 +117,16 @@ impl Server {
                                 let session = match run_stream(config, socket, handler).await {
                                     Ok(s) => s,
                                     Err(error) => {
-                                        tracing::warn!(?error, "Connection setup failed");
+                                        if !matches!(error, russh::Error::Disconnect) {
+                                            tracing::warn!(?error, "Connection setup failed");
+                                        }
                                         return
                                     }
                                 };
 
                                 match session.await {
                                     Ok(_) => tracing::debug!("Connection closed"),
+                                    Err(russh::Error::Disconnect) => {},
                                     Err(error) => {
                                         tracing::warn!(?error, "Connection closed with error");
                                     }

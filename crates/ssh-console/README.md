@@ -135,13 +135,6 @@ Integration tests are in the `tests` directory, and need the `REPO_ROOT` env var
 REPO_ROOT="$(pwd)" cargo test -p ssh-console --test main
 ```
 
-The tests can be configured to assert the same behavior on both the legacy and new versions of ssh-console. You can test
-the legacy version with `RUN_SSH_CONSOLE_LEGACY_TESTS=1`:
-
-```
-REPO_ROOT="$(pwd)" RUN_SSH_CONSOLE_LEGACY_TESTS=1 cargo test -p ssh-console --test main
-```
-
 ## Fuzz tests
 
 There are fuzz tests for the SSH escape character handling, which you can run with:
