@@ -219,7 +219,7 @@ async fn test_machine_health_aggregation(
     // we start off with no overrides
     let mut override_metrics = env
         .test_meter
-        .formatted_metrics("forge_hosts_health_overrides_count");
+        .formatted_metrics("carbide_hosts_health_overrides_count");
     override_metrics.sort();
     assert_eq!(
         override_metrics,
@@ -285,7 +285,7 @@ async fn test_machine_health_aggregation(
     env.run_machine_state_controller_iteration().await;
     let mut override_metrics = env
         .test_meter
-        .formatted_metrics("forge_hosts_health_overrides_count");
+        .formatted_metrics("carbide_hosts_health_overrides_count");
     override_metrics.sort();
     assert_eq!(
         override_metrics,
@@ -335,7 +335,7 @@ async fn test_machine_health_aggregation(
     env.run_machine_state_controller_iteration().await;
     let mut override_metrics = env
         .test_meter
-        .formatted_metrics("forge_hosts_health_overrides_count");
+        .formatted_metrics("carbide_hosts_health_overrides_count");
     override_metrics.sort();
     assert_eq!(
         override_metrics,

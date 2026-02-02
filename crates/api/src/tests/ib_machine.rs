@@ -86,7 +86,7 @@ async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPoo
     }
     assert_eq!(
         env.test_meter
-            .parsed_metrics("forge_ib_monitor_machines_by_port_state_count"),
+            .parsed_metrics("carbide_ib_monitor_machines_by_port_state_count"),
         vec![(
             "{active_ports=\"6\",total_ports=\"6\"}".to_string(),
             "2".to_string()
@@ -94,19 +94,19 @@ async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPoo
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machines_with_missing_pkeys_count")
+            .formatted_metric("carbide_ib_monitor_machines_with_missing_pkeys_count")
             .unwrap(),
         "0"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machines_with_unexpected_pkeys_count")
+            .formatted_metric("carbide_ib_monitor_machines_with_unexpected_pkeys_count")
             .unwrap(),
         "0"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machines_with_unknown_pkeys_count")
+            .formatted_metric("carbide_ib_monitor_machines_with_unknown_pkeys_count")
             .unwrap(),
         "0"
     );
@@ -199,13 +199,13 @@ async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPoo
     env.ib_fabric_monitor.run_single_iteration().await.unwrap();
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machine_ib_status_updates_count")
+            .formatted_metric("carbide_ib_monitor_machine_ib_status_updates_count")
             .unwrap(),
         "1"
     );
     assert_eq!(
         env.test_meter
-            .parsed_metrics("forge_ib_monitor_machines_by_port_state_count"),
+            .parsed_metrics("carbide_ib_monitor_machines_by_port_state_count"),
         vec![
             (
                 "{active_ports=\"4\",total_ports=\"6\"}".to_string(),
@@ -219,7 +219,7 @@ async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPoo
     );
     assert_eq!(
         env.test_meter
-            .parsed_metrics("forge_ib_monitor_machines_by_ports_with_partitions_count"),
+            .parsed_metrics("carbide_ib_monitor_machines_by_ports_with_partitions_count"),
         vec![
             ("{ports_with_partitions=\"0\"}".to_string(), "1".to_string()),
             ("{ports_with_partitions=\"2\"}".to_string(), "1".to_string())
@@ -227,26 +227,26 @@ async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPoo
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machines_with_missing_pkeys_count")
+            .formatted_metric("carbide_ib_monitor_machines_with_missing_pkeys_count")
             .unwrap(),
         "0"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machines_with_unexpected_pkeys_count")
+            .formatted_metric("carbide_ib_monitor_machines_with_unexpected_pkeys_count")
             .unwrap(),
         "1"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machines_with_unknown_pkeys_count")
+            .formatted_metric("carbide_ib_monitor_machines_with_unknown_pkeys_count")
             .unwrap(),
         "1"
     );
     // Automatic reconcilation unassigns the unexpected pkey
     assert_eq!(
         env.test_meter
-            .parsed_metrics("forge_ib_monitor_ufm_changes_applied_total"),
+            .parsed_metrics("carbide_ib_monitor_ufm_changes_applied_total"),
         vec![
             (
                 "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
@@ -370,13 +370,13 @@ async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPoo
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machine_ib_status_updates_count")
+            .formatted_metric("carbide_ib_monitor_machine_ib_status_updates_count")
             .unwrap(),
         "1"
     );
     assert_eq!(
         env.test_meter
-            .parsed_metrics("forge_ib_monitor_machines_by_port_state_count"),
+            .parsed_metrics("carbide_ib_monitor_machines_by_port_state_count"),
         vec![
             (
                 "{active_ports=\"4\",total_ports=\"6\"}".to_string(),
@@ -390,31 +390,31 @@ async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPoo
     );
     assert_eq!(
         env.test_meter
-            .parsed_metrics("forge_ib_monitor_machines_by_ports_with_partitions_count"),
+            .parsed_metrics("carbide_ib_monitor_machines_by_ports_with_partitions_count"),
         vec![("{ports_with_partitions=\"0\"}".to_string(), "2".to_string())]
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machines_with_missing_pkeys_count")
+            .formatted_metric("carbide_ib_monitor_machines_with_missing_pkeys_count")
             .unwrap(),
         "0"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machines_with_unexpected_pkeys_count")
+            .formatted_metric("carbide_ib_monitor_machines_with_unexpected_pkeys_count")
             .unwrap(),
         "0"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machines_with_unknown_pkeys_count")
+            .formatted_metric("carbide_ib_monitor_machines_with_unknown_pkeys_count")
             .unwrap(),
         "0"
     );
     // No additional changes means the counter metric has the same values
     assert_eq!(
         env.test_meter
-            .parsed_metrics("forge_ib_monitor_ufm_changes_applied_total"),
+            .parsed_metrics("carbide_ib_monitor_ufm_changes_applied_total"),
         vec![
             (
                 "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),

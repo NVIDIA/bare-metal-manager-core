@@ -477,31 +477,31 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     // We should also have metric entries
     assert_eq!(
         test_meter
-            .formatted_metric("forge_endpoint_explorations_count")
+            .formatted_metric("carbide_endpoint_explorations_count")
             .unwrap(),
         "2"
     );
     assert!(
         test_meter
-            .formatted_metric("forge_endpoint_exploration_success_count")
+            .formatted_metric("carbide_endpoint_exploration_success_count")
             .is_some()
     );
     // The failure metric is not emitted if no failure happened
     assert_eq!(
         test_meter
-            .formatted_metric("forge_endpoint_exploration_duration_milliseconds_count")
+            .formatted_metric("carbide_endpoint_exploration_duration_milliseconds_count")
             .unwrap_or("2".to_string()),
         "2"
     );
     assert_eq!(
         test_meter
-            .formatted_metric("forge_site_exploration_identified_managed_hosts_count")
+            .formatted_metric("carbide_site_exploration_identified_managed_hosts_count")
             .unwrap(),
         "0"
     );
     assert_eq!(
         test_meter
-            .formatted_metric("forge_site_explorer_created_machines_count")
+            .formatted_metric("carbide_site_explorer_created_machines_count")
             .unwrap(),
         "0"
     );
@@ -541,30 +541,30 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 
     assert_eq!(
         test_meter
-            .formatted_metric("forge_endpoint_explorations_count")
+            .formatted_metric("carbide_endpoint_explorations_count")
             .unwrap(),
         "2"
     );
     assert!(
         test_meter
-            .formatted_metric("forge_endpoint_exploration_success_count")
+            .formatted_metric("carbide_endpoint_exploration_success_count")
             .is_some()
     );
     assert_eq!(
         test_meter
-            .formatted_metric("forge_endpoint_exploration_duration_milliseconds_count")
+            .formatted_metric("carbide_endpoint_exploration_duration_milliseconds_count")
             .unwrap_or("4".to_string()),
         "4"
     );
     assert_eq!(
         test_meter
-            .formatted_metric("forge_site_exploration_identified_managed_hosts_count")
+            .formatted_metric("carbide_site_exploration_identified_managed_hosts_count")
             .unwrap(),
         "0"
     );
     assert_eq!(
         test_meter
-            .formatted_metric("forge_site_explorer_created_machines_count")
+            .formatted_metric("carbide_site_explorer_created_machines_count")
             .unwrap(),
         "0"
     );
@@ -689,7 +689,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 
     assert_eq!(
         test_meter
-            .formatted_metric("forge_site_exploration_identified_managed_hosts_count")
+            .formatted_metric("carbide_site_exploration_identified_managed_hosts_count")
             .unwrap(),
         "2"
     );
@@ -903,9 +903,9 @@ async fn test_site_explorer_audit_exploration_results(
     );
 
     explorer.run_single_iteration().await.unwrap();
-    // forge_endpoint_exploration_preingestions_incomplete_overall_count
+    // carbide_endpoint_exploration_preingestions_incomplete_overall_count
     let m: HashMap<String, String> = test_meter
-        .parsed_metrics("forge_endpoint_exploration_preingestions_incomplete_overall_count")
+        .parsed_metrics("carbide_endpoint_exploration_preingestions_incomplete_overall_count")
         .into_iter()
         .collect();
 
@@ -969,9 +969,9 @@ async fn test_site_explorer_audit_exploration_results(
 
     // Check for the expected metrics
 
-    // forge_endpoint_exploration_failures_overall_count
+    // carbide_endpoint_exploration_failures_overall_count
     let m: HashMap<String, String> = test_meter
-        .parsed_metrics("forge_endpoint_exploration_failures_overall_count")
+        .parsed_metrics("carbide_endpoint_exploration_failures_overall_count")
         .into_iter()
         .collect();
 
@@ -979,18 +979,18 @@ async fn test_site_explorer_audit_exploration_results(
     assert!(m.get("{failure=\"unauthorized\"}").unwrap() == "1");
     assert!(m.get("{failure=\"missing_credentials\"}").unwrap() == "1");
 
-    // forge_endpoint_exploration_preingestions_incomplete_overall_count
+    // carbide_endpoint_exploration_preingestions_incomplete_overall_count
     let m: HashMap<String, String> = test_meter
-        .parsed_metrics("forge_endpoint_exploration_preingestions_incomplete_overall_count")
+        .parsed_metrics("carbide_endpoint_exploration_preingestions_incomplete_overall_count")
         .into_iter()
         .collect();
     // Everything should be done with preingestion now.
     assert!(m.is_empty());
 
-    // forge_endpoint_exploration_expected_serial_number_mismatches_overall_count
+    // carbide_endpoint_exploration_expected_serial_number_mismatches_overall_count
     let m: HashMap<String, String> = test_meter
         .parsed_metrics(
-            "forge_endpoint_exploration_expected_serial_number_mismatches_overall_count",
+            "carbide_endpoint_exploration_expected_serial_number_mismatches_overall_count",
         )
         .into_iter()
         .collect();
@@ -998,9 +998,9 @@ async fn test_site_explorer_audit_exploration_results(
     assert!(!m.is_empty());
     assert_eq!(m.get("{machine_type=\"host\"}").unwrap(), "3");
 
-    // forge_endpoint_exploration_machines_explored_overall_count
+    // carbide_endpoint_exploration_machines_explored_overall_count
     let m: HashMap<String, String> = test_meter
-        .parsed_metrics("forge_endpoint_exploration_machines_explored_overall_count")
+        .parsed_metrics("carbide_endpoint_exploration_machines_explored_overall_count")
         .into_iter()
         .collect();
 
@@ -1020,17 +1020,19 @@ async fn test_site_explorer_audit_exploration_results(
         "1"
     );
 
-    // forge_endpoint_exploration_expected_machines_missing_overall_count
+    // carbide_endpoint_exploration_expected_machines_missing_overall_count
     assert_eq!(
         test_meter
-            .formatted_metric("forge_endpoint_exploration_expected_machines_missing_overall_count")
+            .formatted_metric(
+                "carbide_endpoint_exploration_expected_machines_missing_overall_count"
+            )
             .unwrap(),
         "1"
     );
 
-    // forge_endpoint_exploration_identified_managed_hosts_overall_count
+    // carbide_endpoint_exploration_identified_managed_hosts_overall_count
     let m: HashMap<String, String> = test_meter
-        .parsed_metrics("forge_endpoint_exploration_identified_managed_hosts_overall_count")
+        .parsed_metrics("carbide_endpoint_exploration_identified_managed_hosts_overall_count")
         .into_iter()
         .collect();
 
@@ -2433,7 +2435,7 @@ async fn test_machine_creation_with_sku(
 
     // Verify expected machine SKU metrics
     let expected_metrics: HashMap<String, String> = test_meter
-        .parsed_metrics("forge_site_exploration_expected_machines_sku_count")
+        .parsed_metrics("carbide_site_exploration_expected_machines_sku_count")
         .into_iter()
         .collect();
 
@@ -2687,7 +2689,7 @@ async fn test_expected_machine_device_type_metrics(
 
     // Verify expected machines SKU count metrics
     let device_type_metrics: HashMap<String, String> = test_meter
-        .parsed_metrics("forge_site_exploration_expected_machines_sku_count")
+        .parsed_metrics("carbide_site_exploration_expected_machines_sku_count")
         .into_iter()
         .collect();
 
@@ -2868,13 +2870,13 @@ async fn test_site_explorer_power_shelf_discovery(
     // Check metrics
     assert_eq!(
         test_meter
-            .formatted_metric("forge_endpoint_explorations_count")
+            .formatted_metric("carbide_endpoint_explorations_count")
             .unwrap(),
         "1"
     );
     assert_eq!(
         test_meter
-            .formatted_metric("forge_site_explorer_created_power_shelves_count")
+            .formatted_metric("carbide_site_explorer_created_power_shelves_count")
             .unwrap(),
         "1"
     );
@@ -3177,7 +3179,7 @@ async fn test_site_explorer_power_shelf_creation_limit(
     // Check that only 2 power shelves were created due to limit
     assert_eq!(
         test_meter
-            .formatted_metric("forge_site_explorer_created_power_shelves_count")
+            .formatted_metric("carbide_site_explorer_created_power_shelves_count")
             .unwrap(),
         "2"
     );
@@ -3188,7 +3190,7 @@ async fn test_site_explorer_power_shelf_creation_limit(
     // Check that all 3 power shelves were created
     assert_eq!(
         test_meter
-            .formatted_metric("forge_site_explorer_created_power_shelves_count")
+            .formatted_metric("carbide_site_explorer_created_power_shelves_count")
             .unwrap(),
         "1"
     );
@@ -3313,7 +3315,7 @@ async fn test_site_explorer_power_shelf_disabled(
     // Check that no power shelves were created
     assert_eq!(
         test_meter
-            .formatted_metric("forge_site_explorer_created_power_shelves_count")
+            .formatted_metric("carbide_site_explorer_created_power_shelves_count")
             .unwrap(),
         "0"
     );
@@ -3443,7 +3445,7 @@ async fn test_site_explorer_power_shelf_error_handling(
     // Check metrics for error
     assert_eq!(
         test_meter
-            .formatted_metric("forge_endpoint_exploration_failures_count")
+            .formatted_metric("carbide_endpoint_exploration_failures_count")
             .unwrap(),
         "{failure=\"unauthorized\"} 1"
     );
@@ -4548,13 +4550,13 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
     // Check metrics
     assert_eq!(
         test_meter
-            .formatted_metric("forge_endpoint_explorations_count")
+            .formatted_metric("carbide_endpoint_explorations_count")
             .unwrap(),
         "1"
     );
     assert_eq!(
         test_meter
-            .formatted_metric("forge_site_explorer_created_power_shelves_count")
+            .formatted_metric("carbide_site_explorer_created_power_shelves_count")
             .unwrap(),
         "1"
     );

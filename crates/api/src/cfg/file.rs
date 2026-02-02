@@ -76,6 +76,11 @@ pub struct CarbideConfig {
     /// prometheus metrics under /metrics
     pub metrics_endpoint: Option<SocketAddr>,
 
+    /// An alternative prefix under which metrics will be emitted besides `carbide_`.
+    /// Setting this flag will allow to dual emit metrics to migrate dashboards and alerts.
+    /// Note that seting the flag will load to increased load on the observability system.
+    pub alt_metric_prefix: Option<String>,
+
     /// A connection string for the utilized postgres database
     pub database_url: String,
 

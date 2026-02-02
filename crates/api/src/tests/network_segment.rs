@@ -243,21 +243,21 @@ async fn test_network_segment_max_history_length(
 
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_available_ips_count")
+            .formatted_metric("carbide_available_ips_count")
             .unwrap(),
         r#"{fresh="true",name="TEST_SEGMENT",prefix="192.0.2.0/24",type="admin"} 253"#
     );
 
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_total_ips_count")
+            .formatted_metric("carbide_total_ips_count")
             .unwrap(),
         r#"{fresh="true",name="TEST_SEGMENT",prefix="192.0.2.0/24",type="admin"} 256"#
     );
 
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_reserved_ips_count")
+            .formatted_metric("carbide_reserved_ips_count")
             .unwrap(),
         r#"{fresh="true",name="TEST_SEGMENT",prefix="192.0.2.0/24",type="admin"} 1"#
     );
@@ -676,13 +676,13 @@ async fn test_network_segment_metrics(
     if matches!(test_type, MetricsTestType::Tenant) {
         assert!(
             env.test_meter
-                .formatted_metric("forge_available_ips_count")
+                .formatted_metric("carbide_available_ips_count")
                 .is_none()
         );
     } else {
         assert_eq!(
             env.test_meter
-                .formatted_metric("forge_available_ips_count")
+                .formatted_metric("carbide_available_ips_count")
                 .unwrap(),
             avail_str
         );
@@ -695,13 +695,13 @@ async fn test_network_segment_metrics(
     if matches!(test_type, MetricsTestType::Tenant) {
         assert!(
             env.test_meter
-                .formatted_metric("forge_total_ips_count")
+                .formatted_metric("carbide_total_ips_count")
                 .is_none()
         );
     } else {
         assert_eq!(
             env.test_meter
-                .formatted_metric("forge_total_ips_count")
+                .formatted_metric("carbide_total_ips_count")
                 .unwrap(),
             total_str
         );
@@ -714,13 +714,13 @@ async fn test_network_segment_metrics(
     if matches!(test_type, MetricsTestType::Tenant) {
         assert!(
             env.test_meter
-                .formatted_metric("forge_reserved_ips_count")
+                .formatted_metric("carbide_reserved_ips_count")
                 .is_none()
         );
     } else {
         assert_eq!(
             env.test_meter
-                .formatted_metric("forge_reserved_ips_count")
+                .formatted_metric("carbide_reserved_ips_count")
                 .unwrap(),
             reserved_str
         );
@@ -752,13 +752,13 @@ async fn test_network_segment_metrics(
     if matches!(test_type, MetricsTestType::Tenant) {
         assert!(
             env.test_meter
-                .formatted_metric("forge_available_ips_count")
+                .formatted_metric("carbide_available_ips_count")
                 .is_none()
         );
     } else {
         assert_eq!(
             env.test_meter
-                .formatted_metric("forge_available_ips_count")
+                .formatted_metric("carbide_available_ips_count")
                 .unwrap(),
             avail_str
         );
@@ -771,13 +771,13 @@ async fn test_network_segment_metrics(
     if matches!(test_type, MetricsTestType::Tenant) {
         assert!(
             env.test_meter
-                .formatted_metric("forge_total_ips_count")
+                .formatted_metric("carbide_total_ips_count")
                 .is_none()
         );
     } else {
         assert_eq!(
             env.test_meter
-                .formatted_metric("forge_total_ips_count")
+                .formatted_metric("carbide_total_ips_count")
                 .unwrap(),
             total_str
         );
@@ -790,13 +790,13 @@ async fn test_network_segment_metrics(
     if matches!(test_type, MetricsTestType::Tenant) {
         assert!(
             env.test_meter
-                .formatted_metric("forge_reserved_ips_count")
+                .formatted_metric("carbide_reserved_ips_count")
                 .is_none()
         );
     } else {
         assert_eq!(
             env.test_meter
-                .formatted_metric("forge_reserved_ips_count")
+                .formatted_metric("carbide_reserved_ips_count")
                 .unwrap(),
             reserved_str
         );
