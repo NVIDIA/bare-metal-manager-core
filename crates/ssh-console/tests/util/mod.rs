@@ -31,10 +31,9 @@ use crate::util::ssh_client::ConnectionConfig;
 use crate::{ADMIN_SSH_KEY_PATH, TENANT_SSH_KEY_PATH, TENANT_SSH_PUBKEY};
 
 pub mod ipmi_sim;
-pub mod legacy;
 mod metrics;
-pub mod new_ssh_console;
 pub mod ssh_client;
+pub mod ssh_console_test_helper;
 
 pub mod fixtures {
     use std::path::PathBuf;
@@ -191,7 +190,7 @@ pub async fn run_baseline_test_environment(
 
     Ok(Some(BaselineTestEnvironment {
         mock_api_server: api_server_handle,
-        mock_bmc_handles: mock_bmc_handles
+        _mock_bmc_handles: mock_bmc_handles
             .into_iter()
             .map(|(handle, _machine_id)| handle)
             .collect(),
@@ -211,15 +210,6 @@ pub enum MockBmcHandle {
     Ipmi(IpmiSimHandle),
 }
 
-impl MockBmcHandle {
-    fn port(&self) -> u16 {
-        match self {
-            MockBmcHandle::Ssh(s) => s.port,
-            MockBmcHandle::Ipmi(i) => i.port,
-        }
-    }
-}
-
 #[derive(Debug)]
 struct KnownHostname(String);
 
@@ -232,7 +222,7 @@ impl HostnameQuerying for KnownHostname {
 pub struct BaselineTestEnvironment {
     pub mock_api_server: MockApiServerHandle,
     pub mock_hosts: Arc<Vec<MockHost>>,
-    pub mock_bmc_handles: Vec<MockBmcHandle>,
+    _mock_bmc_handles: Vec<MockBmcHandle>,
 }
 
 impl BaselineTestEnvironment {

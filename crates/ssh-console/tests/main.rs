@@ -18,14 +18,14 @@ use futures_util::FutureExt;
 use lazy_static::lazy_static;
 use russh::ChannelMsg;
 use russh::keys::PrivateKeyWithHashAlg;
-use temp_dir::TempDir;
 use tokio::sync::{mpsc, oneshot};
+use tokio::time::Instant;
 
 mod util;
 
+use ::ssh_console::shutdown_handle::ShutdownHandle;
 use api_test_helper::utils::REPO_ROOT;
-use ssh_console::shutdown_handle::ShutdownHandle;
-use util::{legacy, new_ssh_console};
+use util::ssh_console_test_helper;
 
 use crate::util::ssh_client::PermissiveSshClient;
 use crate::util::{BaselineTestAssertion, MockBmcType, run_baseline_test_environment};
@@ -42,77 +42,7 @@ lazy_static! {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_legacy_ssh() -> eyre::Result<()> {
-    if !std::env::var("RUN_SSH_CONSOLE_LEGACY_TESTS").is_ok_and(|s| s == "1") {
-        tracing::info!(
-            "Skipping running legacy integration tests, as RUN_SSH_CONSOLE_LEGACY_TESTS is not set"
-        );
-        return Ok(());
-    }
-
-    legacy::setup().await?;
-    // Only run one test machine, as legacy ssh-console cannot use different SSH ports for each BMC
-    let Some(env) = run_baseline_test_environment(vec![MockBmcType::Ssh]).await? else {
-        return Ok(());
-    };
-
-    // Run legacy ssh-console
-    let temp = TempDir::new()?;
-    let handle = legacy::run(&env, &temp).await?;
-
-    // Give it some time to start
-    tokio::time::sleep(Duration::from_secs(5)).await;
-
-    env.run_baseline_assertions(
-        handle.addr,
-        "legacy ssh-console",
-        &[
-            BaselineTestAssertion::ConnectAsInstanceId,
-            // BaselineTestAssertion::ConnectAsMachineId, // Not supported by legacy ssh-console today
-        ],
-        || None,
-        false,
-    )
-    .await
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_legacy_ipmi() -> eyre::Result<()> {
-    if !std::env::var("RUN_SSH_CONSOLE_LEGACY_TESTS").is_ok_and(|s| s == "1") {
-        tracing::info!(
-            "Skipping running legacy integration tests, as RUN_SSH_CONSOLE_LEGACY_TESTS is not set"
-        );
-        return Ok(());
-    }
-
-    legacy::setup().await?;
-    // Only run one test machine, as legacy ssh-console cannot use different SSH ports for each BMC
-    let Some(env) = run_baseline_test_environment(vec![MockBmcType::Ipmi]).await? else {
-        return Ok(());
-    };
-
-    // Run legacy ssh-console
-    let temp = TempDir::new()?;
-    let handle = legacy::run(&env, &temp).await?;
-
-    // Give it some time to start
-    tokio::time::sleep(Duration::from_secs(5)).await;
-
-    env.run_baseline_assertions(
-        handle.addr,
-        "legacy ssh-console",
-        &[
-            BaselineTestAssertion::ConnectAsInstanceId,
-            // BaselineTestAssertion::ConnectAsMachineId, // Not supported by legacy ssh-console today
-        ],
-        || None,
-        false,
-    )
-    .await
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_new_ssh_console() -> eyre::Result<()> {
+async fn test_ssh_console() -> eyre::Result<()> {
     if std::env::var("REPO_ROOT").is_err() {
         tracing::info!("Skipping running ssh-console integration tests, as REPO_ROOT is not set");
         return Ok(());
@@ -128,7 +58,7 @@ async fn test_new_ssh_console() -> eyre::Result<()> {
     };
 
     // Run new ssh-console
-    let handle = new_ssh_console::spawn(env.mock_api_server.addr.port(), None).await?;
+    let handle = ssh_console_test_helper::spawn(env.mock_api_server.addr.port(), None).await?;
 
     // Run the same assertions we do with legacy ssh-console
     env.run_baseline_assertions(
@@ -138,7 +68,7 @@ async fn test_new_ssh_console() -> eyre::Result<()> {
             BaselineTestAssertion::ConnectAsInstanceId,
             BaselineTestAssertion::ConnectAsMachineId,
         ],
-        || Some(new_ssh_console::get_metrics(handle.metrics_address).boxed()),
+        || Some(ssh_console_test_helper::get_metrics(handle.metrics_address).boxed()),
         true,
     )
     .await?;
@@ -227,7 +157,7 @@ async fn test_new_ssh_console() -> eyre::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_new_ssh_console_reconnect() -> eyre::Result<()> {
+async fn test_ssh_console_reconnect() -> eyre::Result<()> {
     if std::env::var("REPO_ROOT").is_err() {
         tracing::info!("Skipping running ssh-console integration tests, as REPO_ROOT is not set");
         return Ok(());
@@ -237,10 +167,10 @@ async fn test_new_ssh_console_reconnect() -> eyre::Result<()> {
     };
 
     // Run new ssh-console
-    let handle = new_ssh_console::spawn(
+    let handle = ssh_console_test_helper::spawn(
         env.mock_api_server.addr.port(),
         // Try to max out the reconnect interval without having to wait too long
-        Some(new_ssh_console::ConfigOverrides {
+        Some(ssh_console_test_helper::ConfigOverrides {
             reconnect_interval_base: Some(Duration::from_secs(3)),
             reconnect_interval_max: None,
             successful_connection_minimum_duration: Some(Duration::from_secs(60)),
@@ -295,6 +225,7 @@ async fn test_new_ssh_console_reconnect() -> eyre::Result<()> {
 
     // Read from the BMC output in the background, sending a message to prompt_seen_tx every time we
     // see a prompt, until we're done.
+    let timeout = Instant::now() + Duration::from_secs(30);
     let (prompt_seen_tx, mut prompt_seen_rx) = mpsc::channel(1);
     let (done_tx, mut done_rx) = oneshot::channel::<()>();
     tokio::spawn(async move {
@@ -303,6 +234,10 @@ async fn test_new_ssh_console_reconnect() -> eyre::Result<()> {
             tokio::select! {
                 _ = &mut done_rx => {
                     break;
+                }
+                _ = tokio::time::sleep_until(timeout) => {
+                    eprintln!("Timed out without seeing expected prompt");
+                    break; // prompt_seen_tx will drop, failing the test.
                 }
                 res = channel_rx.wait() => match res {
                     Some(ChannelMsg::Data { data }) => {
@@ -334,7 +269,7 @@ async fn test_new_ssh_console_reconnect() -> eyre::Result<()> {
                 }
                 res = prompt_seen_rx.recv() => match res {
                     Some(()) => break 'wait_for_prompt,
-                    None => return Err(eyre::eyre!("Did not see prompt after sending ctrl+C")),
+                    None => panic!("Did not see prompt after sending ctrl+C"),
                 }
             }
         }
@@ -349,7 +284,7 @@ async fn test_new_ssh_console_reconnect() -> eyre::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_new_ssh_console_log_rotation() -> eyre::Result<()> {
+async fn test_ssh_console_log_rotation() -> eyre::Result<()> {
     if std::env::var("REPO_ROOT").is_err() {
         tracing::info!("Skipping running ssh-console integration tests, as REPO_ROOT is not set");
         return Ok(());
@@ -361,7 +296,7 @@ async fn test_new_ssh_console_log_rotation() -> eyre::Result<()> {
     };
 
     // Run new ssh-console
-    let handle = new_ssh_console::spawn(env.mock_api_server.addr.port(), None).await?;
+    let handle = ssh_console_test_helper::spawn(env.mock_api_server.addr.port(), None).await?;
 
     // Run the same assertions we do with legacy ssh-console
     env.run_baseline_assertions(
