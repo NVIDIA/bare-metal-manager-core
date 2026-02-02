@@ -288,9 +288,9 @@ pub async fn apply(
 
         for device_result in &response.device_results {
             let status_text = if device_result.success {
-                "✓ SUCCESS"
+                "SUCCESS"
             } else {
-                "✗ FAILED"
+                "FAILED"
             };
 
             table.add_row(Row::new(vec![
