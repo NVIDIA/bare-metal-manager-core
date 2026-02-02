@@ -247,32 +247,33 @@ pub async fn update(switch: &Switch, txn: &mut PgConnection) -> Result<Switch, D
     Ok(switch.clone())
 }
 
-pub async fn get_switch_ips_by_serials(
-    txn: &mut PgConnection,
-    serial_numbers: &[String],
-) -> DatabaseResult<std::collections::HashMap<String, IpAddr>> {
-    if serial_numbers.is_empty() {
-        return Ok(std::collections::HashMap::new());
-    }
+use mac_address::MacAddress;
 
+#[derive(Debug, sqlx::FromRow)]
+pub struct SwitchEndpointRow {
+    pub serial_number: String,
+    pub bmc_mac_address: MacAddress,
+    pub ip_address: IpAddr,
+}
+
+/// Query for switches which have been assigned an IP address via DHCP
+pub async fn get_switch_endpoints_from_dhcp(
+    txn: &mut PgConnection,
+) -> DatabaseResult<Vec<SwitchEndpointRow>> {
     let sql = r#"
-        SELECT DISTINCT
+        SELECT 
             es.serial_number,
-            ee.address
+            es.bmc_mac_address,
+            mia.address as ip_address
         FROM expected_switches es
-        JOIN explored_endpoints ee ON (
-            jsonb_path_query_array(ee.exploration_report, '$.Systems[*].EthernetInterfaces[*].MACAddress')
-            ||
-            jsonb_path_query_array(ee.exploration_report, '$.Managers[*].EthernetInterfaces[*].MACAddress')
-        ) @> to_jsonb(ARRAY[upper(es.bmc_mac_address::text)])
-        WHERE es.serial_number = ANY($1)
+        JOIN machine_interfaces mi ON mi.mac_address = es.bmc_mac_address
+        JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
+        JOIN network_segments ns ON ns.id = mi.segment_id
+        WHERE ns.network_segment_type = 'Underlay'
     "#;
 
-    let rows: Vec<(String, IpAddr)> = sqlx::query_as(sql)
-        .bind(serial_numbers)
+    sqlx::query_as(sql)
         .fetch_all(txn)
         .await
-        .map_err(|err| DatabaseError::new("get_switch_ips_by_serials", err))?;
-
-    Ok(rows.into_iter().collect())
+        .map_err(|err| DatabaseError::new("get_switch_endpoints_from_dhcp", err))
 }
