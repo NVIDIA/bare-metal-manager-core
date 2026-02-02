@@ -19,7 +19,7 @@ use super::args::{Apply, Create, Delete, Get, List};
 use crate::rpc::ApiClient;
 
 pub async fn create(
-    opts: &Create,
+    opts: Create,
     format: OutputFormat,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
@@ -38,7 +38,7 @@ pub async fn create(
 
     let request = rpc::forge::RackFirmwareCreateRequest {
         config_json,
-        artifactory_token: opts.artifactory_token.clone(),
+        artifactory_token: opts.artifactory_token,
     };
 
     let result = api_client.0.create_rack_firmware(request).await?;
@@ -56,20 +56,19 @@ pub async fn create(
 }
 
 pub async fn get(
-    opts: &Get,
+    opts: Get,
     format: OutputFormat,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
-    let request = rpc::forge::RackFirmwareGetRequest {
-        id: opts.id.clone(),
-    };
+    let id = opts.id;
+    let request = rpc::forge::RackFirmwareGetRequest { id: id.clone() };
 
     let result = match api_client.0.get_rack_firmware(request).await {
         Ok(response) => response,
         Err(status) if status.code() == tonic::Code::NotFound => {
             return Err(CarbideCliError::GenericError(format!(
                 "Rack firmware configuration not found: {}",
-                opts.id
+                id
             )));
         }
         Err(err) => return Err(CarbideCliError::from(err)),
@@ -184,7 +183,7 @@ pub async fn get(
 }
 
 pub async fn list(
-    opts: &List,
+    opts: List,
     format: OutputFormat,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
@@ -222,19 +221,18 @@ pub async fn list(
     Ok(())
 }
 
-pub async fn delete(opts: &Delete, api_client: &ApiClient) -> Result<(), CarbideCliError> {
-    let request = rpc::forge::RackFirmwareDeleteRequest {
-        id: opts.id.clone(),
-    };
+pub async fn delete(opts: Delete, api_client: &ApiClient) -> Result<(), CarbideCliError> {
+    let id = opts.id;
+    let request = rpc::forge::RackFirmwareDeleteRequest { id: id.clone() };
 
     match api_client.0.delete_rack_firmware(request).await {
         Ok(_) => {
-            println!("Deleted Rack firmware configuration: {}", opts.id);
+            println!("Deleted Rack firmware configuration: {}", id);
         }
         Err(status) if status.code() == tonic::Code::NotFound => {
             return Err(CarbideCliError::GenericError(format!(
                 "Rack firmware configuration not found: {}",
-                opts.id
+                id
             )));
         }
         Err(err) => return Err(CarbideCliError::from(err)),
@@ -244,7 +242,7 @@ pub async fn delete(opts: &Delete, api_client: &ApiClient) -> Result<(), Carbide
 }
 
 pub async fn apply(
-    opts: &Apply,
+    opts: Apply,
     format: OutputFormat,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
@@ -255,8 +253,8 @@ pub async fn apply(
 
     let request = rpc::forge::RackFirmwareApplyRequest {
         rack_id: Some(opts.rack_id),
-        firmware_id: opts.firmware_id.clone(),
-        firmware_type: opts.firmware_type.clone(),
+        firmware_id: opts.firmware_id,
+        firmware_type: opts.firmware_type,
     };
 
     let response = api_client

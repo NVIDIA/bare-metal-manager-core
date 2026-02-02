@@ -25,11 +25,11 @@ use crate::cfg::runtime::RuntimeContext;
 impl Dispatch for Cmd {
     async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
         match self {
-            Cmd::Create(ref args) => cmds::create(args, ctx.config.format, &ctx.api_client).await?,
-            Cmd::Get(ref args) => cmds::get(args, ctx.config.format, &ctx.api_client).await?,
-            Cmd::List(ref args) => cmds::list(args, ctx.config.format, &ctx.api_client).await?,
-            Cmd::Delete(ref args) => cmds::delete(args, &ctx.api_client).await?,
-            Cmd::Apply(ref args) => cmds::apply(args, ctx.config.format, &ctx.api_client).await?,
+            Cmd::Create(args) => cmds::create(args, ctx.config.format, &ctx.api_client).await?,
+            Cmd::Get(args) => cmds::get(args, ctx.config.format, &ctx.api_client).await?,
+            Cmd::List(args) => cmds::list(args, ctx.config.format, &ctx.api_client).await?,
+            Cmd::Delete(args) => cmds::delete(args, &ctx.api_client).await?,
+            Cmd::Apply(args) => cmds::apply(args, ctx.config.format, &ctx.api_client).await?,
         }
         Ok(())
     }
