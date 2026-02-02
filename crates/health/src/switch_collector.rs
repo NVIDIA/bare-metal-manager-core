@@ -10,11 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-//! This module collects metrics from NMX-T telemetry endpoints on the NVLink switches.
-//! Currently scraping for:
-//! - Effective BER
-//! - Symbol Errors
-//! - Link Down counter
+//! This module collects metrics from NMX-T telemetry endpoints on NVLink switches if the service is enabled
+//! Currently scraping for Effective BER, Symbol Errors and Link Down counter
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -60,13 +57,12 @@ fn parse_prometheus_metrics(body: &str) -> Vec<NmxtMetricSample> {
 
 /// Parse a single text line
 fn parse_prometheus_line(line: &str) -> Option<NmxtMetricSample> {
-    // Find labels start
+    // find labels
     let (name_part, rest) = if let Some(brace_pos) = line.find('{') {
         let name = &line[..brace_pos];
         let rest = &line[brace_pos..];
         (name, rest)
-    } else {
-        // No labels
+    } else { // no labels
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 2 {
             let name = parts[0];
@@ -80,7 +76,6 @@ fn parse_prometheus_line(line: &str) -> Option<NmxtMetricSample> {
         return None;
     };
 
-    // parse labels and value
     let close_brace = rest.find('}')?;
     let labels_str = &rest[1..close_brace];
     let value_part = rest[close_brace + 1..].trim();
@@ -197,36 +192,25 @@ impl SwitchCollector {
         })
     }
 
-    /// scrapes metrics from all ready switches
+    /// scrapes metrics from all switches with IP addresses
     pub async fn scrape_iteration(&self) -> Result<(), HealthError> {
-        let switches = self.api_client.fetch_ready_switches().await?;
+        let endpoints = self.api_client.fetch_switch_endpoints().await?;
 
-        if switches.is_empty() {
-            tracing::debug!("No ready switches found to scrape");
+        if endpoints.is_empty() {
+            tracing::debug!("No switch endpoints found to scrape");
             return Ok(());
         }
 
         tracing::info!(
-            "Scraping {} ready switches for NMX-T metrics",
-            switches.len()
+            count = endpoints.len(),
+            "Scraping switch NMX-T metrics"
         );
 
-        for switch in &switches {
-            let switch_ip = match &switch.ip_address {
-                Some(ip) => ip,
-                None => {
-                    tracing::warn!(switch_id = ?switch.id, "Switch has no IP address, skipping");
-                    continue;
-                }
-            };
+        for endpoint in &endpoints {
+            let switch_ip = endpoint.addr.ip.to_string();
+            let switch_id = &endpoint.addr.serial;
 
-            let switch_id = switch
-                .id
-                .as_ref()
-                .map(|id| id.to_string())
-                .unwrap_or_default();
-
-            match scrape_switch_nmxt_metrics(&self.http_client, switch_ip).await {
+            match scrape_switch_nmxt_metrics(&self.http_client, &switch_ip).await {
                 Ok(metrics) => {
                     for sample in metrics {
                         let port_num = sample
@@ -237,7 +221,7 @@ impl SwitchCollector {
 
                         let node_guid = sample.labels.get("Node_GUID").cloned().unwrap_or_default();
 
-                        let labels = [switch_id.as_str(), switch_ip, &node_guid, &port_num];
+                        let labels = [switch_id.as_str(), &switch_ip, &node_guid, &port_num];
 
                         match sample.name.as_str() {
                             "Effective_BER" => {
@@ -260,7 +244,12 @@ impl SwitchCollector {
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(switch_ip = switch_ip, error = ?e, "Failed to scrape switch NMX-T metrics");
+                    tracing::warn!(
+                        switch_id = switch_id,
+                        switch_ip = switch_ip,
+                        error = ?e,
+                        "Failed to scrape switch NMX-T metrics"
+                    );
                 }
             }
         }

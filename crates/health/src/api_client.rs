@@ -246,8 +246,7 @@ impl ApiClientWrapper {
         Ok(())
     }
 
-    /// find ready switches with their IP addresses
-    pub async fn fetch_ready_switches(&self) -> Result<Vec<rpc::forge::Switch>, HealthError> {
+    pub async fn fetch_switch_endpoints(&self) -> Result<Vec<SwitchEndpoint>, HealthError> {
         let request = rpc::forge::SwitchQuery {
             name: None,
             switch_id: None,
@@ -260,23 +259,43 @@ impl ApiClientWrapper {
             .await
             .map_err(HealthError::ApiInvocationError)?;
 
-        // Filter for ready switches with IP addresses
-        let ready_switches: Vec<_> = response
+        let endpoints: Vec<SwitchEndpoint> = response
             .switches
             .into_iter()
-            .filter(|s| {
-                s.controller_state == "ready" || s.controller_state == "{\"state\":\"ready\"}"
+            .filter_map(|s| {
+                // only interested in switches which have been given an IP by DHCP
+                let ip = s.ip_address.as_ref()?.parse().ok()?;
+                let bmc_mac = s.bmc_mac_address?;
+                let serial = s.config?.name;
+
+                Some(SwitchEndpoint {
+                    addr: SwitchAddr { ip, bmc_mac, serial },
+                })
             })
-            .filter(|s| s.ip_address.is_some())
             .collect();
 
-        tracing::debug!(
-            "Found {} ready switches with IP addresses",
-            ready_switches.len()
-        );
+        tracing::debug!(count = endpoints.len(), "Fetched switch endpoints");
 
-        Ok(ready_switches)
+        Ok(endpoints)
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct SwitchAddr {
+    pub ip: IpAddr,
+    pub bmc_mac: String,
+    pub serial: String,
+}
+
+impl SwitchAddr {
+    pub fn hash_key(&self) -> &str {
+        &self.bmc_mac
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct SwitchEndpoint {
+    pub addr: SwitchAddr,
 }
 
 impl EndpointSource for ApiClientWrapper {

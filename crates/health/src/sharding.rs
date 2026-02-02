@@ -35,8 +35,6 @@ impl ShardManager {
         self.should_monitor_key(endpoint.hash_key())
     }
 
-    /// Generic sharding by any string key (MAC address, serial number, etc.)
-    /// Uses consistent hashing to assign keys to shards.
     pub fn should_monitor_key(&self, key: &str) -> bool {
         if self.shards_count == 1 {
             return true;
@@ -131,7 +129,7 @@ mod tests {
         let key1 = "AA:BB:CC:DD:EE:FF";
         let key2 = "11:22:33:44:55:66";
 
-        // Each key should be assigned to exactly one shard
+        // Each key should be assigned to exactly one pod/shard
         for key in [key1, key2] {
             let mut count = 0;
             for shard in 0..3 {
@@ -148,7 +146,6 @@ mod tests {
     fn test_should_monitor_key_consistency() {
         let manager = ShardManager::new(0, 3);
         let key = "AA:BB:CC:DD:EE:FF";
-        // Same key should always return same result
         assert_eq!(
             manager.should_monitor_key(key),
             manager.should_monitor_key(key)
