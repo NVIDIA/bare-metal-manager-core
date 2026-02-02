@@ -334,6 +334,17 @@ impl SpdmAttestationStateHandler {
             AttestationState::FetchData
             | AttestationState::Verification
             | AttestationState::ApplyEvidenceResultAppraisalPolicy => {
+                // Since state machine's new changes, now next iteration runs again with same set of
+                // object_ids. This will fail because in previous state
+                // (FetchAttestationTargetsAndUpdateDb) the db is updated with correct devices
+                // associated with the host.
+                // If we return wait here, state machine will run next iteration after some delay
+                // post fetching latest object id and associated device ids.
+                if object_id.1.is_none() {
+                    return Ok(StateHandlerOutcome::wait(format!(
+                        "Waiting for device id allocation for host: {object_id:?}."
+                    )));
+                }
                 let outcome = self
                     .device_handler
                     .handle_object_state_inner(object_id, state, controller_state, txn, ctx)
@@ -415,16 +426,10 @@ impl SpdmAttestationDeviceStateHandler {
         let Some(device_id) = &object_id.1 else {
             // Somehow device-id is missing from object_id in device handling state. This should
             // never happen, but if happens there is no way to recover.
-            return Ok(StateHandlerOutcome::transition(attestation_complete(
-                controller_state,
-                AttestationStatus::Failure {
-                    cause: SpdmHandlerError::MissingData {
-                        field: "device_id".to_string(),
-                        machine_id: object_id.0,
-                        device_id: "".to_string(),
-                    },
-                },
-            )));
+            return Err(StateHandlerError::MissingData {
+                object_id: object_id.to_string(),
+                missing: "device_id",
+            });
         };
 
         let Some(device_state) = &controller_state.device_state else {
