@@ -12,7 +12,7 @@
 
 use carbide_uuid::dpa_interface::DpaInterfaceId;
 use config_version::ConfigVersion;
-use model::dpa_interface::{DpaInterfaceControllerState, DpaInterfaceStateHistory};
+use model::dpa_interface::{DpaInterfaceControllerState, DpaInterfaceStateHistoryRecord};
 use sqlx::PgConnection;
 
 use super::DatabaseError;
@@ -23,10 +23,10 @@ pub async fn persist(
     interface_id: DpaInterfaceId,
     state: &DpaInterfaceControllerState,
     state_version: ConfigVersion,
-) -> Result<DpaInterfaceStateHistory, DatabaseError> {
+) -> Result<DpaInterfaceStateHistoryRecord, DatabaseError> {
     let query = "INSERT INTO dpa_interface_state_history (interface_id, state, state_version)
             VALUES ($1, $2, $3) RETURNING interface_id, state::TEXT, state_version, timestamp";
-    sqlx::query_as::<_, DpaInterfaceStateHistory>(query)
+    sqlx::query_as::<_, DpaInterfaceStateHistoryRecord>(query)
         .bind(interface_id)
         .bind(sqlx::types::Json(state))
         .bind(state_version)

@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide_uuid::rack::RackId;
 use clap::{ArgGroup, Parser};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
@@ -89,7 +90,7 @@ pub struct AddExpectedSwitch {
         help = "Rack ID for this machine",
         action = clap::ArgAction::Append
     )]
-    pub rack_id: Option<String>,
+    pub rack_id: Option<RackId>,
 }
 
 impl From<AddExpectedSwitch> for rpc::forge::ExpectedSwitch {
@@ -190,7 +191,7 @@ pub struct UpdateExpectedSwitch {
         help = "Rack ID for this switch",
         action = clap::ArgAction::Append
     )]
-    pub rack_id: Option<String>,
+    pub rack_id: Option<RackId>,
 }
 
 impl UpdateExpectedSwitch {
@@ -224,5 +225,5 @@ pub struct ExpectedSwitchJson {
     pub nvos_password: Option<String>,
     #[serde(default)]
     pub metadata: Option<rpc::forge::Metadata>,
-    pub rack_id: Option<String>,
+    pub rack_id: Option<RackId>,
 }

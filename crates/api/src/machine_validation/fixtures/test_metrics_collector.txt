@@ -1,12 +1,12 @@
-# HELP forge_machine_validation_completed Count of machine validation that have completed successfully
-# TYPE forge_machine_validation_completed gauge
-forge_machine_validation_completed 10
-# HELP forge_machine_validation_failed Count of machine validation that have failed
-# TYPE forge_machine_validation_failed gauge
-forge_machine_validation_failed 15
-# HELP forge_machine_validation_in_progress Count of machine validation that are in progress
-# TYPE forge_machine_validation_in_progress gauge
-forge_machine_validation_in_progress 20
-# HELP forge_machine_validation_tests The details of machine validation tests
-# TYPE forge_machine_validation_tests gauge
-forge_machine_validation_tests{TestId="forge_Test1",isVerified="true"} 1
+# HELP carbide_machine_validation_completed Count of machine validation that have completed successfully
+# TYPE carbide_machine_validation_completed gauge
+carbide_machine_validation_completed 10
+# HELP carbide_machine_validation_failed Count of machine validation that have failed
+# TYPE carbide_machine_validation_failed gauge
+carbide_machine_validation_failed 15
+# HELP carbide_machine_validation_in_progress Count of machine validation that are in progress
+# TYPE carbide_machine_validation_in_progress gauge
+carbide_machine_validation_in_progress 20
+# HELP carbide_machine_validation_tests The details of machine validation tests
+# TYPE carbide_machine_validation_tests gauge
+carbide_machine_validation_tests{TestId="forge_Test1",isVerified="true"} 1

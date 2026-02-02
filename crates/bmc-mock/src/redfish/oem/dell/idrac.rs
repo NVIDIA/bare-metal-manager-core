@@ -36,7 +36,15 @@ pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
             post(post_dell_create_bios_job),
         )
         .route(
+            "/redfish/v1/Managers/iDRAC.Embedded.1/Oem/Dell/Jobs",
+            post(post_dell_create_bios_job),
+        )
+        .route(
             "/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/{job_id}",
+            get(get_dell_job),
+        )
+        .route(
+            "/redfish/v1/Managers/iDRAC.Embedded.1/Oem/Dell/Jobs/{job_id}",
             get(get_dell_job),
         )
         .route("/redfish/v1/Managers/iDRAC.Embedded.1/Oem/Dell/DellJobService/Actions/DellJobService.DeleteJobQueue",

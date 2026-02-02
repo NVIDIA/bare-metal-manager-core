@@ -41,8 +41,6 @@ use crate::limiter::{BucketLimiter, NoopLimiter, RateLimiter};
 use crate::metrics::{MetricsManager, run_metrics_server};
 use crate::sharding::ShardManager;
 
-pub(crate) static METRICS_PREFIX: &str = "carbide_hardware_health";
-
 #[derive(thiserror::Error, Debug)]
 pub enum HealthError {
     #[error("Unable to connect to carbide API: {0}")]
@@ -160,14 +158,20 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
 
     let registry = metrics_manager.global_registry();
     let active_endpoints_gauge = Gauge::new(
-        format!("{METRICS_PREFIX}_active_endpoints"),
+        format!(
+            "{metrics_prefix}_active_endpoints",
+            metrics_prefix = &config.metrics.prefix
+        ),
         "Current number of active endpoints",
     )?;
     registry.register(Box::new(active_endpoints_gauge.clone()))?;
 
     let discovery_endpoints_gauge = GaugeVec::new(
         Opts::new(
-            format!("{METRICS_PREFIX}_discovery_endpoints"),
+            format!(
+                "{metrics_prefix}_discovery_endpoints",
+                metrics_prefix = &config.metrics.prefix
+            ),
             "Number of endpoints at each discovery stage",
         ),
         &["status"],
@@ -209,6 +213,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
                     &shard_manager,
                     &mut ctx,
                     report_sink.clone(),
+                    &config.metrics.prefix,
                 )
                 .await?;
 

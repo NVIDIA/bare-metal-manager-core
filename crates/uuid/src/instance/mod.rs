@@ -10,69 +10,91 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::fmt;
-use std::str::FromStr;
+use crate::typed_uuids::{TypedUuid, UuidSubtype};
 
-use serde::{Deserialize, Serialize};
-#[cfg(feature = "sqlx")]
-use sqlx::{
-    postgres::{PgHasArrayType, PgTypeInfo},
-    {FromRow, Type},
-};
+/// Marker type for InstanceId
+pub struct InstanceIdMarker;
 
-use crate::{UuidConversionError, grpc_uuid_message};
+impl UuidSubtype for InstanceIdMarker {
+    const TYPE_NAME: &'static str = "InstanceId";
+}
 
 /// InstanceId is a strongly typed UUID specific to an instance ID,
 /// with trait implementations allowing it to be passed around as
-/// a UUID, an RPC UUID, bound to sqlx queries, etc. This is similar
-/// to what we do for MachineId, VpcId, and basically all of the IDs
-/// in measured boot.
-#[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default, Ord, PartialOrd,
-)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct InstanceId(pub uuid::Uuid);
+/// a UUID, an RPC UUID, bound to sqlx queries, etc.
+pub type InstanceId = TypedUuid<InstanceIdMarker>;
 
-grpc_uuid_message!(InstanceId);
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::str::FromStr;
 
-impl From<InstanceId> for uuid::Uuid {
-    fn from(id: InstanceId) -> Self {
-        id.0
-    }
-}
+    use super::*;
 
-impl From<uuid::Uuid> for InstanceId {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
-    }
-}
-
-impl FromStr for InstanceId {
-    type Err = UuidConversionError;
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "InstanceId",
-                value: input.to_string(),
-            }
-        })?))
-    }
-}
-
-impl fmt::Display for InstanceId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[cfg(feature = "sqlx")]
-impl PgHasArrayType for InstanceId {
-    fn array_type_info() -> PgTypeInfo {
-        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
+    #[test]
+    fn test_uuid_round_trip() {
+        let orig = uuid::Uuid::new_v4();
+        let id = InstanceId::from(orig);
+        let back = uuid::Uuid::from(id);
+        assert_eq!(orig, back);
     }
 
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
+    #[test]
+    fn test_string_round_trip() {
+        let orig = uuid::Uuid::new_v4();
+        let id = InstanceId::from(orig);
+        let as_string = id.to_string();
+        let parsed = InstanceId::from_str(&as_string).expect("failed to parse");
+        assert_eq!(id, parsed);
+    }
+
+    #[test]
+    fn test_json_round_trip() {
+        let id = InstanceId::new();
+        let json = serde_json::to_string(&id).expect("failed to serialize");
+        let parsed: InstanceId = serde_json::from_str(&json).expect("failed to deserialize");
+        assert_eq!(id, parsed);
+        // Ensure it serializes as a plain string, not a nested object
+        assert!(json.starts_with('"') && json.ends_with('"'));
+    }
+
+    #[test]
+    fn test_ordering() {
+        let id1 = InstanceId::from(uuid::Uuid::nil());
+        let id2 = InstanceId::from(uuid::Uuid::max());
+        assert!(id1 < id2);
+        assert!(id2 > id1);
+        assert_eq!(id1.cmp(&id1), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn test_default() {
+        let id = InstanceId::default();
+        assert_eq!(uuid::Uuid::from(id), uuid::Uuid::nil());
+    }
+
+    #[test]
+    fn test_copy() {
+        let id1 = InstanceId::new();
+        let id2 = id1; // Copy
+        assert_eq!(id1, id2); // id1 still usable
+    }
+
+    #[test]
+    fn test_hash_consistency() {
+        let uuid = uuid::Uuid::new_v4();
+        let id1 = InstanceId::from(uuid);
+        let id2 = InstanceId::from(uuid);
+
+        let mut set = HashSet::new();
+        set.insert(id1);
+        assert!(set.contains(&id2));
+    }
+
+    #[test]
+    fn test_debug_includes_type_name() {
+        let id = InstanceId::from(uuid::Uuid::nil());
+        let debug = format!("{:?}", id);
+        assert!(debug.contains("InstanceId"));
     }
 }

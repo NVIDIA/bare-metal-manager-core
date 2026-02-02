@@ -180,7 +180,7 @@ carbide-prost-builder = { path = "../prost-builder" }
 prometheus-text-parser = { path = "../prometheus-text-parser" }
 prost = { workspace = true }
 tower-test = { workspace = true }
-hyper = { features = ["client", "http1"] , workspace = true }
+hyper = { features = ["client", "http1"], workspace = true }
 http = { workspace = true }
 once_cell = { workspace = true }
 kube = { default-features = false, features = [
@@ -188,7 +188,7 @@ kube = { default-features = false, features = [
   "derive",
   "client",
   "rustls-tls",
-] , workspace = true }
+], workspace = true }
 
 [lints]
 workspace = true

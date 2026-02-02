@@ -38,7 +38,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<MachineValida
     {
         let metrics = shared_metrics.clone();
         meter
-            .u64_observable_gauge("forge_machine_validation_completed")
+            .u64_observable_gauge("carbide_machine_validation_completed")
             .with_description("Count of machine validation that have completed successfully")
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {
@@ -51,7 +51,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<MachineValida
     {
         let metrics = shared_metrics.clone();
         meter
-            .u64_observable_gauge("forge_machine_validation_failed")
+            .u64_observable_gauge("carbide_machine_validation_failed")
             .with_description("Count of machine validation that have failed")
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {
@@ -64,7 +64,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<MachineValida
     {
         let metrics = shared_metrics.clone();
         meter
-            .u64_observable_gauge("forge_machine_validation_in_progress")
+            .u64_observable_gauge("carbide_machine_validation_in_progress")
             .with_description("Count of machine validation that are in progress")
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {
@@ -76,7 +76,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<MachineValida
     {
         let metrics = shared_metrics;
         meter
-            .u64_observable_gauge("forge_machine_validation_tests")
+            .u64_observable_gauge("carbide_machine_validation_tests")
             .with_description("The details of machine validation tests")
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {

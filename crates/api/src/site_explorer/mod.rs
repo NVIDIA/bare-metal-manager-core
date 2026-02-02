@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -794,7 +794,7 @@ impl SiteExplorer {
             }
         }
 
-        if let Some(rack_id) = &e_ps.rack_id {
+        if let Some(rack_id) = e_ps.rack_id {
             let rack = match db::rack::get(&mut txn, rack_id).await {
                 Ok(rack) => rack,
                 Err(_) => db::rack::create(
@@ -824,33 +824,45 @@ impl SiteExplorer {
             explored_endpoint.address
         );
 
-        // Register the host machine with Rack Manager if RMS client is available
+        // Register the power shelf with Rack Manager if RMS client is available
         if let Some(rms_client) = &self.rms_client {
             let bmc_mac_address = expected_power_shelf
                 .map(|m| m.bmc_mac_address.to_string())
                 .unwrap_or_default();
+            let rack_id = expected_power_shelf.and_then(|ps| ps.rack_id);
 
-            if let Err(e) = rms::add_node_to_rms(
-                rms_client.clone(),
-                power_shelf_id.to_string(),
-                explored_endpoint.address.to_string(),
-                443,
-                bmc_mac_address,
-                RmsNodeType::PowerShelf,
-            )
-            .await
-            {
-                tracing::warn!(
-                    "Failed to add power shelf {} to Rack Manager: {}",
-                    power_shelf_id,
-                    e
-                );
-            } else {
-                tracing::info!(
-                    "Added power shelf {} to Rack Manager for endpoint {}",
-                    power_shelf_id,
-                    explored_endpoint.address,
-                );
+            match rack_id {
+                Some(rack_id) => {
+                    if let Err(e) = rms::add_node_to_rms(
+                        rms_client.clone(),
+                        rack_id,
+                        power_shelf_id.to_string(),
+                        explored_endpoint.address.to_string(),
+                        443,
+                        bmc_mac_address,
+                        RmsNodeType::PowerShelf,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            "Failed to add power shelf {} to Rack Manager: {}",
+                            power_shelf_id,
+                            e
+                        );
+                    } else {
+                        tracing::info!(
+                            "Added power shelf {} to Rack Manager for endpoint {}",
+                            power_shelf_id,
+                            explored_endpoint.address,
+                        );
+                    }
+                }
+                None => {
+                    tracing::warn!(
+                        "Cannot add power shelf {} to Rack Manager: rack_id is missing",
+                        power_shelf_id
+                    );
+                }
             }
         }
 
@@ -949,29 +961,41 @@ impl SiteExplorer {
             explored_endpoint.address,
         );
 
-        // Register the host machine with Rack Manager if RMS client is available
+        // Register the switch with Rack Manager if RMS client is available
         if let Some(rms_client) = &self.rms_client {
             let bmc_mac_address = expected_switch
                 .map(|m| m.bmc_mac_address.to_string())
                 .unwrap_or_default();
+            let rack_id = expected_switch.and_then(|s| s.rack_id);
 
-            if let Err(e) = rms::add_node_to_rms(
-                rms_client.clone(),
-                switch_id.to_string(),
-                explored_endpoint.address.to_string(),
-                443,
-                bmc_mac_address,
-                RmsNodeType::Switch,
-            )
-            .await
-            {
-                tracing::warn!("Failed to add switch {} to Rack Manager: {}", switch_id, e);
-            } else {
-                tracing::info!(
-                    "Added switch {} to Rack Manager for endpoint {}",
-                    switch_id,
-                    explored_endpoint.address,
-                );
+            match rack_id {
+                Some(rack_id) => {
+                    if let Err(e) = rms::add_node_to_rms(
+                        rms_client.clone(),
+                        rack_id,
+                        switch_id.to_string(),
+                        explored_endpoint.address.to_string(),
+                        443,
+                        bmc_mac_address,
+                        RmsNodeType::Switch,
+                    )
+                    .await
+                    {
+                        tracing::warn!("Failed to add switch {} to Rack Manager: {}", switch_id, e);
+                    } else {
+                        tracing::info!(
+                            "Added switch {} to Rack Manager for endpoint {}",
+                            switch_id,
+                            explored_endpoint.address,
+                        );
+                    }
+                }
+                None => {
+                    tracing::warn!(
+                        "Cannot add switch {} to Rack Manager: rack_id is missing",
+                        switch_id
+                    );
+                }
             }
         }
 

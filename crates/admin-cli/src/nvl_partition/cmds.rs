@@ -107,7 +107,7 @@ fn convert_nvl_partition_to_nice_format(
     let mut lines = String::new();
 
     let data = vec![
-        ("ID", nvl_partition.id.unwrap_or_default().0.to_string()),
+        ("ID", nvl_partition.id.unwrap_or_default().to_string()),
         ("NAME", nvl_partition.name),
         (
             "LOGICAL PARTITION ID",
@@ -119,7 +119,7 @@ fn convert_nvl_partition_to_nice_format(
         ("NMX-M-ID", nvl_partition.nmx_m_id),
         (
             "NVLINK DOMAIN UUID",
-            nvl_partition.domain_uuid.unwrap_or_default().0.to_string(),
+            nvl_partition.domain_uuid.unwrap_or_default().to_string(),
         ),
     ];
 

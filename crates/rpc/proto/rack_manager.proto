@@ -52,6 +52,7 @@ message NewNodeInfo {
   optional string username = 5;
   optional string password = 6;
   optional int32 type = 7;
+  string rack_id = 8;
 }
 
 message NodeUpdateInfo {
@@ -70,6 +71,7 @@ message NodeInventoryInfo {
   int32 type = 6;
   repeated DeviceInventoryInfo devices = 7;
   string mac_address = 8;
+  string rack_id = 9;
 }
 
 message DeviceInventoryInfo {
@@ -151,6 +153,7 @@ message InventoryRequest {
     RemoveNodeCommand remove_node = 5;
     GetPowerOnOrderCommand get_power_on_order = 6;
     SetPowerOnOrderCommand set_power_on_order = 7;
+    ListRacksCommand list_racks = 8;
   }
 }
 
@@ -164,6 +167,7 @@ message InventoryResponse {
     RemoveNodeResponse remove_node = 6;
     GetPowerOnOrderResponse get_power_on_order = 7;
     SetPowerOnOrderResponse set_power_on_order = 8;
+    ListRacksResponse list_racks = 9;
   }
 }
 
@@ -246,24 +250,28 @@ message NmxControlResponse {
  * POWER CONTROL SUBMESSAGES *
  *****************************/
 message SetPowerStateCommand {
-  string         node      = 1;
+  string         node_id   = 1;
   PowerOperation operation = 2;
+  string         rack_id   = 3;
 }
 
 message GetPowerStateCommand {
-  string node = 1;
+  string node_id = 1;
+  string rack_id = 2;
 }
 
 message SetPowerStateResponse {
 }
 
 message GetPowerStateResponse {
-  string node   = 1;
-  string pstate = 2;
+  string node_id = 1;
+  string pstate  = 2;
+  string rack_id = 3;
 }
 
 message RackPowerCommand {
   RackPowerOperation operation = 1;
+  string rack_id = 2;
 }
 
 message RackPowerResponse {
@@ -285,10 +293,12 @@ message AddNodeCommand {
 message UpdateNodeCommand {
   string node_id = 1;
   NodeUpdateInfo update_info = 2;
+  string rack_id = 3;
 }
 
 message RemoveNodeCommand {
   string node_id = 1;
+  string rack_id = 2;
 }
 
 message GetInventoryResponse {
@@ -307,9 +317,16 @@ message RemoveNodeResponse {
   string message = 1;
 }
 
+message ListRacksCommand {
+}
+
+message ListRacksResponse {
+  repeated string rack_ids = 1;
+}
+
 // Power on order message definitions
 message PowerOnOrderItem {
-  string node = 1;
+  string node_id = 1;
   CompletionCheck completion_check = 2;
 }
 
@@ -319,6 +336,7 @@ message CompletionCheck {
 }
 
 message GetPowerOnOrderCommand {
+  string rack_id = 1;
 }
 
 message GetPowerOnOrderResponse {
@@ -328,6 +346,7 @@ message GetPowerOnOrderResponse {
 
 message SetPowerOnOrderCommand {
   repeated PowerOnOrderItem power_on_order = 1;
+  string rack_id = 2;
 }
 
 message SetPowerOnOrderResponse {
@@ -338,7 +357,8 @@ message SetPowerOnOrderResponse {
  * SECURITY CONTROL SUBMESSAGES *
  *********************************/
 message GetAttestationCommand {
-  string node = 1;
+  string node_id = 1;
+  string rack_id = 2;
 }
 
 message GetAttestationResponse {
@@ -350,7 +370,8 @@ message GetAttestationResponse {
  *********************************/
 
 message GetFirmwareInventoryCommand {
-  string node = 1;
+  string node_id = 1;
+  string rack_id = 2;
 }
 
 message GetFirmwareInventoryResponse {
@@ -358,10 +379,11 @@ message GetFirmwareInventoryResponse {
 }
 
 message UpdateFirmwareCommand {
-  string node = 1;
+  string node_id = 1;
   string filename = 2;
   string target = 3;
   bool activate = 4;
+  string rack_id = 5;
 }
 
 message UpdateFirmwareResponse {
@@ -373,6 +395,7 @@ message UpdateFirmwareByNodeTypeCommand {
   int32 node_type = 1;  // NodeType enum value (0=Compute, 1=Powershelf, 2=Switch, 3=Unknown)
   string filename = 2;
   string target = 3;
+  string rack_id = 4;
 }
 
 message UpdateFirmwareByNodeTypeResponse {
@@ -390,7 +413,8 @@ message NodeUpdateResult {
 }
 
 message GetAvailableFwImagesCommand {
-  optional string node = 1;
+  optional string node_id = 1;
+  optional string rack_id = 2;
 }
 
 message FirmwareFileInfo {

@@ -148,7 +148,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
     // Network segment
     let req = rpc::forge::IdentifyUuidRequest {
-        uuid: Some(segment_id.0.into()),
+        uuid: Some(segment_id.into()),
     };
     let res = env
         .api
@@ -160,7 +160,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
     // Instance
     let req = rpc::forge::IdentifyUuidRequest {
-        uuid: Some(tinstance.id.0.into()),
+        uuid: Some(tinstance.id.into()),
     };
     let res = env
         .api
@@ -172,7 +172,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
     // Machine interface
     let req = rpc::forge::IdentifyUuidRequest {
-        uuid: interface_id.map(|id| id.0.into()),
+        uuid: interface_id.map(|id| id.into()),
     };
     let res = env
         .api
@@ -195,7 +195,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         .await
         .unwrap();
     let req = rpc::forge::IdentifyUuidRequest {
-        uuid: Some(segment.vpc_id.unwrap().0.into()),
+        uuid: Some(segment.vpc_id.unwrap().into()),
     };
     let res = env
         .api

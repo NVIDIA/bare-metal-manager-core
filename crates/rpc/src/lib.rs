@@ -45,9 +45,9 @@ pub use crate::protos::forge::{
     InstanceInterfaceStatusObservation, InstanceList, InstanceNetworkConfig, InstanceNetworkStatus,
     InstanceNvLinkStatus, InstanceReleaseRequest, InstanceStatus, InstanceTenantStatus,
     InterfaceFunctionType, Machine, MachineCleanupInfo, MachineDiscoveryInfo, MachineEvent,
-    MachineInterface, MachineList, Metadata, NetworkPrefixEvent, NetworkSegment,
-    NetworkSegmentList, NvLinkPartition, NvLinkPartitionList, NvLinkPartitionQuery,
-    ResourcePoolType, SyncState, TenantConfig, TenantState, forge_agent_control_response,
+    MachineInterface, MachineList, Metadata, NetworkSegment, NetworkSegmentList, NvLinkPartition,
+    NvLinkPartitionList, NvLinkPartitionQuery, ResourcePoolType, SyncState, TenantConfig,
+    TenantState, forge_agent_control_response,
 };
 pub use crate::protos::machine_discovery::{
     self, BlockDevice, Cpu, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice,
@@ -811,7 +811,7 @@ mod tests {
     use carbide_uuid::machine::MachineId;
 
     use self::forge::operating_system::Variant;
-    use self::forge::{IpxeOperatingSystem, OperatingSystem};
+    use self::forge::{InlineIpxe, OperatingSystem};
     use super::*;
     use crate::protos::dns::{Domain, Metadata};
 
@@ -853,7 +853,7 @@ mod tests {
             phone_home_enabled: true,
             run_provisioning_instructions_on_every_boot: true,
             user_data: Some("def".to_string()),
-            variant: Some(Variant::Ipxe(IpxeOperatingSystem {
+            variant: Some(Variant::Ipxe(InlineIpxe {
                 ipxe_script: "abc".to_string(),
                 user_data: Some("def".to_string()),
             })),
@@ -868,8 +868,9 @@ mod tests {
     /// Test to check that serializing a type with a custom Timestamp implementation works
     #[test]
     fn test_serialize_domain() {
-        let uuid =
-            carbide_uuid::domain::DomainId(::uuid::uuid!("91609f10-c91d-470d-a260-1234560c0000"));
+        let uuid = carbide_uuid::domain::DomainId::from(::uuid::uuid!(
+            "91609f10-c91d-470d-a260-1234560c0000"
+        ));
         let ts = std::time::SystemTime::now();
         let ts2 = ts.checked_add(Duration::from_millis(1500)).unwrap();
 

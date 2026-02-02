@@ -41,12 +41,28 @@ pub fn chassis_collection(chassis_id: &str) -> redfish::Collection<'static> {
 /// Generate resource bound to chassis.
 pub fn builder(resource: &redfish::Resource) -> PcieDeviceBuilder {
     PcieDeviceBuilder {
+        id: Cow::Owned(resource.id.to_string()),
         value: resource.json_patch(),
+        mat_dpu: false,
+    }
+}
+
+pub struct PCIeDevice {
+    pub id: Cow<'static, str>,
+    pub is_mat_dpu: bool,
+    value: serde_json::Value,
+}
+
+impl PCIeDevice {
+    pub fn to_json(&self) -> serde_json::Value {
+        self.value.clone()
     }
 }
 
 pub struct PcieDeviceBuilder {
+    id: Cow<'static, str>,
     value: serde_json::Value,
+    mat_dpu: bool,
 }
 
 impl PcieDeviceBuilder {
@@ -70,21 +86,34 @@ impl PcieDeviceBuilder {
         self.add_str_field("SerialNumber", value)
     }
 
-    pub fn build(self) -> serde_json::Value {
-        self.value
+    pub fn mat_dpu(mut self) -> Self {
+        self.mat_dpu = true;
+        self
     }
 
-    pub fn status(self, status: redfish::resource::Status) -> Self {
-        Self {
-            value: self.value.patch(json!({
-                "Status": status.into_json()
-            })),
+    pub fn build(self) -> PCIeDevice {
+        PCIeDevice {
+            id: self.id,
+            value: self.value,
+            is_mat_dpu: self.mat_dpu,
         }
     }
 
+    pub fn status(self, status: redfish::resource::Status) -> Self {
+        self.apply_patch(json!({
+            "Status": status.into_json()
+        }))
+    }
+
     fn add_str_field(self, name: &str, value: &str) -> Self {
+        self.apply_patch(json!({ name: value }))
+    }
+
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
         Self {
-            value: self.value.patch(json!({ name: value })),
+            value: self.value.patch(patch),
+            id: self.id,
+            mat_dpu: self.mat_dpu,
         }
     }
 }

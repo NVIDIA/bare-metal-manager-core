@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -12,6 +12,7 @@
 
 use std::sync::Arc;
 
+use carbide_uuid::rack::RackId;
 use rpc::protos::rack_manager::NewNodeInfo;
 
 use crate::CarbideError;
@@ -20,6 +21,7 @@ use crate::rack::rms_client::{RmsApi, RmsNodeType};
 // Helper function to add a node to the Rack Manager
 pub async fn add_node_to_rms(
     rms_client: Arc<Box<dyn RmsApi>>,
+    rack_id: RackId,
     node_id: String,
     ip_address: String,
     port: i32,
@@ -27,6 +29,7 @@ pub async fn add_node_to_rms(
     node_type: RmsNodeType,
 ) -> Result<(), CarbideError> {
     let new_node_info = NewNodeInfo {
+        rack_id: rack_id.to_string(),
         node_id,
         mac_address,
         ip_address,

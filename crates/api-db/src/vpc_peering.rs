@@ -190,7 +190,7 @@ pub async fn get_prefixes_by_vpcs(
     let vpc_prefixes = crate::vpc_prefix::find_by_vpcs(txn, vpcs)
         .await?
         .into_iter()
-        .map(|vpc_prefix| vpc_prefix.prefix.to_string());
+        .map(|vpc_prefix| vpc_prefix.config.prefix.to_string());
     let vpc_segment_prefixes = crate::network_prefix::find_by_vpcs(txn, vpcs)
         .await?
         .into_iter()

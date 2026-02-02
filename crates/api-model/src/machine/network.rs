@@ -42,6 +42,38 @@ pub struct MachineNetworkStatusObservation {
 }
 
 impl MachineNetworkStatusObservation {
+    pub fn any_observed_version_changed(&self, other: &Self) -> bool {
+        if self.network_config_version != other.network_config_version {
+            return true;
+        }
+
+        if match (
+            &self.instance_network_observation,
+            &other.instance_network_observation,
+        ) {
+            (None, Some(_)) => true,
+            (Some(_), None) => true,
+            (None, None) => false,
+            (Some(a), Some(b)) => a.any_observed_version_changed(b),
+        } {
+            return true;
+        }
+
+        if match (
+            &self.extension_service_observation,
+            &other.extension_service_observation,
+        ) {
+            (None, Some(_)) => true,
+            (Some(_), None) => true,
+            (None, None) => false,
+            (Some(a), Some(b)) => a.any_observed_version_changed(b),
+        } {
+            return true;
+        }
+
+        false
+    }
+
     pub fn expired_version_health_report(
         &self,
         staleness_threshold: Duration,

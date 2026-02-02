@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -11,6 +11,7 @@
  */
 use std::default::Default;
 
+use carbide_uuid::rack::RackId;
 use common::api_fixtures::create_test_env;
 use db::DatabaseError;
 use mac_address::MacAddress;
@@ -197,7 +198,7 @@ async fn test_add_expected_power_shelf(pool: sqlx::PgPool) {
                     },
                 ],
             }),
-            rack_id: Some("rack-1".to_string()),
+            rack_id: Some(RackId::from(uuid::Uuid::new_v4())),
         },
     ] {
         env.api
@@ -333,7 +334,7 @@ async fn test_update_expected_power_shelf(pool: sqlx::PgPool) {
                     },
                 ],
             }),
-            rack_id: Some("rack-2".to_string()),
+            rack_id: Some(RackId::from(uuid::Uuid::new_v4())),
         },
     ] {
         env.api
@@ -450,7 +451,7 @@ async fn test_replace_all_expected_power_shelves(pool: sqlx::PgPool) {
         shelf_serial_number: "PS-NEW-001".into(),
         ip_address: "192.168.100.1".into(),
         metadata: Some(rpc::Metadata::default()),
-        rack_id: Some("rack-new-1".to_string()),
+        rack_id: Some(RackId::from(uuid::Uuid::new_v4())),
     };
 
     let expected_power_shelf_2 = rpc::forge::ExpectedPowerShelf {
@@ -460,7 +461,7 @@ async fn test_replace_all_expected_power_shelves(pool: sqlx::PgPool) {
         shelf_serial_number: "PS-NEW-002".into(),
         ip_address: "192.168.100.2".into(),
         metadata: Some(rpc::Metadata::default()),
-        rack_id: Some("rack-new-2".to_string()),
+        rack_id: Some(RackId::from(uuid::Uuid::new_v4())),
     };
 
     expected_power_shelf_list
@@ -542,7 +543,7 @@ async fn test_add_expected_power_shelf_with_ip(pool: sqlx::PgPool) {
         shelf_serial_number: "PS-IP-001".into(),
         ip_address: "10.0.0.100".into(),
         metadata: Some(rpc::Metadata::default()),
-        rack_id: Some("rack-1".to_string()),
+        rack_id: Some(RackId::from(uuid::Uuid::new_v4())),
     };
 
     env.api

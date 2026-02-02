@@ -58,7 +58,7 @@ impl TryFrom<rpc::InstanceDpuExtensionServiceConfig> for InstanceExtensionServic
 impl From<InstanceExtensionServiceConfig> for rpc::InstanceDpuExtensionServiceConfig {
     fn from(config: InstanceExtensionServiceConfig) -> Self {
         rpc::InstanceDpuExtensionServiceConfig {
-            service_id: config.service_id.to_string(),
+            service_id: config.service_id.into(),
             version: config.version.to_string(),
         }
     }
