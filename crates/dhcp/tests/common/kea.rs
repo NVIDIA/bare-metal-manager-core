@@ -27,8 +27,7 @@ pub struct Kea {
 
     // Hold this around so that when Kea is dropped, TempDir is dropped and cleaned up
     // The config file is stored in this directory
-    #[allow(dead_code)]
-    temp_base_directory: TempDir,
+    _temp_base_directory: TempDir,
 
     // Directories for PID and lock files that AppArmor allows
     pidfile_dir: PathBuf,
@@ -45,14 +44,14 @@ impl Kea {
         dhcp_in_port: u16,
         dhcp_out_port: u16,
     ) -> Result<Kea, eyre::Report> {
-        let temp_base_directory = tempfile::tempdir()?;
+        let _temp_base_directory = tempfile::tempdir()?;
 
-        let temp_conf_file = temp_base_directory.path().join("kea-dhcp4.conf");
+        let temp_conf_file = _temp_base_directory.path().join("kea-dhcp4.conf");
 
         // Use the unique temp directory for each test instance to avoid conflicts
         // when tests run in parallel. This requires AppArmor to be in complain mode.
-        let pidfile_dir = temp_base_directory.path().to_path_buf();
-        let lockfile_dir = temp_base_directory.path().to_path_buf();
+        let pidfile_dir = _temp_base_directory.path().to_path_buf();
+        let lockfile_dir = _temp_base_directory.path().to_path_buf();
 
         let mut temp_conf_fd = File::create(&temp_conf_file)?;
         temp_conf_fd.write_all(Kea::config(api_server_url).as_bytes())?;
@@ -62,7 +61,7 @@ impl Kea {
 
         Ok(Kea {
             temp_conf_file,
-            temp_base_directory,
+            _temp_base_directory,
             pidfile_dir,
             lockfile_dir,
             dhcp_in_port,
