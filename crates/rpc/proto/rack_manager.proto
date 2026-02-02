@@ -551,15 +551,18 @@ message ConfigureNmxcResponse {
 message SwitchControlRequest {
   Metadata metadata = 1;
   oneof command {
-    FetchSystemImageCommand fetch_system_image = 2;
-    InstallSystemImageCommand install_system_image = 3;
-    ListSystemImagesCommand list_system_images = 4;
-    UpdateClusterConfigCommand update_cluster_config = 5;
-    GetClusterStateCommand get_cluster_state_cmd = 6;
-    GetClusterAppsStatusCommand get_cluster_apps_status = 7;
-    EnableNmxGrpcCommand enable_nmx_grpc = 8;
-    RestartClusterAppCommand restart_cluster_app = 9;
-    CheckNmxGrpcStatusCommand check_nmx_grpc_status = 10;
+    GetSwitchCredentialsCommand get_switch_credentials = 2;
+    FetchSystemImageCommand fetch_system_image = 3;
+    InstallSystemImageCommand install_system_image = 4;
+    ListSystemImagesCommand list_system_images = 5;
+    UpdateClusterConfigCommand update_cluster_config = 6;
+    GetClusterStateCommand get_cluster_state_cmd = 7;
+    GetClusterAppsStatusCommand get_cluster_apps_status = 8;
+    EnableNmxGrpcCommand enable_nmx_grpc = 9;
+    RestartClusterAppCommand restart_cluster_app = 10;
+    CheckNmxGrpcStatusCommand check_nmx_grpc_status = 11;
+    ConfigureSwitchGnmiServiceCommand configure_switch_gnmi_service = 12;
+    ConfigureSwitchNmxcCommand configure_switch_nmxc = 13;
   }
 }
 
@@ -567,26 +570,38 @@ message SwitchControlResponse {
   Metadata metadata = 1;
   ReturnCode status = 2;
   oneof response {
-    FetchSystemImageResponse fetch_system_image = 3;
-    InstallSystemImageResponse install_system_image = 4;
-    ListSystemImagesResponse list_system_images = 5;
-    UpdateClusterConfigResponse update_cluster_config = 6;
-    GetClusterStateResponse get_cluster_state_resp = 7;
-    GetClusterAppsStatusResponse get_cluster_apps_status = 8;
-    EnableNmxGrpcResponse enable_nmx_grpc = 9;
-    RestartClusterAppResponse restart_cluster_app = 10;
-    CheckNmxGrpcStatusResponse check_nmx_grpc_status = 11;
+    GetSwitchCredentialsResponse get_switch_credentials = 3;
+    FetchSystemImageResponse fetch_system_image = 4;
+    InstallSystemImageResponse install_system_image = 5;
+    ListSystemImagesResponse list_system_images = 6;
+    UpdateClusterConfigResponse update_cluster_config = 7;
+    GetClusterStateResponse get_cluster_state_resp = 8;
+    GetClusterAppsStatusResponse get_cluster_apps_status = 9;
+    EnableNmxGrpcResponse enable_nmx_grpc = 10;
+    RestartClusterAppResponse restart_cluster_app = 11;
+    CheckNmxGrpcStatusResponse check_nmx_grpc_status = 12;
+    ConfigureSwitchGnmiServiceResponse configure_switch_gnmi_service = 13;
+    ConfigureSwitchNmxcResponse configure_switch_nmxc = 14;
   }
+}
+
+// GetSwitchCredentials command/response
+message GetSwitchCredentialsCommand {
+  string switch_name = 1;  // RMS Node ID - RMS resolves credentials from Vault
+}
+
+message GetSwitchCredentialsResponse {
+  optional string username = 1;  // Username from Vault (if available)
+  optional string password = 2;  // Password from Vault (if available)
+  string error_message = 3;      // Error message if credentials could not be retrieved
 }
 
 // FetchSystemImage command/response
 message FetchSystemImageCommand {
-  string switch_host = 1;
-  string username = 2;
-  string password = 3;
-  int32 port = 4;
-  bool verify_ssl = 5;
-  string remote_url = 6;
+  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
+  optional int32 switch_port = 2;  // Optional: RMS might have default
+  optional bool verify_ssl = 3;  // Optional: RMS might have default
+  string remote_url = 4;
 }
 
 message FetchSystemImageResponse {
@@ -596,12 +611,10 @@ message FetchSystemImageResponse {
 
 // InstallSystemImage command/response
 message InstallSystemImageCommand {
-  string switch_host = 1;
-  string username = 2;
-  string password = 3;
-  int32 port = 4;
-  bool verify_ssl = 5;
-  string image_filename = 6;
+  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
+  optional int32 switch_port = 2;  // Optional: RMS might have default
+  optional bool verify_ssl = 3;  // Optional: RMS might have default
+  string image_filename = 4;
 }
 
 message InstallSystemImageResponse {
@@ -611,11 +624,9 @@ message InstallSystemImageResponse {
 
 // ListSystemImages command/response
 message ListSystemImagesCommand {
-  string switch_host = 1;
-  string username = 2;
-  string password = 3;
-  int32 port = 4;
-  bool verify_ssl = 5;
+  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
+  optional int32 switch_port = 2;  // Optional: RMS might have default
+  optional bool verify_ssl = 3;  // Optional: RMS might have default
 }
 
 message ListSystemImagesResponse {
@@ -625,12 +636,10 @@ message ListSystemImagesResponse {
 
 // UpdateClusterConfig command/response
 message UpdateClusterConfigCommand {
-  string switch_host = 1;
-  string username = 2;
-  string password = 3;
-  int32 port = 4;
-  bool verify_ssl = 5;
-  bool enabled = 6;
+  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
+  optional int32 switch_port = 2;  // Optional: RMS might have default
+  optional bool verify_ssl = 3;  // Optional: RMS might have default
+  bool enabled = 4;
 }
 
 message UpdateClusterConfigResponse {
@@ -640,11 +649,9 @@ message UpdateClusterConfigResponse {
 
 // GetClusterState command/response
 message GetClusterStateCommand {
-  string switch_host = 1;
-  string username = 2;
-  string password = 3;
-  int32 port = 4;
-  bool verify_ssl = 5;
+  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
+  optional int32 switch_port = 2;  // Optional: RMS might have default
+  optional bool verify_ssl = 3;  // Optional: RMS might have default
 }
 
 message GetClusterStateResponse {
@@ -654,12 +661,10 @@ message GetClusterStateResponse {
 
 // GetClusterAppsStatus command/response
 message GetClusterAppsStatusCommand {
-  string switch_host = 1;
-  string username = 2;
-  string password = 3;
-  int32 port = 4;
-  bool verify_ssl = 5;
-  string app_name = 6;
+  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
+  optional int32 switch_port = 2;  // Optional: RMS might have default
+  optional bool verify_ssl = 3;  // Optional: RMS might have default
+  string app_name = 4;
 }
 
 message GetClusterAppsStatusResponse {
@@ -669,13 +674,11 @@ message GetClusterAppsStatusResponse {
 
 // EnableNmxGrpc command/response
 message EnableNmxGrpcCommand {
-  string switch_host = 1;
-  string username = 2;
-  string password = 3;
-  int32 port = 4;
-  bool verify_ssl = 5;
-  string app_name = 6;
-  bool enabled = 7;
+  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
+  optional int32 switch_port = 2;  // Optional: RMS might have default
+  optional bool verify_ssl = 3;  // Optional: RMS might have default
+  string app_name = 4;
+  bool enabled = 5;
 }
 
 message EnableNmxGrpcResponse {
@@ -685,12 +688,10 @@ message EnableNmxGrpcResponse {
 
 // RestartClusterApp command/response
 message RestartClusterAppCommand {
-  string switch_host = 1;
-  string username = 2;
-  string password = 3;
-  int32 port = 4;
-  bool verify_ssl = 5;
-  string app_name = 6;
+  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
+  optional int32 switch_port = 2;  // Optional: RMS might have default
+  optional bool verify_ssl = 3;  // Optional: RMS might have default
+  string app_name = 4;
 }
 
 message RestartClusterAppResponse {
@@ -700,16 +701,41 @@ message RestartClusterAppResponse {
 
 // CheckNmxGrpcStatus command/response
 message CheckNmxGrpcStatusCommand {
-  string switch_host = 1;
-  string username = 2;
-  string password = 3;
-  int32 port = 4;
-  bool verify_ssl = 5;
-  string app_name = 6;
-  string target_switch_name = 7;
+  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
+  optional int32 switch_port = 2;  // Optional: RMS might have default
+  optional bool verify_ssl = 3;  // Optional: RMS might have default
+  string app_name = 4;
+  optional string target_switch_name = 5;
 }
 
 message CheckNmxGrpcStatusResponse {
   string status_json = 1;  // JSON string containing connectivity status
   string error_message = 2;
 }
+
+// ConfigureSwitchGnmiService command/response
+message ConfigureSwitchGnmiServiceCommand {
+  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
+  optional int32 switch_port = 2;  // Optional: RMS might have default
+  optional bool verify_ssl = 3;  // Optional: RMS might have default
+  bool enabled = 4;
+}
+
+message ConfigureSwitchGnmiServiceResponse {
+  string result_json = 1;  // JSON string containing result
+  string error_message = 2;
+}
+
+// ConfigureSwitchNmxc command/response
+message ConfigureSwitchNmxcCommand {
+  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
+  optional int32 switch_port = 2;  // Optional: RMS might have default
+  optional bool verify_ssl = 3;  // Optional: RMS might have default
+  string hardware_platform = 4;
+}
+
+message ConfigureSwitchNmxcResponse {
+  string result_json = 1;  // JSON string containing result
+  string error_message = 2;
+}
+
