@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
 use std::iter;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -315,6 +316,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                     },
                 ],
             }],
+            component_fetch_times: HashMap::new(),
             machine_id: None,
             versions: Default::default(),
             model: None,

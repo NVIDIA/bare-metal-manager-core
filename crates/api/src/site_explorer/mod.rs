@@ -94,6 +94,8 @@ pub struct Endpoint {
     pub(crate) expected_switch: Option<ExpectedSwitch>,
     pause_remediation: bool,
     boot_interface_mac: Option<MacAddress>,
+    /// When true, bypass firmware inventory cache and fetch fresh data.
+    exploration_requested: bool,
 }
 
 impl Display for Endpoint {
@@ -113,6 +115,7 @@ impl Endpoint {
         old_report: Option<(ConfigVersion, EndpointExplorationReport)>,
         pause_remediation: bool,
         boot_interface_mac: Option<MacAddress>,
+        exploration_requested: bool,
     ) -> Self {
         Self {
             address,
@@ -126,6 +129,7 @@ impl Endpoint {
             expected_switch: None,
             pause_remediation,
             boot_interface_mac,
+            exploration_requested,
         }
     }
 }
@@ -1641,6 +1645,7 @@ impl SiteExplorer {
                 Some((endpoint.report_version, endpoint.report)),
                 endpoint.pause_remediation,
                 endpoint.boot_interface_mac,
+                true, // exploration_requested: bypass cache and fetch fresh data
             ));
         }
 
@@ -1659,6 +1664,7 @@ impl SiteExplorer {
                 None,
                 false, // New endpoints haven't been explored yet, so pause_remediation defaults to false
                 None,  // boot_interface_mac not yet discovered for new endpoints
+                false, // exploration_requested: not applicable for new endpoints
             ))
         }
 
@@ -1682,6 +1688,7 @@ impl SiteExplorer {
                     Some((endpoint.report_version, endpoint.report)),
                     endpoint.pause_remediation,
                     endpoint.boot_interface_mac,
+                    false, // exploration_requested: normal update cycle
                 ));
             }
         }
@@ -1830,6 +1837,7 @@ impl SiteExplorer {
                             endpoint.expected_switch.clone(),
                             endpoint.old_report.as_ref().map(|report| &report.1),
                             endpoint.boot_interface_mac,
+                            endpoint.exploration_requested,
                         )
                         .await;
 
@@ -2209,6 +2217,7 @@ impl SiteExplorer {
                 Some((endpoint.report_version, endpoint.report.clone())),
                 false, // TODO(chet): Need to check on this.
                 None,  // Power shelves don't have boot_interface_mac
+                true,  // exploration_requested: bypass cache and fetch fresh data
             ));
         }
 
@@ -2227,6 +2236,7 @@ impl SiteExplorer {
                 None,
                 false, // TODO(chet): Check on this.
                 None,  // Power shelves don't have boot_interface_mac
+                false, // exploration_requested: not applicable for new endpoints
             ))
         }
 
@@ -2248,6 +2258,7 @@ impl SiteExplorer {
                     Some((endpoint.report_version, endpoint.report.clone())),
                     false, // TODO(chet): Check on this.
                     None,  // Power shelves don't have boot_interface_mac
+                    false, // exploration_requested: normal update cycle
                 ));
             }
         }
@@ -2312,6 +2323,7 @@ impl SiteExplorer {
                             endpoint.expected_switch.clone(),
                             endpoint.old_report.as_ref().map(|report| &report.1),
                             None, // Power shelves don't have boot interface MAC
+                            endpoint.exploration_requested,
                         )
                         .await;
                     if let Err(error) = result.clone() {

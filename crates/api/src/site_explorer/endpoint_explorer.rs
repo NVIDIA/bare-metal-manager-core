@@ -31,6 +31,8 @@ pub trait EndpointExplorer: Send + Sync + 'static {
     /// The query carries the information `MachineInterface` information that is derived
     /// from DHCP requests as well as the information that might have been fetched in
     /// a previous exploration.
+    ///
+    /// If `exploration_requested` is true, bypass any caching and fetch fresh data.
     #[allow(clippy::too_many_arguments)]
     async fn explore_endpoint(
         &self,
@@ -41,6 +43,7 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         expected_switch: Option<ExpectedSwitch>,
         last_report: Option<&EndpointExplorationReport>,
         boot_interface_mac: Option<MacAddress>,
+        exploration_requested: bool,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError>;
 
     async fn check_preconditions(

@@ -82,6 +82,7 @@ impl EndpointExplorer for MockEndpointExplorer {
         _expected_switch: Option<ExpectedSwitch>,
         _last_report: Option<&EndpointExplorationReport>,
         _boot_interface_mac: Option<MacAddress>,
+        _exploration_requested: bool,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         tracing::info!("Endpoint {bmc_ip_address} is getting explored");
         let guard = self.reports.lock().unwrap();

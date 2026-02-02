@@ -39,6 +39,21 @@ use crate::machine::machine_id::{MissingHardwareInfo, from_hardware_info_with_ty
 use crate::power_shelf::power_shelf_id;
 use crate::switch::switch_id;
 
+/// Components of the exploration report that can be cached independently.
+/// Each component can have its own cache interval configured.
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExplorationComponent {
+    /// Firmware inventory from UpdateService/FirmwareInventory
+    FirmwareInventory,
+    /// Managers from Redfish Managers collection
+    Managers,
+    /// ComputerSystems from Redfish Systems collection
+    Systems,
+    /// Chassis from Redfish Chassis collection
+    Chassis,
+}
+
 /// Data that we gathered about a particular endpoint during site exploration
 /// This data is stored as JSON in the Database. Therefore the format can
 /// only be adjusted in a backward compatible fashion.
@@ -67,6 +82,10 @@ pub struct EndpointExplorationReport {
     /// `Service` reported by Redfish
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub service: Vec<Service>,
+    /// Timestamps for when each exploration component was last fetched.
+    /// Used for component-level caching of expensive Redfish endpoints.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub component_fetch_times: HashMap<ExplorationComponent, DateTime<Utc>>,
     /// If the endpoint is a BMC that belongs to a Machine and enough data is
     /// available to calculate the `MachineId`, this field contains the `MachineId`
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -718,6 +737,7 @@ impl EndpointExplorationReport {
             systems: Vec::new(),
             chassis: Vec::new(),
             service: Vec::new(),
+            component_fetch_times: HashMap::new(),
             vendor: None,
             machine_id: None,
             versions: HashMap::default(),
@@ -2078,6 +2098,7 @@ mod tests {
                     inventories: vec![],
                 },
             ],
+            component_fetch_times: HashMap::new(),
             machine_id: None,
             versions: HashMap::default(),
             model: None,
@@ -2148,6 +2169,7 @@ mod tests {
                     inventories: vec![],
                 },
             ],
+            component_fetch_times: HashMap::new(),
             machine_id: None,
             versions: HashMap::default(),
             model: None,

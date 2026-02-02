@@ -14,6 +14,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use chrono::{Duration, Utc};
 use forge_network::deserialize_input_mac_to_address;
 use forge_secrets::credentials::Credentials;
 use libredfish::model::oem::nvidia_dpu::NicMode;
@@ -23,8 +24,9 @@ use mac_address::MacAddress;
 use model::site_explorer::{
     BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
     EndpointExplorationError, EndpointExplorationReport, EndpointType, EthernetInterface,
-    InternalLockdownStatus, Inventory, LockdownStatus, MachineSetupDiff, MachineSetupStatus,
-    Manager, NetworkAdapter, PCIeDevice, SecureBootStatus, Service, UefiDevicePath,
+    ExplorationComponent, InternalLockdownStatus, Inventory, LockdownStatus, MachineSetupDiff,
+    MachineSetupStatus, Manager, NetworkAdapter, PCIeDevice, SecureBootStatus, Service,
+    UefiDevicePath,
 };
 use regex::Regex;
 
@@ -238,6 +240,9 @@ impl RedfishClient {
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
         boot_interface_mac: Option<MacAddress>,
+        previous_report: Option<&EndpointExplorationReport>,
+        cache_intervals: &HashMap<ExplorationComponent, Duration>,
+        exploration_requested: bool,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let client = self
             .create_authenticated_redfish_client(bmc_ip_address, credentials)
@@ -246,21 +251,81 @@ impl RedfishClient {
 
         let service_root = client.get_service_root().await.map_err(map_redfish_error)?;
         let vendor = service_root.vendor().map(|v| v.into());
+        let now = Utc::now();
 
-        let manager = fetch_manager(client.as_ref())
-            .await
-            .map_err(map_redfish_error)?;
-        let system = fetch_system(client.as_ref()).await?;
+        // Check if cache is valid for a component
+        let is_cache_valid = |component: ExplorationComponent| -> bool {
+            if exploration_requested {
+                return false;
+            }
+            let interval = cache_intervals.get(&component).copied().unwrap_or_default();
+            if interval <= Duration::zero() {
+                return false;
+            }
+            previous_report
+                .and_then(|p| p.component_fetch_times.get(&component))
+                .is_some_and(|t| now.signed_duration_since(*t) < interval)
+        };
 
-        // TODO (spyda): once we test the BMC reset logic, we can enhance our logic here
-        // to detect cases where the host's BMC is returning invalid (empty) chassis information, even though
-        // an error is not returned.
-        let chassis = fetch_chassis(client.as_ref())
-            .await
-            .map_err(map_redfish_error)?;
-        let service = fetch_service(client.as_ref())
-            .await
-            .map_err(map_redfish_error)?;
+        let mut component_fetch_times = HashMap::new();
+
+        // Handle cache-or-fetch pattern
+        macro_rules! fetch_with_cache {
+            ($component:expr, $field:ident, $has_data:expr, $fetch:expr) => {{
+                let component = $component;
+                let use_cache =
+                    is_cache_valid(component) && previous_report.map_or(false, $has_data);
+                if use_cache {
+                    let p = previous_report.unwrap();
+                    component_fetch_times.insert(
+                        component,
+                        p.component_fetch_times
+                            .get(&component)
+                            .copied()
+                            .unwrap_or(now),
+                    );
+                    Ok(p.$field.clone())
+                } else {
+                    component_fetch_times.insert(component, now);
+                    $fetch
+                }
+            }};
+        }
+
+        let managers = fetch_with_cache!(
+            ExplorationComponent::Managers,
+            managers,
+            |p: &EndpointExplorationReport| !p.managers.is_empty(),
+            fetch_manager(client.as_ref())
+                .await
+                .map_err(map_redfish_error)
+        )?;
+
+        let systems = fetch_with_cache!(
+            ExplorationComponent::Systems,
+            systems,
+            |p: &EndpointExplorationReport| !p.systems.is_empty(),
+            fetch_system(client.as_ref()).await
+        )?;
+
+        let chassis = fetch_with_cache!(
+            ExplorationComponent::Chassis,
+            chassis,
+            |p: &EndpointExplorationReport| !p.chassis.is_empty(),
+            fetch_chassis(client.as_ref())
+                .await
+                .map_err(map_redfish_error)
+        )?;
+
+        let service = fetch_with_cache!(
+            ExplorationComponent::FirmwareInventory,
+            service,
+            |p: &EndpointExplorationReport| !p.service.is_empty(),
+            fetch_service(client.as_ref())
+                .await
+                .map_err(map_redfish_error)
+        )?;
+
         let machine_setup_status = fetch_machine_setup_status(client.as_ref(), boot_interface_mac)
             .await
             .inspect_err(|error| tracing::warn!(%error, "Failed to fetch machine setup status."))
@@ -287,10 +352,11 @@ impl RedfishClient {
             last_exploration_error: None,
             last_exploration_latency: None,
             machine_id: None,
-            managers: vec![manager],
-            systems: vec![system],
+            managers,
+            systems,
             chassis,
             service,
+            component_fetch_times,
             vendor,
             versions: HashMap::default(),
             model: None,
@@ -593,7 +659,7 @@ async fn is_powershelf(client: &dyn Redfish) -> Result<bool, RedfishError> {
     Ok(chassis.contains(&"powershelf".to_string()))
 }
 
-async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
+async fn fetch_manager(client: &dyn Redfish) -> Result<Vec<Manager>, RedfishError> {
     let manager = client.get_manager().await?;
     let ethernet_interfaces = fetch_ethernet_interfaces(client, false, false)
         .await
@@ -602,13 +668,15 @@ async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
             _ => Err(err),
         })?;
 
-    Ok(Manager {
+    Ok(vec![Manager {
         ethernet_interfaces,
         id: manager.id,
-    })
+    }])
 }
 
-async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointExplorationError> {
+async fn fetch_system(
+    client: &dyn Redfish,
+) -> Result<Vec<ComputerSystem>, EndpointExplorationError> {
     let mut system = client.get_system().await.map_err(map_redfish_error)?;
     let is_dpu = system.id.to_lowercase().contains("bluefield");
     let ethernet_interfaces = match fetch_ethernet_interfaces(client, true, is_dpu).await {
@@ -682,7 +750,7 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
             .ok(),
     };
 
-    Ok(ComputerSystem {
+    Ok(vec![ComputerSystem {
         ethernet_interfaces,
         id: system.id,
         manufacturer: system.manufacturer,
@@ -697,7 +765,7 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
         power_state: system.power_state.into(),
         sku: system.sku,
         boot_order,
-    })
+    }])
 }
 
 async fn fetch_ethernet_interfaces(

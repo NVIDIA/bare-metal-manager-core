@@ -469,6 +469,7 @@ pub(crate) async fn explore(
             expected_switch,
             None,
             boot_interface_mac,
+            true, // exploration_requested: bypass cache for direct API calls
         )
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;

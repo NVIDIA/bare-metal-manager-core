@@ -109,6 +109,7 @@ fn build_exploration_report(
                 release_date: None,
             }],
         }],
+        component_fetch_times: HashMap::new(),
         machine_id,
         versions: HashMap::default(),
         model: None,

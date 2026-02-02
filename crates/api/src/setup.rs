@@ -352,6 +352,7 @@ pub async fn start_api(
             .site_explorer
             .rotate_switch_nvos_credentials
             .clone(),
+        carbide_config.site_explorer.cache_intervals.clone(),
     ));
 
     let nvlink_config = carbide_config.nvlink_config.clone().unwrap_or_default();

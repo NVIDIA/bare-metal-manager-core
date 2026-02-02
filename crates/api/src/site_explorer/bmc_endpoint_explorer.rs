@@ -10,10 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use chrono::Duration as ChronoDuration;
 use forge_secrets::credentials::{CredentialProvider, Credentials};
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
@@ -22,7 +24,9 @@ use model::expected_machine::ExpectedMachine;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::expected_switch::ExpectedSwitch;
 use model::machine::MachineInterfaceSnapshot;
-use model::site_explorer::{EndpointExplorationError, EndpointExplorationReport, LockdownStatus};
+use model::site_explorer::{
+    EndpointExplorationError, EndpointExplorationReport, ExplorationComponent, LockdownStatus,
+};
 use tokio::fs::{self, File};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
@@ -46,6 +50,7 @@ pub struct BmcEndpointExplorer {
     credential_client: CredentialClient,
     mutex: Arc<Mutex<()>>,
     rotate_switch_nvos_credentials: Arc<AtomicBool>,
+    cache_intervals: HashMap<ExplorationComponent, ChronoDuration>,
 }
 
 impl BmcEndpointExplorer {
@@ -54,6 +59,7 @@ impl BmcEndpointExplorer {
         ipmi_tool: Arc<dyn IPMITool>,
         credential_provider: Arc<dyn CredentialProvider>,
         rotate_switch_nvos_credentials: Arc<AtomicBool>,
+        cache_intervals: HashMap<ExplorationComponent, ChronoDuration>,
     ) -> Self {
         Self {
             redfish_client: RedfishClient::new(redfish_client_pool),
@@ -61,6 +67,7 @@ impl BmcEndpointExplorer {
             credential_client: CredentialClient::new(credential_provider),
             mutex: Arc::new(Mutex::new(())),
             rotate_switch_nvos_credentials,
+            cache_intervals,
         }
     }
 
@@ -153,9 +160,19 @@ impl BmcEndpointExplorer {
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
         boot_interface_mac: Option<MacAddress>,
+        previous_report: Option<&EndpointExplorationReport>,
+        cache_intervals: &HashMap<ExplorationComponent, ChronoDuration>,
+        exploration_requested: bool,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         self.redfish_client
-            .generate_exploration_report(bmc_ip_address, credentials, boot_interface_mac)
+            .generate_exploration_report(
+                bmc_ip_address,
+                credentials,
+                boot_interface_mac,
+                previous_report,
+                cache_intervals,
+                exploration_requested,
+            )
             .await
     }
 
@@ -248,8 +265,15 @@ impl BmcEndpointExplorer {
         self.set_bmc_root_credentials(bmc_mac_address, &bmc_credentials)
             .await?;
 
-        self.generate_exploration_report(bmc_ip_address, bmc_credentials, None)
-            .await
+        self.generate_exploration_report(
+            bmc_ip_address,
+            bmc_credentials,
+            None,
+            None,
+            &self.cache_intervals,
+            true, // exploration_requested: fresh data after credential change
+        )
+        .await
     }
 
     // Handle switch NVOS admin credentials setup
@@ -631,6 +655,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
         expected_switch: Option<ExpectedSwitch>,
         last_report: Option<&EndpointExplorationReport>,
         boot_interface_mac: Option<MacAddress>,
+        exploration_requested: bool,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         // If the site explorer was previously unable to login to the root BMC account using
         // the expected credentials, wait for an operator to manually intervene.
@@ -674,17 +699,24 @@ impl EndpointExplorer for BmcEndpointExplorer {
         let report = match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
                 match self
-                    .generate_exploration_report(bmc_ip_address, credentials, boot_interface_mac)
+                    .generate_exploration_report(
+                        bmc_ip_address,
+                        credentials,
+                        boot_interface_mac,
+                        last_report,
+                        &self.cache_intervals,
+                        exploration_requested,
+                    )
                     .await
                 {
                     Ok(report) => report,
-                    // BMCs (HPEs currently) can return intermittent 401 errors even with valid credentials.
+                    // BMCs (HPE and AMI/Viking) can return intermittent 401 errors even with valid credentials.
                     // Allow up to MAX_AUTH_RETRIES before escalating to regular Unauthorized.
                     Err(EndpointExplorationError::Unauthorized {
                         details,
                         response_body,
                         response_code,
-                    }) if vendor == RedfishVendor::Hpe => {
+                    }) if vendor == RedfishVendor::Hpe || vendor == RedfishVendor::AMI => {
                         const MAX_AUTH_RETRIES: u32 = 3;
 
                         let previous_count = last_report

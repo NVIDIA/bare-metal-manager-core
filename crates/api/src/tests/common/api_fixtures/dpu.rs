@@ -12,6 +12,7 @@
 
 //! Contains DPU related fixtures
 
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -241,6 +242,7 @@ impl From<DpuConfig> for EndpointExplorationReport {
                     },
                 ],
             }],
+            component_fetch_times: HashMap::new(),
             versions: Default::default(),
             model: None,
             machine_setup_status: None,
