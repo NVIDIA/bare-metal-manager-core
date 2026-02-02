@@ -78,8 +78,8 @@ impl EndpointExplorer for MockEndpointExplorer {
         bmc_ip_address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
         _expected: Option<&ExpectedMachine>,
-        _expected_power_shelf: Option<ExpectedPowerShelf>,
-        _expected_switch: Option<ExpectedSwitch>,
+        _expected_power_shelf: Option<&ExpectedPowerShelf>,
+        _expected_switch: Option<&ExpectedSwitch>,
         _last_report: Option<&EndpointExplorationReport>,
         _boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {

@@ -139,7 +139,10 @@ pub async fn get_sku_ids(txn: &mut PgConnection) -> Result<Vec<String>, Database
     Ok(skus.into_iter().map(|v| v.0).collect())
 }
 
-pub async fn find(txn: &mut PgConnection, sku_ids: &[String]) -> Result<Vec<Sku>, DatabaseError> {
+pub async fn find(
+    txn: &mut PgConnection,
+    sku_ids: &[impl AsRef<str>],
+) -> Result<Vec<Sku>, DatabaseError> {
     if sku_ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -147,7 +150,7 @@ pub async fn find(txn: &mut PgConnection, sku_ids: &[String]) -> Result<Vec<Sku>
     let query = "SELECT * FROM machine_skus WHERE id=ANY($1)";
 
     let skus: Vec<Sku> = sqlx::query_as(query)
-        .bind(sku_ids)
+        .bind(sku_ids.iter().map(AsRef::as_ref).collect::<Vec<_>>())
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new("find skus", e))?;

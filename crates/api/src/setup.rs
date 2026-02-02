@@ -231,7 +231,7 @@ pub async fn start_api(
         Some(url) if !url.is_empty() => {
             let rms_client_pool = RmsClientPool::new(&url);
             let shared_rms_client = rms_client_pool.create_client().await;
-            Some(Arc::new(shared_rms_client))
+            Some(shared_rms_client)
         }
         _ => None,
     };

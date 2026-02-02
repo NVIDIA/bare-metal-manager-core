@@ -10,9 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::sync::Arc;
-
 use carbide_uuid::rack::RackId;
+use mac_address::MacAddress;
 use rpc::protos::rack_manager::NewNodeInfo;
 
 use crate::CarbideError;
@@ -20,18 +19,18 @@ use crate::rack::rms_client::{RmsApi, RmsNodeType};
 
 // Helper function to add a node to the Rack Manager
 pub async fn add_node_to_rms(
-    rms_client: Arc<Box<dyn RmsApi>>,
+    rms_client: &dyn RmsApi,
     rack_id: RackId,
     node_id: String,
     ip_address: String,
     port: i32,
-    mac_address: String,
+    mac_address: MacAddress,
     node_type: RmsNodeType,
 ) -> Result<(), CarbideError> {
     let new_node_info = NewNodeInfo {
         rack_id: rack_id.to_string(),
         node_id,
-        mac_address,
+        mac_address: mac_address.to_string(),
         ip_address,
         port,
         username: None,

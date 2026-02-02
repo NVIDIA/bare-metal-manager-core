@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::sync::Arc;
 
 use carbide_uuid::rack::RackId;
 use forge_tls::rms_client_config::{rms_client_cert_info, rms_root_ca_path};
@@ -58,26 +59,27 @@ pub enum RackManagerError {
      */
 }
 
+#[derive(Clone)]
 pub struct RmsClientPool {
-    pub client: RackManagerApi,
+    pub client: Arc<RackManagerApi>,
 }
 
 impl RmsClientPool {
     pub fn new(rms_api_url: &str) -> Self {
-        let client = RackManagerApi::new(None, None, None, rms_api_url);
+        let client = RackManagerApi::new(None, None, None, rms_api_url).into();
         Self { client }
     }
 }
 
 #[async_trait::async_trait]
 pub trait RackManagerClientPool: Send + Sync + 'static {
-    async fn create_client(self) -> Box<dyn RmsApi>;
+    async fn create_client(&self) -> Arc<dyn RmsApi>;
 }
 
 #[async_trait::async_trait]
 impl RackManagerClientPool for RmsClientPool {
-    async fn create_client(self) -> Box<dyn RmsApi> {
-        self.client.build().await
+    async fn create_client(&self) -> Arc<dyn RmsApi> {
+        self.client.clone()
     }
 }
 
@@ -116,7 +118,6 @@ impl RackManagerApi {
 #[allow(clippy::too_many_arguments, dead_code)]
 #[async_trait::async_trait]
 pub trait RmsApi: Send + Sync + 'static {
-    async fn build(&self) -> Box<dyn RmsApi>;
     async fn inventory_get(
         &self,
     ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError>;
@@ -217,18 +218,6 @@ pub trait RmsApi: Send + Sync + 'static {
 
 #[async_trait::async_trait]
 impl RmsApi for RackManagerApi {
-    async fn build(&self) -> Box<dyn RmsApi> {
-        /*
-        // Test the connection now, so that we don't do it N times in N different workers.
-        self.client
-            .connection()
-            .await
-            .map_err(RackManagerError::from)?;
-            // returning an error will require having a sim client with a no error build
-        */
-        Box::new(self.clone())
-    }
-
     async fn inventory_get(
         &self,
     ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError> {
@@ -673,8 +662,8 @@ pub mod test_support {
 
     impl RmsSim {
         /// Convert RmsSim to the type expected by Api and StateHandlerServices
-        pub fn as_rms_client(&self) -> Option<Arc<Box<dyn RmsApi>>> {
-            Some(Arc::new(Box::new(MockRmsClient) as Box<dyn RmsApi>))
+        pub fn as_rms_client(&self) -> Option<Arc<dyn RmsApi>> {
+            Some(Arc::new(MockRmsClient))
         }
     }
 
@@ -683,10 +672,6 @@ pub mod test_support {
 
     #[async_trait::async_trait]
     impl RmsApi for MockRmsClient {
-        async fn build(&self) -> Box<dyn RmsApi> {
-            Box::new(self.clone())
-        }
-
         async fn inventory_get(
             &self,
         ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError> {

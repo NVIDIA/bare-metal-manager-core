@@ -48,5 +48,5 @@ pub struct CommonStateHandlerServices {
     /// Rack Manager Service client
     /// Optional for now, but will be required in the future.
     #[allow(dead_code)]
-    pub rms_client: Option<Arc<Box<dyn RmsApi>>>,
+    pub rms_client: Option<Arc<dyn RmsApi>>,
 }

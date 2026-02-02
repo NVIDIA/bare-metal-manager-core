@@ -3589,7 +3589,7 @@ async fn test_site_explorer_creates_power_shelf(
             .create_power_shelf(
                 explored_endpoint.clone(),
                 exploration_report.clone(),
-                Some(&expected_power_shelf),
+                &expected_power_shelf,
                 &env.pool,
             )
             .await?
@@ -3618,7 +3618,7 @@ async fn test_site_explorer_creates_power_shelf(
             .create_power_shelf(
                 explored_endpoint,
                 exploration_report,
-                Some(&expected_power_shelf),
+                &expected_power_shelf,
                 &env.pool,
             )
             .await?
@@ -3829,7 +3829,7 @@ async fn test_power_shelf_state_history(
             .create_power_shelf(
                 explored_endpoint.clone(),
                 exploration_report.clone(),
-                Some(&expected_power_shelf),
+                &expected_power_shelf,
                 &env.pool,
             )
             .await?
@@ -4110,7 +4110,7 @@ async fn test_power_shelf_state_history_multiple(
             .create_power_shelf(
                 explored_endpoint1.clone(),
                 exploration_report1.clone(),
-                Some(&expected_power_shelf1),
+                &expected_power_shelf1,
                 &env.pool,
             )
             .await?
@@ -4121,7 +4121,7 @@ async fn test_power_shelf_state_history_multiple(
             .create_power_shelf(
                 explored_endpoint2.clone(),
                 exploration_report2.clone(),
-                Some(&expected_power_shelf2),
+                &expected_power_shelf2,
                 &env.pool,
             )
             .await?
@@ -4344,7 +4344,7 @@ async fn test_power_shelf_state_history_error_handling(
             .create_power_shelf(
                 explored_endpoint.clone(),
                 exploration_report.clone(),
-                Some(&expected_power_shelf),
+                &expected_power_shelf,
                 &env.pool,
             )
             .await?

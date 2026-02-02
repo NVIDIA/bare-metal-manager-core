@@ -465,8 +465,8 @@ pub(crate) async fn explore(
             bmc_addr,
             &machine_interface,
             expected_machine.as_ref(),
-            expected_power_shelf,
-            expected_switch,
+            expected_power_shelf.as_ref(),
+            expected_switch.as_ref(),
             None,
             boot_interface_mac,
         )

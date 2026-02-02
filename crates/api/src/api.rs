@@ -66,7 +66,7 @@ pub struct Api {
     pub(crate) endpoint_explorer: Arc<dyn EndpointExplorer>,
     pub(crate) scout_stream_registry: ConnectionRegistry,
     #[allow(unused)]
-    pub(crate) rms_client: Option<Arc<Box<dyn RmsApi>>>,
+    pub(crate) rms_client: Option<Arc<dyn RmsApi>>,
     pub(crate) nmxm_pool: Arc<dyn NmxmClientPool>,
     pub(crate) work_lock_manager_handle: WorkLockManagerHandle,
     pub(crate) kube_client_provider: Arc<dyn KubeImpl>,
