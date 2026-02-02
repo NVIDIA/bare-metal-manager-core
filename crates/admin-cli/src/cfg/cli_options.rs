@@ -9,9 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::path::PathBuf;
-
-use carbide_uuid::rack::RackId;
 use clap::{Parser, ValueEnum, ValueHint};
 use rpc::admin_cli::OutputFormat;
 
@@ -22,9 +19,9 @@ use crate::{
     generate_shell_complete, host, ib_partition, instance, instance_type, inventory, ip, jump,
     machine, machine_interfaces, machine_validation, managed_host, mlx, network_devices,
     network_security_group, network_segment, nvl_logical_partition, nvl_partition, os_image, ping,
-    power_shelf, rack, redfish, resource_pool, rms, route_server, scout_stream, set, site_explorer,
-    sku, ssh, switch, tenant, tenant_keyset, tpm_ca, trim_table, version, vpc, vpc_peering,
-    vpc_prefix,
+    power_shelf, rack, rack_firmware, redfish, resource_pool, rms, route_server, scout_stream, set,
+    site_explorer, sku, ssh, switch, tenant, tenant_keyset, tpm_ca, trim_table, version, vpc,
+    vpc_peering, vpc_prefix,
 };
 
 #[derive(Parser, Debug)]
@@ -279,7 +276,7 @@ pub enum CliCommand {
         subcommand,
         visible_alias = "rack-fw"
     )]
-    RackFirmware(RackFirmwareActions),
+    RackFirmware(rack_firmware::Cmd),
 
     #[clap(about = "Rms Actions", subcommand)]
     Rms(rms::Cmd),
@@ -333,62 +330,4 @@ impl CliOptions {
     pub fn load() -> Self {
         Self::parse()
     }
-}
-
-// Rack Firmware Management
-
-#[derive(Parser, Debug)]
-pub enum RackFirmwareActions {
-    #[clap(about = "Create a new Rack firmware configuration from JSON file")]
-    Create(RackFirmwareCreate),
-
-    #[clap(about = "Get a Rack firmware configuration by ID")]
-    Get(RackFirmwareGet),
-
-    #[clap(about = "List all Rack firmware configurations")]
-    List(RackFirmwareList),
-
-    #[clap(about = "Delete a Rack firmware configuration")]
-    Delete(RackFirmwareDelete),
-
-    #[clap(about = "Apply firmware to all devices in a rack")]
-    Apply(RackFirmwareApply),
-}
-
-#[derive(Parser, Debug)]
-pub struct RackFirmwareCreate {
-    #[clap(help = "Path to JSON configuration file")]
-    pub json_file: PathBuf,
-    #[clap(help = "Artifactory token for downloading firmware files")]
-    pub artifactory_token: String,
-}
-
-#[derive(Parser, Debug)]
-pub struct RackFirmwareGet {
-    #[clap(help = "ID of the configuration to retrieve")]
-    pub id: String,
-}
-
-#[derive(Parser, Debug)]
-pub struct RackFirmwareList {
-    #[clap(long, help = "Show only available configurations")]
-    pub only_available: bool,
-}
-
-#[derive(Parser, Debug)]
-pub struct RackFirmwareDelete {
-    #[clap(help = "ID of the configuration to delete")]
-    pub id: String,
-}
-
-#[derive(Parser, Debug)]
-pub struct RackFirmwareApply {
-    #[clap(help = "Rack ID to apply firmware to")]
-    pub rack_id: RackId,
-
-    #[clap(help = "Firmware configuration ID to apply")]
-    pub firmware_id: String,
-
-    #[clap(help = "Firmware type: dev or prod", value_parser = ["dev", "prod"])]
-    pub firmware_type: String,
 }
