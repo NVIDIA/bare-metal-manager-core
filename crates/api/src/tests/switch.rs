@@ -637,7 +637,7 @@ async fn test_find_switch_with_ip_addresses_matching_data(
     };
 
     // Insert explored_endpoint
-    db_explored_endpoints::insert(switch_ip, &exploration_report, &mut txn).await?;
+    db_explored_endpoints::insert(switch_ip, &exploration_report, false, &mut txn).await?;
 
     txn.commit().await?;
 

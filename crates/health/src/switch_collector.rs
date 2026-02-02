@@ -12,7 +12,7 @@
 
 //! This module collects metrics from NMX-T telemetry endpoints on the NVLink switches.
 //! Currently scraping for:
-//! - Effective BER 
+//! - Effective BER
 //! - Symbol Errors
 //! - Link Down counter
 
@@ -29,7 +29,7 @@ use crate::config::{Configurable, SwitchCollectorConfig};
 /// default NMX-T port
 const NMXT_PORT: u16 = 9352;
 
-/// NMX-T endpoint 
+/// NMX-T endpoint
 const NMXT_ENDPOINT: &str = "/xcset/nvlink_domain_telemetry";
 
 /// Prometheus text -> NmxtMetricSample
