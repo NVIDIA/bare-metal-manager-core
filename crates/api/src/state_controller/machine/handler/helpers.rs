@@ -17,7 +17,7 @@ use model::machine::{
     DpfState, DpuDiscoveringState, DpuDiscoveringStates, DpuInitNextStateResolver, DpuInitState,
     DpuInitStates, DpuReprovisionStates, HostReprovisionState, InstallDpuOsState,
     InstanceNextStateResolver, InstanceState, Machine, MachineNextStateResolver, MachineState,
-    ManagedHostState, ManagedHostStateSnapshot, ReprovisioingPhase, ReprovisionState,
+    ManagedHostState, ManagedHostStateSnapshot, ReprovisionState, ReprovisioningPhase,
 };
 
 use crate::state_controller::state_handler::StateHandlerError;
@@ -124,8 +124,8 @@ pub trait NextState {
                         all_machine_ids,
                     )
                 }
-                DpfState::TriggerReprovisioing {
-                    phase: ReprovisioingPhase::WaitingForAllDpusUnderReprovisioingToBeDeleted,
+                DpfState::TriggerReprovisioning {
+                    phase: ReprovisioningPhase::WaitingForAllDpusUnderReprovisioningToBeDeleted,
                 } => ReprovisionState::DpfStates {
                     substate: DpfState::UpdateNodeEffectAnnotation,
                 }
