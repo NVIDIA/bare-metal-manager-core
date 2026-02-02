@@ -251,7 +251,7 @@ impl ApiClientWrapper {
         let request = rpc::forge::SwitchQuery {
             name: None,
             switch_id: None,
-            include_ip_addresses: true,
+            include_addresses: Some(true),
         };
 
         let response = self
