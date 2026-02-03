@@ -82,9 +82,7 @@ use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_segment::NetworkSegmentType;
 
 use self::metrics::{PairingBlockerReason, exploration_error_to_metric_label};
-use crate::site_explorer::explored_endpoint_index::{
-    ExploredEndpointIndex, ExploredEndpointIndexBuilder,
-};
+use crate::site_explorer::explored_endpoint_index::ExploredEndpointIndex;
 
 #[derive(Debug)]
 pub struct Endpoint<'a> {
@@ -574,7 +572,7 @@ impl SiteExplorer {
                 .create_power_shelf(
                     endpoint,
                     report,
-                    &expected_power_shelf,
+                    expected_power_shelf,
                     &self.database_connection,
                 )
                 .await
@@ -1424,11 +1422,7 @@ impl SiteExplorer {
             .iter()
             .filter_map(|em| em.data.sku_id.as_deref())
             .collect();
-        let skus = if !sku_ids.is_empty() {
-            db::sku::find(&mut txn, &sku_ids).await?
-        } else {
-            Vec::new()
-        };
+        let skus = db::sku::find(&mut txn, &sku_ids).await?;
 
         txn.commit().await?;
 
@@ -1652,7 +1646,7 @@ impl SiteExplorer {
                     let mut result = endpoint_explorer
                         .explore_endpoint(
                             bmc_target_addr,
-                            &endpoint.iface,
+                            endpoint.iface,
                             endpoint.expected,
                             endpoint.expected_power_shelf,
                             endpoint.expected_switch,
@@ -1931,7 +1925,7 @@ impl SiteExplorer {
         // If site explorer cant log in, theres nothing we can do.
         if !self
             .endpoint_explorer
-            .have_credentials(&endpoint.iface)
+            .have_credentials(endpoint.iface)
             .await
         {
             return;
@@ -2063,7 +2057,7 @@ impl SiteExplorer {
         let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
         match self
             .endpoint_explorer
-            .ipmitool_reset_bmc(bmc_target_addr, &endpoint.iface)
+            .ipmitool_reset_bmc(bmc_target_addr, endpoint.iface)
             .await
         {
             Ok(_) => {
@@ -2092,7 +2086,7 @@ impl SiteExplorer {
         let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
         match self
             .endpoint_explorer
-            .redfish_reset_bmc(bmc_target_addr, &endpoint.iface)
+            .redfish_reset_bmc(bmc_target_addr, endpoint.iface)
             .await
         {
             Ok(_) => {
@@ -2117,7 +2111,7 @@ impl SiteExplorer {
         let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
         match self
             .endpoint_explorer
-            .is_viking(bmc_target_addr, &endpoint.iface)
+            .is_viking(bmc_target_addr, endpoint.iface)
             .await
         {
             Ok(is_viking) => is_viking,
@@ -2136,7 +2130,7 @@ impl SiteExplorer {
         let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
 
         self.endpoint_explorer
-            .clear_nvram(bmc_target_addr, &endpoint.iface)
+            .clear_nvram(bmc_target_addr, endpoint.iface)
             .await
             .map_err(|err| {
                 CarbideError::internal(format!(
@@ -2159,7 +2153,7 @@ impl SiteExplorer {
             .endpoint_explorer
             .redfish_power_control(
                 bmc_target_addr,
-                &endpoint.iface,
+                endpoint.iface,
                 libredfish::SystemPowerControl::ForceRestart,
             )
             .await

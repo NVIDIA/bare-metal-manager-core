@@ -37,12 +37,12 @@ impl ExploredEndpointIndex {
         &self.explored_endpoints
     }
 
-    /// Get a HashMap of explored endpoints, indexed by their MAC address
+    /// Get a HashMap of expected machines, indexed by their MAC address
     pub fn expected_machines(&self) -> &HashMap<MacAddress, ExpectedMachine> {
         &self.expected_machines
     }
 
-    /// Get the underlay interface from `eexplored_underlay_interfaces` with the given address.
+    /// Get the underlay interface from `explored_underlay_interfaces` with the given address.
     pub fn underlay_interface(&self, addr: &IpAddr) -> Option<&MachineInterfaceSnapshot> {
         self.underlay_interfaces_addr_index
             .get(addr)
@@ -137,8 +137,8 @@ impl ExploredEndpointIndexBuilder {
                 .collect();
         let underlay_interfaces_addr_index: HashMap<IpAddr, MacAddress> =
             explored_underlay_interfaces
-                .iter()
-                .flat_map(|(_mac, iface)| {
+                .values()
+                .flat_map(|iface| {
                     iface
                         .addresses
                         .iter()

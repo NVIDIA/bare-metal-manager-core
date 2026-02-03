@@ -738,7 +738,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     vendor,
                     expected_machine,
                     expected_power_shelf,
-                    expected_switch.clone(),
+                    expected_switch,
                 )
                 .await?
             }

@@ -73,12 +73,7 @@ impl MachineCreator {
                 expected_explored_endpoint_index.matched_expected_machine(&host.host_bmc_ip);
 
             match self
-                .create_managed_host(
-                    host,
-                    report,
-                    expected_machine.as_deref(),
-                    &self.database_connection,
-                )
+                .create_managed_host(host, report, expected_machine, &self.database_connection)
                 .await
             {
                 Ok(true) => {
