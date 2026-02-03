@@ -16,6 +16,7 @@ use std::fs;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::site_explorer::ExploredManagedHost;
 use ::rpc::{InstanceList, MachineList};
+use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
@@ -44,70 +45,69 @@ use crate::rpc::ApiClient;
 //   ansible_host: IP Address
 //   BMC_IP: IP Address
 //
-type InstanceGroup = HashMap<&'static str, HashMap<String, Option<String>, RandomState>>;
+type InstanceGroup<'a> = HashMap<&'static str, HashMap<&'a str, Option<&'a str>, RandomState>>;
 
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
-enum TopYamlElement {
-    InstanceChildren(InstanceGroup),
-    Instance(HashMap<String, HashMap<String, InstanceDetails>>),
-    BmcHostInfo(HashMap<String, HashMap<String, BmcInfo>>),
-    HostMachineInfo(HashMap<String, HashMap<String, HostMachineInfo>>),
-    DpuMachineInfo(HashMap<String, HashMap<String, DpuMachineInfo>>),
+enum TopYamlElement<'a> {
+    InstanceChildren(InstanceGroup<'a>),
+    Instance(HashMap<String, HashMap<InstanceId, InstanceDetails<'a>>>),
+    BmcHostInfo(HashMap<String, HashMap<String, BmcInfo<'a>>>),
+    HostMachineInfo(HashMap<String, HashMap<&'a str, HostMachineInfo<'a>>>),
+    DpuMachineInfo(HashMap<String, HashMap<&'a str, DpuMachineInfo<'a>>>),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-struct BmcInfo {
-    ansible_host: String,
+struct BmcInfo<'a> {
+    ansible_host: &'a str,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    host_bmc_ip: Option<String>,
+    host_bmc_ip: Option<&'a str>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-struct HostMachineInfo {
-    ansible_host: String,
-    machine_id: String,
+struct HostMachineInfo<'a> {
+    ansible_host: &'a str,
+    machine_id: Option<MachineId>,
     // Deprecated field. Use all_dpu_machine_ids or primary_dpu_machine_id for primary dpu.
-    dpu_machine_id: String,
+    dpu_machine_id: Option<MachineId>,
     // Primary DPU
-    primary_dpu_machine_id: String,
-    all_dpu_machine_ids: Vec<String>,
+    primary_dpu_machine_id: Option<MachineId>,
+    all_dpu_machine_ids: Vec<MachineId>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-struct DpuMachineInfo {
-    ansible_host: String,
-    machine_id: String,
+struct DpuMachineInfo<'a> {
+    ansible_host: &'a str,
+    machine_id: Option<MachineId>,
 }
 
 /// Generate element containing all information needed to write a Machine Host.
-fn get_host_machine_info(machines: &[&::rpc::Machine]) -> HashMap<String, HostMachineInfo> {
-    let mut machine_element: HashMap<String, HostMachineInfo> = HashMap::new();
+fn get_host_machine_info<'a>(
+    machines: &'a [&'a ::rpc::Machine],
+) -> HashMap<&'a str, HostMachineInfo<'a>> {
+    let mut machine_element: HashMap<&'a str, HostMachineInfo> = HashMap::new();
 
     for machine in machines {
         let primary_interface = machine.interfaces.iter().find(|x| x.primary_interface);
 
         if let Some(primary_interface) = primary_interface {
-            let hostname = primary_interface.hostname.clone();
-            let address = primary_interface.address[0].clone();
-            let primary_dpu = primary_interface
-                .attached_dpu_machine_id
-                .unwrap_or_default()
-                .to_string();
+            let hostname = primary_interface.hostname.as_str();
+            let address = primary_interface.address[0].as_str();
+            let primary_dpu = primary_interface.attached_dpu_machine_id;
 
             machine_element.insert(
                 hostname,
                 HostMachineInfo {
                     ansible_host: address,
-                    machine_id: machine.id.unwrap_or_default().to_string(),
-                    dpu_machine_id: primary_dpu.clone(),
+                    machine_id: machine.id,
+                    dpu_machine_id: primary_dpu,
                     primary_dpu_machine_id: primary_dpu,
                     all_dpu_machine_ids: machine
                         .interfaces
                         .iter()
-                        .map(|x| x.attached_dpu_machine_id.unwrap_or_default().to_string())
-                        .collect::<Vec<String>>(),
+                        .filter_map(|x| x.attached_dpu_machine_id)
+                        .collect(),
                 },
             );
         } else {
@@ -122,21 +122,23 @@ fn get_host_machine_info(machines: &[&::rpc::Machine]) -> HashMap<String, HostMa
 }
 
 /// Generate element containing all information needed to write a Machine Host.
-fn get_dpu_machine_info(machines: &[&::rpc::Machine]) -> HashMap<String, DpuMachineInfo> {
-    let mut machine_element: HashMap<String, DpuMachineInfo> = HashMap::new();
+fn get_dpu_machine_info<'a>(
+    machines: &'a [&'a ::rpc::Machine],
+) -> HashMap<&'a str, DpuMachineInfo<'a>> {
+    let mut machine_element: HashMap<&'a str, DpuMachineInfo> = HashMap::new();
 
     for machine in machines {
         let primary_interface = machine.interfaces.iter().find(|x| x.primary_interface);
 
         if let Some(primary_interface) = primary_interface {
-            let hostname = primary_interface.hostname.clone();
-            let address = primary_interface.address[0].clone();
+            let hostname = primary_interface.hostname.as_str();
+            let address = primary_interface.address[0].as_str();
 
             machine_element.insert(
                 hostname,
                 DpuMachineInfo {
                     ansible_host: address,
-                    machine_id: machine.id.unwrap_or_default().to_string(),
+                    machine_id: machine.id,
                 },
             );
         }
@@ -146,27 +148,22 @@ fn get_dpu_machine_info(machines: &[&::rpc::Machine]) -> HashMap<String, DpuMach
 }
 
 /// Generate element containing all information needed to write a BMC Host.
-fn get_bmc_info(
-    machines: &[&::rpc::Machine],
-    managed_hosts: Vec<ExploredManagedHost>,
-) -> HashMap<String, BmcInfo> {
-    let mut bmc_element: HashMap<String, BmcInfo> = HashMap::new();
-    let mut known_ips: Vec<String> = Vec::new();
+fn get_bmc_info<'a>(
+    machines: &[&'a ::rpc::Machine],
+    managed_hosts: &'a [ExploredManagedHost],
+) -> HashMap<String, BmcInfo<'a>> {
+    let mut bmc_element: HashMap<String, BmcInfo<'a>> = HashMap::new();
+    let mut known_ips: Vec<&'a str> = Vec::new();
+    let mut managed_host_map: HashMap<&'a str, &'a str> = HashMap::new();
 
-    let mut managed_host_map: HashMap<String, String> = HashMap::new();
-
-    for managed_host in &managed_hosts {
+    for managed_host in managed_hosts {
         for dpu in &managed_host.dpus {
-            managed_host_map.insert(dpu.bmc_ip.clone(), managed_host.host_bmc_ip.clone());
+            managed_host_map.insert(dpu.bmc_ip.as_str(), managed_host.host_bmc_ip.as_str());
         }
     }
 
     for machine in machines {
-        let Some(bmc_ip) = machine.bmc_info.as_ref().map(|x| x.ip.clone()) else {
-            continue;
-        };
-
-        let Some(bmc_ip) = bmc_ip else {
+        let Some(bmc_ip) = machine.bmc_info.as_ref().and_then(|x| x.ip.as_deref()) else {
             continue;
         };
 
@@ -175,19 +172,18 @@ fn get_bmc_info(
             .iter()
             .find_map(|x| {
                 if x.primary_interface {
-                    Some(x.hostname.clone())
+                    Some(x.hostname.as_str())
                 } else {
                     None
                 }
             })
-            .unwrap_or("Not Found".to_string())
-            .clone();
+            .unwrap_or("Not Found");
 
         bmc_element.insert(
             format!("{hostname}-bmc"),
             BmcInfo {
-                ansible_host: bmc_ip.clone(),
-                host_bmc_ip: managed_host_map.get(&bmc_ip).cloned(),
+                ansible_host: bmc_ip,
+                host_bmc_ip: managed_host_map.get(&bmc_ip).copied(),
             },
         );
 
@@ -195,14 +191,14 @@ fn get_bmc_info(
     }
 
     for managed_host in managed_hosts {
-        for dpu in managed_host.dpus {
-            if !known_ips.contains(&dpu.bmc_ip) {
+        for dpu in &managed_host.dpus {
+            if !known_ips.contains(&dpu.bmc_ip.as_str()) {
                 // Found a undiscovered dpu bmc ip.
                 bmc_element.insert(
                     format!("{}-undiscovered-bmc", dpu.bmc_ip),
                     BmcInfo {
-                        ansible_host: dpu.bmc_ip.clone(),
-                        host_bmc_ip: Some(managed_host.host_bmc_ip.clone()),
+                        ansible_host: dpu.bmc_ip.as_str(),
+                        host_bmc_ip: Some(managed_host.host_bmc_ip.as_str()),
                     },
                 );
             }
@@ -232,11 +228,11 @@ pub async fn print_inventory(
         .get_all_instances(None, None, None, None, None, page_size)
         .await?;
 
-    let (instances, used_machine) = create_inventory_for_instances(all_instances, &all_machines)?;
+    let (instances, used_machine) = create_inventory_for_instances(&all_instances, &all_machines)?;
 
     let children: InstanceGroup = HashMap::from([(
         "children",
-        HashMap::from_iter(instances.keys().map(|x| (x.clone(), None))),
+        HashMap::from_iter(instances.keys().map(|x| (*x, None))),
     )]);
 
     let mut final_group: HashMap<String, TopYamlElement> = HashMap::from([(
@@ -247,13 +243,15 @@ pub async fn print_inventory(
     let site_report_managed_host = api_client.get_all_explored_managed_hosts(page_size).await?;
 
     for (key, value) in instances.into_iter() {
-        let mut ins_details: HashMap<String, InstanceDetails> = HashMap::new();
+        let mut ins_details: HashMap<InstanceId, InstanceDetails> = HashMap::new();
 
         for ins in value {
-            ins_details.insert(ins.instance_id.clone(), ins);
+            if let Some(instance_id) = ins.instance_id {
+                ins_details.insert(instance_id, ins);
+            }
         }
         final_group.insert(
-            key,
+            key.to_string(),
             TopYamlElement::Instance(HashMap::from([("hosts".to_string(), ins_details)])),
         );
     }
@@ -274,14 +272,14 @@ pub async fn print_inventory(
         "x86_host_bmcs".to_string(),
         TopYamlElement::BmcHostInfo(HashMap::from([(
             "hosts".to_string(),
-            get_bmc_info(&all_hosts, vec![]),
+            get_bmc_info(&all_hosts, &[]),
         )])),
     );
     final_group.insert(
         "dpu_bmcs".to_string(),
         TopYamlElement::BmcHostInfo(HashMap::from([(
             "hosts".to_string(),
-            get_bmc_info(&all_dpus, site_report_managed_host),
+            get_bmc_info(&all_dpus, &site_report_managed_host),
         )])),
     );
     let host_on_admin = all_hosts
@@ -314,27 +312,27 @@ pub async fn print_inventory(
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-struct InstanceDetails {
-    instance_id: String,
-    machine_id: String,
-    ansible_host: String,
-    bmc_ip: String,
+struct InstanceDetails<'a> {
+    instance_id: Option<InstanceId>,
+    machine_id: Option<MachineId>,
+    ansible_host: &'a str,
+    bmc_ip: &'a str,
 }
 
-type CreateInventoryReturnType = (
-    HashMap<String, Vec<InstanceDetails>>,
+type CreateInventoryReturnType<'a> = (
+    HashMap<&'a str, Vec<InstanceDetails<'a>>>,
     Vec<Option<MachineId>>,
 );
 
 /// Generate inventory item for instances.
-fn create_inventory_for_instances(
-    instances: InstanceList,
-    machines: &MachineList,
-) -> CarbideCliResult<CreateInventoryReturnType> {
-    let mut tenant_map: HashMap<String, Vec<InstanceDetails>> = HashMap::new();
+fn create_inventory_for_instances<'a>(
+    instances: &'a InstanceList,
+    machines: &'a MachineList,
+) -> CarbideCliResult<CreateInventoryReturnType<'a>> {
+    let mut tenant_map: HashMap<&'a str, Vec<InstanceDetails>> = HashMap::new();
     let mut used_machines = vec![];
 
-    for instance in instances.instances {
+    for instance in &instances.instances {
         let if_status = instance
             .status
             .as_ref()
@@ -345,7 +343,7 @@ fn create_inventory_for_instances(
         let physical_ip = if_status.iter().find_map(|x| {
             // For physical interface `virtual_function_id` is None.
             if x.virtual_function_id.is_none() {
-                x.addresses.first().map(|x| x.to_string())
+                x.addresses.first().map(String::as_str)
             } else {
                 None
             }
@@ -367,21 +365,22 @@ fn create_inventory_for_instances(
         let bmc_ip = machine
             .bmc_info
             .as_ref()
-            .map(|x| x.ip.clone().unwrap_or_default())
+            .and_then(|x| x.ip.as_deref())
             .unwrap_or_default();
 
         let details = InstanceDetails {
-            instance_id: instance.id.unwrap_or_default().to_string(),
-            machine_id: instance.machine_id.unwrap_or_default().to_string(),
+            instance_id: instance.id,
+            machine_id: instance.machine_id,
             ansible_host: physical_ip.unwrap_or_default(),
             bmc_ip,
         };
 
         let tenant = instance
             .config
-            .and_then(|x| x.tenant)
-            .map(|x| x.tenant_organization_id)
-            .unwrap_or("Unknown".to_string());
+            .as_ref()
+            .and_then(|x| x.tenant.as_ref())
+            .map(|x| x.tenant_organization_id.as_str())
+            .unwrap_or("Unknown");
 
         tenant_map.entry(tenant).or_default().push(details);
     }

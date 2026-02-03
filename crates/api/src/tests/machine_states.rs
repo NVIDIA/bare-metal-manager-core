@@ -59,9 +59,9 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
 
     assert!(matches!(dpu.current_state(), ManagedHostState::Ready));
 
-    let forge_machines_per_state = env.test_meter.parsed_metrics("forge_machines_per_state");
+    let carbide_machines_per_state = env.test_meter.parsed_metrics("carbide_machines_per_state");
 
-    assert!(forge_machines_per_state.contains(&(
+    assert!(carbide_machines_per_state.contains(&(
         "{fresh=\"true\",state=\"ready\",substate=\"\"}".to_string(),
         "2".to_string()
     )));
@@ -91,7 +91,7 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
 
     let states_entered = env
         .test_meter
-        .parsed_metrics("forge_machines_state_entered_total");
+        .parsed_metrics("carbide_machines_state_entered_total");
 
     for expected in expected_states_entered.iter() {
         let actual = states_entered
@@ -135,7 +135,7 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
 
     let states_exited = env
         .test_meter
-        .parsed_metrics("forge_machines_state_exited_total");
+        .parsed_metrics("carbide_machines_state_exited_total");
 
     for expected in expected_states_exited.iter() {
         let actual = states_exited
@@ -309,6 +309,7 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     // Ensure DPU network status is recorded
     mh.network_configured(&env).await;
 
+    env.run_machine_state_controller_iteration().await;
     let mut txn = env.db_txn().await;
 
     // create_dpu_machine runs record_dpu_network_status, so machine should be healthy
@@ -323,6 +324,34 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
             .is_empty()
     );
 
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("carbide_dpus_up_count{fresh=\"true\"}")
+            .unwrap(),
+        "1"
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("carbide_dpus_healthy_count{fresh=\"true\"}")
+            .unwrap(),
+        r#"1"#
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("carbide_dpu_health_check_failed_count"),
+        None
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("carbide_hosts_unhealthy_by_probe_id_count{fresh=\"true\",probe_id=\"HeartbeatTimeout\",probe_target=\"forge-dpu-agent\"}"),
+        None,
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("carbide_hosts_unhealthy_by_probe_id_count{fresh=\"true\",probe_id=\"HeartbeatTimeout\",probe_target=\"hardware-health\"}"),
+        None,
+    );
+
     // Tell state handler to mark DPU as unhealthy after 1 second
     let handler = MachineStateHandlerBuilder::builder()
         .dpu_up_threshold(chrono::Duration::seconds(1))
@@ -333,34 +362,6 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
         .build();
     env.override_machine_state_controller_handler(handler).await;
     env.run_machine_state_controller_iteration().await;
-
-    assert_eq!(
-        env.test_meter
-            .formatted_metric("forge_dpus_up_count{fresh=\"true\"}")
-            .unwrap(),
-        "1"
-    );
-    assert_eq!(
-        env.test_meter
-            .formatted_metric("forge_dpus_healthy_count{fresh=\"true\"}")
-            .unwrap(),
-        r#"1"#
-    );
-    assert_eq!(
-        env.test_meter
-            .formatted_metric("forge_dpu_health_check_failed_count"),
-        None
-    );
-    assert_eq!(
-        env.test_meter
-            .formatted_metric("forge_hosts_unhealthy_by_probe_id_count{fresh=\"true\",probe_id=\"HeartbeatTimeout\",probe_target=\"forge-dpu-agent\"}"),
-        None,
-    );
-    assert_eq!(
-        env.test_meter
-            .formatted_metric("forge_hosts_unhealthy_by_probe_id_count{fresh=\"true\",probe_id=\"HeartbeatTimeout\",probe_target=\"hardware-health\"}"),
-        None,
-    );
 
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
@@ -391,38 +392,38 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     // The up count reflects the heartbeat timeout.
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_dpus_up_count{fresh=\"true\"}")
+            .formatted_metric("carbide_dpus_up_count{fresh=\"true\"}")
             .unwrap(),
         "0"
     );
     // The report now says heartbeat timeout, which is unhealthy.
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_dpus_healthy_count{fresh=\"true\"}")
+            .formatted_metric("carbide_dpus_healthy_count{fresh=\"true\"}")
             .unwrap(),
         "0"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_dpu_health_check_failed_count{failure=\"HeartbeatTimeout [Target: forge-dpu-agent]\",fresh=\"true\",probe_id=\"HeartbeatTimeout\",probe_target=\"forge-dpu-agent\"}")
+            .formatted_metric("carbide_dpu_health_check_failed_count{failure=\"HeartbeatTimeout [Target: forge-dpu-agent]\",fresh=\"true\",probe_id=\"HeartbeatTimeout\",probe_target=\"forge-dpu-agent\"}")
             .unwrap(),
         "1"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_hosts_unhealthy_by_probe_id_count{fresh=\"true\",in_use=\"false\",probe_id=\"HeartbeatTimeout\",probe_target=\"forge-dpu-agent\"}")
+            .formatted_metric("carbide_hosts_unhealthy_by_probe_id_count{fresh=\"true\",in_use=\"false\",probe_id=\"HeartbeatTimeout\",probe_target=\"forge-dpu-agent\"}")
             .unwrap(),
         "1",
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_hosts_unhealthy_by_probe_id_count{fresh=\"true\",in_use=\"false\",probe_id=\"HeartbeatTimeout\",probe_target=\"hardware-health\"}"),
+            .formatted_metric("carbide_hosts_unhealthy_by_probe_id_count{fresh=\"true\",in_use=\"false\",probe_id=\"HeartbeatTimeout\",probe_target=\"hardware-health\"}"),
         None,
     );
     assert_eq!(
         env.test_meter
             .formatted_metric(
-                "forge_hosts_health_status_count{fresh=\"true\",healthy=\"false\",in_use=\"false\"}"
+                "carbide_hosts_health_status_count{fresh=\"true\",healthy=\"false\",in_use=\"false\"}"
             )
             .unwrap(),
         "1"
@@ -499,13 +500,13 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     env.run_machine_state_controller_iteration().await;
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_reboot_attempts_in_failed_during_discovery_sum")
+            .formatted_metric("carbide_reboot_attempts_in_failed_during_discovery_sum")
             .unwrap(),
         "1"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_reboot_attempts_in_failed_during_discovery_count")
+            .formatted_metric("carbide_reboot_attempts_in_failed_during_discovery_count")
             .unwrap(),
         "1"
     );
@@ -540,7 +541,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     )
     .await;
 
-    // We use forge_dpu_agent's health reporting as a signal that
+    // We use dpu_agent's health reporting as a signal that
     // DPU has rebooted.
     mh.network_configured(&env).await;
 
@@ -603,13 +604,13 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
 
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_gpus_in_use_count")
+            .formatted_metric("carbide_gpus_in_use_count")
             .unwrap(),
         r#"{fresh="true"} 0"#
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_hosts_in_use_count")
+            .formatted_metric("carbide_hosts_in_use_count")
             .unwrap(),
         r#"{fresh="true"} 0"#
     );
@@ -617,26 +618,26 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
     // and never becomes ready. Once it does, the test should be updated.
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_hosts_usable_count")
+            .formatted_metric("carbide_hosts_usable_count")
             .unwrap(),
         r#"{fresh="true"} 1"#
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_gpus_usable_count")
+            .formatted_metric("carbide_gpus_usable_count")
             .unwrap(),
         r#"{fresh="true"} 1"#
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_gpus_total_count")
+            .formatted_metric("carbide_gpus_total_count")
             .unwrap(),
         r#"{fresh="true"} 2"#
     );
 
     let mut health_status_metrics = env
         .test_meter
-        .formatted_metrics("forge_hosts_health_status_count");
+        .formatted_metrics("carbide_hosts_health_status_count");
     health_status_metrics.sort();
     assert_eq!(health_status_metrics.len(), 4);
 
@@ -654,21 +655,21 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
 
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_dpu_firmware_version_count")
+            .formatted_metric("carbide_dpu_firmware_version_count")
             .unwrap(),
         r#"{firmware_version="24.42.1000",fresh="true"} 2"#,
     );
 
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_dpu_agent_version_count")
+            .formatted_metric("carbide_dpu_agent_version_count")
             .unwrap(),
         format!(r#"{{fresh="true",version="{TEST_DPU_AGENT_VERSION}"}} 2"#)
     );
 
     let mut inventory_metrics = env
         .test_meter
-        .formatted_metrics("forge_machine_inventory_component_version_count");
+        .formatted_metrics("carbide_machine_inventory_component_version_count");
     inventory_metrics.sort();
 
     for expected in &[
@@ -687,7 +688,9 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
 
     // Now that we track all hosts (including those without SKU as "unknown"),
     // we should have SKU metrics for the created hosts
-    let sku_metrics = env.test_meter.formatted_metric("forge_hosts_by_sku_count");
+    let sku_metrics = env
+        .test_meter
+        .formatted_metric("carbide_hosts_by_sku_count");
     assert_eq!(
         sku_metrics.unwrap(),
         r#"{device_type="unknown",fresh="true",sku="unknown"} 2"#

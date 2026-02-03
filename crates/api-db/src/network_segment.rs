@@ -495,7 +495,7 @@ pub async fn set_vpc_id_and_can_stretch(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE network_segments SET vpc_id=$1, can_stretch=true WHERE id=$2";
     sqlx::query(query)
-        .bind(vpc_id.0)
+        .bind(vpc_id)
         .bind(value.id)
         .execute(txn)
         .await

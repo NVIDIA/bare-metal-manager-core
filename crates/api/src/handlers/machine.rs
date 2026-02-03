@@ -482,6 +482,11 @@ pub(crate) async fn admin_force_delete_machine(
                     machine.id
                 );
             }
+
+            api.kube_client_provider
+                .force_delete_machine(ip, &response.dpu_machine_ids)
+                .await
+                .map_err(CarbideError::DpfError)?;
         } else {
             tracing::warn!(
                 "Failed to unlock this host because Forge could not retrieve the BMC IP address for machine {}",

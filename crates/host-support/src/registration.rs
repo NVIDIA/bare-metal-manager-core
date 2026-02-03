@@ -260,7 +260,7 @@ pub async fn register_machine(
     Ok((
         RegistrationData { machine_id },
         response.attest_key_challenge,
-        response.machine_interface_id.map(|x| x.0),
+        response.machine_interface_id.map(uuid::Uuid::from),
     ))
 }
 

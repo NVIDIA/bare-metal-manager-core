@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::fmt::Write;
 use std::pin::Pin;
@@ -42,13 +43,16 @@ async fn convert_instance_to_nice_format(
     let mut data = vec![
         (
             "ID",
-            instance.id.map(|id| id.to_string()).unwrap_or_default(),
+            instance
+                .id
+                .map(|id| Cow::Owned(id.to_string()))
+                .unwrap_or_default(),
         ),
         (
             "MACHINE ID",
             instance
                 .machine_id
-                .map(|id| id.to_string())
+                .map(|id| Cow::Owned(id.to_string()))
                 .unwrap_or_default(),
         ),
         (
@@ -57,7 +61,7 @@ async fn convert_instance_to_nice_format(
                 .config
                 .as_ref()
                 .and_then(|config| config.tenant.as_ref())
-                .map(|tenant| tenant.tenant_organization_id.clone())
+                .map(|tenant| Cow::Borrowed(tenant.tenant_organization_id.as_str()))
                 .unwrap_or_default(),
         ),
         (
@@ -67,7 +71,7 @@ async fn convert_instance_to_nice_format(
                 .as_ref()
                 .and_then(|status| status.tenant.as_ref())
                 .and_then(|tenant| forgerpc::TenantState::try_from(tenant.state).ok())
-                .map(|state| format!("{state:?}"))
+                .map(|state| Cow::Owned(format!("{state:?}")))
                 .unwrap_or_default(),
         ),
         (
@@ -76,12 +80,16 @@ async fn convert_instance_to_nice_format(
                 .status
                 .as_ref()
                 .and_then(|status| status.tenant.as_ref())
-                .map(|tenant| tenant.state_details.clone())
+                .map(|tenant| Cow::Borrowed(tenant.state_details.as_str()))
                 .unwrap_or_default(),
         ),
         (
             "INSTANCE TYPE ID",
-            instance.instance_type_id.clone().unwrap_or_default(),
+            instance
+                .instance_type_id
+                .as_ref()
+                .map(|id| Cow::Borrowed(id.as_str()))
+                .unwrap_or_default(),
         ),
         (
             "CONFIGS SYNCED",
@@ -89,10 +97,10 @@ async fn convert_instance_to_nice_format(
                 .status
                 .as_ref()
                 .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
-                .map(|state| format!("{state:?}"))
+                .map(|state| Cow::Owned(format!("{state:?}")))
                 .unwrap_or_default(),
         ),
-        ("CONFIG VERSION", instance.config_version.clone()),
+        ("CONFIG VERSION", instance.config_version.as_str().into()),
         (
             "NETWORK CONFIG SYNCED",
             instance
@@ -100,12 +108,12 @@ async fn convert_instance_to_nice_format(
                 .as_ref()
                 .and_then(|status| status.network.as_ref())
                 .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
-                .map(|state| format!("{state:?}"))
+                .map(|state| Cow::Owned(format!("{state:?}")))
                 .unwrap_or_default(),
         ),
         (
             "NETWORK CONFIG VERSION",
-            instance.network_config_version.clone(),
+            instance.network_config_version.as_str().into(),
         ),
     ];
 
@@ -120,10 +128,10 @@ async fn convert_instance_to_nice_format(
             instance_os
                 .and_then(|os| match os.variant.as_ref() {
                     Some(::rpc::forge::operating_system::Variant::Ipxe(ipxe_os)) => {
-                        Some(ipxe_os.ipxe_script.clone())
+                        Some(Cow::Borrowed(ipxe_os.ipxe_script.as_str()))
                     }
                     Some(::rpc::forge::operating_system::Variant::OsImageId(image)) => {
-                        Some(format!("OS Image ID: {}", image.value))
+                        Some(Cow::Owned(format!("OS Image ID: {}", image.value)))
                     }
                     None => None,
                 })
@@ -132,7 +140,8 @@ async fn convert_instance_to_nice_format(
         (
             "USERDATA",
             instance_os
-                .and_then(|os| os.user_data.clone())
+                .and_then(|os| os.user_data.as_ref())
+                .map(|ud| ud.as_str().into())
                 .unwrap_or_default(),
         ),
         (
@@ -140,14 +149,16 @@ async fn convert_instance_to_nice_format(
             instance_os
                 .map(|os| os.run_provisioning_instructions_on_every_boot)
                 .unwrap_or_default()
-                .to_string(),
+                .to_string()
+                .into(),
         ),
         (
             "PHONE HOME ENABLED",
             instance_os
                 .map(|os| os.phone_home_enabled)
                 .unwrap_or_default()
-                .to_string(),
+                .to_string()
+                .into(),
         ),
     ];
 
@@ -188,50 +199,61 @@ async fn convert_instance_to_nice_format(
                 None
             };
 
-            let data = &[
+            let data: &[(&str, Cow<str>)] = &[
                 (
                     "FUNCTION_TYPE",
                     forgerpc::InterfaceFunctionType::try_from(interface.function_type)
                         .ok()
-                        .map(|ty| format!("{ty:?}"))
-                        .unwrap_or_else(|| "INVALID".to_string()),
+                        .map(|ty| format!("{ty:?}").into())
+                        .unwrap_or_else(|| "INVALID".into()),
                 ),
                 (
                     "VF ID",
                     status
                         .virtual_function_id
-                        .map(|id| id.to_string())
+                        .map(|id| id.to_string().into())
                         .unwrap_or_default(),
                 ),
                 (
                     "SEGMENT ID",
-                    interface.network_segment_id.unwrap_or_default().to_string(),
+                    interface
+                        .network_segment_id
+                        .unwrap_or_default()
+                        .to_string()
+                        .into(),
                 ),
                 (
                     "VPC PREFIX ID",
                     match &interface.network_details {
                         Some(forgerpc::instance_interface_config::NetworkDetails::SegmentId(_)) => {
-                            "Segment Based Allocation".to_string()
+                            "Segment Based Allocation".into()
                         }
                         Some(forgerpc::instance_interface_config::NetworkDetails::VpcPrefixId(
                             x,
-                        )) => x.to_string(),
-                        None => "NA".to_string(),
+                        )) => x.to_string().into(),
+                        None => "NA".into(),
                     },
                 ),
-                ("MAC ADDR", status.mac_address.clone().unwrap_or_default()),
-                ("ADDRESSES", status.addresses.clone().join(", ")),
+                (
+                    "MAC ADDR",
+                    status
+                        .mac_address
+                        .as_ref()
+                        .map(|s| s.as_str().into())
+                        .unwrap_or_default(),
+                ),
+                ("ADDRESSES", status.addresses.as_slice().join(", ").into()),
                 (
                     "VPC ID",
                     vpc.as_ref()
-                        .map(|v| v.id.unwrap_or_default().to_string())
-                        .unwrap_or("<not found>".to_string()),
+                        .map(|v| v.id.unwrap_or_default().to_string().into())
+                        .unwrap_or("<not found>".into()),
                 ),
                 (
                     "VPC NAME",
                     vpc.as_ref()
-                        .map(|v| v.name.clone())
-                        .unwrap_or("<not found>".to_string()),
+                        .map(|v| v.name.as_str().into())
+                        .unwrap_or("<not found>".into()),
                 ),
             ];
 
@@ -245,15 +267,14 @@ async fn convert_instance_to_nice_format(
         }
     }
 
-    if let Some(ib_config) = instance.config.clone().unwrap().infiniband
-        && let Some(ib_status) = instance.status.clone().unwrap().infiniband
+    if let Some(ib_config) = instance.config.as_ref().and_then(|c| c.infiniband.as_ref())
+        && let Some(ib_status) = instance.status.as_ref().and_then(|s| s.infiniband.as_ref())
     {
         writeln!(&mut lines, "IB INTERFACES:")?;
         writeln!(
             &mut lines,
             "\t{:<width$}: {}",
-            "IB CONFIG VERSION",
-            instance.ib_config_version.clone()
+            "IB CONFIG VERSION", instance.ib_config_version,
         )?;
         writeln!(
             &mut lines,
@@ -262,34 +283,58 @@ async fn convert_instance_to_nice_format(
         )?;
         for (i, interface) in ib_config.ib_interfaces.iter().enumerate() {
             let status = &ib_status.ib_interfaces[i];
-            let data = &[
+            let data: &[(&str, Cow<str>)] = &[
                 (
                     "FUNCTION_TYPE",
                     forgerpc::InterfaceFunctionType::try_from(interface.function_type)
                         .ok()
-                        .map(|ty| format!("{ty:?}"))
-                        .unwrap_or_else(|| "INVALID".to_string()),
+                        .map(|ty| format!("{ty:?}").into())
+                        .unwrap_or_else(|| "INVALID".into()),
                 ),
-                ("VENDOR", interface.vendor.clone().unwrap_or_default()),
-                ("DEVICE", interface.device.clone()),
-                ("DEVICE INSTANCE", interface.device_instance.to_string()),
+                (
+                    "VENDOR",
+                    interface
+                        .vendor
+                        .as_ref()
+                        .map(|v| v.as_str().into())
+                        .unwrap_or_default(),
+                ),
+                ("DEVICE", interface.device.as_str().into()),
+                (
+                    "DEVICE INSTANCE",
+                    interface.device_instance.to_string().into(),
+                ),
                 (
                     "VF ID",
                     interface
                         .virtual_function_id
-                        .map(|x| x.to_string())
+                        .map(|x| x.to_string().into())
                         .unwrap_or_default(),
                 ),
                 (
                     "PARTITION ID",
                     interface
                         .ib_partition_id
-                        .map(|x| x.to_string())
+                        .map(|x| x.to_string().into())
                         .unwrap_or_default(),
                 ),
-                ("PF GUID", status.pf_guid.clone().unwrap_or_default()),
-                ("GUID", status.guid.clone().unwrap_or_default()),
-                ("LID", status.lid.to_string()),
+                (
+                    "PF GUID",
+                    status
+                        .pf_guid
+                        .as_ref()
+                        .map(|g| g.as_str().into())
+                        .unwrap_or_default(),
+                ),
+                (
+                    "GUID",
+                    status
+                        .guid
+                        .as_ref()
+                        .map(|g| g.as_str().into())
+                        .unwrap_or_default(),
+                ),
+                ("LID", status.lid.to_string().into()),
             ];
 
             for (key, value) in data {
@@ -302,18 +347,22 @@ async fn convert_instance_to_nice_format(
         }
     }
 
-    if let Some(nsg_id) = instance.config.clone().unwrap().network_security_group_id {
+    if let Some(nsg_id) = instance
+        .config
+        .as_ref()
+        .and_then(|c| c.network_security_group_id.as_ref())
+    {
         writeln!(&mut lines, "NETWORK SECURITY GROUP ID: {nsg_id}")?;
     }
 
-    if let Some(metadata) = instance.metadata.clone() {
+    if let Some(metadata) = instance.metadata.as_ref() {
         writeln!(
             &mut lines,
             "LABELS: {}",
             metadata
                 .labels
                 .iter()
-                .map(|x| format!("{}: {}", x.key, x.value.clone().unwrap_or_default()))
+                .map(|x| format!("{}: {}", x.key, x.value.as_deref().unwrap_or_default()))
                 .collect::<Vec<String>>()
                 .join(", ")
         )?;
@@ -341,10 +390,10 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
             .config
             .as_ref()
             .and_then(|config| config.tenant.as_ref())
-            .map(|tenant| tenant.tenant_organization_id.clone())
+            .map(|tenant| tenant.tenant_organization_id.as_str())
             .unwrap_or_default();
 
-        let labels = crate::metadata::get_nice_labels_from_rpc_metadata(&instance.metadata);
+        let labels = crate::metadata::get_nice_labels_from_rpc_metadata(instance.metadata.as_ref());
 
         let tenant_state = instance
             .status
@@ -549,7 +598,7 @@ pub async fn handle_reboot(args: RebootInstance, api_client: &ApiClient) -> Carb
 pub async fn release(
     api_client: &ApiClient,
     release_request: ReleaseInstance,
-    opts: &GlobalOptions<'_>,
+    opts: GlobalOptions<'_>,
 ) -> CarbideCliResult<()> {
     if opts.cloud_unsafe_op.is_none() {
         return Err(CarbideCliError::GenericError(
@@ -619,7 +668,7 @@ pub async fn release(
 pub async fn allocate(
     api_client: &ApiClient,
     allocate_request: AllocateInstance,
-    opts: &GlobalOptions<'_>,
+    opts: GlobalOptions<'_>,
 ) -> CarbideCliResult<()> {
     if opts.cloud_unsafe_op.is_none() {
         return Err(CarbideCliError::GenericError(
@@ -638,7 +687,7 @@ pub async fn allocate(
     }
 
     let mut machine_ids: VecDeque<_> = if !allocate_request.machine_id.is_empty() {
-        allocate_request.machine_id.clone().into()
+        allocate_request.machine_id.iter().copied().collect()
     } else {
         api_client
             .0
@@ -731,7 +780,7 @@ pub async fn allocate(
 pub async fn update_os(
     api_client: &ApiClient,
     update_request: UpdateInstanceOS,
-    opts: &GlobalOptions<'_>,
+    opts: GlobalOptions<'_>,
 ) -> CarbideCliResult<()> {
     if opts.cloud_unsafe_op.is_none() {
         return Err(CarbideCliError::GenericError(
@@ -744,10 +793,10 @@ pub async fn update_os(
         .update_instance_config_with(
             update_request.instance,
             |config| {
-                config.os = Some(update_request.os.clone());
+                config.os = Some(update_request.os);
             },
             |_metadata| {},
-            opts.cloud_unsafe_op.clone(),
+            opts.cloud_unsafe_op,
         )
         .await
     {
@@ -764,7 +813,7 @@ pub async fn update_os(
 pub async fn update_ib_config(
     api_client: &ApiClient,
     update_request: UpdateIbConfig,
-    opts: &GlobalOptions<'_>,
+    opts: GlobalOptions<'_>,
 ) -> CarbideCliResult<()> {
     if opts.cloud_unsafe_op.is_none() {
         return Err(CarbideCliError::GenericError(
@@ -777,10 +826,10 @@ pub async fn update_ib_config(
         .update_instance_config_with(
             update_request.instance,
             |config| {
-                config.infiniband = Some(update_request.config.clone());
+                config.infiniband = Some(update_request.config);
             },
             |_metadata| {},
-            opts.cloud_unsafe_op.clone(),
+            opts.cloud_unsafe_op,
         )
         .await
     {

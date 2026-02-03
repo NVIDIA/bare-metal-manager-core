@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,8 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-//! State Controller IO implementation for PowerShelves
+//! State Controller IO implementation for Racks
 
+use carbide_uuid::rack::RackId;
 use config_version::{ConfigVersion, Versioned};
 use db::rack::IdColumn;
 use db::{DatabaseError, ObjectColumnFilter, rack as db_rack};
@@ -24,19 +25,18 @@ use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::metrics::NoopMetricsEmitter;
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
 
-/// State Controller IO implementation for PowerShelves
+/// State Controller IO implementation for Racks
 #[derive(Default, Debug)]
 pub struct RackStateControllerIO {}
 
 #[async_trait::async_trait]
 impl StateControllerIO for RackStateControllerIO {
-    type ObjectId = String;
+    type ObjectId = RackId;
     type State = Rack;
     type ControllerState = RackState;
     type MetricsEmitter = NoopMetricsEmitter;
     type ContextObjects = RackStateHandlerContextObjects;
 
-    const DB_WORK_KEY: &'static str = "rack_controller_lock";
     const DB_ITERATION_ID_TABLE_NAME: &'static str = "rack_controller_iteration_ids";
     const DB_QUEUED_OBJECTS_TABLE_NAME: &'static str = "rack_controller_queued_objects";
 
@@ -75,7 +75,7 @@ impl StateControllerIO for RackStateControllerIO {
     async fn load_controller_state(
         &self,
         _txn: &mut PgConnection,
-        _object_id: &Self::ObjectId,
+        _rack_id: &Self::ObjectId,
         state: &Self::State,
     ) -> Result<Versioned<Self::ControllerState>, DatabaseError> {
         Ok(state.controller_state.clone())
@@ -84,18 +84,16 @@ impl StateControllerIO for RackStateControllerIO {
     async fn persist_controller_state(
         &self,
         txn: &mut PgConnection,
-        object_id: &Self::ObjectId,
+        rack_id: &Self::ObjectId,
         old_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
         let _updated =
-            db_rack::try_update_controller_state(txn, object_id.as_str(), old_version, new_state)
-                .await?;
+            db_rack::try_update_controller_state(txn, *rack_id, old_version, new_state).await?;
 
         // Persist state history for debugging purposes
         let _history =
-            db::rack_state_history::persist(txn, object_id.as_str(), new_state, old_version)
-                .await?;
+            db::rack_state_history::persist(txn, *rack_id, new_state, old_version).await?;
 
         Ok(())
     }
@@ -103,10 +101,10 @@ impl StateControllerIO for RackStateControllerIO {
     async fn persist_outcome(
         &self,
         txn: &mut PgConnection,
-        object_id: &Self::ObjectId,
+        rack_id: &Self::ObjectId,
         outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError> {
-        db_rack::update_controller_state_outcome(txn, object_id.as_str(), outcome).await
+        db_rack::update_controller_state_outcome(txn, *rack_id, outcome).await
     }
 
     fn metric_state_names(state: &RackState) -> (&'static str, &'static str) {

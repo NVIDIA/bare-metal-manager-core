@@ -118,7 +118,7 @@ pub(super) struct DpaStateHistoryTable {
 
 #[derive(Debug, serde::Serialize)]
 pub(super) struct DpaStateHistoryRecord {
-    pub event: String,
+    pub state: String,
     pub version: String,
 }
 #[derive(Template)]
@@ -146,7 +146,7 @@ impl From<forgerpc::DpaInterface> for DpaDetail {
 
         for e in dpa.history.into_iter().rev() {
             history_records.push(DpaStateHistoryRecord {
-                event: e.state,
+                state: e.state,
                 version: e.version,
             });
         }

@@ -33,6 +33,7 @@ use sqlx::PgConnection;
 use crate::state_controller::spdm::context::SpdmStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
+    StateHandlerOutcomeWithTransaction,
 };
 
 #[derive(Debug, Clone)]
@@ -179,7 +180,7 @@ async fn redfish_client(
                 .ip_addr()
                 .map_err(StateHandlerError::GenericError)?,
             bmc_info.port,
-            &mut ctx.services.db_pool,
+            &ctx.services.db_pool,
         )
         .await
         .map_err(StateHandlerError::from)
@@ -222,14 +223,33 @@ impl StateHandler for SpdmAttestationStateHandler {
     type ControllerState = SpdmMachineStateSnapshot;
     type ContextObjects = SpdmStateHandlerContextObjects;
 
-    #[allow(txn_held_across_await)]
     async fn handle_object_state(
         &self,
         object_id: &Self::ObjectId,
         state: &mut SpdmMachineSnapshot,
         controller_state: &SpdmMachineStateSnapshot,
-        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
+    ) -> Result<StateHandlerOutcomeWithTransaction<SpdmMachineStateSnapshot>, StateHandlerError>
+    {
+        // TODO: Fix txn_held_across_await in handle_object_state_inner, then move it back inline
+        let pool = ctx.services.db_pool.clone();
+        let mut txn = pool.begin().await?;
+        let outcome = self
+            .handle_object_state_inner(object_id, state, controller_state, &mut txn, ctx)
+            .await?;
+        Ok(outcome.with_txn(Some(txn)))
+    }
+}
+
+impl SpdmAttestationStateHandler {
+    #[allow(txn_held_across_await)]
+    async fn handle_object_state_inner(
+        &self,
+        object_id: &SpdmObjectId,
+        state: &mut SpdmMachineSnapshot,
+        controller_state: &SpdmMachineStateSnapshot,
+        txn: &mut PgConnection,
+        ctx: &mut StateHandlerContext<'_, SpdmStateHandlerContextObjects>,
     ) -> Result<StateHandlerOutcome<SpdmMachineStateSnapshot>, StateHandlerError> {
         // record metrics irrespective of the state of the machine
         self.record_metrics(state, ctx);
@@ -316,7 +336,7 @@ impl StateHandler for SpdmAttestationStateHandler {
             | AttestationState::ApplyEvidenceResultAppraisalPolicy => {
                 let outcome = self
                     .device_handler
-                    .handle_object_state(object_id, state, controller_state, txn, ctx)
+                    .handle_object_state_inner(object_id, state, controller_state, txn, ctx)
                     .await?;
 
                 if matches!(outcome, StateHandlerOutcome::Transition { .. })
@@ -366,15 +386,32 @@ impl StateHandler for SpdmAttestationDeviceStateHandler {
     type ControllerState = SpdmMachineStateSnapshot;
     type ContextObjects = SpdmStateHandlerContextObjects;
 
-    #[allow(txn_held_across_await)]
     async fn handle_object_state(
         &self,
         object_id: &Self::ObjectId,
         state: &mut SpdmMachineSnapshot,
         controller_state: &Self::ControllerState,
-        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
+    ) -> Result<StateHandlerOutcomeWithTransaction<Self::ControllerState>, StateHandlerError> {
+        // TODO: Fix txn_held_across_await in handle_object_state_inner, then move it back inline
+        let mut txn = ctx.services.db_pool.begin().await?;
+        let outcome = self
+            .handle_object_state_inner(object_id, state, controller_state, &mut txn, ctx)
+            .await?;
+        Ok(outcome.with_txn(Some(txn)))
+    }
+}
+
+impl SpdmAttestationDeviceStateHandler {
+    #[allow(txn_held_across_await)]
+    async fn handle_object_state_inner(
+        &self,
+        object_id: &SpdmObjectId,
+        state: &mut SpdmMachineSnapshot,
+        controller_state: &SpdmMachineStateSnapshot,
+        txn: &mut PgConnection,
+        ctx: &mut StateHandlerContext<'_, SpdmStateHandlerContextObjects>,
+    ) -> Result<StateHandlerOutcome<SpdmMachineStateSnapshot>, StateHandlerError> {
         let Some(device_id) = &object_id.1 else {
             // Somehow device-id is missing from object_id in device handling state. This should
             // never happen, but if happens there is no way to recover.

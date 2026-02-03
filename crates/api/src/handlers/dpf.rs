@@ -12,9 +12,12 @@
 
 use ::rpc::forge as rpc;
 use db::ObjectFilter;
+use db::managed_host::load_snapshot;
+use model::machine::LoadSnapshotOptions;
 use model::machine::machine_search_config::MachineSearchConfig;
 use tonic::{Request, Response, Status};
 
+use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
 
@@ -27,12 +30,24 @@ pub(crate) async fn modify_dpf_state(
     let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
     log_machine_id(&machine_id);
 
-    if machine_id.machine_type() != carbide_uuid::machine::MachineType::Host {
+    if machine_id.machine_type().is_dpu() {
         return Err(Status::invalid_argument("Only host id is expected!!"));
     }
 
     let mut txn = api.txn_begin().await?;
+    let machine_snapshot = load_snapshot(&mut txn, &machine_id, LoadSnapshotOptions::default())
+        .await?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "snapshot",
+            id: machine_id.to_string(),
+        })?;
+
     db::machine::modify_dpf_state(&mut txn, &machine_id, request.dpf_enabled).await?;
+
+    // Keep DPUs also in sync.
+    for dpu in machine_snapshot.dpu_snapshots {
+        db::machine::modify_dpf_state(&mut txn, &dpu.id, request.dpf_enabled).await?;
+    }
     txn.commit().await?;
 
     Ok(Response::new(()))
@@ -47,7 +62,7 @@ pub(crate) async fn get_dpf_state(
     let request = request.get_ref();
 
     for machine_id in &request.machine_ids {
-        if machine_id.machine_type() != carbide_uuid::machine::MachineType::Host {
+        if machine_id.machine_type().is_dpu() {
             return Err(Status::invalid_argument("Only host id is expected!!"));
         }
     }

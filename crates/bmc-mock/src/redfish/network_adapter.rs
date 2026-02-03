@@ -39,15 +39,37 @@ pub fn chassis_collection(chassis_id: &str) -> redfish::Collection<'static> {
     }
 }
 
+pub struct NetworkAdapter {
+    pub id: Cow<'static, str>,
+    value: serde_json::Value,
+    pub functions: Vec<redfish::network_device_function::NetworkDeviceFunction>,
+}
+
+impl NetworkAdapter {
+    pub fn to_json(&self) -> serde_json::Value {
+        self.value.clone()
+    }
+    pub fn find_function(
+        &self,
+        function_id: &str,
+    ) -> Option<&redfish::network_device_function::NetworkDeviceFunction> {
+        self.functions.iter().find(|f| f.id.as_ref() == function_id)
+    }
+}
+
 /// Get builder of the network adapter.
 pub fn builder(resource: &redfish::Resource) -> NetworkAdapterBuilder {
     NetworkAdapterBuilder {
+        id: Cow::Owned(resource.id.to_string()),
         value: resource.json_patch(),
+        functions: Vec::new(),
     }
 }
 
 pub struct NetworkAdapterBuilder {
+    id: Cow<'static, str>,
     value: serde_json::Value,
+    functions: Vec<redfish::network_device_function::NetworkDeviceFunction>,
 }
 
 impl NetworkAdapterBuilder {
@@ -67,29 +89,43 @@ impl NetworkAdapterBuilder {
         self.add_str_field("SerialNumber", value)
     }
 
-    pub fn network_device_functions(self, collection: &redfish::Collection<'_>) -> Self {
-        Self {
-            value: self
-                .value
-                .patch(collection.nav_property("NetworkDeviceFunctions")),
-        }
+    pub fn sku(self, value: &str) -> Self {
+        self.add_str_field("SKU", value)
+    }
+
+    pub fn network_device_functions(
+        self,
+        collection: &redfish::Collection<'_>,
+        functions: Vec<redfish::network_device_function::NetworkDeviceFunction>,
+    ) -> Self {
+        let mut v = self.apply_patch(collection.nav_property("NetworkDeviceFunctions"));
+        v.functions = functions;
+        v
     }
 
     pub fn status(self, status: redfish::resource::Status) -> Self {
-        Self {
-            value: self.value.patch(json!({
-                "Status": status.into_json()
-            })),
+        self.apply_patch(json!({
+            "Status": status.into_json()
+        }))
+    }
+
+    pub fn build(self) -> NetworkAdapter {
+        NetworkAdapter {
+            id: self.id,
+            value: self.value,
+            functions: self.functions,
         }
     }
 
-    pub fn build(self) -> serde_json::Value {
-        self.value
+    fn add_str_field(self, name: &str, value: &str) -> Self {
+        self.apply_patch(json!({ name: value }))
     }
 
-    fn add_str_field(self, name: &str, value: &str) -> Self {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
         Self {
-            value: self.value.patch(json!({ name: value })),
+            value: self.value.patch(patch),
+            id: self.id,
+            functions: self.functions,
         }
     }
 }

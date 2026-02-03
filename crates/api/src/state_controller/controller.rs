@@ -23,6 +23,8 @@ use crate::state_controller::state_handler::StateHandlerError;
 
 mod builder;
 pub mod db;
+mod enqueuer;
+pub use enqueuer::Enqueuer;
 pub mod periodic_enqueuer;
 pub mod processor;
 
@@ -61,8 +63,6 @@ impl<'r> FromRow<'r, PgRow> for ControllerIteration {
 pub struct QueuedObject {
     /// The ID of the object which should get scheduled
     pub object_id: String,
-    /// The ID of the run for which the object was scheduled
-    pub iteration_id: ControllerIterationId,
     /// Identifies the processor which is executing the state handler
     /// The value of this field will be NULL in case the object is not yet processed
     pub processed_by: Option<String>,
@@ -71,11 +71,9 @@ pub struct QueuedObject {
 impl<'r> FromRow<'r, PgRow> for QueuedObject {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let object_id = row.try_get("object_id")?;
-        let iteration_id: i64 = row.try_get("iteration_id")?;
         let processed_by: Option<String> = row.try_get("processed_by")?;
         Ok(QueuedObject {
             object_id,
-            iteration_id: ControllerIterationId(iteration_id),
             processed_by,
         })
     }
@@ -103,11 +101,17 @@ impl<IO: StateControllerIO> StateController<IO> {
     /// Enqueues state handling tasks for all objects and processes them
     #[cfg(test)]
     pub async fn run_single_iteration(&mut self) {
+        self.run_single_iteration_ext(true).await
+    }
+
+    /// Enqueues state handling tasks for all objects and processes them
+    #[cfg(test)]
+    pub async fn run_single_iteration_ext(&mut self, allow_requeue: bool) {
         let enqueuer_result = self.enqueuer.run_single_iteration().await;
         loop {
             if let Err(err) = self
                 .processor
-                .run_single_iteration(std::time::Duration::MAX)
+                .run_single_iteration(std::time::Duration::MAX, allow_requeue)
                 .await
             {
                 tracing::error!(%err, "State processor iteration error");

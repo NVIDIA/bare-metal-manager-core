@@ -31,37 +31,37 @@ async fn test_ib_fabric_monitor(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     env.run_ib_fabric_monitor_iteration().await;
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_fabrics_count")
+            .formatted_metric("carbide_ib_monitor_fabrics_count")
             .unwrap(),
         "1"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machine_ib_status_updates_count")
+            .formatted_metric("carbide_ib_monitor_machine_ib_status_updates_count")
             .unwrap(),
         "0"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_ufm_version_count")
+            .formatted_metric("carbide_ib_monitor_ufm_version_count")
             .unwrap(),
         r#"{fabric="default",version="mock_ufm_1.0"} 1"#
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_fabric_error_count"),
+            .formatted_metric("carbide_ib_monitor_fabric_error_count"),
         None
     );
     // The default partition is found
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_ufm_partitions_count")
+            .formatted_metric("carbide_ib_monitor_ufm_partitions_count")
             .unwrap(),
         r#"{fabric="default"} 1"#
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_iteration_latency_milliseconds_count")
+            .formatted_metric("carbide_ib_monitor_iteration_latency_milliseconds_count")
             .unwrap(),
         r#"1"#
     );
@@ -69,13 +69,13 @@ async fn test_ib_fabric_monitor(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     // The fabric is configured securely
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_insecure_fabric_configuration_count")
+            .formatted_metric("carbide_ib_monitor_insecure_fabric_configuration_count")
             .unwrap(),
         r#"{fabric="default"} 0"#
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_allow_insecure_fabric_configuration_count")
+            .formatted_metric("carbide_ib_monitor_allow_insecure_fabric_configuration_count")
             .unwrap(),
         r#"{fabric="default"} 0"#
     );
@@ -88,13 +88,13 @@ async fn test_ib_fabric_monitor(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     env.run_ib_fabric_monitor_iteration().await;
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_insecure_fabric_configuration_count")
+            .formatted_metric("carbide_ib_monitor_insecure_fabric_configuration_count")
             .unwrap(),
         r#"{fabric="default"} 1"#
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_allow_insecure_fabric_configuration_count")
+            .formatted_metric("carbide_ib_monitor_allow_insecure_fabric_configuration_count")
             .unwrap(),
         r#"{fabric="default"} 0"#
     );

@@ -30,8 +30,8 @@ mod tests {
         let mut txn = pool.begin().await?;
         let machine_id =
             MachineId::from_str("fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530")?;
-        let report_id = MeasurementReportId(uuid::Uuid::new_v4());
-        let profile_id = MeasurementSystemProfileId(uuid::Uuid::new_v4());
+        let report_id = MeasurementReportId::new();
+        let profile_id = MeasurementSystemProfileId::new();
         let journal = db::measured_boot::journal::new_with_txn(
             &mut txn,
             machine_id,

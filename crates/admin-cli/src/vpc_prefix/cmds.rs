@@ -28,7 +28,7 @@ use super::args::{VpcPrefixCreate, VpcPrefixDelete, VpcPrefixShow};
 use crate::rpc::ApiClient;
 
 pub async fn show(
-    args: &VpcPrefixShow,
+    args: VpcPrefixShow,
     output_format: OutputFormat,
     api_client: &ApiClient,
     batch_size: usize,
@@ -42,7 +42,7 @@ pub async fn show(
 }
 
 pub async fn create(
-    args: &VpcPrefixCreate,
+    args: VpcPrefixCreate,
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
@@ -53,7 +53,7 @@ pub async fn create(
         .map_err(CarbideCliError::from)
 }
 
-pub async fn delete(args: &VpcPrefixDelete, api_client: &ApiClient) -> CarbideCliResult<()> {
+pub async fn delete(args: VpcPrefixDelete, api_client: &ApiClient) -> CarbideCliResult<()> {
     do_delete(api_client, args).await
 }
 
@@ -78,10 +78,10 @@ impl ShowOutput {
     }
 }
 
-impl From<&VpcPrefixShow> for ShowMethod {
-    fn from(show_args: &VpcPrefixShow) -> Self {
-        match &show_args.prefix_selector {
-            Some(selector) => ShowMethod::Get(selector.clone()),
+impl From<VpcPrefixShow> for ShowMethod {
+    fn from(show_args: VpcPrefixShow) -> Self {
+        match show_args.prefix_selector {
+            Some(selector) => ShowMethod::Get(selector),
             None => {
                 let mut search = match_all();
                 search.vpc_id = show_args.vpc_id;
@@ -99,26 +99,56 @@ impl From<&VpcPrefixShow> for ShowMethod {
     }
 }
 
+fn parse_label(s: &str) -> rpc::forge::Label {
+    match s.split_once(':') {
+        Some((k, v)) => rpc::forge::Label {
+            key: k.trim().to_string(),
+            value: Some(v.trim().to_string()),
+        },
+        None => rpc::forge::Label {
+            key: s.trim().to_string(),
+            value: None,
+        },
+    }
+}
+
 async fn do_create(
     api_client: &ApiClient,
-    create_args: &VpcPrefixCreate,
+    create_args: VpcPrefixCreate,
 ) -> Result<ShowOutput, CarbideCliError> {
+    let labels = create_args
+        .labels
+        .unwrap_or_default()
+        .iter()
+        .map(|s| parse_label(s))
+        .collect();
+
     let new_prefix = VpcPrefixCreationRequest {
         id: create_args.vpc_prefix_id,
-        prefix: create_args.prefix.to_string(),
-        name: create_args.name.clone(),
+        prefix: String::new(), // Deprecated field
+        name: String::new(),   // Deprecated field
         vpc_id: Some(create_args.vpc_id),
+        config: Some(rpc::forge::VpcPrefixConfig {
+            prefix: create_args.prefix.to_string(),
+        }),
+        metadata: Some(rpc::forge::Metadata {
+            name: create_args.name,
+            labels,
+            description: create_args.description.unwrap_or_default(),
+        }),
     };
-    Ok(api_client
+
+    api_client
         .0
         .create_vpc_prefix(new_prefix)
         .await
-        .map(ShowOutput::One)?)
+        .map(ShowOutput::One)
+        .map_err(Into::into)
 }
 
 async fn do_delete(
     api_client: &ApiClient,
-    delete_args: &VpcPrefixDelete,
+    delete_args: VpcPrefixDelete,
 ) -> Result<(), CarbideCliError> {
     let delete_prefix = VpcPrefixDeletionRequest {
         id: Some(delete_args.vpc_prefix_id),

@@ -1,6 +1,6 @@
-# HELP forge_machine_updates_started_count The number of machines in the system that in the process of updating.
-# TYPE forge_machine_updates_started_count gauge
-forge_machine_updates_started_count 100
-# HELP forge_machines_in_maintenance_count The total number of machines in the system that are in maintenance.
-# TYPE forge_machines_in_maintenance_count gauge
-forge_machines_in_maintenance_count 100
+# HELP carbide_machine_updates_started_count The number of machines in the system that in the process of updating.
+# TYPE carbide_machine_updates_started_count gauge
+carbide_machine_updates_started_count 100
+# HELP carbide_machines_in_maintenance_count The total number of machines in the system that are in maintenance.
+# TYPE carbide_machines_in_maintenance_count gauge
+carbide_machines_in_maintenance_count 100

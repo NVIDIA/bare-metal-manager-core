@@ -1331,6 +1331,7 @@ dependencies = [
  "hyper-util",
  "ipnetwork",
  "itertools 0.14.0",
+ "kube",
  "lazy_static",
  "libnmxm",
  "libredfish",
@@ -1343,6 +1344,7 @@ dependencies = [
  "num_cpus",
  "oauth2",
  "oid-registry",
+ "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry-prometheus",
@@ -1380,6 +1382,7 @@ dependencies = [
  "tonic-reflection",
  "tower 0.5.2",
  "tower-http",
+ "tower-test",
  "tracing",
  "tracing-log",
  "tracing-opentelemetry",
@@ -1467,6 +1470,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "bmc-vendor",
+ "carbide-dpf",
  "carbide-health-report",
  "carbide-host-support",
  "carbide-network",
@@ -1650,6 +1654,7 @@ name = "carbide-dpf"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "carbide-uuid",
  "eyre",
  "http",
  "hyper",
@@ -1748,6 +1753,7 @@ dependencies = [
  "humantime-serde",
  "hyper",
  "hyper-util",
+ "logfmt",
  "nv-redfish",
  "nv-redfish-bmc-http",
  "nv-redfish-core",
@@ -5403,7 +5409,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.38.0#f156687ee737e21fee769de7d98adef7e3791513"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.39.1#20f37c3599f84f16f22d3d839ee2c979cc28d944"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6188,9 +6194,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "647f304971f85bf7fbc1e2d5cd6edd84ebfe927124bfbfe415e12e8ac28b5b13"
+checksum = "824914710157e5544e0d10bfce38b3e6628457ef0dfde361edaab79081d3b1ff"
 dependencies = [
  "nv-redfish-core",
  "nv-redfish-csdl-compiler",
@@ -6201,9 +6207,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-bmc-http"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96bc818d17a059a5b18b1c62fb43c202aabcb9d16d06ae06973b530c4b36f190"
+checksum = "d648a83351c3801e062daf6a9da5aee8debc5cdedbeb28e91a10fa84f2e66dcd"
 dependencies = [
  "http",
  "nv-redfish-core",
@@ -6218,9 +6224,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-core"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d73f5c492bada04a515906d623e386f01704b068a5b3ddf4b42eb8bde9c301b3"
+checksum = "0de671fdba3b904bc13754254229952669f2802f38a703ac6019540a881f7129"
 dependencies = [
  "rust_decimal",
  "serde",

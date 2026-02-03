@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use db::safe_pg_pool::SafePgPool;
+use db::DatabaseError;
 use forge_secrets::SecretsError;
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
@@ -25,7 +25,7 @@ use libredfish::model::BootProgress;
 use libredfish::{Endpoint, PowerState, Redfish, RedfishError, SystemPowerControl};
 use mac_address::MacAddress;
 use model::machine::Machine;
-use sqlx::PgConnection;
+use sqlx::{PgConnection, PgPool};
 use utils::HostPortPair;
 
 use crate::ipmitool::IPMITool;
@@ -127,9 +127,9 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         &self,
         ip: IpAddr,
         port: Option<u16>,
-        pool: &mut SafePgPool,
+        pool: &PgPool,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        let mut conn = pool.acquire().await?;
+        let mut conn = pool.acquire().await.map_err(DatabaseError::acquire)?;
         let auth_key = db::machine_interface::find_by_ip(&mut conn, ip)
             .await?
             .ok_or_else(|| {
@@ -410,16 +410,36 @@ impl RedfishClientPool for RedfishClientPoolImpl {
     }
 }
 
-/// redfish utility functions
-///
-/// host_power_control allows control over the power of the host
-#[allow(txn_held_across_await)]
-pub async fn host_power_control(
+#[track_caller]
+pub fn host_power_control(
     redfish_client: &dyn Redfish,
     machine: &Machine,
     action: SystemPowerControl,
     ipmi_tool: Arc<dyn IPMITool>,
     txn: &mut PgConnection,
+) -> impl Future<Output = CarbideResult<()>> {
+    let trigger_location = std::panic::Location::caller();
+    host_power_control_with_location(
+        redfish_client,
+        machine,
+        action,
+        ipmi_tool,
+        txn,
+        trigger_location,
+    )
+}
+
+/// redfish utility functions
+///
+/// host_power_control allows control over the power of the host
+#[allow(txn_held_across_await)]
+pub async fn host_power_control_with_location(
+    redfish_client: &dyn Redfish,
+    machine: &Machine,
+    action: SystemPowerControl,
+    ipmi_tool: Arc<dyn IPMITool>,
+    txn: &mut PgConnection,
+    trigger_location: &std::panic::Location<'_>,
 ) -> CarbideResult<()> {
     let action = if action == SystemPowerControl::ACPowercycle
         && !redfish_client.ac_powercycle_supported_by_power()
@@ -433,6 +453,7 @@ pub async fn host_power_control(
     tracing::info!(
         machine_id = machine.id.to_string(),
         action = action.to_string(),
+        trigger_location = %trigger_location,
         "Host Power Control"
     );
     db::machine::update_reboot_requested_time(&machine.id, txn, action.into()).await?;
@@ -796,6 +817,7 @@ pub mod test_support {
     pub enum RedfishSimAction {
         Power(libredfish::SystemPowerControl),
         BmcReset,
+        SetUtcTimezone,
     }
 
     pub struct RedfishSimActions {
@@ -1975,6 +1997,18 @@ pub mod test_support {
         ) -> Result<(), RedfishError> {
             Ok(())
         }
+
+        async fn set_utc_timezone(&self) -> Result<(), RedfishError> {
+            self.state
+                .lock()
+                .unwrap()
+                .hosts
+                .get_mut(&self._host)
+                .unwrap()
+                .actions
+                .push(RedfishSimAction::SetUtcTimezone);
+            Ok(())
+        }
     }
 
     #[async_trait]
@@ -2018,7 +2052,7 @@ pub mod test_support {
             &self,
             ip: IpAddr,
             port: Option<u16>,
-            _txn: &mut SafePgPool,
+            _txn: &PgPool,
         ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
             self.create_client(
                 &ip.to_string(),

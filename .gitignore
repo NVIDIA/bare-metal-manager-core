@@ -21,7 +21,11 @@ dev/kube/kind/ci/*
 cscope.*
 forged
 
+pxe/nvinit_setup/*
+!pxe/nvinit_setup/.gitkeep
+
 pxe/debs/*
+!pxe/debs/.gitkeep
 !pxe/debs/libnss-exec_0.2.0-1_arm64.deb
 !pxe/debs/libnss-exec_0.2.0-1_amd64.deb
 

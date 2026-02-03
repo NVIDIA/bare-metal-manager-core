@@ -89,7 +89,7 @@ impl From<MachineIbInterfaceStatusObservation> for rpc::forge::MachineIbInterfac
             }),
             associated_partition_ids: machine_ib_interface.associated_partition_ids.map(|ids| {
                 rpc::common::StringList {
-                    items: ids.into_iter().map(|id| id.0.into()).collect(),
+                    items: ids.into_iter().map(|id| id.into()).collect(),
                 }
             }),
         }

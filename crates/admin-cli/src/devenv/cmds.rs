@@ -42,7 +42,7 @@ async fn get_or_create_vpc(api_client: &ApiClient) -> CarbideCliResult<Vpc> {
             vpc.id.unwrap(),
             vpc.metadata
                 .as_ref()
-                .map(|x| x.name.clone())
+                .map(|x| x.name.as_str())
                 .unwrap_or_default()
         );
         vpc
@@ -138,9 +138,18 @@ async fn handle_overlay_vpc_prefix_creation(
 
         let new_prefix = VpcPrefixCreationRequest {
             id: Some(uuid::Uuid::new_v4().into()),
-            prefix: network.to_string(),
-            name: vpc_prefix_name,
+            prefix: String::new(),
+            name: String::new(),
             vpc_id: vpc.id,
+            config: Some(rpc::forge::VpcPrefixConfig {
+                prefix: network.to_string(),
+            }),
+            metadata: Some(rpc::forge::Metadata {
+                name: vpc_prefix_name,
+                description: "Vpc prefix created for overlay network by dev environment setup"
+                    .to_string(),
+                ..Default::default()
+            }),
         };
         let vpc_prefix = api_client.0.create_vpc_prefix(new_prefix).await?;
 
@@ -158,7 +167,7 @@ pub async fn apply_devenv_config(
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
     // Read config file.
-    if !std::fs::exists(config.path.clone())? {
+    if !std::fs::exists(&config.path)? {
         return Err(CarbideCliError::GenericError(
             "Config file does not exists.".to_string(),
         ));

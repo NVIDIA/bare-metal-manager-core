@@ -53,6 +53,22 @@ pub struct VpcPrefixCreate {
 
     #[clap(
         long,
+        name = "description",
+        value_name = "description",
+        help = "Optionally, a longer description for the prefix"
+    )]
+    pub description: Option<String>,
+
+    #[clap(
+        long = "label",
+        value_name = "LABEL",
+        help = "A labels that will be added as metadata for the newly created VPC prefix. The labels key and value must be separated by a : character. E.g. environment:production",
+        action = clap::ArgAction::Append
+    )]
+    pub labels: Option<Vec<String>>,
+
+    #[clap(
+        long,
         name = "vpc-prefix-id",
         value_name = "VpcPrefixId",
         help = "Specify the VpcPrefixId for the API to use instead of it auto-generating one"

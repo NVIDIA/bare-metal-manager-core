@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::{create_managed_host, create_test_env};
 use config_version::ConfigVersion;
 use db::{self};
@@ -226,22 +225,21 @@ async fn test_old_machine_state_history(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_config = env.managed_host_config();
-    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let mut txn = env.pool.begin().await?;
 
     let query = "INSERT INTO machine_state_history (machine_id, state, state_version) VALUES ($1, $2::jsonb, $3)";
     sqlx::query(query)
-        .bind(dpu_machine_id.to_string())
-        .bind(r#"{"state": "dpuinit", "machine_state": {"state": "nolongerarealstate"}}"#)
+        .bind(host_machine_id.to_string())
+        .bind(r#"{"state": "hostinit", "machine_state": {"state": "nolongerarealstate"}}"#)
         .bind(ConfigVersion::initial())
         .execute(&mut *txn)
         .await?;
 
     let machine = db::machine::find_one(
         &mut txn,
-        &dpu_machine_id,
+        &host_machine_id,
         model::machine::machine_search_config::MachineSearchConfig {
             include_history: true,
             ..Default::default()
@@ -254,31 +252,16 @@ async fn test_old_machine_state_history(
         .history
         .into_iter()
         .map(|m| serde_json::from_str::<serde_json::Value>(&m.state))
+        .rev()
+        .take(2)
         .collect::<Result<Vec<_>, _>>()?;
-    let dpu_machine_id = dpu_machine_id.to_string();
     assert_eq!(
-        serde_json::Value::Array(states),
+        serde_json::Value::Array(states).to_string(),
         serde_json::json!([
-            {"state": "created"},
-            {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id: {"dpudiscoverystate": "initializing"}}}},
-            {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id: {"dpudiscoverystate": "configuring"}}}},
-            {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id: {"dpudiscoverystate": "enablershim"}}}},
-            {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id: {"count": 0, "dpudiscoverystate": "enablesecureboot", "enable_secure_boot_state": {"disablesecurebootstate": "checksecurebootstatus"}}}}},
-            {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id: {"count": 0, "dpudiscoverystate": "enablesecureboot", "enable_secure_boot_state": {"disablesecurebootstate": "setsecureboot"}}}}},
-            {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id: {"count": 0, "dpudiscoverystate": "enablesecureboot", "enable_secure_boot_state": {"disablesecurebootstate": "rebootdpu", "reboot_count": 0}}}}},
-            {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id: {"count": 0, "dpudiscoverystate": "enablesecureboot", "enable_secure_boot_state": {"disablesecurebootstate": "rebootdpu", "reboot_count": 1}}}}},
-            {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id: {"count": 1, "dpudiscoverystate": "enablesecureboot", "enable_secure_boot_state": {"disablesecurebootstate": "checksecurebootstatus"}}}}},
-            {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id: {"dpustate": "installdpuos", "substate": {"installdpuosstate": "installingbfb"}}}}},
-            {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id: {"dpustate": "installdpuos", "substate": {"installdpuosstate": "waitforinstallcomplete", "progress": "0", "task_id": "0"}}}}},
-            {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id: {"dpustate": "init"}}}},
-            {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id: {"dpustate": "waitingforplatformpowercycle", "substate": {"state": "off"}}}}},
-            {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id: {"dpustate": "waitingforplatformpowercycle", "substate": {"state": "on"}}}}},
-            {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id: {"dpustate": "waitingforplatformconfiguration"}}}},
-            {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id: {"dpustate": "pollingbiossetup"}}}},
-            {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id: {"dpustate": "waitingfornetworkconfig"}}}},
-            {"state": "hostinit", "machine_state": {"state": "enableipmioverlan"}},
-            {"state": "dpuinit", "machine_state": {"state": "nolongerarealstate"}},
-        ]),
+            {"state": "hostinit", "machine_state": {"state": "nolongerarealstate"}},
+            {"state": "ready"},
+        ])
+        .to_string(),
     );
 
     Ok(())

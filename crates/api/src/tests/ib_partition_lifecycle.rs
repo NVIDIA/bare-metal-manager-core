@@ -10,12 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
+
 use carbide_uuid::infiniband::IBPartitionId;
 use db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionStatus, NewIBPartition};
 use db::{self, ObjectColumnFilter};
 use model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
-use rpc::forge::TenantState;
+use model::metadata::Metadata;
 use rpc::forge::forge_server::Forge;
+use rpc::forge::{Label, TenantState};
 use tonic::Request;
 
 use crate::api::Api;
@@ -34,8 +37,16 @@ async fn create_ib_partition_with_api(
     let request = rpc::forge::IbPartitionCreationRequest {
         id: None,
         config: Some(IbPartitionConfig {
-            name,
+            name: name.clone(),
             tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+        }),
+        metadata: Some(rpc::Metadata {
+            name,
+            labels: vec![Label {
+                key: "example_key".into(),
+                value: Some("example_value".into()),
+            }],
+            description: "example description".into(),
         }),
     };
 
@@ -242,6 +253,51 @@ async fn test_create_ib_partition_over_max_limit(
 }
 
 #[crate::sqlx_test]
+async fn test_reject_create_with_invalid_metadata(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
+    let request = rpc::forge::IbPartitionCreationRequest {
+        id: None,
+        config: Some(IbPartitionConfig {
+            name: "partition1".into(),
+            tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+        }),
+        metadata: Some(rpc::Metadata {
+            name: "".into(), // Invalid name
+            labels: vec![Label {
+                key: "example_key".into(),
+                value: Some("example_value".into()),
+            }],
+            description: "example description".into(),
+        }),
+    };
+
+    let response = env.api.create_ib_partition(Request::new(request)).await;
+
+    let error = response
+        .expect_err("expected create ibpartition to fail")
+        .to_string();
+    assert!(
+        error.contains("Invalid metadata for IBPartition"),
+        "Error message should contain 'Invalid metadata for IBPartition', but is {error}"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn create_ib_partition_with_api_with_id(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -257,12 +313,20 @@ async fn create_ib_partition_with_api_with_id(
     )
     .await;
 
-    let id = IBPartitionId::from(uuid::Uuid::new_v4());
+    let id = IBPartitionId::new();
     let request = rpc::forge::IbPartitionCreationRequest {
         id: Some(id),
         config: Some(IbPartitionConfig {
-            name: "partition1".to_string(),
+            name: "partition1".into(),
             tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+        }),
+        metadata: Some(rpc::Metadata {
+            name: "partition1".into(),
+            labels: vec![Label {
+                key: "example_label".into(),
+                value: Some("example_value".into()),
+            }],
+            description: "description".into(),
         }),
     };
 
@@ -279,7 +343,7 @@ async fn create_ib_partition_with_api_with_id(
 
 #[crate::sqlx_test]
 async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let id = IBPartitionId::from(uuid::Uuid::new_v4());
+    let id = IBPartitionId::new();
     let new_partition = NewIBPartition {
         id,
         config: IBPartitionConfig {
@@ -289,6 +353,11 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             mtu: Some(IBMtu::default()),
             rate_limit: Some(IBRateLimit::default()),
             service_level: Some(IBServiceLevel::default()),
+        },
+        metadata: Metadata {
+            name: "partition1".to_string(),
+            labels: HashMap::from([("example_label".into(), "example_value".into())]),
+            description: "new description".to_string(),
         },
     };
     let mut txn = pool.begin().await?;
@@ -337,6 +406,48 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     .remove(0);
     assert_eq!(IBNetwork::from(&partition), IBNetwork::from(&partition2));
     txn.commit().await?;
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_reject_update_with_invalid_metadata(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let id = IBPartitionId::new();
+    let new_partition = NewIBPartition {
+        id,
+        config: IBPartitionConfig {
+            name: "partition1".to_string(),
+            pkey: Some(42.try_into().unwrap()),
+            tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string().try_into().unwrap(),
+            mtu: Some(IBMtu::default()),
+            rate_limit: Some(IBRateLimit::default()),
+            service_level: Some(IBServiceLevel::default()),
+        },
+        metadata: Metadata {
+            name: "partition1".to_string(),
+            labels: HashMap::from([("example_label".into(), "example_value".into())]),
+            description: "new description".to_string(),
+        },
+    };
+    let mut txn = pool.begin().await?;
+    let mut partition: IBPartition = db::ib_partition::create(new_partition, &mut txn, 10).await?;
+    txn.commit().await?;
+
+    partition.metadata.name = "".to_string(); // Invalid name
+
+    let mut txn = pool.begin().await?;
+    let result = db::ib_partition::update(&partition, &mut txn).await;
+    txn.commit().await?;
+
+    let error = result
+        .expect_err("expected update ibpartition to fail")
+        .to_string();
+    assert!(
+        error.contains("Invalid metadata for IBPartition"),
+        "Error message should contain 'Invalid metadata for IBPartition', but is {error}"
+    );
 
     Ok(())
 }

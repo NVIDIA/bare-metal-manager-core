@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use carbide_uuid::rack::RackId;
 use config_version::ConfigVersion;
 use model::rack::{RackState, RackStateHistory};
 use model::rack_state_history::DbRackStateHistory;
@@ -28,8 +29,8 @@ use crate::{DatabaseError, DatabaseResult};
 #[allow(dead_code)]
 pub async fn find_by_rack_ids(
     txn: &mut PgConnection,
-    ids: &[String],
-) -> DatabaseResult<std::collections::HashMap<String, Vec<RackStateHistory>>> {
+    ids: &[RackId],
+) -> DatabaseResult<std::collections::HashMap<RackId, Vec<RackStateHistory>>> {
     let query = "SELECT rack_id, state::TEXT, state_version, timestamp
         FROM rack_state_history
         WHERE rack_id=ANY($1)
@@ -54,7 +55,7 @@ pub async fn find_by_rack_ids(
 /// Store each state for debugging purpose.
 pub async fn persist(
     txn: &mut PgConnection,
-    rack_id: &str,
+    rack_id: RackId,
     state: &RackState,
     state_version: ConfigVersion,
 ) -> DatabaseResult<RackStateHistory> {

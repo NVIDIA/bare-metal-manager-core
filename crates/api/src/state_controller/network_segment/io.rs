@@ -36,7 +36,6 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
     type MetricsEmitter = NetworkSegmentMetricsEmitter;
     type ContextObjects = NetworkSegmentStateHandlerContextObjects;
 
-    const DB_WORK_KEY: &'static str = "network_segments_controller_lock";
     const DB_ITERATION_ID_TABLE_NAME: &'static str = "network_segments_controller_iteration_ids";
     const DB_QUEUED_OBJECTS_TABLE_NAME: &'static str = "network_segments_controller_queued_objects";
 

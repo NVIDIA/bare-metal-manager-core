@@ -17,7 +17,7 @@ use libredfish::RedfishError;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::machine::ManagedHostState;
 use model::resource_pool::ResourcePoolError;
-use sqlx::PgConnection;
+use sqlx::PgTransaction;
 
 use crate::rack::rms_client::RackManagerError;
 use crate::redfish::RedfishClientCreationError;
@@ -62,9 +62,20 @@ pub trait StateHandler: std::fmt::Debug + Send + Sync + 'static {
         object_id: &Self::ObjectId,
         state: &mut Self::State,
         controller_state: &Self::ControllerState,
-        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError>;
+    ) -> Result<StateHandlerOutcomeWithTransaction<Self::ControllerState>, StateHandlerError>;
+}
+
+/// [`StateHandlerOutcomeWithTransaction`] includes a transaction with the StateHandlerOutcome, so
+/// that the state controller can re-use this transaction for any further writes it does (for
+/// instance when calling [`StateControllerIO::persist_controller_state`] and
+/// [`StateControllerIO::persist_outcome`]). The reason we don't just store the transaction in an
+/// instance variable in ControllerState, is so that we can catch (and avoid) cases where the
+/// transaction is held open across an await point (see `lints/carbide-lints/README.md` in the
+/// carbide repo for explanation.)
+pub struct StateHandlerOutcomeWithTransaction<S> {
+    pub outcome: StateHandlerOutcome<S>,
+    pub transaction: Option<PgTransaction<'static>>,
 }
 
 pub enum StateHandlerOutcome<S> {
@@ -87,6 +98,16 @@ pub enum StateHandlerOutcome<S> {
 }
 
 impl<S> StateHandlerOutcome<S> {
+    pub fn with_txn(
+        self,
+        transaction: Option<PgTransaction<'static>>,
+    ) -> StateHandlerOutcomeWithTransaction<S> {
+        StateHandlerOutcomeWithTransaction {
+            outcome: self,
+            transaction,
+        }
+    }
+
     #[track_caller]
     pub fn do_nothing() -> Self {
         StateHandlerOutcome::DoNothing {
@@ -198,6 +219,9 @@ pub enum StateHandlerError {
 
     #[error("Rack Manager error: {0}")]
     RackManagerError(#[from] RackManagerError),
+
+    #[error("DPF error: {0}")]
+    DpfError(#[from] carbide_dpf::DpfError),
 }
 
 impl StateHandlerError {
@@ -233,6 +257,7 @@ impl StateHandlerError {
             },
             StateHandlerError::SpdmError(_) => "spdm_attestation_error",
             StateHandlerError::RackManagerError(_) => "rack_manager_error",
+            StateHandlerError::DpfError(_) => "dpf_error",
         }
     }
 }
@@ -274,10 +299,9 @@ impl<
         _object_id: &Self::ObjectId,
         _state: &mut Self::State,
         _controller_state: &Self::ControllerState,
-        _txn: &mut PgConnection,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
-        Ok(StateHandlerOutcome::do_nothing())
+    ) -> Result<StateHandlerOutcomeWithTransaction<Self::ControllerState>, StateHandlerError> {
+        Ok(StateHandlerOutcome::do_nothing().with_txn(None))
     }
 }
 

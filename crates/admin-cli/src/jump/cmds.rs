@@ -52,9 +52,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
 
     // Is it an IP?
     if IpAddr::from_str(&args.id).is_ok() {
-        let req = forgerpc::FindIpAddressRequest {
-            ip: args.id.clone(),
-        };
+        let req = forgerpc::FindIpAddressRequest { ip: args.id };
 
         let resp = ctx.api_client.0.find_ip_address(req).await?;
 
@@ -71,7 +69,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                 }
             };
 
-            let config_format = ctx.config.format.clone();
+            let config_format = ctx.config.format;
 
             use forgerpc::IpType::*;
             match ip_type {
@@ -206,7 +204,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                             tenant_org_id: None,
                             name: None,
                         },
-                        ctx.config.format.clone(),
+                        ctx.config.format,
                         &ctx.api_client,
                         ctx.config.page_size,
                     )
@@ -215,7 +213,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                 forgerpc::UuidType::Instance => {
                     instance::cmds::handle_show(
                         instance::args::ShowInstance {
-                            id: args.id.clone(),
+                            id: args.id,
                             extrainfo: true,
                             tenant_org_id: None,
                             vpc_id: None,
@@ -238,7 +236,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                             all: false,
                             more: true,
                         },
-                        ctx.config.format.clone(),
+                        ctx.config.format,
                         &ctx.api_client,
                     )
                     .await?
@@ -252,7 +250,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                             label_key: None,
                             label_value: None,
                         },
-                        ctx.config.format.clone(),
+                        ctx.config.format,
                         &ctx.api_client,
                         1,
                     )
@@ -264,7 +262,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                             domain: Some(args.id.parse()?),
                             all: false,
                         },
-                        ctx.config.format.clone(),
+                        ctx.config.format,
                         &ctx.api_client,
                     )
                     .await?
@@ -274,7 +272,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                         &dpa::args::ShowDpa {
                             id: Some(args.id.parse()?),
                         },
-                        ctx.config.format.clone(),
+                        ctx.config.format,
                         &ctx.api_client,
                         1,
                     )
@@ -301,7 +299,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                             all: false,
                             more: true,
                         },
-                        ctx.config.format.clone(),
+                        ctx.config.format,
                         &ctx.api_client,
                     )
                     .await?
@@ -321,7 +319,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                         &dpa::args::ShowDpa {
                             id: Some(primary_key.parse()?),
                         },
-                        ctx.config.format.clone(),
+                        ctx.config.format,
                         &ctx.api_client,
                         1,
                     )

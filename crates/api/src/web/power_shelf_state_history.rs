@@ -32,7 +32,7 @@ struct PowerShelfStateHistory {
 
 #[derive(Debug, serde::Serialize)]
 pub(super) struct PowerShelfStateHistoryRecord {
-    pub event: String,
+    pub state: String,
     pub version: String,
     pub time: String,
 }
@@ -51,7 +51,7 @@ pub async fn show_state_history(
     let records = records
         .into_iter()
         .map(|record| PowerShelfStateHistoryRecord {
-            event: record.event,
+            state: record.state,
             version: record.version,
             time: record
                 .time
@@ -81,7 +81,7 @@ pub async fn show_state_history_json(
     let records: Vec<PowerShelfStateHistoryRecord> = health_records
         .into_iter()
         .map(|record| PowerShelfStateHistoryRecord {
-            event: record.event,
+            state: record.state,
             version: record.version,
             time: record
                 .time
@@ -99,7 +99,7 @@ pub async fn fetch_state_history_records(
 ) -> Result<
     (
         carbide_uuid::power_shelf::PowerShelfId,
-        Vec<::rpc::forge::PowerShelfEvent>,
+        Vec<::rpc::forge::PowerShelfStateHistoryRecord>,
     ),
     (http::StatusCode, String),
 > {

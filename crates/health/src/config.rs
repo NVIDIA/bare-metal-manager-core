@@ -237,7 +237,7 @@ pub struct FirmwareCollectorConfig {
 impl Default for FirmwareCollectorConfig {
     fn default() -> Self {
         Self {
-            firmware_refresh_interval: Duration::from_secs(1800),
+            firmware_refresh_interval: Duration::from_secs(60 * 60 * 2), // 2 hours
         }
     }
 }
@@ -279,6 +279,8 @@ impl Default for LogsCollectorConfig {
 pub struct MetricsConfig {
     /// Metrics listener.
     pub endpoint: String,
+    /// Prefix for all metrics, defaults to carbide_hardware_health
+    pub prefix: String,
 }
 
 impl Default for RateLimitConfig {
@@ -295,6 +297,7 @@ impl Default for MetricsConfig {
     fn default() -> Self {
         Self {
             endpoint: "0.0.0.0:9009".to_string(),
+            prefix: "carbide_hardware_health".to_string(),
         }
     }
 }
@@ -493,6 +496,7 @@ sensor_fetch_concurrency = 5
 
 [metrics]
 endpoint = "127.0.0.1:9009"
+prefix = "carbide_hardware_new_health"
 
 shard = 0
 shards_count = 1
@@ -516,6 +520,8 @@ cache_size = 50
             config.endpoint_sources.static_bmc_endpoints[0].mac,
             "00:11:22:33:44:55"
         );
+
+        assert_eq!(config.metrics.prefix, "carbide_hardware_new_health");
 
         if let Configurable::Enabled(ref rate_limit) = config.rate_limit {
             assert_eq!(rate_limit.bucket_replenish, Duration::from_millis(30));

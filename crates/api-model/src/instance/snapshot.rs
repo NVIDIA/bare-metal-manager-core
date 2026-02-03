@@ -34,7 +34,7 @@ use crate::machine::infiniband::MachineInfinibandStatusObservation;
 use crate::machine::nvlink::MachineNvLinkStatusObservation;
 use crate::machine::{ManagedHostState, ReprovisionRequest};
 use crate::metadata::Metadata;
-use crate::os::{IpxeOperatingSystem, OperatingSystem, OperatingSystemVariant};
+use crate::os::{InlineIpxe, OperatingSystem, OperatingSystemVariant};
 use crate::tenant::TenantOrganizationId;
 
 /// Represents a snapshot view of an `Instance`
@@ -204,7 +204,7 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
         let os = OperatingSystem {
             variant: match value.os_image_id {
                 Some(x) => OperatingSystemVariant::OsImage(x),
-                None => OperatingSystemVariant::Ipxe(IpxeOperatingSystem {
+                None => OperatingSystemVariant::Ipxe(InlineIpxe {
                     ipxe_script: value.os_ipxe_script,
                 }),
             },

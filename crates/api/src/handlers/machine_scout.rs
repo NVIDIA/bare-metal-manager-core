@@ -65,6 +65,16 @@ pub(crate) async fn cleanup_machine_completed(
     txn.commit().await?;
 
     // State handler should mark Machine as Adopted and reboot host for bios/bmc lockdown.
+    // Wake it up
+    if machine_id.machine_type().is_host()
+        && let Err(err) = api
+            .machine_state_handler_enqueuer
+            .enqueue_object(&machine_id)
+            .await
+    {
+        tracing::warn!(%err, %machine_id, "Failed to wake up state handler for machine");
+    }
+
     Ok(Response::new(rpc::MachineCleanupResult {}))
 }
 
@@ -301,6 +311,17 @@ pub(crate) async fn reboot_completed(
     db::machine::update_reboot_time(&machine, &mut txn).await?;
 
     txn.commit().await?;
+
+    // Wake up the state handler for the machine
+    // Don't do it for DPUs - state handlers only run on hosts
+    if (machine_id.machine_type().is_host() || machine_id.machine_type().is_predicted_host())
+        && let Err(err) = api
+            .machine_state_handler_enqueuer
+            .enqueue_object(&machine_id)
+            .await
+    {
+        tracing::warn!(%err, %machine_id, "Failed to wake up state handler for machine");
+    }
 
     Ok(Response::new(rpc::MachineRebootCompletedResponse {}))
 }

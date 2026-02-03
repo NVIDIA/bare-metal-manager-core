@@ -30,10 +30,10 @@ pub async fn create(
 
     // Validate that the new VPC prefix is in canonical form (no bits set to
     // 1 after the prefix).
-    let canonical_address = new_prefix.prefix.network();
-    let prefix_address = new_prefix.prefix.ip();
+    let canonical_address = new_prefix.config.prefix.network();
+    let prefix_address = new_prefix.config.prefix.ip();
     if canonical_address != prefix_address {
-        let prefix_len = new_prefix.prefix.prefix();
+        let prefix_len = new_prefix.config.prefix.prefix();
         let msg = format!(
             "IP prefixes must be in canonical format. This prefix should be \
             specified as {canonical_address}/{prefix_len} and not \
@@ -46,7 +46,7 @@ pub async fn create(
     // address space. This will also reject any IPv6 prefixes, since site
     // prefixes cannot contain any IPv6 address space at the moment.
     if let Some(ref site_prefixes) = api.eth_data.site_fabric_prefixes {
-        let prefix = new_prefix.prefix;
+        let prefix = new_prefix.config.prefix;
         if !site_prefixes.contains(prefix) {
             return Err(CarbideError::InvalidArgument(format!(
                 "The VPC prefix {prefix} is not contained within the site fabric prefixes"
@@ -57,19 +57,21 @@ pub async fn create(
 
     let mut txn = api.txn_begin().await?;
 
-    let conflicting_vpc_prefixes = db::probe(new_prefix.prefix, &mut txn).await?;
+    let conflicting_vpc_prefixes = db::probe(new_prefix.config.prefix, &mut txn).await?;
     if !conflicting_vpc_prefixes.is_empty() {
-        let conflicting_vpc_prefixes = conflicting_vpc_prefixes.into_iter().map(|p| p.prefix);
+        let conflicting_vpc_prefixes = conflicting_vpc_prefixes
+            .into_iter()
+            .map(|p| p.config.prefix);
         let conflicting_vpc_prefixes = itertools::join(conflicting_vpc_prefixes, ", ");
         let msg = format!(
             "The requested VPC prefix ({vpc_prefix}) overlaps at least one \
             existing VPC prefix ({conflicting_vpc_prefixes})",
-            vpc_prefix = new_prefix.prefix,
+            vpc_prefix = new_prefix.config.prefix,
         );
         return Err(CarbideError::InvalidArgument(msg).into());
     }
 
-    let segment_prefixes = db::probe_segment_prefixes(new_prefix.prefix, &mut txn).await?;
+    let segment_prefixes = db::probe_segment_prefixes(new_prefix.config.prefix, &mut txn).await?;
 
     // Check that all the prefixes we found are on segments that belong to our
     // own VPC.
@@ -87,7 +89,7 @@ pub async fn create(
                 "The requested VPC prefix of {vpc_prefix} conflicts with at \
                 least one network segment prefix ({foreign_segment_prefixes}) \
                 owned by another VPC",
-                vpc_prefix = new_prefix.prefix,
+                vpc_prefix = new_prefix.config.prefix,
             );
             return Err(CarbideError::InvalidArgument(msg).into());
         }
@@ -102,13 +104,13 @@ pub async fn create(
     // this new VPC prefix container.
     if let Some(larger_segment_prefix) = segment_prefixes.iter().find(|segment_prefix| {
         let segment_prefix_len = segment_prefix.prefix.prefix();
-        let vpc_prefix_len = new_prefix.prefix.prefix();
+        let vpc_prefix_len = new_prefix.config.prefix.prefix();
         segment_prefix_len < vpc_prefix_len
     }) {
         let msg = format!(
             "The requested VPC prefix ({vpc_prefix}) is too small to contain \
             an existing network segment prefix ({larger_segment_prefix})",
-            vpc_prefix = new_prefix.prefix,
+            vpc_prefix = new_prefix.config.prefix,
             larger_segment_prefix = larger_segment_prefix.prefix,
         );
         return Err(CarbideError::InvalidArgument(msg).into());
@@ -127,11 +129,16 @@ pub async fn create(
             segment prefix ({segment_prefix}) which is already associated with \
             another VPC prefix ({associated_vpc_prefix}). If you see this \
             error message, please file a bug!",
-            vpc_prefix = new_prefix.prefix,
+            vpc_prefix = new_prefix.config.prefix,
             segment_prefix = segment_prefix.prefix,
         );
         return Err(CarbideError::InvalidArgument(msg).into());
     }
+
+    new_prefix
+        .metadata
+        .validate(true)
+        .map_err(CarbideError::from)?;
 
     let vpc_prefix = db::persist(new_prefix, &mut txn).await?;
 
@@ -141,7 +148,7 @@ pub async fn create(
             &mut segment_prefix,
             &mut txn,
             &vpc_prefix.id,
-            &vpc_prefix.prefix,
+            &vpc_prefix.config.prefix,
         )
         .await?;
     }
@@ -246,6 +253,11 @@ pub async fn update(
     let update_prefix = vpc_prefix::UpdateVpcPrefix::try_from(request.into_inner())?;
 
     let mut txn = api.txn_begin().await?;
+
+    update_prefix
+        .metadata
+        .validate(true)
+        .map_err(CarbideError::from)?;
 
     let updated = db::update(&update_prefix, &mut txn).await?;
 

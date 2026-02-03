@@ -76,6 +76,11 @@ pub struct CarbideConfig {
     /// prometheus metrics under /metrics
     pub metrics_endpoint: Option<SocketAddr>,
 
+    /// An alternative prefix under which metrics will be emitted besides `carbide_`.
+    /// Setting this flag will allow to dual emit metrics to migrate dashboards and alerts.
+    /// Note that seting the flag will load to increased load on the observability system.
+    pub alt_metric_prefix: Option<String>,
+
     /// A connection string for the utilized postgres database
     pub database_url: String,
 
@@ -412,6 +417,14 @@ pub struct CarbideConfig {
     // DPF Config
     #[serde(default)]
     pub dpf: DpfConfig,
+
+    /// The URL to use for overriding the PXE boot url on X86 machines.
+    #[serde(default)]
+    pub x86_pxe_boot_url_override: Option<String>,
+
+    /// The URL to use for overriding the PXE boot url on ARM machines.
+    #[serde(default)]
+    pub arm_pxe_boot_url_override: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

@@ -10,62 +10,85 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::fmt;
-use std::str::FromStr;
+use crate::typed_uuids::{TypedUuid, UuidSubtype};
 
-use serde::{Deserialize, Serialize};
-#[cfg(feature = "sqlx")]
-use sqlx::{
-    FromRow, Type,
-    postgres::{PgHasArrayType, PgTypeInfo},
-};
+/// Marker type for VpcPeeringId
+pub struct VpcPeeringIdMarker;
 
-use crate::{UuidConversionError, grpc_uuid_message};
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq, Default)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct VpcPeeringId(pub uuid::Uuid);
-
-grpc_uuid_message!(VpcPeeringId);
-
-impl From<VpcPeeringId> for uuid::Uuid {
-    fn from(id: VpcPeeringId) -> Self {
-        id.0
-    }
+impl UuidSubtype for VpcPeeringIdMarker {
+    const TYPE_NAME: &'static str = "VpcPeeringId";
 }
 
-impl From<uuid::Uuid> for VpcPeeringId {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
-    }
-}
+/// VpcPeeringId is a strongly typed UUID specific to a VPC peering relationship.
+pub type VpcPeeringId = TypedUuid<VpcPeeringIdMarker>;
 
-impl FromStr for VpcPeeringId {
-    type Err = UuidConversionError;
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "VpcPeeringId",
-                value: input.to_string(),
-            }
-        })?))
-    }
-}
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::str::FromStr;
 
-impl fmt::Display for VpcPeeringId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+    use super::*;
 
-#[cfg(feature = "sqlx")]
-impl PgHasArrayType for VpcPeeringId {
-    fn array_type_info() -> PgTypeInfo {
-        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
+    #[test]
+    fn test_uuid_round_trip() {
+        let orig = uuid::Uuid::new_v4();
+        let id = VpcPeeringId::from(orig);
+        let back = uuid::Uuid::from(id);
+        assert_eq!(orig, back);
     }
 
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
+    #[test]
+    fn test_string_round_trip() {
+        let orig = uuid::Uuid::new_v4();
+        let id = VpcPeeringId::from(orig);
+        let as_string = id.to_string();
+        let parsed = VpcPeeringId::from_str(&as_string).expect("failed to parse");
+        assert_eq!(id, parsed);
+    }
+
+    #[test]
+    fn test_json_round_trip() {
+        let id = VpcPeeringId::new();
+        let json = serde_json::to_string(&id).expect("failed to serialize");
+        let parsed: VpcPeeringId = serde_json::from_str(&json).expect("failed to deserialize");
+        assert_eq!(id, parsed);
+        assert!(json.starts_with('"') && json.ends_with('"'));
+    }
+
+    #[test]
+    fn test_ordering() {
+        let id1 = VpcPeeringId::from(uuid::Uuid::nil());
+        let id2 = VpcPeeringId::from(uuid::Uuid::max());
+        assert!(id1 < id2);
+    }
+
+    #[test]
+    fn test_default() {
+        let id = VpcPeeringId::default();
+        assert_eq!(uuid::Uuid::from(id), uuid::Uuid::nil());
+    }
+
+    #[test]
+    fn test_copy() {
+        let id1 = VpcPeeringId::new();
+        let id2 = id1;
+        assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn test_hash_consistency() {
+        let uuid = uuid::Uuid::new_v4();
+        let id1 = VpcPeeringId::from(uuid);
+        let id2 = VpcPeeringId::from(uuid);
+        let mut set = HashSet::new();
+        set.insert(id1);
+        assert!(set.contains(&id2));
+    }
+
+    #[test]
+    fn test_debug_includes_type_name() {
+        let id = VpcPeeringId::from(uuid::Uuid::nil());
+        let debug = format!("{:?}", id);
+        assert!(debug.contains("VpcPeeringId"));
     }
 }

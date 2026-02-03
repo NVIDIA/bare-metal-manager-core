@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -15,13 +15,12 @@ use prettytable::{Cell, Row, Table};
 use rpc::admin_cli::OutputFormat;
 
 use super::args::{DeleteRack, ShowRack};
-use crate::cfg::cli_options::AddNode;
-use crate::rms::args::{AvailableFwImages, FirmwareInventory, PowerState, RemoveNode};
+use crate::rms::args::{AddNode, AvailableFwImages, FirmwareInventory, PowerState, RemoveNode};
 use crate::rpc::{ApiClient, RmsApiClient};
 
-pub async fn show_rack(api_client: &ApiClient, show_opts: &ShowRack) -> Result<()> {
+pub async fn show_rack(api_client: &ApiClient, show_opts: ShowRack) -> Result<()> {
     let query = rpc::forge::GetRackRequest {
-        id: show_opts.identifier.clone(),
+        id: show_opts.identifier,
     };
     let response = api_client.0.get_rack(query).await?;
     let racks = response.rack;
@@ -31,7 +30,7 @@ pub async fn show_rack(api_client: &ApiClient, show_opts: &ShowRack) -> Result<(
     }
 
     for r in racks {
-        println!("ID: {}", r.id);
+        println!("ID: {}", r.id.map(|id| id.to_string()).unwrap_or_default());
         println!("State: {}", r.rack_state);
         println!("Expected Compute Tray BMCs:");
         for mac_address in r.expected_compute_trays {
@@ -101,8 +100,8 @@ pub async fn list_racks(api_client: &ApiClient) -> Result<()> {
                     .join("\n");
                 let expected_nvlink_switches = r.expected_nvlink_switches.join("\n");
                 table.add_row(prettytable::row![
-                    r.id.clone(),
-                    r.rack_state.clone(),
+                    r.id.map(|id| id.to_string()).unwrap_or_default(),
+                    r.rack_state.as_str(),
                     expected_compute_trays,
                     current_compute_trays,
                     expected_power_shelves,
@@ -123,9 +122,9 @@ pub async fn list_racks(api_client: &ApiClient) -> Result<()> {
     Ok(())
 }
 
-pub async fn delete_rack(api_client: &ApiClient, delete_opts: &DeleteRack) -> Result<()> {
+pub async fn delete_rack(api_client: &ApiClient, delete_opts: DeleteRack) -> Result<()> {
     let query = rpc::forge::DeleteRackRequest {
-        id: delete_opts.identifier.clone(),
+        id: delete_opts.identifier,
     };
     api_client.0.delete_rack(query).await?;
     Ok(())
@@ -137,12 +136,12 @@ pub async fn get_inventory(rms_client: &RmsApiClient) -> Result<()> {
     Ok(())
 }
 
-#[allow(dead_code)]
-pub async fn add_node(rms_client: &RmsApiClient, add_node_opts: &AddNode) -> Result<()> {
+pub async fn add_node(rms_client: &RmsApiClient, add_node_opts: AddNode) -> Result<()> {
     let new_node = ::rpc::protos::rack_manager::NewNodeInfo {
-        node_id: add_node_opts.node_id.clone(),
-        mac_address: add_node_opts.mac_address.clone(),
-        ip_address: add_node_opts.ip_address.clone(),
+        rack_id: add_node_opts.rack_id,
+        node_id: add_node_opts.node_id,
+        mac_address: add_node_opts.mac_address,
+        ip_address: add_node_opts.ip_address,
         port: add_node_opts.port,
         username: None,
         password: None,
@@ -154,26 +153,20 @@ pub async fn add_node(rms_client: &RmsApiClient, add_node_opts: &AddNode) -> Res
     Ok(())
 }
 
-pub async fn remove_node(rms_client: &RmsApiClient, remove_node_opts: &RemoveNode) -> Result<()> {
+pub async fn remove_node(rms_client: &RmsApiClient, remove_node_opts: RemoveNode) -> Result<()> {
     let response = rms_client
-        .remove_node(remove_node_opts.node_id.clone())
+        .remove_node(remove_node_opts.rack_id, remove_node_opts.node_id)
         .await?;
-    println!("{:#?}", response);
-    Ok(())
-}
-
-pub async fn get_poweron_order(rms_client: &RmsApiClient) -> Result<()> {
-    let response = rms_client.get_poweron_order().await?;
     println!("{:#?}", response);
     Ok(())
 }
 
 pub async fn get_power_state(
     rms_client: &RmsApiClient,
-    power_state_opts: &PowerState,
+    power_state_opts: PowerState,
 ) -> Result<()> {
     let response = rms_client
-        .get_power_state(power_state_opts.node_id.clone())
+        .get_power_state(power_state_opts.rack_id, power_state_opts.node_id)
         .await?;
     println!("{:#?}", response);
     Ok(())
@@ -181,10 +174,13 @@ pub async fn get_power_state(
 
 pub async fn get_firmware_inventory(
     rms_client: &RmsApiClient,
-    firmware_inventory_opts: &FirmwareInventory,
+    firmware_inventory_opts: FirmwareInventory,
 ) -> Result<()> {
     let response = rms_client
-        .get_firmware_inventory(firmware_inventory_opts.node_id.clone())
+        .get_firmware_inventory(
+            firmware_inventory_opts.rack_id,
+            firmware_inventory_opts.node_id,
+        )
         .await?;
     println!("{:#?}", response);
     Ok(())
@@ -192,10 +188,13 @@ pub async fn get_firmware_inventory(
 
 pub async fn get_available_fw_images(
     rms_client: &RmsApiClient,
-    available_fw_images_opts: &AvailableFwImages,
+    available_fw_images_opts: AvailableFwImages,
 ) -> Result<()> {
     let response = rms_client
-        .get_available_fw_images(available_fw_images_opts.node_id.clone())
+        .get_available_fw_images(
+            available_fw_images_opts.rack_id,
+            available_fw_images_opts.node_id,
+        )
         .await?;
     println!("{:#?}", response);
     Ok(())

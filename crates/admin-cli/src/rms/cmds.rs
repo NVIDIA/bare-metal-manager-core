@@ -12,7 +12,9 @@
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 
-use super::args::{AvailableFwImages, FirmwareInventory, PowerState, RemoveNode};
+use super::args::{
+    AddNode, AvailableFwImages, FirmwareInventory, PowerState, PoweronOrder, RemoveNode,
+};
 use crate::rack;
 use crate::rpc::RmsApiClient;
 
@@ -22,26 +24,32 @@ pub async fn inventory(api_client: &RmsApiClient) -> CarbideCliResult<()> {
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
 }
 
-pub async fn remove_node(args: &RemoveNode, api_client: &RmsApiClient) -> CarbideCliResult<()> {
+pub async fn add_node(args: AddNode, api_client: &RmsApiClient) -> CarbideCliResult<()> {
+    rack::cmds::add_node(api_client, args)
+        .await
+        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
+}
+
+pub async fn remove_node(args: RemoveNode, api_client: &RmsApiClient) -> CarbideCliResult<()> {
     rack::cmds::remove_node(api_client, args)
         .await
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
 }
 
-pub async fn poweron_order(api_client: &RmsApiClient) -> CarbideCliResult<()> {
-    rack::cmds::get_poweron_order(api_client)
-        .await
-        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
+pub async fn poweron_order(args: PoweronOrder, api_client: &RmsApiClient) -> CarbideCliResult<()> {
+    let response = api_client.get_poweron_order(args.rack_id).await?;
+    println!("{}", response);
+    Ok(())
 }
 
-pub async fn power_state(args: &PowerState, api_client: &RmsApiClient) -> CarbideCliResult<()> {
+pub async fn power_state(args: PowerState, api_client: &RmsApiClient) -> CarbideCliResult<()> {
     rack::cmds::get_power_state(api_client, args)
         .await
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
 }
 
 pub async fn firmware_inventory(
-    args: &FirmwareInventory,
+    args: FirmwareInventory,
     api_client: &RmsApiClient,
 ) -> CarbideCliResult<()> {
     rack::cmds::get_firmware_inventory(api_client, args)
@@ -50,7 +58,7 @@ pub async fn firmware_inventory(
 }
 
 pub async fn available_fw_images(
-    args: &AvailableFwImages,
+    args: AvailableFwImages,
     api_client: &RmsApiClient,
 ) -> CarbideCliResult<()> {
     rack::cmds::get_available_fw_images(api_client, args)

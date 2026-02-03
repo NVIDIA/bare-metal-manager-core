@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use carbide_uuid::rack::RackId;
 use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -17,8 +18,7 @@ use sqlx::FromRow;
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct DbRackStateHistory {
     /// The ID of the rack that experienced the state change
-    // TODO(chet): Change this to RackId.
-    pub rack_id: String,
+    pub rack_id: RackId,
 
     /// The state that was entered
     pub state: String,

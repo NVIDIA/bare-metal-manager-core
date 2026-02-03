@@ -50,7 +50,7 @@ async fn show_ib_partitions(
     name: Option<String>,
 ) -> CarbideCliResult<()> {
     let all_ib_partitions = match api_client
-        .get_all_ib_partitions(tenant_org_id.clone(), name.clone(), page_size)
+        .get_all_ib_partitions(tenant_org_id, name, page_size)
         .await
     {
         Ok(all_ib_partition_ids) => all_ib_partition_ids,
@@ -74,16 +74,14 @@ async fn show_ib_partition_details(
         Err(e) => return Err(e),
     };
 
-    if ib_partitions.ib_partitions.len() != 1 {
+    let Some(ib_partition) = ib_partitions.ib_partitions.into_iter().next() else {
         return Err(CarbideCliError::GenericError(
             "Unknown InfiniBand Partition ID".to_string(),
         ));
-    }
-
-    let ib_partition = &ib_partitions.ib_partitions[0];
+    };
 
     if json {
-        println!("{}", serde_json::to_string_pretty(ib_partition)?);
+        println!("{}", serde_json::to_string_pretty(&ib_partition)?);
     } else {
         println!(
             "{}",
@@ -96,25 +94,49 @@ async fn show_ib_partition_details(
 fn convert_ib_partitions_to_nice_table(ib_partitions: forgerpc::IbPartitionList) -> Box<Table> {
     let mut table = Table::new();
 
-    table.set_titles(row!["Id", "Name", "TenantOrg", "State", "Pkey",]);
+    table.set_titles(row![
+        "Id",
+        "Name",
+        "TenantOrg",
+        "State",
+        "Pkey",
+        "Labels",
+        "Description",
+    ]);
 
     for ib_partition in ib_partitions.ib_partitions {
+        let metadata = ib_partition.metadata.as_ref();
+        let labels = crate::metadata::get_nice_labels_from_rpc_metadata(metadata);
+
         table.add_row(row![
             ib_partition.id.unwrap_or_default(),
-            ib_partition.config.clone().unwrap_or_default().name,
+            metadata
+                .as_ref()
+                .map(|m| m.name.as_str())
+                .unwrap_or_default(),
             ib_partition
                 .config
-                .unwrap_or_default()
-                .tenant_organization_id,
-            forgerpc::TenantState::try_from(ib_partition.status.clone().unwrap_or_default().state,)
-                .unwrap_or_default()
-                .as_str_name()
-                .to_string(),
+                .as_ref()
+                .map(|c| c.tenant_organization_id.as_str())
+                .unwrap_or_default(),
+            forgerpc::TenantState::try_from(
+                ib_partition
+                    .status
+                    .as_ref()
+                    .map(|s| s.state)
+                    .unwrap_or_default(),
+            )
+            .map(|t| t.as_str_name())
+            .unwrap_or_default(),
             ib_partition
                 .status
-                .clone()
-                .unwrap_or_default()
-                .pkey
+                .as_ref()
+                .and_then(|s| s.pkey.as_deref())
+                .unwrap_or_default(),
+            labels.join(", "),
+            metadata
+                .as_ref()
+                .map(|m| m.description.as_str())
                 .unwrap_or_default(),
         ]);
     }
@@ -123,27 +145,45 @@ fn convert_ib_partitions_to_nice_table(ib_partitions: forgerpc::IbPartitionList)
 }
 
 fn convert_ib_partition_to_nice_format(
-    ib_partition: &forgerpc::IbPartition,
+    ib_partition: forgerpc::IbPartition,
 ) -> CarbideCliResult<String> {
     let width = 25;
     let mut lines = String::new();
 
-    let config = ib_partition.config.clone().unwrap_or_default();
-    let status = ib_partition.status.clone().unwrap_or_default();
+    let tenant_organization_id = ib_partition
+        .config
+        .unwrap_or_default()
+        .tenant_organization_id;
+    let metadata = ib_partition.metadata;
+    let labels = crate::metadata::get_nice_labels_from_rpc_metadata(metadata.as_ref());
+
+    let status = ib_partition.status.unwrap_or_default();
     let state_reason = status.state_reason.unwrap_or_default();
-    let data = vec![
+
+    let id = ib_partition.id.map(|i| i.to_string()).unwrap_or_default();
+    let service_level = status
+        .service_level
+        .map(|i| i.to_string())
+        .unwrap_or_default();
+    let rate = status.rate_limit.map(|i| i.to_string()).unwrap_or_default();
+    let mtu = status.mtu.map(|i| i.to_string()).unwrap_or_default();
+    let labels = labels.join(", ");
+
+    let data: Vec<(&str, &str)> = vec![
+        ("ID", &id),
         (
-            "ID",
-            ib_partition.id.map(|id| id.to_string()).unwrap_or_default(),
+            "NAME",
+            metadata
+                .as_ref()
+                .map(|m| m.name.as_str())
+                .unwrap_or_default(),
         ),
-        ("NAME", config.name),
-        ("TENANT ORG", config.tenant_organization_id),
+        ("TENANT ORG", &tenant_organization_id),
         (
             "STATE",
             forgerpc::TenantState::try_from(status.state)
                 .unwrap_or_default()
-                .as_str_name()
-                .to_string(),
+                .as_str_name(),
         ),
         (
             "STATE MACHINE",
@@ -152,28 +192,33 @@ fn convert_ib_partition_to_nice_format(
             {
                 forgerpc::ControllerStateOutcome::Transition
                 | forgerpc::ControllerStateOutcome::DoNothing
-                | forgerpc::ControllerStateOutcome::Todo => "OK".to_string(),
+                | forgerpc::ControllerStateOutcome::Todo => "OK",
                 forgerpc::ControllerStateOutcome::Wait
                 | forgerpc::ControllerStateOutcome::Error => {
-                    state_reason.outcome_msg.unwrap_or_default()
+                    state_reason.outcome_msg.as_deref().unwrap_or_default()
                 }
             },
         ),
-        ("PKEY", status.pkey.unwrap_or_default()),
-        ("PARTITION", status.partition.unwrap_or_default()),
-        (
-            "SERVICE LEVEL",
-            format!("{}", status.service_level.unwrap_or_default()),
-        ),
-        ("RATE", format!("{}", status.rate_limit.unwrap_or_default())),
-        ("MTU", format!("{}", status.mtu.unwrap_or_default())),
+        ("PKEY", status.pkey.as_deref().unwrap_or_default()),
+        ("PARTITION", status.partition.as_deref().unwrap_or_default()),
+        ("SERVICE LEVEL", &service_level),
+        ("RATE", &rate),
+        ("MTU", &mtu),
         (
             "SHARP APPS",
             if status.enable_sharp.unwrap_or_default() {
-                "YES".to_string()
+                "YES"
             } else {
-                "NO".to_string()
+                "NO"
             },
+        ),
+        ("LABELS", &labels),
+        (
+            "DESCRIPTION",
+            metadata
+                .as_ref()
+                .map(|m| m.description.as_str())
+                .unwrap_or_default(),
         ),
     ];
 

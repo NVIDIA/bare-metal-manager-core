@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -914,9 +914,12 @@ pub async fn apply(
     request: Request<RackFirmwareApplyRequest>,
 ) -> Result<Response<RackFirmwareApplyResponse>, Status> {
     let req = request.into_inner();
+    let rack_id = req
+        .rack_id
+        .ok_or_else(|| Status::invalid_argument("rack_id is required"))?;
 
     tracing::info!(
-        rack_id = %req.rack_id,
+        rack_id = %rack_id,
         firmware_id = %req.firmware_id,
         firmware_type = %req.firmware_type,
         "Starting firmware apply operation"
@@ -949,7 +952,7 @@ pub async fn apply(
             serde_json::json!({})
         });
 
-    let rack = db::rack::get(&mut txn, &req.rack_id)
+    let rack = db::rack::get(&mut txn, rack_id)
         .await
         .map_err(|e| Status::internal(format!("Failed to get rack: {}", e)))?;
 
@@ -978,12 +981,12 @@ pub async fn apply(
     if all_devices.is_empty() {
         return Err(Status::failed_precondition(format!(
             "Rack '{}' contains no devices",
-            req.rack_id
+            rack_id
         )));
     }
 
     tracing::info!(
-        rack_id = %req.rack_id,
+        rack_id = %rack_id,
         device_count = all_devices.len(),
         "Found devices in rack"
     );
@@ -1053,6 +1056,7 @@ pub async fn apply(
 
             match rms_client
                 .update_firmware(
+                    rack_id,
                     device_id.clone(),
                     full_firmware_path.clone(),
                     target.clone(),
@@ -1110,7 +1114,7 @@ pub async fn apply(
     }
 
     tracing::info!(
-        rack_id = %req.rack_id,
+        rack_id = %rack_id,
         firmware_id = %req.firmware_id,
         successful = successful_updates,
         failed = failed_updates,

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,12 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
+use ::rpc::protos::measured_boot as pb;
 pub use ::rpc::{forge as rpc_forge, machine_discovery as rpc_md};
 use carbide_uuid::machine::MachineId;
 use db::attestation::secret_ak_pub;
 use sqlx::PgConnection;
-use tonic::Status;
+use tonic::{Request, Response, Status};
 
+use crate::api::Api;
+use crate::measured_boot::rpc::{bundle, journal, machine, profile, report, site};
 use crate::{CarbideError, attestation as attest};
 
 pub(crate) async fn create_attest_key_bind_challenge(
@@ -44,4 +47,391 @@ pub(crate) async fn create_attest_key_bind_challenge(
         cred_blob: cli_cred_blob,
         encrypted_secret: cli_secret,
     })
+}
+
+pub async fn create_system_profile(
+    api: &Api,
+    request: Request<pb::CreateMeasurementSystemProfileRequest>,
+) -> Result<Response<pb::CreateMeasurementSystemProfileResponse>, Status> {
+    profile::handle_create_system_measurement_profile(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn delete_system_profile(
+    api: &Api,
+    request: Request<pb::DeleteMeasurementSystemProfileRequest>,
+) -> Result<Response<pb::DeleteMeasurementSystemProfileResponse>, Status> {
+    profile::handle_delete_measurement_system_profile(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn rename_system_profile(
+    api: &Api,
+    request: Request<pb::RenameMeasurementSystemProfileRequest>,
+) -> Result<Response<pb::RenameMeasurementSystemProfileResponse>, Status> {
+    profile::handle_rename_measurement_system_profile(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn show_system_profile(
+    api: &Api,
+    request: Request<pb::ShowMeasurementSystemProfileRequest>,
+) -> Result<Response<pb::ShowMeasurementSystemProfileResponse>, Status> {
+    profile::handle_show_measurement_system_profile(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn show_system_profiles(
+    api: &Api,
+    request: Request<pb::ShowMeasurementSystemProfilesRequest>,
+) -> Result<Response<pb::ShowMeasurementSystemProfilesResponse>, Status> {
+    profile::handle_show_measurement_system_profiles(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn list_system_profiles(
+    api: &Api,
+    request: Request<pb::ListMeasurementSystemProfilesRequest>,
+) -> Result<Response<pb::ListMeasurementSystemProfilesResponse>, Status> {
+    profile::handle_list_measurement_system_profiles(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn list_system_profile_bundles(
+    api: &Api,
+    request: Request<pb::ListMeasurementSystemProfileBundlesRequest>,
+) -> Result<Response<pb::ListMeasurementSystemProfileBundlesResponse>, Status> {
+    profile::handle_list_measurement_system_profile_bundles(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn list_system_profile_machines(
+    api: &Api,
+    request: Request<pb::ListMeasurementSystemProfileMachinesRequest>,
+) -> Result<Response<pb::ListMeasurementSystemProfileMachinesResponse>, Status> {
+    profile::handle_list_measurement_system_profile_machines(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn create_report(
+    api: &Api,
+    request: Request<pb::CreateMeasurementReportRequest>,
+) -> Result<Response<pb::CreateMeasurementReportResponse>, Status> {
+    report::handle_create_measurement_report(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn delete_report(
+    api: &Api,
+    request: Request<pb::DeleteMeasurementReportRequest>,
+) -> Result<Response<pb::DeleteMeasurementReportResponse>, Status> {
+    report::handle_delete_measurement_report(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn promote_report(
+    api: &Api,
+    request: Request<pb::PromoteMeasurementReportRequest>,
+) -> Result<Response<pb::PromoteMeasurementReportResponse>, Status> {
+    report::handle_promote_measurement_report(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn revoke_report(
+    api: &Api,
+    request: Request<pb::RevokeMeasurementReportRequest>,
+) -> Result<Response<pb::RevokeMeasurementReportResponse>, Status> {
+    report::handle_revoke_measurement_report(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn show_report_for_id(
+    api: &Api,
+    request: Request<pb::ShowMeasurementReportForIdRequest>,
+) -> Result<Response<pb::ShowMeasurementReportForIdResponse>, Status> {
+    report::handle_show_measurement_report_for_id(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn show_reports_for_machine(
+    api: &Api,
+    request: Request<pb::ShowMeasurementReportsForMachineRequest>,
+) -> Result<Response<pb::ShowMeasurementReportsForMachineResponse>, Status> {
+    report::handle_show_measurement_reports_for_machine(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn show_reports(
+    api: &Api,
+    request: Request<pb::ShowMeasurementReportsRequest>,
+) -> Result<Response<pb::ShowMeasurementReportsResponse>, Status> {
+    report::handle_show_measurement_reports(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn list_report(
+    api: &Api,
+    request: Request<pb::ListMeasurementReportRequest>,
+) -> Result<Response<pb::ListMeasurementReportResponse>, Status> {
+    report::handle_list_measurement_report(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn match_report(
+    api: &Api,
+    request: Request<pb::MatchMeasurementReportRequest>,
+) -> Result<Response<pb::MatchMeasurementReportResponse>, Status> {
+    report::handle_match_measurement_report(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn create_bundle(
+    api: &Api,
+    request: Request<pb::CreateMeasurementBundleRequest>,
+) -> Result<Response<pb::CreateMeasurementBundleResponse>, Status> {
+    bundle::handle_create_measurement_bundle(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn delete_bundle(
+    api: &Api,
+    request: Request<pb::DeleteMeasurementBundleRequest>,
+) -> Result<Response<pb::DeleteMeasurementBundleResponse>, Status> {
+    bundle::handle_delete_measurement_bundle(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn rename_bundle(
+    api: &Api,
+    request: Request<pb::RenameMeasurementBundleRequest>,
+) -> Result<Response<pb::RenameMeasurementBundleResponse>, Status> {
+    bundle::handle_rename_measurement_bundle(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn update_bundle(
+    api: &Api,
+    request: Request<pb::UpdateMeasurementBundleRequest>,
+) -> Result<Response<pb::UpdateMeasurementBundleResponse>, Status> {
+    bundle::handle_update_measurement_bundle(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn show_bundle(
+    api: &Api,
+    request: Request<pb::ShowMeasurementBundleRequest>,
+) -> Result<Response<pb::ShowMeasurementBundleResponse>, Status> {
+    bundle::handle_show_measurement_bundle(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn show_bundles(
+    api: &Api,
+    request: Request<pb::ShowMeasurementBundlesRequest>,
+) -> Result<Response<pb::ShowMeasurementBundlesResponse>, Status> {
+    bundle::handle_show_measurement_bundles(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn list_bundles(
+    api: &Api,
+    request: Request<pb::ListMeasurementBundlesRequest>,
+) -> Result<Response<pb::ListMeasurementBundlesResponse>, Status> {
+    bundle::handle_list_measurement_bundles(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn list_bundle_machines(
+    api: &Api,
+    request: Request<pb::ListMeasurementBundleMachinesRequest>,
+) -> Result<Response<pb::ListMeasurementBundleMachinesResponse>, Status> {
+    bundle::handle_list_measurement_bundle_machines(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn find_closest_bundle_match(
+    api: &Api,
+    request: Request<pb::FindClosestBundleMatchRequest>,
+) -> Result<Response<pb::ShowMeasurementBundleResponse>, Status> {
+    bundle::handle_find_closest_match(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn delete_journal(
+    api: &Api,
+    request: Request<pb::DeleteMeasurementJournalRequest>,
+) -> Result<Response<pb::DeleteMeasurementJournalResponse>, Status> {
+    journal::handle_delete_measurement_journal(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn show_journal(
+    api: &Api,
+    request: Request<pb::ShowMeasurementJournalRequest>,
+) -> Result<Response<pb::ShowMeasurementJournalResponse>, Status> {
+    journal::handle_show_measurement_journal(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn show_journals(
+    api: &Api,
+    request: Request<pb::ShowMeasurementJournalsRequest>,
+) -> Result<Response<pb::ShowMeasurementJournalsResponse>, Status> {
+    journal::handle_show_measurement_journals(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn list_journal(
+    api: &Api,
+    request: Request<pb::ListMeasurementJournalRequest>,
+) -> Result<Response<pb::ListMeasurementJournalResponse>, Status> {
+    journal::handle_list_measurement_journal(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn attest_candidate_machine(
+    api: &Api,
+    request: Request<pb::AttestCandidateMachineRequest>,
+) -> Result<Response<pb::AttestCandidateMachineResponse>, Status> {
+    machine::handle_attest_candidate_machine(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn show_candidate_machine(
+    api: &Api,
+    request: Request<pb::ShowCandidateMachineRequest>,
+) -> Result<Response<pb::ShowCandidateMachineResponse>, Status> {
+    machine::handle_show_candidate_machine(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn show_candidate_machines(
+    api: &Api,
+    request: Request<pb::ShowCandidateMachinesRequest>,
+) -> Result<Response<pb::ShowCandidateMachinesResponse>, Status> {
+    machine::handle_show_candidate_machines(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn list_candidate_machines(
+    api: &Api,
+    request: Request<pb::ListCandidateMachinesRequest>,
+) -> Result<Response<pb::ListCandidateMachinesResponse>, Status> {
+    machine::handle_list_candidate_machines(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn import_site_measurements(
+    api: &Api,
+    request: Request<pb::ImportSiteMeasurementsRequest>,
+) -> Result<Response<pb::ImportSiteMeasurementsResponse>, Status> {
+    site::handle_import_site_measurements(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn export_site_measurements(
+    api: &Api,
+    request: Request<pb::ExportSiteMeasurementsRequest>,
+) -> Result<Response<pb::ExportSiteMeasurementsResponse>, Status> {
+    site::handle_export_site_measurements(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn add_trusted_machine(
+    api: &Api,
+    request: Request<pb::AddMeasurementTrustedMachineRequest>,
+) -> Result<Response<pb::AddMeasurementTrustedMachineResponse>, Status> {
+    site::handle_add_measurement_trusted_machine(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn remove_trusted_machine(
+    api: &Api,
+    request: Request<pb::RemoveMeasurementTrustedMachineRequest>,
+) -> Result<Response<pb::RemoveMeasurementTrustedMachineResponse>, Status> {
+    site::handle_remove_measurement_trusted_machine(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn list_trusted_machines(
+    api: &Api,
+    request: Request<pb::ListMeasurementTrustedMachinesRequest>,
+) -> Result<Response<pb::ListMeasurementTrustedMachinesResponse>, Status> {
+    site::handle_list_measurement_trusted_machines(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn add_trusted_profile(
+    api: &Api,
+    request: Request<pb::AddMeasurementTrustedProfileRequest>,
+) -> Result<Response<pb::AddMeasurementTrustedProfileResponse>, Status> {
+    site::handle_add_measurement_trusted_profile(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn remove_trusted_profile(
+    api: &Api,
+    request: Request<pb::RemoveMeasurementTrustedProfileRequest>,
+) -> Result<Response<pb::RemoveMeasurementTrustedProfileResponse>, Status> {
+    site::handle_remove_measurement_trusted_profile(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn list_trusted_profiles(
+    api: &Api,
+    request: Request<pb::ListMeasurementTrustedProfilesRequest>,
+) -> Result<Response<pb::ListMeasurementTrustedProfilesResponse>, Status> {
+    site::handle_list_measurement_trusted_profiles(api, request.into_inner())
+        .await
+        .map(Response::new)
+}
+
+pub async fn list_attestation_summary(
+    api: &Api,
+    request: Request<pb::ListAttestationSummaryRequest>,
+) -> Result<Response<pb::ListAttestationSummaryResponse>, Status> {
+    site::handle_list_attestation_summary(api, request.into_inner())
+        .await
+        .map(Response::new)
 }

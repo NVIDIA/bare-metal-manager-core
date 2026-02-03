@@ -64,7 +64,7 @@ use crate::redfish::RedfishClientPool;
 use crate::scout_stream::ConnectionRegistry;
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::common_services::CommonStateHandlerServices;
-use crate::state_controller::controller::StateController;
+use crate::state_controller::controller::{Enqueuer, StateController};
 use crate::state_controller::dpa_interface::handler::DpaInterfaceStateHandler;
 use crate::state_controller::dpa_interface::io::DpaInterfaceStateControllerIO;
 use crate::state_controller::ib_partition::handler::IBPartitionStateHandler;
@@ -366,7 +366,7 @@ pub async fn start_api(
         certificate_provider: vault_client.clone(),
         common_pools,
         credential_provider: vault_client,
-        database_connection: db_pool,
+        database_connection: db_pool.clone(),
         dpu_health_log_limiter: LogLimiter::default(),
         dynamic_settings,
         endpoint_explorer: bmc_explorer,
@@ -378,6 +378,8 @@ pub async fn start_api(
         rms_client: rms_client.clone(),
         nmxm_pool: shared_nmxm_pool,
         work_lock_manager_handle,
+        kube_client_provider: Arc::new(carbide_dpf::Production {}),
+        machine_state_handler_enqueuer: Enqueuer::new(db_pool),
     });
 
     let (controllers_stop_tx, controllers_stop_rx) = oneshot::channel();
@@ -602,7 +604,7 @@ pub async fn initialize_and_start_controllers(
     };
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: db_pool.clone().into(),
+        db_pool: db_pool.clone(),
         redfish_client_pool: shared_redfish_pool.clone(),
         ib_fabric_manager: ib_fabric_manager.clone(),
         ib_pools: common_pools.infiniband.clone(),
@@ -650,7 +652,7 @@ pub async fn initialize_and_start_controllers(
     // If they are assigned to _ then the destructor will be immediately called
     let _machine_state_controller_handle = StateController::<MachineStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
-        .meter("forge_machines", meter.clone())
+        .meter("carbide_machines", meter.clone())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .iteration_config((&carbide_config.machine_state_controller.controller).into())
@@ -687,6 +689,10 @@ pub async fn initialize_and_start_controllers(
                 )
                 .credential_provider(api_service.credential_provider.clone())
                 .power_options_config(carbide_config.power_manager_options.clone().into())
+                .dpf_config(crate::state_controller::machine::handler::DpfConfig::from(
+                    carbide_config.dpf.clone(),
+                    Arc::new(carbide_dpf::Production {}) as Arc<dyn carbide_dpf::KubeImpl>,
+                ))
                 .build(),
         ))
         .io(Arc::new(MachineStateControllerIO {
@@ -709,7 +715,7 @@ pub async fn initialize_and_start_controllers(
 
     let ns_builder = StateController::<NetworkSegmentStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
-        .meter("forge_network_segments", meter.clone())
+        .meter("carbide_network_segments", meter.clone())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone());
     let _network_segment_controller_handle = ns_builder
@@ -735,7 +741,7 @@ pub async fn initialize_and_start_controllers(
         _dpa_interface_state_controller_handle = Some(
             StateController::<DpaInterfaceStateControllerIO>::builder()
                 .database(db_pool.clone(), work_lock_manager_handle.clone())
-                .meter("forge_dpa_interfaces", meter.clone())
+                .meter("carbide_dpa_interfaces", meter.clone())
                 .processor_id(state_controller_id.clone())
                 .services(handler_services.clone())
                 .iteration_config(
@@ -758,7 +764,7 @@ pub async fn initialize_and_start_controllers(
 
         let _spdm_state_controller_handle = StateController::<SpdmStateControllerIO>::builder()
             .database(db_pool.clone(), work_lock_manager_handle.clone())
-            .meter("spdm_attestation", meter.clone())
+            .meter("carbide_spdm_attestation", meter.clone())
             .processor_id(state_controller_id.clone())
             .services(handler_services.clone())
             .iteration_config((&carbide_config.spdm_state_controller.controller).into())
@@ -773,7 +779,7 @@ pub async fn initialize_and_start_controllers(
     let _ib_partition_controller_handle =
         StateController::<IBPartitionStateControllerIO>::builder()
             .database(db_pool.clone(), work_lock_manager_handle.clone())
-            .meter("forge_ib_partitions", meter.clone())
+            .meter("carbide_ib_partitions", meter.clone())
             .processor_id(state_controller_id.clone())
             .services(handler_services.clone())
             .iteration_config((&carbide_config.ib_partition_state_controller.controller).into())

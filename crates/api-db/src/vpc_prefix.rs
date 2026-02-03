@@ -24,12 +24,12 @@ async fn update_stats(
     prefixes: &mut [VpcPrefix],
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
-    let nw_prefixes = prefixes.iter().map(|x| x.prefix).collect_vec();
+    let nw_prefixes = prefixes.iter().map(|x| x.config.prefix).collect_vec();
     let sub_prefixes = crate::network_prefix::containing_prefixes(txn, &nw_prefixes).await?;
 
     for vpc_prefix in prefixes {
-        if let IpNetwork::V4(ipv4_network) = vpc_prefix.prefix
-            && let Some(used_prefixes) = sub_prefixes.get(&vpc_prefix.prefix)
+        if let IpNetwork::V4(ipv4_network) = vpc_prefix.config.prefix
+            && let Some(used_prefixes) = sub_prefixes.get(&vpc_prefix.config.prefix)
         {
             let ip_net = forge_network::ip::prefix::Ipv4Net::new(
                 ipv4_network.network(),
@@ -51,9 +51,9 @@ async fn update_stats(
                     )
                 })?
                 .collect::<Vec<forge_network::ip::prefix::Ipv4Net>>();
-            vpc_prefix.total_31_segments = total_31_segments.len() as u32;
-            vpc_prefix.available_31_segments =
-                vpc_prefix.total_31_segments - used_prefixes.len() as u32;
+            vpc_prefix.status.total_31_segments = total_31_segments.len() as u32;
+            vpc_prefix.status.available_31_segments =
+                vpc_prefix.status.total_31_segments - used_prefixes.len() as u32;
         }
     }
 
@@ -204,11 +204,13 @@ pub async fn persist(
     value: NewVpcPrefix,
     txn: &mut PgConnection,
 ) -> Result<VpcPrefix, DatabaseError> {
-    let insert_query = "INSERT INTO network_vpc_prefixes (id, prefix, name, vpc_id) VALUES ($1, $2, $3, $4) RETURNING *";
+    let insert_query = "INSERT INTO network_vpc_prefixes (id, prefix, name, labels, description, vpc_id) VALUES ($1, $2, $3, $4::json, $5, $6) RETURNING *";
     let vpc_prefix: VpcPrefix = sqlx::query_as(insert_query)
         .bind(value.id)
-        .bind(value.prefix)
-        .bind(value.name.as_str())
+        .bind(value.config.prefix)
+        .bind(&value.metadata.name)
+        .bind(sqlx::types::Json(&value.metadata.labels))
+        .bind(&value.metadata.description)
         .bind(value.vpc_id)
         .fetch_one(&mut *txn)
         .await
@@ -261,9 +263,11 @@ pub async fn update(
     update: &UpdateVpcPrefix,
     txn: &mut PgConnection,
 ) -> Result<VpcPrefix, DatabaseError> {
-    let query = "UPDATE network_vpc_prefixes SET name=$1 WHERE id=$2 RETURNING *";
+    let query = "UPDATE network_vpc_prefixes SET name=$1, labels=$2::json, description=$3 WHERE id=$4 RETURNING *";
     sqlx::query_as(query)
-        .bind(&update.name)
+        .bind(&update.metadata.name)
+        .bind(sqlx::types::Json(&update.metadata.labels))
+        .bind(&update.metadata.description)
         .bind(update.id)
         .fetch_one(txn)
         .await

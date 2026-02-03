@@ -40,10 +40,7 @@ async fn show_keysets(
     page_size: usize,
     tenant_org_id: Option<String>,
 ) -> CarbideCliResult<()> {
-    let all_keysets = match api_client
-        .get_all_keysets(tenant_org_id.clone(), page_size)
-        .await
-    {
+    let all_keysets = match api_client.get_all_keysets(tenant_org_id, page_size).await {
         Ok(all_vpc_ids) => all_vpc_ids,
         Err(e) => return Err(e),
     };
@@ -103,14 +100,14 @@ fn convert_keysets_to_nice_table(keysets: forgerpc::TenantKeySetList) -> Box<Tab
         table.add_row(row![
             keyset
                 .keyset_identifier
-                .clone()
-                .unwrap_or_default()
-                .keyset_id,
+                .as_ref()
+                .map(|ki| ki.keyset_id.as_str())
+                .unwrap_or_default(),
             keyset
                 .keyset_identifier
-                .clone()
-                .unwrap_or_default()
-                .organization_id,
+                .as_ref()
+                .map(|ki| ki.organization_id.as_str())
+                .unwrap_or_default(),
             keyset.version,
             keyset
                 .keyset_content
@@ -133,19 +130,19 @@ fn convert_keyset_to_nice_format(keyset: &forgerpc::TenantKeyset) -> CarbideCliR
             "ID",
             keyset
                 .keyset_identifier
-                .clone()
-                .unwrap_or_default()
-                .keyset_id,
+                .as_ref()
+                .map(|ki| ki.keyset_id.as_str())
+                .unwrap_or_default(),
         ),
         (
             "TENANT ORG",
             keyset
                 .keyset_identifier
-                .clone()
-                .unwrap_or_default()
-                .organization_id,
+                .as_ref()
+                .map(|ki| ki.organization_id.as_str())
+                .unwrap_or_default(),
         ),
-        ("VERSION", keyset.version.to_string()),
+        ("VERSION", keyset.version.as_str()),
     ];
 
     for (key, value) in data {
@@ -154,14 +151,17 @@ fn convert_keyset_to_nice_format(keyset: &forgerpc::TenantKeyset) -> CarbideCliR
 
     writeln!(&mut lines, "{:<width$}: ", "KEYS")?;
     let width = 17;
-    let keyset_content = keyset.keyset_content.clone().unwrap_or_default();
-    if keyset_content.public_keys.is_empty() {
+    if keyset
+        .keyset_content
+        .as_ref()
+        .is_none_or(|c| c.public_keys.is_empty())
+    {
         writeln!(&mut lines, "\tNONE")?;
-    } else {
-        for key in keyset_content.public_keys {
+    } else if let Some(keyset_content) = keyset.keyset_content.as_ref() {
+        for key in &keyset_content.public_keys {
             let data = vec![
-                ("PUBLIC", key.public_key),
-                ("COMMENT", key.comment.unwrap_or_default()),
+                ("PUBLIC", key.public_key.as_str()),
+                ("COMMENT", key.comment.as_deref().unwrap_or_default()),
             ];
 
             for (key, value) in data {

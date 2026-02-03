@@ -14,15 +14,14 @@ use std::borrow::Cow;
 use std::sync::{Arc, Mutex};
 
 use axum::Router;
-use axum::body::Body;
-use axum::extract::{Json, Path, Request, State};
-use axum::http::{Method, StatusCode};
+use axum::extract::{Json, Path, State};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use serde_json::json;
 
-use crate::json::JsonExt;
-use crate::mock_machine_router::{MockWrapperError, MockWrapperState, fallback_to_inner_router};
+use crate::json::{JsonExt, JsonPatch};
+use crate::mock_machine_router::{MockWrapperError, MockWrapperState};
 use crate::{MockPowerState, POWER_CYCLE_DELAY, PowerControl, redfish};
 
 pub fn collection() -> redfish::Collection<'static> {
@@ -43,7 +42,17 @@ pub fn resource<'a>(system_id: &'a str) -> redfish::Resource<'a> {
     }
 }
 
-pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
+pub fn reset_target(system_id: &str) -> String {
+    format!(
+        "{}/Actions/ComputerSystem.Reset",
+        resource(system_id).odata_id
+    )
+}
+
+pub fn add_routes(
+    r: Router<MockWrapperState>,
+    bmc_vendor: redfish::oem::BmcVendor,
+) -> Router<MockWrapperState> {
     const SYSTEM_ID: &str = "{system_id}";
     const ETH_ID: &str = "{eth_id}";
     r.route(&collection().odata_id, get(get_system_collection))
@@ -51,13 +60,10 @@ pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
             &resource(SYSTEM_ID).odata_id,
             get(get_system).patch(patch_system),
         )
+        .route(&reset_target(SYSTEM_ID), post(post_reset_system))
         .route(
-            "/redfish/v1/Systems/{system_id}/Actions/ComputerSystem.Reset",
-            post(post_reset_system),
-        )
-        .route(
-            "/redfish/v1/Systems/Bluefield/Settings",
-            patch(patch_dpu_settings).get(fallback_to_inner_router),
+            &bmc_vendor.make_settings_odata_id(&resource(SYSTEM_ID)),
+            patch(patch_dpu_settings),
         )
         .route(
             &redfish::ethernet_interface::system_resource(SYSTEM_ID, ETH_ID).odata_id,
@@ -73,12 +79,13 @@ pub struct SingleSystemConfig {
     pub id: Cow<'static, str>,
     pub eth_interfaces: Vec<redfish::ethernet_interface::EthernetInterface>,
     pub serial_number: String,
-    pub pcie_dpu_count: usize,
     pub boot_order_mode: BootOrderMode,
     pub power_control: Option<Arc<dyn PowerControl>>,
+    pub chassis: Vec<Cow<'static, str>>,
 }
 
 pub struct SystemConfig {
+    pub bmc_vendor: redfish::oem::BmcVendor,
     pub systems: Vec<SingleSystemConfig>,
 }
 
@@ -152,107 +159,40 @@ async fn get_system_collection(State(state): State<MockWrapperState>) -> Respons
 }
 
 async fn get_system(
-    State(mut state): State<MockWrapperState>,
+    State(state): State<MockWrapperState>,
     Path(system_id): Path<String>,
-    request: Request<Body>,
 ) -> Response {
-    let json = match state.call_inner_router(request).await {
-        Ok(json) => json,
-        Err(err) => return err.into_response(),
-    };
     let Some(system_state) = state.bmc_state.system_state.find(&system_id) else {
         return not_found();
     };
 
-    let json = if let Some(state) = system_state
+    let mut b = builder(&resource(&system_id))
+        .ethernet_interfaces(redfish::ethernet_interface::system_collection(&system_id))
+        .serial_number(&system_state.config.serial_number)
+        .boot_options(&redfish::boot_options::system_collection(&system_id))
+        .link_chassis(&system_state.config.chassis);
+
+    if let Some(state) = system_state
         .config
         .power_control
         .as_ref()
         .map(|control| control.get_power_state())
     {
-        let power_state = match state {
-            MockPowerState::On => "On",
-            MockPowerState::Off => "Off",
-            MockPowerState::PowerCycling { since } => {
-                if since.elapsed() < POWER_CYCLE_DELAY {
-                    "Off"
-                } else {
-                    "On"
-                }
-            }
-        };
-        json.patch(json!({ "PowerState": power_state }))
-    } else {
-        json
-    };
-    let json = json
-        .patch(
-            redfish::ethernet_interface::system_collection(&system_id)
-                .nav_property("EthernetInterfaces"),
-        )
-        .patch(json!({ "SerialNumber": &system_state.config.serial_number }));
-
-    let mut json = if let Some(boot_order) = system_state.boot_order_override() {
-        json.patch(json!({"Boot": {"BootOrder": boot_order}}))
-    } else {
-        json
-    };
-
-    if system_id != "System.Embedded.1" {
-        return json.into_ok_response();
+        b = b.power_state(state)
     }
 
-    let dpu_count = system_state.config.pcie_dpu_count;
-    if dpu_count == 0 {
-        return json.into_ok_response();
+    if let Some(boot_order) = system_state.boot_order_override() {
+        b = b.boot_order(&boot_order)
     }
 
-    // Modify the Pcie Device List
-    // 1) Include a new entry for every mocked DPU in the host
-    // 2) Remove all unmocked DPU entries from the list
-    // (1): Create a new pcie device for the mocked DPUs in this host
-    let mut pcie_devices = Vec::new();
-    for index in 1..=dpu_count {
-        pcie_devices
-            .push(redfish::chassis::gen_dpu_pcie_device_resource(&system_id, index).entity_ref());
-    }
-
-    // (2) Remove any Pcie devices from the host's original list that refer to unmocked DPUs
-    let Some(devices) = json
-        .as_object_mut()
-        .and_then(|v| v.remove("PCIeDevices"))
-        .and_then(|mut v| v.as_array_mut().map(std::mem::take))
-    else {
-        return json.into_ok_response();
-    };
-    for device in devices {
-        let Some(odata_id) = device.get("@odata.id").and_then(|v| v.as_str()) else {
-            continue;
-        };
-        let Ok(upstream_json) = state
-            .call_inner_router(
-                Request::builder()
-                    .method(Method::GET)
-                    .uri(odata_id)
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-        else {
-            continue;
-        };
-        // Keep all default PCIE devices. Just remove any of the DPU entries
-        if upstream_json
-            .get("Manufacturer")
-            .and_then(|v| v.as_str())
-            .is_some_and(|v| v != "Mellanox Technologies")
-        {
-            pcie_devices.push(device);
-        }
-    }
-
-    json.patch(json!({"PCIeDevices": pcie_devices}))
-        .into_ok_response()
+    let pcie_devices = system_state
+        .config
+        .chassis
+        .iter()
+        .flat_map(|chassis_id| state.bmc_state.chassis_state.find(chassis_id))
+        .flat_map(|chassis| chassis.pcie_devices_resources().into_iter())
+        .collect::<Vec<_>>();
+    b.pcie_devices(&pcie_devices).build().into_ok_response()
 }
 
 async fn get_ethernet_interface(
@@ -359,4 +299,74 @@ async fn post_reset_system(
 
 fn not_found() -> Response {
     json!("").into_response(StatusCode::NOT_FOUND)
+}
+
+pub fn builder(resource: &redfish::Resource) -> SystemBuilder {
+    SystemBuilder {
+        value: resource.json_patch(),
+    }
+}
+
+pub struct SystemBuilder {
+    value: serde_json::Value,
+}
+
+impl SystemBuilder {
+    pub fn serial_number(self, v: &str) -> Self {
+        self.add_str_field("SerialNumber", v)
+    }
+
+    pub fn ethernet_interfaces(self, v: redfish::Collection<'_>) -> Self {
+        self.apply_patch(v.nav_property("EthernetInterfaces"))
+    }
+
+    pub fn boot_order(self, boot_order: &[String]) -> Self {
+        self.apply_patch(json!({"Boot": {"BootOrder": boot_order}}))
+    }
+
+    pub fn boot_options(self, boot_options: &redfish::Collection<'_>) -> Self {
+        self.apply_patch(json!({"Boot": boot_options.nav_property("BootOptions")}))
+    }
+
+    pub fn pcie_devices(self, devices: &[redfish::Resource<'_>]) -> Self {
+        let devices = devices.iter().map(|r| r.entity_ref()).collect::<Vec<_>>();
+        self.apply_patch(json!({"PCIeDevices": devices}))
+    }
+
+    pub fn power_state(self, state: MockPowerState) -> Self {
+        let power_state = match state {
+            MockPowerState::On => "On",
+            MockPowerState::Off => "Off",
+            MockPowerState::PowerCycling { since } => {
+                if since.elapsed() < POWER_CYCLE_DELAY {
+                    "Off"
+                } else {
+                    "On"
+                }
+            }
+        };
+        self.add_str_field("PowerState", power_state)
+    }
+
+    pub fn link_chassis(self, ids: &[Cow<'static, str>]) -> Self {
+        let chassis = ids
+            .iter()
+            .map(|id| redfish::chassis::resource(id).entity_ref())
+            .collect::<Vec<_>>();
+        self.apply_patch(json!({"Links": {"Chassis": chassis}}))
+    }
+
+    pub fn build(self) -> serde_json::Value {
+        self.value
+    }
+
+    fn add_str_field(self, name: &str, value: &str) -> Self {
+        self.apply_patch(json!({ name: value }))
+    }
+
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
+        }
+    }
 }

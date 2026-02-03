@@ -46,22 +46,22 @@ impl Dispatch for Cmd {
 
         match self {
             // Handle everything with the `bundle` subcommand.
-            Cmd::Bundle(subcmd) => bundle::cmds::dispatch(&subcmd, &mut cli_data).await?,
+            Cmd::Bundle(subcmd) => bundle::cmds::dispatch(subcmd, &mut cli_data).await?,
 
             // Handle everything with the `journal` subcommand.
-            Cmd::Journal(subcmd) => journal::cmds::dispatch(&subcmd, &mut cli_data).await?,
+            Cmd::Journal(subcmd) => journal::cmds::dispatch(subcmd, &mut cli_data).await?,
 
             // Handle everything with the `profile` subcommand.
-            Cmd::Profile(subcmd) => profile::cmds::dispatch(&subcmd, &mut cli_data).await?,
+            Cmd::Profile(subcmd) => profile::cmds::dispatch(subcmd, &mut cli_data).await?,
 
             // Handle everything with the `report` subcommand.
-            Cmd::Report(subcmd) => report::cmds::dispatch(&subcmd, &mut cli_data).await?,
+            Cmd::Report(subcmd) => report::cmds::dispatch(subcmd, &mut cli_data).await?,
 
             // Handle everything with the `machine` subcommand.
-            Cmd::Machine(subcmd) => machine::cmds::dispatch(&subcmd, &mut cli_data).await?,
+            Cmd::Machine(subcmd) => machine::cmds::dispatch(subcmd, &mut cli_data).await?,
 
             // Handle everything with the `site` subcommand.
-            Cmd::Site(subcmd) => site::cmds::dispatch(&subcmd, &mut cli_data).await?,
+            Cmd::Site(subcmd) => site::cmds::dispatch(subcmd, &mut cli_data).await?,
         }
 
         Ok(())
@@ -72,7 +72,7 @@ impl Dispatch for Cmd {
 pub struct MachineIdList(Vec<MachineId>);
 
 impl ToTable for MachineIdList {
-    fn to_table(&self) -> eyre::Result<String> {
+    fn into_table(self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
         table.add_row(prettytable::row!["machine_id"]);
         for machine_id in self.0.iter() {

@@ -9,14 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
 use carbide_uuid::switch::SwitchId;
 use db::switch as db_switch;
 use model::switch::{Switch, SwitchControllerState};
-use sqlx::PgConnection;
 
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
+    StateHandlerOutcomeWithTransaction,
 };
 use crate::state_controller::switch::context::SwitchStateHandlerContextObjects;
 
@@ -36,9 +35,8 @@ impl StateHandler for SwitchStateHandler {
         switch_id: &SwitchId,
         state: &mut Switch,
         controller_state: &Self::ControllerState,
-        txn: &mut PgConnection,
-        _ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
+        ctx: &mut StateHandlerContext<Self::ContextObjects>,
+    ) -> Result<StateHandlerOutcomeWithTransaction<SwitchControllerState>, StateHandlerError> {
         match controller_state {
             SwitchControllerState::Initializing => {
                 // TODO: Implement Switch initialization logic
@@ -47,7 +45,7 @@ impl StateHandler for SwitchStateHandler {
                 // 2. Allocating resources
                 tracing::info!("Initializing Switch");
                 let new_state = SwitchControllerState::FetchingData;
-                Ok(StateHandlerOutcome::transition(new_state))
+                Ok(StateHandlerOutcome::transition(new_state).with_txn(None))
             }
 
             SwitchControllerState::FetchingData => {
@@ -57,7 +55,7 @@ impl StateHandler for SwitchStateHandler {
                 // 1. Fetching data from the Switch
                 // 2. Updating the Switch status
                 let new_state = SwitchControllerState::Configuring;
-                Ok(StateHandlerOutcome::transition(new_state))
+                Ok(StateHandlerOutcome::transition(new_state).with_txn(None))
             }
 
             SwitchControllerState::Configuring => {
@@ -67,7 +65,7 @@ impl StateHandler for SwitchStateHandler {
                 // 1. Configuring the Switch
                 // 2. Updating the Switch status
                 let new_state = SwitchControllerState::Ready;
-                Ok(StateHandlerOutcome::transition(new_state))
+                Ok(StateHandlerOutcome::transition(new_state).with_txn(None))
             }
 
             SwitchControllerState::Deleting => {
@@ -79,16 +77,18 @@ impl StateHandler for SwitchStateHandler {
                 // 3. Releasing allocated resources
 
                 // For now, just delete the Switch from the database
-                db_switch::final_delete(*switch_id, txn).await?;
-                Ok(StateHandlerOutcome::deleted())
+                let mut txn = ctx.services.db_pool.begin().await?;
+                db_switch::final_delete(*switch_id, &mut txn).await?;
+                Ok(StateHandlerOutcome::deleted().with_txn(Some(txn)))
             }
 
             SwitchControllerState::Ready => {
                 tracing::info!("Switch is ready");
                 if state.is_marked_as_deleted() {
-                    Ok(StateHandlerOutcome::transition(
-                        SwitchControllerState::Deleting,
-                    ))
+                    Ok(
+                        StateHandlerOutcome::transition(SwitchControllerState::Deleting)
+                            .with_txn(None),
+                    )
                 } else {
                     // TODO: Implement Switch monitoring logic
                     // This would typically involve:
@@ -96,19 +96,20 @@ impl StateHandler for SwitchStateHandler {
                     // 2. Updating Switch status
 
                     // For now, just do nothing
-                    Ok(StateHandlerOutcome::do_nothing())
+                    Ok(StateHandlerOutcome::do_nothing().with_txn(None))
                 }
             }
 
             SwitchControllerState::Error { .. } => {
                 tracing::info!("Switch is in error state");
                 if state.is_marked_as_deleted() {
-                    Ok(StateHandlerOutcome::transition(
-                        SwitchControllerState::Deleting,
-                    ))
+                    Ok(
+                        StateHandlerOutcome::transition(SwitchControllerState::Deleting)
+                            .with_txn(None),
+                    )
                 } else {
                     // If Switch is in error state, keep it there for manual intervention
-                    Ok(StateHandlerOutcome::do_nothing())
+                    Ok(StateHandlerOutcome::do_nothing().with_txn(None))
                 }
             }
         }

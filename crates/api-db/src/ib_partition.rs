@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
+
 use ::rpc::forge as rpc;
 use carbide_uuid::infiniband::IBPartitionId;
 use chrono::prelude::*;
@@ -18,6 +20,7 @@ use futures::StreamExt;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
 use model::ib_partition::{IBPartitionControllerState, PartitionKey, state_sla};
+use model::metadata::Metadata;
 use model::tenant::TenantOrganizationId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
@@ -43,6 +46,7 @@ pub struct NewIBPartition {
     pub id: IBPartitionId,
 
     pub config: IBPartitionConfig,
+    pub metadata: Metadata,
 }
 
 impl TryFrom<rpc::IbPartitionCreationRequest> for NewIBPartition {
@@ -58,10 +62,19 @@ impl TryFrom<rpc::IbPartitionCreationRequest> for NewIBPartition {
         };
 
         let id = value.id.unwrap_or(uuid::Uuid::new_v4().into());
+        let name = conf.name.clone();
 
         Ok(NewIBPartition {
             id,
             config: IBPartitionConfig::try_from(conf)?,
+            metadata: match value.metadata {
+                Some(m) => Metadata::try_from(m)?,
+                // Deprecated field handling
+                None => Metadata {
+                    name,
+                    ..Default::default()
+                },
+            },
         })
     }
 }
@@ -74,6 +87,15 @@ pub struct IBPartitionConfig {
     pub mtu: Option<IBMtu>,
     pub rate_limit: Option<IBRateLimit>,
     pub service_level: Option<IBServiceLevel>,
+}
+
+impl From<IBPartitionConfig> for rpc::IbPartitionConfig {
+    fn from(conf: IBPartitionConfig) -> Self {
+        rpc::IbPartitionConfig {
+            name: conf.name, // Deprecated field
+            tenant_organization_id: conf.tenant_organization_id.to_string(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,12 +123,13 @@ pub struct IBPartition {
     // Columns for these exist, but are unused in rust code
     // pub created: DateTime<Utc>,
     // pub updated: DateTime<Utc>,
+    pub metadata: Metadata,
 }
 
 impl From<&IBPartition> for IBNetwork {
     fn from(ib: &IBPartition) -> IBNetwork {
         Self {
-            name: ib.config.name.clone(),
+            name: ib.metadata.name.clone(),
             pkey: ib.config.pkey.map(u16::from).unwrap_or(0u16),
             ipoib: true,
             associated_guids: None, // Not stored in the DB
@@ -144,12 +167,15 @@ impl<'r> FromRow<'r, PgRow> for IBPartition {
         let mtu: i32 = row.try_get("mtu")?;
         let rate_limit: i32 = row.try_get("rate_limit")?;
         let service_level: i32 = row.try_get("service_level")?;
+        let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
+        let description: String = row.try_get("description")?;
+        let name: String = row.try_get("name")?;
 
         Ok(IBPartition {
             id: row.try_get("id")?,
             version: row.try_get("config_version")?,
             config: IBPartitionConfig {
-                name: row.try_get("name")?,
+                name: name.clone(), // Derprecated field
                 pkey: Some(PartitionKey::try_from(pkey as u16).map_err(|_| {
                     let err = eyre::eyre!("Pkey {} is not valid", pkey);
                     sqlx::Error::Decode(err.into())
@@ -160,7 +186,11 @@ impl<'r> FromRow<'r, PgRow> for IBPartition {
                 service_level: IBServiceLevel::try_from(service_level).ok(),
             },
             status,
-
+            metadata: Metadata {
+                name,
+                labels: labels.0,
+                description,
+            },
             deleted: row.try_get("deleted")?,
 
             controller_state: Versioned::new(
@@ -211,11 +241,6 @@ impl TryFrom<rpc::IbPartitionConfig> for IBPartitionConfig {
 impl TryFrom<IBPartition> for rpc::IbPartition {
     type Error = DatabaseError;
     fn try_from(src: IBPartition) -> Result<Self, Self::Error> {
-        let config = Some(rpc::IbPartitionConfig {
-            name: src.config.name.clone(),
-            tenant_organization_id: src.config.tenant_organization_id.to_string(),
-        });
-
         let mut state = match &src.controller_state.value {
             IBPartitionControllerState::Provisioning => rpc::TenantState::Provisioning,
             IBPartitionControllerState::Ready => rpc::TenantState::Ready,
@@ -253,11 +278,14 @@ impl TryFrom<IBPartition> for rpc::IbPartition {
             service_level,
         });
 
+        let meatadata = src.metadata.into();
+
         Ok(rpc::IbPartition {
             id: Some(src.id),
             config_version: src.version.version_string(),
-            config,
+            config: Some(src.config.into()),
             status,
+            metadata: Some(meatadata),
         })
     }
 }
@@ -267,6 +295,10 @@ pub async fn create(
     txn: &mut PgConnection,
     max_partition_per_tenant: i32,
 ) -> Result<IBPartition, DatabaseError> {
+    value.metadata.validate(true).map_err(|e| {
+        DatabaseError::InvalidArgument(format!("Invalid metadata for IBPartition: {}", e))
+    })?;
+
     let version = ConfigVersion::initial();
     let state = IBPartitionControllerState::Provisioning;
     let conf = &value.config;
@@ -274,6 +306,8 @@ pub async fn create(
     let query = "INSERT INTO ib_partitions (
                 id,
                 name,
+                labels,
+                description,
                 pkey,
                 organization_id,
                 mtu,
@@ -282,12 +316,14 @@ pub async fn create(
                 config_version,
                 controller_state_version,
                 controller_state)
-            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-            WHERE (SELECT COUNT(*) FROM ib_partitions WHERE organization_id = $4) < $11
+            SELECT $1, $2, $3::json, $4, $5, $6, $7, $8, $9, $10, $11, $12
+            WHERE (SELECT COUNT(*) FROM ib_partitions WHERE organization_id = $6) < $13
             RETURNING *";
     let segment: IBPartition = sqlx::query_as(query)
         .bind(value.id)
-        .bind(&conf.name)
+        .bind(&value.metadata.name)
+        .bind(sqlx::types::Json(&value.metadata.labels))
+        .bind(&value.metadata.description)
         .bind(conf.pkey.map(|k| u16::from(k) as i32))
         .bind(conf.tenant_organization_id.to_string())
         .bind::<i32>(conf.mtu.clone().unwrap_or_default().into())
@@ -477,10 +513,17 @@ pub async fn update(
     value: &IBPartition,
     txn: &mut PgConnection,
 ) -> Result<IBPartition, DatabaseError> {
-    let query = "UPDATE ib_partitions SET name=$1, organization_id=$2, status=$3::json, updated=NOW() WHERE id=$4::uuid RETURNING *";
+    value.metadata.validate(true).map_err(|e| {
+        DatabaseError::InvalidArgument(format!("Invalid metadata for IBPartition: {}", e))
+    })?;
+
+    let query = "UPDATE ib_partitions SET name=$1, labels=$2::json, description=$3, organization_id=$4, status=$5::json, updated=NOW()
+                       WHERE id=$6::uuid RETURNING *";
 
     let segment: IBPartition = sqlx::query_as(query)
-        .bind(&value.config.name)
+        .bind(&value.metadata.name)
+        .bind(sqlx::types::Json(&value.metadata.labels))
+        .bind(&value.metadata.description)
         .bind(value.config.tenant_organization_id.to_string())
         .bind(sqlx::types::Json(&value.status))
         .bind(value.id)

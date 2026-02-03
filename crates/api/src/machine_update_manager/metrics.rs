@@ -35,14 +35,14 @@ impl MachineUpdateManagerMetrics {
         let concurrent_machine_updates_available =
             self.concurrent_machine_updates_available.clone();
         meter
-            .u64_observable_gauge("forge_machines_in_maintenance_count")
+            .u64_observable_gauge("carbide_machines_in_maintenance_count")
             .with_description("The total number of machines in the system that are in maintenance.")
             .with_callback(move |observer| {
                 observer.observe(machines_in_maintenance.load(Ordering::Relaxed), &[])
             })
             .build();
         meter
-            .u64_observable_gauge("forge_machine_updates_started_count")
+            .u64_observable_gauge("carbide_machine_updates_started_count")
             .with_description(
                 "The number of machines in the system that in the process of updating.",
             )
@@ -51,7 +51,7 @@ impl MachineUpdateManagerMetrics {
             })
             .build();
         meter
-            .u64_observable_gauge("forge_concurrent_machine_updates_available")
+            .u64_observable_gauge("carbide_concurrent_machine_updates_available")
             .with_description(
                 "The number of machines in the system that we will update concurrently.",
             )

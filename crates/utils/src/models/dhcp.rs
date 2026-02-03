@@ -49,6 +49,8 @@ pub enum DhcpDataError {
     RpcConversion(#[from] RpcDataConversionError),
     #[error("DhcpDataError: UuidConversionError: {0}")]
     UuidConversion(#[from] UuidConversionError),
+    #[error("DhcpDataError: UuidParseError: {0}")]
+    UuidParseError(#[from] carbide_uuid::typed_uuids::UuidError),
 }
 
 impl Default for DhcpConfig {

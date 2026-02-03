@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::borrow::Cow;
+
 use axum::Router;
 use axum::body::Body;
 use axum::extract::{Request, State};
@@ -19,9 +21,18 @@ use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use serde_json::json;
 
-use crate::MachineInfo;
 use crate::json::JsonExt;
 use crate::mock_machine_router::MockWrapperState;
+use crate::{MachineInfo, redfish};
+
+pub fn system_collection(system_id: &str) -> redfish::Collection<'static> {
+    let odata_id = format!("/redfish/v1/Systems/{system_id}/BootOptions");
+    redfish::Collection {
+        odata_id: Cow::Owned(odata_id),
+        odata_type: Cow::Borrowed("#BootOptionCollection.BootOptionCollection"),
+        name: Cow::Borrowed("Boot Options Collection"),
+    }
+}
 
 pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
     r.route(

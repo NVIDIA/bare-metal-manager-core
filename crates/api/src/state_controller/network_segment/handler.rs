@@ -20,11 +20,11 @@ use model::network_segment::{
     NetworkSegment, NetworkSegmentControllerState, NetworkSegmentDeletionState, NetworkSegmentType,
 };
 use model::resource_pool::ResourcePool;
-use sqlx::PgConnection;
 
 use crate::state_controller::network_segment::context::NetworkSegmentStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
+    StateHandlerOutcomeWithTransaction,
 };
 
 /// The actual Network Segment State handler
@@ -93,16 +93,16 @@ impl StateHandler for NetworkSegmentStateHandler {
         segment_id: &NetworkSegmentId,
         state: &mut NetworkSegment,
         controller_state: &Self::ControllerState,
-        txn: &mut PgConnection,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcome<NetworkSegmentControllerState>, StateHandlerError> {
+    ) -> Result<StateHandlerOutcomeWithTransaction<NetworkSegmentControllerState>, StateHandlerError>
+    {
         // record metrics irrespective of the state of the network segment
         self.record_metrics(state, ctx);
         match controller_state {
             NetworkSegmentControllerState::Provisioning => {
                 let new_state = NetworkSegmentControllerState::Ready;
                 tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
-                Ok(StateHandlerOutcome::transition(new_state))
+                Ok(StateHandlerOutcome::transition(new_state).with_txn(None))
             }
             NetworkSegmentControllerState::Ready => {
                 if state.is_marked_as_deleted() {
@@ -115,9 +115,9 @@ impl StateHandler for NetworkSegmentStateHandler {
                         },
                     };
                     tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
-                    Ok(StateHandlerOutcome::transition(new_state))
+                    Ok(StateHandlerOutcome::transition(new_state).with_txn(None))
                 } else {
-                    Ok(StateHandlerOutcome::do_nothing())
+                    Ok(StateHandlerOutcome::do_nothing().with_txn(None))
                 }
             }
             NetworkSegmentControllerState::Deleting { deletion_state } => {
@@ -126,10 +126,11 @@ impl StateHandler for NetworkSegmentStateHandler {
                         // Check here whether the IPs are actually freed.
                         // If ones are still allocated, we can not delete and have to
                         // update the `delete_at` timestamp.
+                        let mut txn = ctx.services.db_pool.begin().await?;
                         let num_machine_interfaces =
-                            db::machine_interface::count_by_segment_id(txn, &state.id).await?;
+                            db::machine_interface::count_by_segment_id(&mut txn, &state.id).await?;
                         let num_instance_addresses =
-                            db::instance_address::count_by_segment_id(txn, &state.id).await?;
+                            db::instance_address::count_by_segment_id(&mut txn, &state.id).await?;
                         if num_machine_interfaces + num_instance_addresses > 0 {
                             let delete_at = chrono::Utc::now()
                                 .checked_add_signed(self.drain_period)
@@ -148,33 +149,36 @@ impl StateHandler for NetworkSegmentStateHandler {
                                 },
                             };
                             tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
-                            Ok(StateHandlerOutcome::transition(new_state))
+                            Ok(StateHandlerOutcome::transition(new_state).with_txn(Some(txn)))
                         } else if chrono::Utc::now() >= *delete_at {
                             let new_state = NetworkSegmentControllerState::Deleting {
                                 deletion_state: NetworkSegmentDeletionState::DBDelete,
                             };
                             tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
-                            Ok(StateHandlerOutcome::transition(new_state))
+                            Ok(StateHandlerOutcome::transition(new_state).with_txn(Some(txn)))
                         } else {
                             Ok(StateHandlerOutcome::wait(format!(
                                 "Cannot delete from database until draining completes at {}",
                                 delete_at.to_rfc3339()
-                            )))
+                            ))
+                            .with_txn(Some(txn)))
                         }
                     }
                     NetworkSegmentDeletionState::DBDelete => {
+                        let mut txn = ctx.services.db_pool.begin().await?;
                         if let Some(vni) = state.vni.take() {
-                            db::resource_pool::release(&self.pool_vni, txn, vni).await?;
+                            db::resource_pool::release(&self.pool_vni, &mut txn, vni).await?;
                         }
                         if let Some(vlan_id) = state.vlan_id.take() {
-                            db::resource_pool::release(&self.pool_vlan_id, txn, vlan_id).await?;
+                            db::resource_pool::release(&self.pool_vlan_id, &mut txn, vlan_id)
+                                .await?;
                         }
                         tracing::info!(
                             %segment_id,
                             "Network Segment getting removed from the database",
                         );
-                        db::network_segment::final_delete(*segment_id, txn).await?;
-                        Ok(StateHandlerOutcome::deleted())
+                        db::network_segment::final_delete(*segment_id, &mut txn).await?;
+                        Ok(StateHandlerOutcome::deleted().with_txn(Some(txn)))
                     }
                 }
             }

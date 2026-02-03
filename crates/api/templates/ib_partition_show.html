@@ -11,6 +11,7 @@
 		<th>Id</th>
 		<th>Tenant</th>
 		<th>Name</th>
+		<th>Labels</th>
 		<th>State</th>
 		<th>Pkey</th>
 	</thead>
@@ -19,7 +20,8 @@
 		<tr>
 			<td><a href="/admin/ib-partition/{{ p.id }}">{{ p.id }}</a></td>
 			<td><a href="/admin/tenant/{{ p.tenant_organization_id }}">{{ p.tenant_organization_id }}</a></td>
-			<td>{{ p.name }}</td>
+			<td>{{ p.metadata.name }}</td>
+			<td>{{ p.metadata.labels|label_list_fmt(true)|safe }}</td>
 			<td>
 				{% if p.state.to_lowercase().contains("failed") %}
 					<span class="bubble error">{{ p.state }}{% if p.time_in_state_above_sla %} ⏱️{% endif %}</span>

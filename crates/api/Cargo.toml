@@ -179,6 +179,16 @@ carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
 carbide-prost-builder = { path = "../prost-builder" }
 prometheus-text-parser = { path = "../prometheus-text-parser" }
 prost = { workspace = true }
+tower-test = { workspace = true }
+hyper = { features = ["client", "http1"], workspace = true }
+http = { workspace = true }
+once_cell = { workspace = true }
+kube = { default-features = false, features = [
+  "runtime",
+  "derive",
+  "client",
+  "rustls-tls",
+], workspace = true }
 
 [lints]
 workspace = true

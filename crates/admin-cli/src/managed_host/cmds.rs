@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::pin::Pin;
@@ -53,11 +53,17 @@ struct ManagedHostOutputOptions {
 macro_rules! concat_host_and_dpu_props {
     ($host:ident, $host_prop:ident, $dpu_prop:ident) => {
         [
-            vec![$host.$host_prop.unwrap_or(UNKNOWN.to_owned())],
+            vec![
+                $host
+                    .$host_prop
+                    .as_ref()
+                    .map(|s| s.as_str())
+                    .unwrap_or(UNKNOWN),
+            ],
             $host
                 .dpus
                 .iter()
-                .map(|d| d.$dpu_prop.clone().unwrap_or(UNKNOWN.to_owned()))
+                .map(|d| d.$dpu_prop.as_ref().map(|s| s.as_str()).unwrap_or(UNKNOWN))
                 .collect(),
         ]
         .concat()
@@ -80,7 +86,7 @@ impl From<ManagedHostOutputWrapper> for Row {
         let dpu_state = value
             .dpus
             .first()
-            .map(|x| x.state.clone().unwrap_or_default())
+            .map(|x| x.state.as_deref().unwrap_or_default())
             .unwrap_or_default();
 
         if states[0] != dpu_state {
@@ -88,13 +94,7 @@ impl From<ManagedHostOutputWrapper> for Row {
                 .dpus
                 .iter()
                 .enumerate()
-                .map(|(i, x)| {
-                    format!(
-                        "DPU{}:{}",
-                        i,
-                        x.state.clone().unwrap_or("Unknown State".to_string())
-                    )
-                })
+                .map(|(i, x)| format!("DPU{}:{}", i, x.state.as_deref().unwrap_or("Unknown State")))
                 .collect::<Vec<String>>();
 
             states.extend(dpu_states);
@@ -104,10 +104,10 @@ impl From<ManagedHostOutputWrapper> for Row {
             .iter()
             .map(|x| {
                 x.split_once(' ')
-                    .map(|(x, y)| format!("{x}\n{}", y.replace(", ", "\n")))
-                    .unwrap_or(x.clone())
+                    .map(|(x, y)| Cow::Owned(format!("{x}\n{}", y.replace(", ", "\n"))))
+                    .unwrap_or(Cow::Borrowed(x.as_str()))
             })
-            .collect::<Vec<String>>()
+            .collect::<Vec<Cow<str>>>()
             .join("\n");
 
         let is_unhealthy = !value.health.alerts.is_empty()
@@ -265,7 +265,7 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
     writeln!(
         &mut lines,
         "Hostname    : {}",
-        m.hostname.clone().unwrap_or(UNKNOWN.to_string())
+        m.hostname.unwrap_or(UNKNOWN.to_string())
     )?;
 
     writeln!(&mut lines, "State       : {}", m.state)?;
@@ -306,22 +306,22 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
     )?;
 
     let mut data = vec![
-        ("  ID", m.machine_id.clone()),
+        ("  ID", m.machine_id),
         ("  Last reboot completed", m.host_last_reboot_time),
         (
             "  Last reboot requested",
             m.host_last_reboot_requested_time_and_mode,
         ),
-        ("  Serial Number", m.host_serial_number.clone()),
-        ("  BIOS Version", m.host_bios_version.clone()),
+        ("  Serial Number", m.host_serial_number),
+        ("  BIOS Version", m.host_bios_version),
         ("  GPU Count", Some(m.host_gpu_count.to_string())),
         (
             "  IB Interface Count",
             Some(m.host_ib_ifs_count.to_string()),
         ),
-        ("  Memory", m.host_memory.clone()),
-        ("  Admin IP", m.host_admin_ip.clone()),
-        ("  Admin MAC", m.host_admin_mac.clone()),
+        ("  Memory", m.host_memory),
+        ("  Admin IP", m.host_admin_ip),
+        ("  Admin MAC", m.host_admin_mac),
         (
             "  Associated Instance Type",
             Some(m.instance_type_id.unwrap_or("Unassociated".to_string())),
@@ -345,16 +345,16 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
             "    Probe Alerts",
             Some(format_health_alerts(&m.health.alerts, width)),
         ),
-        ("    Overrides", Some(m.health_overrides.clone().join(","))),
+        ("    Overrides", Some(m.health_overrides.join(","))),
     ];
     data.append(&mut health_details);
 
     let mut bmc_details = vec![
         ("  BMC", Some("".to_string())),
-        ("    Version", m.host_bmc_version.clone()),
-        ("    Firmware Version", m.host_bmc_firmware_version.clone()),
-        ("    IP", m.host_bmc_ip.clone()),
-        ("    MAC", m.host_bmc_mac.clone()),
+        ("    Version", m.host_bmc_version),
+        ("    Firmware Version", m.host_bmc_firmware_version),
+        ("    IP", m.host_bmc_ip),
+        ("    MAC", m.host_bmc_mac),
     ];
     data.append(&mut bmc_details);
 
@@ -371,31 +371,31 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
         }
     }
 
-    for (i, dpu) in m.dpus.iter().enumerate() {
+    for (i, dpu) in m.dpus.into_iter().enumerate() {
         writeln!(
             &mut lines,
             "\nDPU{i}:\n----------------------------------------"
         )?;
         let data = vec![
-            ("  ID", dpu.machine_id.clone()),
-            ("  State", dpu.state.clone()),
+            ("  ID", dpu.machine_id),
+            ("  State", dpu.state),
             ("  Primary", Some(dpu.is_primary.to_string())),
-            ("  Failure details", dpu.failure_details.clone()),
-            ("  Last reboot", dpu.last_reboot_time.clone()),
+            ("  Failure details", dpu.failure_details),
+            ("  Last reboot", dpu.last_reboot_time),
             (
                 "  Last reboot requested",
-                dpu.last_reboot_requested_time_and_mode.clone(),
+                dpu.last_reboot_requested_time_and_mode,
             ),
-            ("  Last seen", dpu.last_observation_time.clone()),
-            ("  Serial Number", dpu.serial_number.clone()),
-            ("  BIOS Version", dpu.bios_version.clone()),
-            ("  Admin IP", dpu.oob_ip.clone()),
-            ("  Admin MAC", dpu.oob_mac.clone()),
+            ("  Last seen", dpu.last_observation_time),
+            ("  Serial Number", dpu.serial_number),
+            ("  BIOS Version", dpu.bios_version),
+            ("  Admin IP", dpu.oob_ip),
+            ("  Admin MAC", dpu.oob_mac),
             ("  BMC", Some("".to_string())),
-            ("    Version", dpu.bmc_version.clone()),
-            ("    Firmware Version", dpu.bmc_firmware_version.clone()),
-            ("    IP", dpu.bmc_ip.clone()),
-            ("    MAC", dpu.bmc_mac.clone()),
+            ("    Version", dpu.bmc_version),
+            ("    Firmware Version", dpu.bmc_firmware_version),
+            ("    IP", dpu.bmc_ip),
+            ("    MAC", dpu.bmc_mac),
             ("  Health", Some("".to_string())),
             (
                 "    Probe Alerts",
@@ -545,12 +545,7 @@ pub async fn show(
 
     let network_devices = api_client
         .0
-        .find_network_devices_by_device_ids(
-            network_device_ids
-                .iter()
-                .map(|id| id.to_owned())
-                .collect::<Vec<_>>(),
-        )
+        .find_network_devices_by_device_ids(network_device_ids.into_iter().collect::<Vec<_>>())
         .await?
         .network_devices;
 
@@ -623,8 +618,7 @@ pub fn power_options_show_one(
     writeln!(
         &mut lines,
         "{:<width$}: {}",
-        "Desired Power State Version",
-        power_option.desired_power_state_version.clone(),
+        "Desired Power State Version", power_option.desired_power_state_version,
     )?;
 
     writeln!(
@@ -733,7 +727,7 @@ pub async fn power_options_show_all(
             format!(
                 "{:?} ({})\n{}",
                 power_option.desired_state(),
-                power_option.desired_power_state_version.clone(),
+                power_option.desired_power_state_version,
                 power_option
                     .desired_state_updated_at
                     .map(|x| x.to_string())

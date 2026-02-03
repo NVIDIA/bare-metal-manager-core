@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -15,9 +15,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use carbide_uuid::rack::RackId;
 use db::rack as db_rack;
 use model::rack::{Rack, RackMaintenanceState, RackReadyState, RackState};
-use sqlx::PgConnection;
 
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::config::IterationConfig;
@@ -26,6 +26,7 @@ use crate::state_controller::rack::context::RackStateHandlerContextObjects;
 use crate::state_controller::rack::io::RackStateControllerIO;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
+    StateHandlerOutcomeWithTransaction,
 };
 use crate::tests::common::api_fixtures::create_test_env;
 
@@ -44,32 +45,31 @@ pub struct TestRackStateHandler {
 impl StateHandler for TestRackStateHandler {
     type State = Rack;
     type ControllerState = RackState;
-    type ObjectId = String;
+    type ObjectId = RackId;
     type ContextObjects = RackStateHandlerContextObjects;
 
     async fn handle_object_state(
         &self,
-        rack_id: &String,
+        rack_id: &RackId,
         state: &mut Rack,
         _controller_state: &Self::ControllerState,
-        _txn: &mut PgConnection,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
+    ) -> Result<StateHandlerOutcomeWithTransaction<Self::ControllerState>, StateHandlerError> {
         assert_eq!(state.id, *rack_id);
         self.count.fetch_add(1, Ordering::SeqCst);
         {
             let mut guard = self.counts_per_id.lock().unwrap();
-            *guard.entry(rack_id.clone()).or_default() += 1;
+            *guard.entry(rack_id.to_string()).or_default() += 1;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
-        Ok(StateHandlerOutcome::do_nothing())
+        Ok(StateHandlerOutcome::do_nothing().with_txn(None))
     }
 }
 
 /// Helper function to create a rack for testing
 async fn create_test_rack(
     pool: &sqlx::PgPool,
-    rack_id: &str,
+    rack_id: RackId,
 ) -> Result<Rack, Box<dyn std::error::Error>> {
     let mut txn = pool.acquire().await?;
     let rack = db_rack::create(
@@ -88,8 +88,8 @@ async fn test_rack_state_transitions(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     let env = create_test_env(pool.clone()).await;
 
     // Create a rack
-    let rack_id = format!("test-rack-{}", &uuid::Uuid::new_v4().to_string()[..8]);
-    let rack = create_test_rack(&pool, &rack_id).await?;
+    let rack_id = RackId::from(uuid::Uuid::new_v4());
+    let rack = create_test_rack(&pool, rack_id).await?;
 
     // Verify initial state is Expected
     assert!(matches!(rack.controller_state.value, RackState::Expected));
@@ -100,7 +100,7 @@ async fn test_rack_state_transitions(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     const TEST_TIME: Duration = Duration::from_secs(5);
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone().into(),
+        db_pool: pool.clone(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),
@@ -136,7 +136,8 @@ async fn test_rack_state_transitions(pool: sqlx::PgPool) -> Result<(), Box<dyn s
 
     // Verify that the rack ID was processed
     let guard = rack_handler.counts_per_id.lock().unwrap();
-    let count = guard.get(&rack_id).copied().unwrap_or_default();
+    let rack_id_str = rack_id.to_string();
+    let count = guard.get(&rack_id_str).copied().unwrap_or_default();
     assert!(count > 0, "Rack ID should have been processed");
 
     Ok(())
@@ -147,12 +148,12 @@ async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     let env = create_test_env(pool.clone()).await;
 
     // Create a rack
-    let rack_id = format!("test-rack-{}", &uuid::Uuid::new_v4().to_string()[..8]);
-    let _rack = create_test_rack(&pool, &rack_id).await?;
+    let rack_id = RackId::from(uuid::Uuid::new_v4());
+    let _rack = create_test_rack(&pool, rack_id).await?;
 
     // Verify rack exists
     let mut txn = pool.acquire().await?;
-    let rack = db_rack::get(&mut txn, &rack_id).await?;
+    let rack = db_rack::get(&mut txn, rack_id).await?;
     assert_eq!(rack.id, rack_id);
 
     // Start the state controller to process the rack while it's active
@@ -161,7 +162,7 @@ async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     const TEST_TIME: Duration = Duration::from_secs(2);
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone().into(),
+        db_pool: pool.clone(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),
@@ -195,7 +196,7 @@ async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     );
 
     // Mark the rack as deleted
-    mark_rack_as_deleted(pool.acquire().await?.as_mut(), &rack_id).await?;
+    mark_rack_as_deleted(pool.acquire().await?.as_mut(), rack_id).await?;
 
     // Let the controller run for a bit more after deletion
     tokio::time::sleep(TEST_TIME).await;
@@ -225,8 +226,8 @@ async fn test_rack_error_state_handling(
     let env = create_test_env(pool.clone()).await;
 
     // Create a rack
-    let rack_id = format!("test-rack-{}", &uuid::Uuid::new_v4().to_string()[..8]);
-    let _rack = create_test_rack(&pool, &rack_id).await?;
+    let rack_id = RackId::from(uuid::Uuid::new_v4());
+    let _rack = create_test_rack(&pool, rack_id).await?;
 
     // Manually set the rack to error state for testing
     let error_state = RackState::Error {
@@ -234,7 +235,7 @@ async fn test_rack_error_state_handling(
     };
 
     // Update the controller state directly in the database
-    set_rack_controller_state(pool.acquire().await?.as_mut(), &rack_id, error_state).await?;
+    set_rack_controller_state(pool.acquire().await?.as_mut(), rack_id, error_state).await?;
 
     // Start the state controller
     let rack_handler = Arc::new(TestRackStateHandler::default());
@@ -242,7 +243,7 @@ async fn test_rack_error_state_handling(
     const TEST_TIME: Duration = Duration::from_secs(5);
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone().into(),
+        db_pool: pool.clone(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),
@@ -278,7 +279,8 @@ async fn test_rack_error_state_handling(
 
     // Verify that the rack ID was processed
     let guard = rack_handler.counts_per_id.lock().unwrap();
-    let count = guard.get(&rack_id).copied().unwrap_or_default();
+    let rack_id_str = rack_id.to_string();
+    let count = guard.get(&rack_id_str).copied().unwrap_or_default();
     assert!(
         count > 0,
         "Rack ID should have been processed in error state"
@@ -294,8 +296,8 @@ async fn test_rack_state_transition_validation(
     let _env = create_test_env(pool.clone()).await;
 
     // Create a rack
-    let rack_id = format!("test-rack-{}", &uuid::Uuid::new_v4().to_string()[..8]);
-    let rack = create_test_rack(&pool, &rack_id).await?;
+    let rack_id = RackId::from(uuid::Uuid::new_v4());
+    let rack = create_test_rack(&pool, rack_id).await?;
 
     // Verify initial state is Expected
     assert!(matches!(rack.controller_state.value, RackState::Expected));
@@ -319,11 +321,11 @@ async fn test_rack_state_transition_validation(
     ];
 
     for state in states {
-        set_rack_controller_state(pool.acquire().await?.as_mut(), &rack_id, state.clone()).await?;
+        set_rack_controller_state(pool.acquire().await?.as_mut(), rack_id, state.clone()).await?;
 
         // Verify the state was set correctly
         let mut txn = pool.acquire().await?;
-        let rack = db_rack::get(&mut txn, &rack_id).await?;
+        let rack = db_rack::get(&mut txn, rack_id).await?;
         assert!(matches!(rack.controller_state.value, _ if rack.controller_state.value == state));
     }
 
@@ -337,8 +339,8 @@ async fn test_rack_deletion_with_state_controller(
     let env = create_test_env(pool.clone()).await;
 
     // Create a rack
-    let rack_id = format!("test-rack-{}", &uuid::Uuid::new_v4().to_string()[..8]);
-    let _rack = create_test_rack(&pool, &rack_id).await?;
+    let rack_id = RackId::from(uuid::Uuid::new_v4());
+    let _rack = create_test_rack(&pool, rack_id).await?;
 
     // Start the state controller
     let rack_handler = Arc::new(TestRackStateHandler::default());
@@ -346,7 +348,7 @@ async fn test_rack_deletion_with_state_controller(
     const TEST_TIME: Duration = Duration::from_secs(2);
 
     let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone().into(),
+        db_pool: pool.clone(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),
@@ -380,7 +382,7 @@ async fn test_rack_deletion_with_state_controller(
     );
 
     // Mark the rack as deleted
-    mark_rack_as_deleted(pool.acquire().await?.as_mut(), &rack_id).await?;
+    mark_rack_as_deleted(pool.acquire().await?.as_mut(), rack_id).await?;
 
     // Let the controller run for a bit more after marking as deleted
     tokio::time::sleep(TEST_TIME).await;
