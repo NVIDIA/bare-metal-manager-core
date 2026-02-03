@@ -102,7 +102,7 @@ pub async fn trigger_host_reprovisioning_request(
     // The WHERE on controller state means that we'll update it in the case where we were in ready, but not when assigned.
     let query = r#"UPDATE machines SET host_reprovisioning_requested=$2, update_complete = false WHERE id=$1 RETURNING id"#;
     let _id = sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .bind(sqlx::types::Json(req))
         .fetch_one(&mut *txn)
         .await
@@ -117,7 +117,7 @@ pub async fn clear_host_reprovisioning_request(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET host_reprovisioning_requested = NULL WHERE id=$1 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -133,7 +133,7 @@ pub async fn reset_host_reprovisioning_request(
     // The WHERE on controller state means that we'll update it in the case where we were in ready, but not when assigned.
     let query = r#"UPDATE machines SET host_reprovisioning_requested = jsonb_set(host_reprovisioning_requested, '{request_reset}', $2::jsonb) WHERE id=$1 RETURNING id"#;
     let _id = sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .bind(sqlx::types::Json(!clear_reset))
         .fetch_one(&mut *txn)
         .await

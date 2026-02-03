@@ -148,7 +148,7 @@ impl NewNvlPartition {
         let partition: NvlPartitionSnapshotPgJson = sqlx::query_as(query)
             .bind(self.id)
             .bind(&self.nmx_m_id)
-            .bind(self.name.0.clone())
+            .bind(&self.name.0)
             .bind(self.domain_uuid)
             .bind(self.logical_partition_id)
             .fetch_one(txn)

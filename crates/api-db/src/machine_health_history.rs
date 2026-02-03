@@ -146,7 +146,7 @@ pub async fn persist(
         SELECT * FROM new_history_record
         WHERE NOT EXISTS (SELECT health_hash FROM last_history_record WHERE last_history_record.health_hash = new_history_record.health_hash);";
     let _query_result = sqlx::query(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .bind(sqlx::types::Json(health))
         .bind(health_hash)
         .bind(chrono::Utc::now())
@@ -165,8 +165,8 @@ pub async fn update_machine_ids(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machine_health_history SET machine_id=$1 WHERE machine_id=$2";
     sqlx::query(query)
-        .bind(new_machine_id.to_string())
-        .bind(old_machine_id.to_string())
+        .bind(new_machine_id)
+        .bind(old_machine_id)
         .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
