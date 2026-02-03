@@ -19,6 +19,7 @@ use regex::Regex;
 use scout::CarbideClientError;
 use serde::Deserialize;
 use smbioslib::SMBiosSystemInformation;
+use tracing::Instrument;
 
 use crate::cfg::Options;
 use crate::client::create_forge_client;
@@ -245,9 +246,15 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
     Ok(())
 }
 
-async fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
-    let mut err_vec: Vec<String> = Vec::new();
+/// Failed NVMe device cleanup with error context
+struct CleanupFailure {
+    device: String,
+    duration: std::time::Duration,
+    error: CarbideClientError,
+}
 
+async fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
+    let mut nvme_devicepaths: Vec<String> = Vec::new();
     if let Ok(paths) = fs::read_dir("/dev") {
         for entry in paths {
             let path = match entry {
@@ -260,16 +267,86 @@ async fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
 
             let nvmename = path.to_string_lossy().to_string();
             if NVME_DEV_RE.is_match(&nvmename) {
-                match clean_this_nvme(&nvmename).await {
-                    Ok(_) => (),
-                    Err(e) => err_vec.push(format!("NVME_CLEAN_ERROR:{}:{}", &nvmename, e)),
-                }
+                nvme_devicepaths.push(nvmename);
             }
         }
     }
-    if !err_vec.is_empty() {
-        return Err(CarbideClientError::GenericError(err_vec.join("\n")));
+
+    let device_count = nvme_devicepaths.len();
+    if device_count == 0 {
+        tracing::info!("No NVMe devices found to clean");
+        return Ok(());
     }
+
+    tracing::info!(device_count, "Starting NVMe cleanup");
+    let start_time = std::time::Instant::now();
+
+    // Spawn async tasks for each NVMe device cleanup
+    let cleanup_futures: Vec<_> = nvme_devicepaths
+        .into_iter()
+        .map(|nvmename| {
+            let device = nvmename.clone();
+            let span = tracing::info_span!("nvme_cleanup", device = %nvmename);
+
+            tokio::spawn(
+                async move {
+                    let device_start = std::time::Instant::now();
+
+                    tracing::info!("Starting cleanup");
+                    let result = clean_this_nvme(&nvmename).await;
+                    let duration = device_start.elapsed();
+
+                    match result {
+                        Ok(()) => {
+                            tracing::info!(?duration, "Cleanup completed successfully");
+                            Ok(())
+                        }
+                        Err(error) => {
+                            tracing::error!(?duration, %error, "Cleanup failed");
+                            Err(CleanupFailure {
+                                device,
+                                duration,
+                                error,
+                            })
+                        }
+                    }
+                }
+                .instrument(span),
+            )
+        })
+        .collect();
+
+    // Wait for all cleanup tasks to complete
+    let results = futures_util::future::join_all(cleanup_futures).await;
+    let total_duration = start_time.elapsed();
+
+    // Collect and categorize results
+    let mut errors: Vec<String> = Vec::new();
+    let mut success_count = 0;
+
+    for join_result in results {
+        let cleanup_result = join_result.expect("nvme cleanup task panicked");
+        match cleanup_result {
+            Ok(()) => success_count += 1,
+            Err(failure) => errors.push(format!(
+                "NVME_CLEAN_ERROR (device: {}; duration: {:?}): {}",
+                failure.device, failure.duration, failure.error,
+            )),
+        }
+    }
+
+    tracing::info!(
+        device_count,
+        success_count,
+        error_count = errors.len(),
+        ?total_duration,
+        "NVMe cleanup completed"
+    );
+
+    if !errors.is_empty() {
+        return Err(CarbideClientError::GenericError(errors.join("\n")));
+    }
+
     Ok(())
 }
 

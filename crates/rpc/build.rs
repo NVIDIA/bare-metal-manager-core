@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -37,6 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .extern_path(".common.NetworkPrefixId", "::carbide_uuid::network::NetworkPrefixId")
         .extern_path(".common.NetworkSegmentId", "::carbide_uuid::network::NetworkSegmentId")
         .extern_path(".common.PowerShelfId", "::carbide_uuid::power_shelf::PowerShelfId")
+        .extern_path(".common.RackId", "::carbide_uuid::rack::RackId")
         .extern_path(".common.NVLinkPartitionId", "::carbide_uuid::nvlink::NvLinkPartitionId")
         .extern_path(".common.NVLinkLogicalPartitionId", "::carbide_uuid::nvlink::NvLinkLogicalPartitionId")
         .extern_path(".common.NVLinkDomainId", "::carbide_uuid::nvlink::NvLinkDomainId")
@@ -299,7 +300,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.DpaInterface", "#[derive(serde::Serialize)]")
         .type_attribute("forge.DpaInterfaceList", "#[derive(serde::Serialize)]")
         .type_attribute(
-            "forge.DpaInterfaceStateHistory",
+            "forge.DpaInterfaceStateHistoryRecord",
             "#[derive(serde::Serialize)]",
         )
         .type_attribute("forge.Vpc", "#[derive(serde::Serialize)]")
@@ -309,6 +310,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute("forge.VpcPrefix", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.VpcPrefixConfig",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.VpcPrefixStatus",
+            "#[derive(serde::Serialize)]",
+        )
         .type_attribute("forge.VpcPeering", "#[derive(serde::Serialize)]")
         .type_attribute("forge.VpcPeeringList", "#[derive(serde::Serialize)]")
         .type_attribute("forge.StorageCluster", "#[derive(serde::Serialize)]")
@@ -788,6 +797,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ".common.PowerShelfId",
                 "::carbide_uuid::power_shelf::PowerShelfId",
             ),
+            (".common.RackId", "::carbide_uuid::rack::RackId"),
             (
                 ".common.NVLinkPartitionId",
                 "::carbide_uuid::nvlink::NvLinkPartitionId",

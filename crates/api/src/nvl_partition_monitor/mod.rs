@@ -697,7 +697,11 @@ impl NvlPartitionMonitor {
                 let mut updated_gpu = db_gpu.clone();
 
                 // Match GPU by domain_uuid, guid (device_uid), and device_id
-                let key = (nvlink_info.domain_uuid.0, db_gpu.guid, db_gpu.device_id);
+                let key = (
+                    nvlink_info.domain_uuid.into(),
+                    db_gpu.guid,
+                    db_gpu.device_id,
+                );
                 match nmx_m_gpu_map.get(&key) {
                     Some(nmx_m_gpu) => {
                         let nmx_m_id = nmx_m_gpu.id.as_deref().unwrap_or_default();
@@ -1433,7 +1437,7 @@ impl NvlPartitionMonitor {
                     NmxmPartitionOperationType::Create => {
                         // Create the nvl partition in the database
                         let new_partition = db::nvl_partition::NewNvlPartition {
-                            id: NvLinkPartitionId::from(uuid::Uuid::new_v4()),
+                            id: NvLinkPartitionId::new(),
                             logical_partition_id,
                             name: NvlPartitionName::try_from(operation.name.clone())?,
                             domain_uuid: operation.domain_uuid,

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,62 +10,24 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::fmt;
-use std::str::FromStr;
+use crate::typed_uuids::{TypedUuid, UuidSubtype};
 
-use serde::{Deserialize, Serialize};
-#[cfg(feature = "sqlx")]
-use sqlx::{
-    FromRow, Type,
-    postgres::{PgHasArrayType, PgTypeInfo},
-};
+/// Marker type for ExtensionServiceId.
+pub struct ExtensionServiceIdMarker;
 
-use crate::{UuidConversionError, grpc_uuid_message};
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq, Default)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct ExtensionServiceId(pub uuid::Uuid);
-
-grpc_uuid_message!(ExtensionServiceId);
-
-impl From<ExtensionServiceId> for uuid::Uuid {
-    fn from(id: ExtensionServiceId) -> Self {
-        id.0
-    }
+impl UuidSubtype for ExtensionServiceIdMarker {
+    const TYPE_NAME: &'static str = "ExtensionServiceId";
 }
 
-impl From<uuid::Uuid> for ExtensionServiceId {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
-    }
-}
+/// ExtensionServiceId is a strongly typed UUID specific to an
+/// extension service.
+pub type ExtensionServiceId = TypedUuid<ExtensionServiceIdMarker>;
 
-impl FromStr for ExtensionServiceId {
-    type Err = UuidConversionError;
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "ExtensionServiceId",
-                value: input.to_string(),
-            }
-        })?))
-    }
-}
-
-impl fmt::Display for ExtensionServiceId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[cfg(feature = "sqlx")]
-impl PgHasArrayType for ExtensionServiceId {
-    fn array_type_info() -> PgTypeInfo {
-        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
-    }
-
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
-    }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(ExtensionServiceId, "ExtensionServiceId", "id");
 }

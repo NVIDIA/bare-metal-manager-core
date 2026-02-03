@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -397,7 +397,7 @@ impl TryFrom<InstanceExtensionServiceStatus> for rpc::InstanceDpuExtensionServic
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Self {
-            service_id: status.service_id.to_string(),
+            service_id: status.service_id.into(),
             version: status.version.to_string(),
             deployment_status: rpc::DpuExtensionServiceDeploymentStatus::from(
                 status.overall_status,
@@ -482,7 +482,7 @@ impl TryFrom<rpc::DpuExtensionServiceStatusObservation> for ExtensionServiceStat
 impl From<ExtensionServiceStatusObservation> for rpc::DpuExtensionServiceStatusObservation {
     fn from(observation: ExtensionServiceStatusObservation) -> Self {
         Self {
-            service_id: observation.service_id.to_string(),
+            service_id: observation.service_id.into(),
             service_type: rpc::DpuExtensionServiceType::from(observation.service_type).into(),
             service_name: observation.service_name,
             version: observation.version.to_string(),
@@ -534,6 +534,30 @@ impl InstanceExtensionServiceStatusObservation {
                     .map(|ext_obs| (dpu.id, ext_obs))
             })
             .collect()
+    }
+
+    pub fn any_observed_version_changed(&self, other: &Self) -> bool {
+        if (self.config_version != other.config_version)
+            || (self.instance_config_version != other.instance_config_version)
+        {
+            return true;
+        }
+
+        let self_extension_service_versions: HashMap<ExtensionServiceId, ConfigVersion> =
+            HashMap::from_iter(
+                self.extension_service_statuses
+                    .iter()
+                    .map(|svc| (svc.service_id, svc.version)),
+            );
+        let other_extension_service_versions: HashMap<ExtensionServiceId, ConfigVersion> =
+            HashMap::from_iter(
+                other
+                    .extension_service_statuses
+                    .iter()
+                    .map(|svc| (svc.service_id, svc.version)),
+            );
+
+        self_extension_service_versions != other_extension_service_versions
     }
 }
 

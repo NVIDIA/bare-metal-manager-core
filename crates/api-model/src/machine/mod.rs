@@ -1329,8 +1329,8 @@ impl NextStateBFBSupport<ReprovisionState> for ReprovisionState {
             dpf_based_dpu_provisioning_possible(state, dpf_enabled_at_site);
         if is_dpf_based_provisioning_possible {
             ReprovisionState::DpfStates {
-                substate: DpfState::TriggerReprovisioing {
-                    phase: ReprovisioingPhase::UpdateDpuStatusToError,
+                substate: DpfState::TriggerReprovisioning {
+                    phase: ReprovisioningPhase::UpdateDpuStatusToError,
                 },
             }
         } else if enable_secure_boot && bfb_support {
@@ -1593,7 +1593,7 @@ pub enum DpfState {
     DpuDeviceCreated,
     CreateDpuNode,
     DpuDeviceReady,
-    TriggerReprovisioing { phase: ReprovisioingPhase }, // This is way to trigger re-provisioning of a DPU.
+    TriggerReprovisioning { phase: ReprovisioningPhase }, // This is way to trigger re-provisioning of a DPU.
     UpdateNodeEffectAnnotation,
     WaitingForOsInstallToComplete,
     WaitForNetworkConfigAndRemoveAnnotation,
@@ -1601,12 +1601,12 @@ pub enum DpfState {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(tag = "reprovisioningphase", rename_all = "lowercase")]
-pub enum ReprovisioingPhase {
-    // Only DPUs which needs reprovisioing will be updated to error phase and deleted.
+pub enum ReprovisioningPhase {
+    // Only DPUs which needs reprovisioning will be updated to error phase and deleted.
     UpdateDpuStatusToError,
     DeleteDpu,
     // Following is a sync state.
-    WaitingForAllDpusUnderReprovisioingToBeDeleted,
+    WaitingForAllDpusUnderReprovisioningToBeDeleted,
 }
 
 pub enum WaitForNetworkConfigAndRemoveAnnotationResult {

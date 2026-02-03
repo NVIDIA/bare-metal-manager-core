@@ -142,6 +142,11 @@ async fn test_integration() -> eyre::Result<()> {
 
 fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
     let infos = metrics::collect_metric_infos(metrics_endpoints).unwrap();
+    // Delete everything with "alt_metric_" prefix
+    let infos: Vec<_> = infos
+        .into_iter()
+        .filter(|metric| !metric.name.starts_with("alt_metric"))
+        .collect();
     let mut docs = "# Carbide core metrics\n\n".to_string();
     use std::fmt::Write;
 
@@ -275,10 +280,12 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                 // Therefore wait for the updated metrics to show up.
                 let metrics = metrics::wait_for_metric_line(
                     &carbide_metrics_addrs,
-                    r#"forge_machines_per_state{fresh="true",state="ready",substate=""} 1"#,
+                    r#"carbide_machines_per_state{fresh="true",state="ready",substate=""} 1"#,
                 )
                     .await?;
-                metrics::assert_metric_line(&metrics, r#"forge_machines_total{fresh="true"} 1"#);
+                metrics::assert_metric_line(&metrics, r#"carbide_machines_total{fresh="true"} 1"#);
+                // Also check that metrics are emitted under the configured `alt_metric_prefix`
+                metrics::assert_metric_line(&metrics, r#"alt_metric_machines_total{fresh="true"} 1"#);
                 metrics::assert_not_metric_line(
                     &metrics,
                     "machine_reboot_attempts_in_booting_with_discovery_image",
@@ -302,13 +309,13 @@ async fn test_metrics_integration() -> eyre::Result<()> {
 
                 let metrics = metrics::wait_for_metric_line(
                     &carbide_metrics_addrs,
-                    r#"forge_machines_per_state{fresh="true",state="assigned",substate="ready"} 1"#,
+                    r#"carbide_machines_per_state{fresh="true",state="assigned",substate="ready"} 1"#,
                 )
                     .await?;
-                metrics::assert_metric_line(&metrics, r#"forge_machines_total{fresh="true"} 1"#);
+                metrics::assert_metric_line(&metrics, r#"carbide_machines_total{fresh="true"} 1"#);
                 metrics::assert_not_metric_line(
                     &metrics,
-                    r#"forge_machines_per_state{fresh="true",state="ready",substate=""}"#,
+                    r#"carbide_machines_per_state{fresh="true",state="ready",substate=""}"#,
                 );
                 metrics::assert_not_metric_line(
                     &metrics,
@@ -317,8 +324,8 @@ async fn test_metrics_integration() -> eyre::Result<()> {
 
                 instance::release(&carbide_api_addrs, &host_machine_id, &instance_id, true).await?;
 
-                let metrics = metrics::wait_for_metric_line(&carbide_metrics_addrs, r#"forge_machines_per_state{fresh="true",state="waitingforcleanup",substate="hostcleanup"} 1"#).await?;
-                metrics::assert_metric_line(&metrics, r#"forge_machines_total{fresh="true"} 1"#);
+                let metrics = metrics::wait_for_metric_line(&carbide_metrics_addrs, r#"carbide_machines_per_state{fresh="true",state="waitingforcleanup",substate="hostcleanup"} 1"#).await?;
+                metrics::assert_metric_line(&metrics, r#"carbide_machines_total{fresh="true"} 1"#);
 
                 machine::wait_for_state(
                     &carbide_api_addrs,
@@ -331,43 +338,43 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                 // It stays in Discovered until we notify that reboot happened, which this test doesn't
                 let metrics = metrics::wait_for_metric_line(
                     &carbide_metrics_addrs,
-                    r#"forge_machines_per_state{fresh="true",state="hostnotready",substate="discovered"} 1"#,
+                    r#"carbide_machines_per_state{fresh="true",state="hostnotready",substate="discovered"} 1"#,
                 )
                     .await?;
                 metrics::assert_not_metric_line(
                     &metrics,
-                    r#"forge_machines_per_state{fresh="true",state="assigned""#,
+                    r#"carbide_machines_per_state{fresh="true",state="assigned""#,
                 );
 
-                // Explicitly test that the histogram for `forge_reboot_attempts_in_booting_with_discovery_image_bucket`
+                // Explicitly test that the histogram for `carbide_reboot_attempts_in_booting_with_discovery_image_bucket`
                 // uses the custom buckets we defined for retries/attempts
                 for &(bucket, count) in &[(0, 0), (1, 1), (2, 1), (3, 1), (5, 1), (10, 1)] {
                     metrics::assert_metric_line(
                         &metrics,
                         &format!(
-                            r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{{le="{bucket}"}} {count}"#
+                            r#"carbide_reboot_attempts_in_booting_with_discovery_image_bucket{{le="{bucket}"}} {count}"#
                         ),
                     );
                 }
                 metrics::assert_not_metric_line(
                     &metrics,
-                    r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{le="4"}"#,
+                    r#"carbide_reboot_attempts_in_booting_with_discovery_image_bucket{le="4"}"#,
                 );
                 metrics::assert_not_metric_line(
                     &metrics,
-                    r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{le="6"}"#,
+                    r#"carbide_reboot_attempts_in_booting_with_discovery_image_bucket{le="6"}"#,
                 );
                 metrics::assert_metric_line(
                     &metrics,
-                    r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{le="+Inf"} 1"#,
+                    r#"carbide_reboot_attempts_in_booting_with_discovery_image_bucket{le="+Inf"} 1"#,
                 );
                 metrics::assert_metric_line(
                     &metrics,
-                    "forge_reboot_attempts_in_booting_with_discovery_image_sum 1",
+                    "carbide_reboot_attempts_in_booting_with_discovery_image_sum 1",
                 );
                 metrics::assert_metric_line(
                     &metrics,
-                    "forge_reboot_attempts_in_booting_with_discovery_image_count 1",
+                    "carbide_reboot_attempts_in_booting_with_discovery_image_count 1",
                 );
 
                 Ok(())

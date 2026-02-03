@@ -103,7 +103,7 @@ pub async fn persist(
         VALUES ($1, $2, $3)
         RETURNING machine_id, state::TEXT, state_version, timestamp";
     sqlx::query_as::<_, DbMachineStateHistory>(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .bind(sqlx::types::Json(state))
         .bind(state_version)
         .fetch_one(txn)
@@ -120,8 +120,8 @@ pub async fn update_machine_ids(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machine_state_history SET machine_id=$1 WHERE machine_id=$2";
     sqlx::query(query)
-        .bind(new_machine_id.to_string())
-        .bind(old_machine_id.to_string())
+        .bind(new_machine_id)
+        .bind(old_machine_id)
         .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;

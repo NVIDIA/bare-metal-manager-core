@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -18,11 +18,7 @@
  *  worked with, since it would be otherwise easy to pass the wrong UUID
  *  to the wrong part of a query. Being able to type the specific ID ends
  *  up catching a lot of potential bugs.
- *
- *  To make this work, the keys must derive {FromRow,Type}, and explicitly
- *  set #[sqlx(type_name = "UUID")]. Without that trifecta, sqlx gets all
- *  mad because it cant bind it as a UUID.
-*/
+ */
 
 use std::fmt;
 use std::str::FromStr;
@@ -33,12 +29,19 @@ use sqlx::{
     encode::IsNull,
     error::BoxDynError,
     postgres::PgTypeInfo,
-    {Database, FromRow, Postgres, Type},
+    {Database, Postgres},
 };
 
-use super::DbPrimaryUuid;
+use crate::UuidConversionError;
 use crate::machine::MachineId;
-use crate::{UuidConversionError, grpc_uuid_message};
+use crate::typed_uuids::{TypedUuid, UuidSubtype};
+
+// ============================================================================
+// TrustedMachineId
+//
+// TODO(chet): Consider having a HardwareUuid type that things like MachineId,
+// TrustedMachineId, RackId, etc, can all use).
+// ============================================================================
 
 /// TrustedMachineId is a special adaptation of a
 /// Carbide MachineId, which has support for being
@@ -106,391 +109,268 @@ impl sqlx::Type<sqlx::Postgres> for TrustedMachineId {
     }
 }
 
-impl DbPrimaryUuid for TrustedMachineId {
+impl crate::DbPrimaryUuid for TrustedMachineId {
     fn db_primary_uuid_name() -> &'static str {
         "machine_id"
     }
 }
 
-/// MeasurementSystemProfileId
-///
+#[cfg(test)]
+mod trusted_machine_id_tests {
+    use std::str::FromStr;
+
+    use super::*;
+    use crate::DbPrimaryUuid;
+
+    // TrustedMachineId is a special enum type, not a TypedUuid.
+    #[test]
+    fn test_trusted_machine_id_any() {
+        let id = TrustedMachineId::from_str("*").expect("failed to parse");
+        assert_eq!(id, TrustedMachineId::Any);
+        assert_eq!(id.to_string(), "*");
+    }
+
+    #[test]
+    fn test_trusted_machine_id_db_column_name() {
+        assert_eq!(TrustedMachineId::db_primary_uuid_name(), "machine_id");
+    }
+}
+// ============================================================================
+// MeasurementSystemProfileId
+// ============================================================================
+
+/// Marker type for MeasurementSystemProfileId.
+pub struct MeasurementSystemProfileIdMarker;
+
+impl UuidSubtype for MeasurementSystemProfileIdMarker {
+    const TYPE_NAME: &'static str = "MeasurementSystemProfileId";
+    const DB_COLUMN_NAME: &'static str = "profile_id";
+}
+
 /// Primary key for a measurement_system_profiles table entry, which is the table
 /// containing general metadata about a machine profile.
-///
-/// Impls the DbPrimaryUuid trait, which is used for doing generic selects
-/// defined in db/interface/common.rs, as well as other various trait impls
-/// as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq, Default)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct MeasurementSystemProfileId(pub uuid::Uuid);
-grpc_uuid_message!(MeasurementSystemProfileId);
+pub type MeasurementSystemProfileId = TypedUuid<MeasurementSystemProfileIdMarker>;
 
-impl From<MeasurementSystemProfileId> for uuid::Uuid {
-    fn from(id: MeasurementSystemProfileId) -> Self {
-        id.0
-    }
-}
-
-impl FromStr for MeasurementSystemProfileId {
-    type Err = UuidConversionError;
-
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "MeasurementSystemProfileId",
-                value: input.to_string(),
-            }
-        })?))
-    }
-}
-
-impl fmt::Display for MeasurementSystemProfileId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl DbPrimaryUuid for MeasurementSystemProfileId {
-    fn db_primary_uuid_name() -> &'static str {
+#[cfg(test)]
+mod system_profile_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(
+        MeasurementSystemProfileId,
+        "MeasurementSystemProfileId",
         "profile_id"
-    }
+    );
 }
 
-/// MeasurementSystemProfileAttrId
-///
+// ============================================================================
+// MeasurementSystemProfileAttrId
+// ============================================================================
+
+/// Marker type for MeasurementSystemProfileAttrId.
+pub struct MeasurementSystemProfileAttrIdMarker;
+
+impl UuidSubtype for MeasurementSystemProfileAttrIdMarker {
+    const TYPE_NAME: &'static str = "MeasurementSystemProfileAttrId";
+}
+
 /// Primary key for a measurement_system_profiles_attrs table entry, which is
 /// the table containing the attributes used to map machines to profiles.
-///
-/// Includes code for various implementations.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default, Eq, Hash)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct MeasurementSystemProfileAttrId(pub uuid::Uuid);
-grpc_uuid_message!(MeasurementSystemProfileAttrId);
+pub type MeasurementSystemProfileAttrId = TypedUuid<MeasurementSystemProfileAttrIdMarker>;
 
-impl From<MeasurementSystemProfileAttrId> for uuid::Uuid {
-    fn from(id: MeasurementSystemProfileAttrId) -> Self {
-        id.0
-    }
+#[cfg(test)]
+mod system_profile_attr_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(
+        MeasurementSystemProfileAttrId,
+        "MeasurementSystemProfileAttrId",
+        "id"
+    );
 }
 
-impl FromStr for MeasurementSystemProfileAttrId {
-    type Err = UuidConversionError;
+// ============================================================================
+// MeasurementBundleId
+// ============================================================================
 
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "MeasurementSystemProfileAttrId",
-                value: input.to_string(),
-            }
-        })?))
-    }
+/// Marker type for MeasurementBundleId.
+pub struct MeasurementBundleIdMarker;
+
+impl UuidSubtype for MeasurementBundleIdMarker {
+    const TYPE_NAME: &'static str = "MeasurementBundleId";
+    const DB_COLUMN_NAME: &'static str = "bundle_id";
 }
 
-impl fmt::Display for MeasurementSystemProfileAttrId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-/// MeasurementBundleId
-///
 /// Primary key for a measurement_bundles table entry, where a bundle is
 /// a collection of measurements that come from the measurement_bundles table.
-///
-/// Impls the DbPrimaryUuid trait, which is used for doing generic selects
-/// defined in db/interface/common.rs, ToTable for printing via prettytable,
-/// as well as other various trait impls as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq, Default)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct MeasurementBundleId(pub uuid::Uuid);
-grpc_uuid_message!(MeasurementBundleId);
+pub type MeasurementBundleId = TypedUuid<MeasurementBundleIdMarker>;
 
-impl From<MeasurementBundleId> for uuid::Uuid {
-    fn from(id: MeasurementBundleId) -> Self {
-        id.0
-    }
+#[cfg(test)]
+mod bundle_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(MeasurementBundleId, "MeasurementBundleId", "bundle_id");
 }
 
-impl FromStr for MeasurementBundleId {
-    type Err = UuidConversionError;
+// ============================================================================
+// MeasurementBundleValueId
+// ============================================================================
 
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "MeasurementBundleId",
-                value: input.to_string(),
-            }
-        })?))
-    }
+/// Marker type for MeasurementBundleValueId.
+pub struct MeasurementBundleValueIdMarker;
+
+impl UuidSubtype for MeasurementBundleValueIdMarker {
+    const TYPE_NAME: &'static str = "MeasurementBundleValueId";
 }
 
-impl fmt::Display for MeasurementBundleId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl DbPrimaryUuid for MeasurementBundleId {
-    fn db_primary_uuid_name() -> &'static str {
-        "bundle_id"
-    }
-}
-
-/// MeasurementBundleValueId
-///
 /// Primary key for a measurement_bundles_values table entry, where a value is
 /// a single measurement that is part of a measurement bundle.
-///
-/// Includes code for various implementations.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default, Eq, Hash)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct MeasurementBundleValueId(pub uuid::Uuid);
-grpc_uuid_message!(MeasurementBundleValueId);
+pub type MeasurementBundleValueId = TypedUuid<MeasurementBundleValueIdMarker>;
 
-impl From<MeasurementBundleValueId> for uuid::Uuid {
-    fn from(id: MeasurementBundleValueId) -> Self {
-        id.0
-    }
+#[cfg(test)]
+mod bundle_value_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(MeasurementBundleValueId, "MeasurementBundleValueId", "id");
 }
 
-impl FromStr for MeasurementBundleValueId {
-    type Err = UuidConversionError;
+// ============================================================================
+// MeasurementReportId
+// ============================================================================
 
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "MeasurementBundleValueId",
-                value: input.to_string(),
-            }
-        })?))
-    }
+/// Marker type for MeasurementReportId.
+pub struct MeasurementReportIdMarker;
+
+impl UuidSubtype for MeasurementReportIdMarker {
+    const TYPE_NAME: &'static str = "MeasurementReportId";
+    const DB_COLUMN_NAME: &'static str = "report_id";
 }
 
-impl fmt::Display for MeasurementBundleValueId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-/// MeasurementReportId
-///
 /// Primary key for a measurement_reports table entry, which contains reports
 /// of all reported measurement bundles for a given machine.
-///
-/// Impls the DbPrimaryUuid trait, which is used for doing generic selects
-/// defined in db/interface/common.rs, as well as other various trait impls
-/// as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, Eq, Hash, Serialize, Deserialize, PartialEq, Default)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct MeasurementReportId(pub uuid::Uuid);
-grpc_uuid_message!(MeasurementReportId);
+pub type MeasurementReportId = TypedUuid<MeasurementReportIdMarker>;
 
-impl From<MeasurementReportId> for uuid::Uuid {
-    fn from(id: MeasurementReportId) -> Self {
-        id.0
-    }
+#[cfg(test)]
+mod report_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(MeasurementReportId, "MeasurementReportId", "report_id");
 }
 
-impl FromStr for MeasurementReportId {
-    type Err = UuidConversionError;
+// ============================================================================
+// MeasurementReportValueId
+// ============================================================================
 
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "MeasurementReportId",
-                value: input.to_string(),
-            }
-        })?))
-    }
+/// Marker type for MeasurementReportValueId.
+pub struct MeasurementReportValueIdMarker;
+
+impl UuidSubtype for MeasurementReportValueIdMarker {
+    const TYPE_NAME: &'static str = "MeasurementReportValueId";
 }
 
-impl fmt::Display for MeasurementReportId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl DbPrimaryUuid for MeasurementReportId {
-    fn db_primary_uuid_name() -> &'static str {
-        "report_id"
-    }
-}
-
-/// MeasurementReportValueId
-///
 /// Primary key for a measurement_reports_values table entry, which is the
 /// backing values reported for each report into measurement_reports.
-///
-/// Includes code for various implementations.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default, Eq, Hash)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct MeasurementReportValueId(pub uuid::Uuid);
-grpc_uuid_message!(MeasurementReportValueId);
+pub type MeasurementReportValueId = TypedUuid<MeasurementReportValueIdMarker>;
 
-impl From<MeasurementReportValueId> for uuid::Uuid {
-    fn from(id: MeasurementReportValueId) -> Self {
-        id.0
-    }
+#[cfg(test)]
+mod report_value_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(MeasurementReportValueId, "MeasurementReportValueId", "id");
 }
 
-impl FromStr for MeasurementReportValueId {
-    type Err = UuidConversionError;
+// ============================================================================
+// MeasurementJournalId
+// ============================================================================
 
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "MeasurementReportValueId",
-                value: input.to_string(),
-            }
-        })?))
-    }
+/// Marker type for MeasurementJournalId.
+pub struct MeasurementJournalIdMarker;
+
+impl UuidSubtype for MeasurementJournalIdMarker {
+    const TYPE_NAME: &'static str = "MeasurementJournalId";
+    const DB_COLUMN_NAME: &'static str = "journal_id";
 }
 
-impl fmt::Display for MeasurementReportValueId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-/// MeasurementJournalId
-///
 /// Primary key for a measurement_journal table entry, which is the journal
 /// of all reported measurement bundles for a given machine.
-///
-/// Impls the DbPrimaryUuid trait, which is used for doing generic selects
-/// defined in db/interface/common.rs, as well as other various trait impls
-/// as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, Eq, Hash, Serialize, Deserialize, PartialEq, Default)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct MeasurementJournalId(pub uuid::Uuid);
-grpc_uuid_message!(MeasurementJournalId);
+pub type MeasurementJournalId = TypedUuid<MeasurementJournalIdMarker>;
 
-impl From<MeasurementJournalId> for uuid::Uuid {
-    fn from(id: MeasurementJournalId) -> Self {
-        id.0
-    }
+#[cfg(test)]
+mod journal_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(MeasurementJournalId, "MeasurementJournalId", "journal_id");
 }
 
-impl FromStr for MeasurementJournalId {
-    type Err = UuidConversionError;
+// ============================================================================
+// MeasurementApprovedMachineId
+// ============================================================================
 
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "MeasurementJournalId",
-                value: input.to_string(),
-            }
-        })?))
-    }
+/// Marker type for MeasurementApprovedMachineId.
+pub struct MeasurementApprovedMachineIdMarker;
+
+impl UuidSubtype for MeasurementApprovedMachineIdMarker {
+    const TYPE_NAME: &'static str = "MeasurementApprovedMachineId";
+    const DB_COLUMN_NAME: &'static str = "approval_id";
 }
 
-impl fmt::Display for MeasurementJournalId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl DbPrimaryUuid for MeasurementJournalId {
-    fn db_primary_uuid_name() -> &'static str {
-        "journal_id"
-    }
-}
-
-/// MeasurementApprovedMachineId
-///
 /// Primary key for a measurement_approved_machines table entry, which is how
 /// control is enabled at the site-level for auto-approving machine reports
 /// into golden measurement bundles.
-///
-/// Impls the DbPrimaryUuid trait, which is used for doing generic selects
-/// defined in db/interface/common.rs, as well as other various trait impls
-/// as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default, Eq, Hash)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct MeasurementApprovedMachineId(pub uuid::Uuid);
-grpc_uuid_message!(MeasurementApprovedMachineId);
+pub type MeasurementApprovedMachineId = TypedUuid<MeasurementApprovedMachineIdMarker>;
 
-impl From<MeasurementApprovedMachineId> for uuid::Uuid {
-    fn from(id: MeasurementApprovedMachineId) -> Self {
-        id.0
-    }
-}
-
-impl FromStr for MeasurementApprovedMachineId {
-    type Err = UuidConversionError;
-
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "MeasurementApprovedMachineId",
-                value: input.to_string(),
-            }
-        })?))
-    }
-}
-
-impl fmt::Display for MeasurementApprovedMachineId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl DbPrimaryUuid for MeasurementApprovedMachineId {
-    fn db_primary_uuid_name() -> &'static str {
+#[cfg(test)]
+mod approved_machine_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(
+        MeasurementApprovedMachineId,
+        "MeasurementApprovedMachineId",
         "approval_id"
-    }
+    );
 }
 
-/// MeasurementApprovedProfileId
-///
+// ============================================================================
+// MeasurementApprovedProfileId
+// ============================================================================
+
+/// Marker type for MeasurementApprovedProfileId.
+pub struct MeasurementApprovedProfileIdMarker;
+
+impl UuidSubtype for MeasurementApprovedProfileIdMarker {
+    const TYPE_NAME: &'static str = "MeasurementApprovedProfileId";
+    const DB_COLUMN_NAME: &'static str = "approval_id";
+}
+
 /// Primary key for a measurement_approved_profiles table entry, which is how
 /// control is enabled at the site-level for auto-approving machine reports
 /// for a specific profile into golden measurement bundles.
-///
-/// Impls the DbPrimaryUuid trait, which is used for doing generic selects
-/// defined in db/interface/common.rs, as well as other various trait impls
-/// as required by serde, sqlx, etc.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default, Eq, Hash)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct MeasurementApprovedProfileId(pub uuid::Uuid);
-grpc_uuid_message!(MeasurementApprovedProfileId);
+pub type MeasurementApprovedProfileId = TypedUuid<MeasurementApprovedProfileIdMarker>;
 
-impl From<MeasurementApprovedProfileId> for uuid::Uuid {
-    fn from(id: MeasurementApprovedProfileId) -> Self {
-        id.0
-    }
-}
-
-impl FromStr for MeasurementApprovedProfileId {
-    type Err = UuidConversionError;
-
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "MeasurementApprovedProfileId",
-                value: input.to_string(),
-            }
-        })?))
-    }
-}
-
-impl fmt::Display for MeasurementApprovedProfileId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl DbPrimaryUuid for MeasurementApprovedProfileId {
-    fn db_primary_uuid_name() -> &'static str {
+#[cfg(test)]
+mod approved_profile_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(
+        MeasurementApprovedProfileId,
+        "MeasurementApprovedProfileId",
         "approval_id"
-    }
+    );
 }

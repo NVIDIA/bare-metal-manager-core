@@ -87,8 +87,6 @@ impl From<NetworkPrefix> for rpc::forge::NetworkPrefix {
             prefix: src.prefix.to_string(),
             gateway: src.gateway.map(|v| v.to_string()),
             reserve_first: src.num_reserved,
-            state: None,
-            events: vec![],
             free_ip_count: src.num_free_ips,
             svi_ip: src.svi_ip.map(|x| x.to_string()),
         }

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -11,57 +11,18 @@
  */
 
 use std::convert::TryFrom;
-use std::fmt;
-use std::str::FromStr;
-
-use serde::{Deserialize, Serialize};
-#[cfg(feature = "sqlx")]
-use sqlx::{
-    postgres::{PgHasArrayType, PgTypeInfo},
-    {FromRow, Type},
-};
 
 use crate::typed_uuids::{TypedUuid, UuidSubtype};
-use crate::{UuidConversionError, grpc_uuid_message};
 
-/// RemediationId is a strongly typed UUID specific to a Remediation ID, with
-/// trait implementations allowing it to be passed around as
-/// a UUID, an RPC UUID, bound to sqlx queries, etc.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, Eq, Hash, PartialEq)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct RemediationId(pub uuid::Uuid);
+/// Marker type for RemediationId.
+pub struct RemediationIdMarker;
 
-grpc_uuid_message!(RemediationId);
-
-impl From<RemediationId> for uuid::Uuid {
-    fn from(id: RemediationId) -> Self {
-        id.0
-    }
+impl UuidSubtype for RemediationIdMarker {
+    const TYPE_NAME: &'static str = "RemediationId";
 }
 
-impl From<uuid::Uuid> for RemediationId {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
-    }
-}
-impl FromStr for RemediationId {
-    type Err = UuidConversionError;
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "RemediationId",
-                value: input.to_string(),
-            }
-        })?))
-    }
-}
-
-impl fmt::Display for RemediationId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+/// RemediationId is a strongly typed UUID specific to a Remediation ID.
+pub type RemediationId = TypedUuid<RemediationIdMarker>;
 
 impl From<RemediationId> for Option<uuid::Uuid> {
     fn from(val: RemediationId) -> Self {
@@ -79,21 +40,48 @@ impl TryFrom<Option<uuid::Uuid>> for RemediationId {
     }
 }
 
-#[cfg(feature = "sqlx")]
-impl PgHasArrayType for RemediationId {
-    fn array_type_info() -> PgTypeInfo {
-        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
-    }
-
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
-    }
-}
-
-pub struct RemediationPrefixMarker {}
+/// Marker type for RemediationPrefixId.
+pub struct RemediationPrefixMarker;
 
 impl UuidSubtype for RemediationPrefixMarker {
     const TYPE_NAME: &'static str = "RemediationPrefixId";
 }
 
 pub type RemediationPrefixId = TypedUuid<RemediationPrefixMarker>;
+
+#[cfg(test)]
+mod remediation_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(RemediationId, "RemediationId", "id");
+
+    // Additional tests for RemediationId-specific conversions.
+    #[test]
+    fn test_into_option_uuid() {
+        let id = RemediationId::new();
+        let opt: Option<uuid::Uuid> = id.into();
+        assert!(opt.is_some());
+        assert_eq!(opt.unwrap(), uuid::Uuid::from(id));
+    }
+
+    #[test]
+    fn test_try_from_option_uuid() {
+        let uuid = uuid::Uuid::new_v4();
+        let id = RemediationId::try_from(Some(uuid)).expect("failed to convert");
+        assert_eq!(uuid::Uuid::from(id), uuid);
+
+        let err = RemediationId::try_from(None);
+        assert!(err.is_err());
+    }
+}
+
+#[cfg(test)]
+mod remediation_prefix_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(RemediationPrefixId, "RemediationPrefixId", "id");
+}

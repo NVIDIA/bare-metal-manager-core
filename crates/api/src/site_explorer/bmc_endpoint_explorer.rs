@@ -173,8 +173,8 @@ impl BmcEndpointExplorer {
         bmc_mac_address: MacAddress,
         vendor: RedfishVendor,
         expected_machine: Option<&ExpectedMachine>,
-        expected_power_shelf: Option<ExpectedPowerShelf>,
-        expected_switch: Option<ExpectedSwitch>,
+        expected_power_shelf: Option<&ExpectedPowerShelf>,
+        expected_switch: Option<&ExpectedSwitch>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let current_bmc_credentials;
         let mut skip_password_change = false;
@@ -195,14 +195,14 @@ impl BmcEndpointExplorer {
             // so we skip the password change
             skip_password_change = true;
             current_bmc_credentials = Credentials::UsernamePassword {
-                username: expected_power_shelf_credentials.bmc_username,
-                password: expected_power_shelf_credentials.bmc_password,
+                username: expected_power_shelf_credentials.bmc_username.clone(),
+                password: expected_power_shelf_credentials.bmc_password.clone(),
             };
         } else if let Some(expected_switch_credentials) = expected_switch {
             tracing::info!(%bmc_ip_address, %bmc_mac_address, "Found an expected switch for this BMC mac address");
             current_bmc_credentials = Credentials::UsernamePassword {
-                username: expected_switch_credentials.bmc_username,
-                password: expected_switch_credentials.bmc_password,
+                username: expected_switch_credentials.bmc_username.clone(),
+                password: expected_switch_credentials.bmc_password.clone(),
             };
         } else {
             tracing::info!(%bmc_ip_address, %bmc_mac_address, %vendor, "No expected machine found, could be a BlueField");
@@ -257,11 +257,12 @@ impl BmcEndpointExplorer {
     pub async fn set_sitewide_switch_nvos_admin_credentials(
         &self,
         bmc_mac_address: MacAddress,
-        expected_switch: ExpectedSwitch,
+        expected_switch: &ExpectedSwitch,
     ) -> Result<(), EndpointExplorationError> {
-        if let (Some(nvos_username), Some(nvos_password)) =
-            (expected_switch.nvos_username, expected_switch.nvos_password)
-        {
+        if let (Some(nvos_username), Some(nvos_password)) = (
+            expected_switch.nvos_username.as_ref(),
+            expected_switch.nvos_password.as_ref(),
+        ) {
             tracing::info!(
                 %bmc_mac_address,
                 "Storing NVOS admin credentials in vault for switch {bmc_mac_address}"
@@ -270,8 +271,8 @@ impl BmcEndpointExplorer {
                 .set_bmc_nvos_admin_credentials(
                     bmc_mac_address,
                     &Credentials::UsernamePassword {
-                        username: nvos_username,
-                        password: nvos_password,
+                        username: nvos_username.clone(),
+                        password: nvos_password.clone(),
                     },
                 )
                 .await?;
@@ -627,8 +628,8 @@ impl EndpointExplorer for BmcEndpointExplorer {
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
         expected_machine: Option<&ExpectedMachine>,
-        expected_power_shelf: Option<ExpectedPowerShelf>,
-        expected_switch: Option<ExpectedSwitch>,
+        expected_power_shelf: Option<&ExpectedPowerShelf>,
+        expected_switch: Option<&ExpectedSwitch>,
         last_report: Option<&EndpointExplorationReport>,
         boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
@@ -737,7 +738,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     vendor,
                     expected_machine,
                     expected_power_shelf,
-                    expected_switch.clone(),
+                    expected_switch,
                 )
                 .await?
             }

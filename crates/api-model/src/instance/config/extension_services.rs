@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -58,7 +58,7 @@ impl TryFrom<rpc::InstanceDpuExtensionServiceConfig> for InstanceExtensionServic
 impl From<InstanceExtensionServiceConfig> for rpc::InstanceDpuExtensionServiceConfig {
     fn from(config: InstanceExtensionServiceConfig) -> Self {
         rpc::InstanceDpuExtensionServiceConfig {
-            service_id: config.service_id.to_string(),
+            service_id: config.service_id.into(),
             version: config.version.to_string(),
         }
     }

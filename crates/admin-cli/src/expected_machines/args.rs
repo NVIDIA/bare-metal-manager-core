@@ -11,6 +11,7 @@
  */
 use std::collections::HashMap;
 
+use carbide_uuid::rack::RackId;
 use clap::{ArgGroup, Parser};
 use mac_address::MacAddress;
 use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
@@ -167,7 +168,7 @@ pub struct ExpectedMachine {
         help = "Rack ID for this machine",
         action = clap::ArgAction::Append
     )]
-    pub rack_id: Option<String>,
+    pub rack_id: Option<RackId>,
 
     #[clap(
         long = "default_pause_ingestion_and_poweron",
@@ -249,7 +250,7 @@ pub struct ExpectedMachineJson {
     pub sku_id: Option<String>,
     #[serde(default)]
     pub host_nics: Vec<rpc::forge::ExpectedHostNic>,
-    pub rack_id: Option<String>,
+    pub rack_id: Option<RackId>,
     pub default_pause_ingestion_and_poweron: Option<bool>,
     pub dpf_enabled: bool,
 }
@@ -346,7 +347,7 @@ pub struct PatchExpectedMachine {
         group = "group",
         help = "A RACK ID that will be added for the newly created Machine."
     )]
-    pub rack_id: Option<String>,
+    pub rack_id: Option<RackId>,
 
     #[clap(
         long = "default_pause_ingestion_and_poweron",

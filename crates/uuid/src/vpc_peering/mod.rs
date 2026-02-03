@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,62 +10,21 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::fmt;
-use std::str::FromStr;
+use crate::typed_uuids::{TypedUuid, UuidSubtype};
 
-use serde::{Deserialize, Serialize};
-#[cfg(feature = "sqlx")]
-use sqlx::{
-    FromRow, Type,
-    postgres::{PgHasArrayType, PgTypeInfo},
-};
+/// Marker type for VpcPeeringId
+pub struct VpcPeeringIdMarker;
 
-use crate::{UuidConversionError, grpc_uuid_message};
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq, Default)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct VpcPeeringId(pub uuid::Uuid);
-
-grpc_uuid_message!(VpcPeeringId);
-
-impl From<VpcPeeringId> for uuid::Uuid {
-    fn from(id: VpcPeeringId) -> Self {
-        id.0
-    }
+impl UuidSubtype for VpcPeeringIdMarker {
+    const TYPE_NAME: &'static str = "VpcPeeringId";
 }
 
-impl From<uuid::Uuid> for VpcPeeringId {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
-    }
-}
+/// VpcPeeringId is a strongly typed UUID specific to a VPC peering relationship.
+pub type VpcPeeringId = TypedUuid<VpcPeeringIdMarker>;
 
-impl FromStr for VpcPeeringId {
-    type Err = UuidConversionError;
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "VpcPeeringId",
-                value: input.to_string(),
-            }
-        })?))
-    }
-}
-
-impl fmt::Display for VpcPeeringId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[cfg(feature = "sqlx")]
-impl PgHasArrayType for VpcPeeringId {
-    fn array_type_info() -> PgTypeInfo {
-        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
-    }
-
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
-    }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    typed_uuid_tests!(VpcPeeringId, "VpcPeeringId", "id");
 }

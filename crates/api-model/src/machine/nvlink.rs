@@ -75,7 +75,7 @@ impl Default for MachineNvLinkGpuStatusObservation {
             partition_id: None,
             logical_partition_id: None,
             device_instance: 0,
-            domain_id: NvLinkDomainId(uuid::Uuid::nil()),
+            domain_id: NvLinkDomainId::default(),
             guid: 0,
         }
     }

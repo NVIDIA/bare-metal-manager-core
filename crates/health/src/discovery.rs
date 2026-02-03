@@ -21,6 +21,7 @@ use nv_redfish_bmc_http::reqwest::{
 };
 use prometheus::{Histogram, HistogramOpts};
 
+use crate::HealthError;
 use crate::api_client::{EndpointSource, HealthReportSink};
 use crate::collector::Collector;
 use crate::config::{
@@ -33,7 +34,6 @@ use crate::logs_collector::{self, LogsCollector, LogsCollectorConfig};
 use crate::metrics::MetricsManager;
 use crate::monitor::{HealthMonitor, HealthMonitorConfig};
 use crate::sharding::ShardManager;
-use crate::{HealthError, METRICS_PREFIX};
 
 pub(crate) type BmcClient = HttpBmc<ReqwestClient>;
 
@@ -67,14 +67,16 @@ impl DiscoveryLoopContext {
     ) -> Result<Self, HealthError> {
         let registry = metrics_manager.global_registry();
 
+        let metrics_prefix = &config.metrics.prefix;
+
         let discovery_iteration_histogram = Histogram::with_opts(HistogramOpts::new(
-            format!("{METRICS_PREFIX}_discovery_iteration_seconds"),
+            format!("{metrics_prefix}_discovery_iteration_seconds"),
             "Duration of full discovery loop iteration",
         ))?;
         registry.register(Box::new(discovery_iteration_histogram.clone()))?;
 
         let discovery_endpoint_fetch_histogram = Histogram::with_opts(HistogramOpts::new(
-            format!("{METRICS_PREFIX}_discovery_endpoint_fetch_seconds"),
+            format!("{metrics_prefix}_discovery_endpoint_fetch_seconds"),
             "Duration of API call to fetch BMC endpoints",
         ))?;
         registry.register(Box::new(discovery_endpoint_fetch_histogram.clone()))?;
@@ -109,6 +111,7 @@ pub async fn run_discovery_iteration(
     shard_manager: &ShardManager,
     ctx: &mut DiscoveryLoopContext,
     report_sink: Option<Arc<dyn HealthReportSink>>,
+    metrics_prefix: &String,
 ) -> Result<DiscoveryIterationStats, HealthError> {
     let iteration_start = Instant::now();
 
@@ -145,7 +148,7 @@ pub async fn run_discovery_iteration(
             let endpoint_arc = Arc::new((*endpoint).clone());
             let collector_registry = Arc::new(ctx.metrics_manager.create_collector_registry(
                 format!("health_monitor_collector_{}", endpoint.addr.hash_key()),
-                METRICS_PREFIX,
+                metrics_prefix,
             )?);
 
             if let Configurable::Enabled(health_cfg) = &ctx.health_config {
@@ -191,7 +194,7 @@ pub async fn run_discovery_iteration(
                 );
                 let collector_registry = Arc::new(ctx.metrics_manager.create_collector_registry(
                     format!("log_collector_{}", endpoint.addr.hash_key()),
-                    METRICS_PREFIX,
+                    metrics_prefix,
                 )?);
 
                 let log_writer = match logs_collector::create_log_file_writer(
@@ -250,7 +253,7 @@ pub async fn run_discovery_iteration(
             if let Configurable::Enabled(firmware_cfg) = &ctx.firmware_config {
                 let collector_registry = Arc::new(ctx.metrics_manager.create_collector_registry(
                     format!("firmware_collector_{}", endpoint.addr.hash_key()),
-                    METRICS_PREFIX,
+                    metrics_prefix,
                 )?);
                 match Collector::start::<FirmwareCollector<BmcClient>>(
                     endpoint_arc,

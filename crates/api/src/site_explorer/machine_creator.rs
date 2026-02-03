@@ -11,7 +11,6 @@
  */
 
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::sync::Arc;
 
 use carbide_uuid::machine::MachineId;
@@ -33,6 +32,7 @@ use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManag
 use sqlx::{PgConnection, PgPool};
 
 use crate::site_explorer::SiteExplorerConfig;
+use crate::site_explorer::explored_endpoint_index::ExploredEndpointIndex;
 use crate::site_explorer::managed_host::ManagedHost;
 use crate::site_explorer::metrics::SiteExplorationMetrics;
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
@@ -63,13 +63,14 @@ impl MachineCreator {
         &self,
         metrics: &mut SiteExplorationMetrics,
         explored_managed_hosts: &mut [(ExploredManagedHost, EndpointExplorationReport)],
-        matched_expected_machines: &HashMap<IpAddr, ExpectedMachine>,
+        expected_explored_endpoint_index: &ExploredEndpointIndex,
     ) -> CarbideResult<()> {
         // TODO: Improve the efficiency of this method. Right now we perform 3 database transactions
         // for every identified ManagedHost even if we don't create any objects.
         // We can perform a single query upfront to identify which ManagedHosts don't yet have Machines
         for (host, report) in explored_managed_hosts {
-            let expected_machine = matched_expected_machines.get(&host.host_bmc_ip);
+            let expected_machine =
+                expected_explored_endpoint_index.matched_expected_machine(&host.host_bmc_ip);
 
             match self
                 .create_managed_host(host, report, expected_machine, &self.database_connection)

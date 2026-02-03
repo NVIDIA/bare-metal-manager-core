@@ -1248,21 +1248,37 @@ enum PrefixMatchType {
 
 message VpcPrefix {
   common.VpcPrefixId id = 1;
-  string prefix = 2;
-  string name = 3;
+  string prefix = 2; // Deprecated, use config instead
+  string name = 3; // Deprecated, use metadata instead
   common.VpcId vpc_id = 4;
-  // UUID tenant_prefix_id = 5;
-  uint32 total_31_segments = 6;
-  uint32 available_31_segments = 7;
+  reserved 5; // tenant_prefix_id
+  uint32 total_31_segments = 6; // Deprecated, use status instead
+  uint32 available_31_segments = 7; // Deprecated, use status instead
+
+  VpcPrefixConfig config = 8;
+  VpcPrefixStatus status = 9;
+  Metadata metadata = 10;
+}
+
+message VpcPrefixConfig {
+  // IPv4 or IPv6 prefix in CIDR notation
+  string prefix = 1;
+}
+
+message VpcPrefixStatus {
+  uint32 total_31_segments = 1;
+  uint32 available_31_segments = 2;
 }
 
 message VpcPrefixCreationRequest {
   optional common.VpcPrefixId id = 1;
   // IPv4 or IPv6 prefix in CIDR notation
-  string prefix = 2;
-  string name = 3;
+  string prefix = 2; // Deprecated, use config instead
+  string name = 3; // Deprecated, use config instead
   common.VpcId vpc_id = 4;
-    // common.UUID tenant_prefix_id = 5;
+  reserved 5; // tenant_prefix_id
+  VpcPrefixConfig config = 6;
+  Metadata metadata = 7;
 }
 
 message VpcPrefixSearchQuery {
@@ -1295,8 +1311,10 @@ message VpcPrefixUpdateRequest {
   // 1. It is the same address family as the old prefix.
   // 2. It is not larger than its containing site prefix.
   // 3. It contains all of its associated network segment prefixes.
-  optional string prefix = 2;
-  optional string name = 3;
+  optional string prefix = 2; // Deprecated, use config instead
+  optional string name = 3;  // Deprecated, use metadata instead
+  VpcPrefixConfig config = 4;
+  Metadata metadata = 5;
 }
 
 message VpcPrefixDeletionRequest {
@@ -1515,8 +1533,8 @@ message PowerShelfDeletionRequest {
 message PowerShelfDeletionResult {
 }
 
-message PowerShelfEvent {
-  string event = 1;
+message PowerShelfStateHistoryRecord {
+  string state = 1;
   string version = 2;
   google.protobuf.Timestamp time = 3;
 }
@@ -1530,7 +1548,7 @@ message PowerShelfStateHistories {
 }
 
 message PowerShelfStateHistoryRecords {
-  repeated PowerShelfEvent records = 1;
+  repeated PowerShelfStateHistoryRecord records = 1;
 }
 
 message PowerShelfQuery {
@@ -1546,7 +1564,7 @@ message ExpectedPowerShelf {
   string ip_address = 5;
   // Metadata that will automatically get associated with a newly created PowerShelf
   Metadata metadata = 6;
-  optional string rack_id = 7;
+  optional common.RackId rack_id = 7;
 }
 
 message ExpectedPowerShelfRequest {
@@ -1631,8 +1649,8 @@ message SwitchDeletionResult {
 }
 
 
-message SwitchEvent {
-  string event = 1;
+message SwitchStateHistoryRecord {
+  string state = 1;
   string version = 2;
   google.protobuf.Timestamp time = 3;
 }
@@ -1646,7 +1664,7 @@ message SwitchStateHistories {
 }
 
 message SwitchStateHistoryRecords {
-  repeated SwitchEvent records = 1;
+  repeated SwitchStateHistoryRecord records = 1;
 }
 
 
@@ -1662,7 +1680,7 @@ message ExpectedSwitch {
   string switch_serial_number = 4;
   // Metadata that will automatically get associated with a newly created Switch
   Metadata metadata = 5;
-  optional string rack_id = 6;
+  optional common.RackId rack_id = 6;
   optional string nvos_username = 7;
   optional string nvos_password = 8;
 }
@@ -1798,8 +1816,7 @@ message NetworkPrefix {
   string prefix = 2;
   optional string gateway = 3;
   int32 reserve_first = 4;
-  VpcResourceState state = 5;
-  repeated NetworkPrefixEvent events = 6;
+  reserved 5,6; // deprecated state and events
   // deprecated circuit id.
   reserved 7;
   uint32 free_ip_count = 8;
@@ -3687,40 +3704,6 @@ message ForgeScoutErrorReport {
 message ForgeScoutErrorReportResult {
 }
 
-message VpcResourceState {
-  string state = 1;
-}
-
-message NetworkPrefixEvent {
-  int64 id = 1;
-
-  common.NetworkPrefixId network_prefix_id = 2;
-
-  VpcResourceAction event = 3;
-
-  google.protobuf.Timestamp time = 4;
-}
-
-message VpcResourceLeafEvent {
-  int64 id = 1;
-
-  common.UUID vpc_leaf_id = 2;
-
-  VpcResourceAction event = 3;
-
-  google.protobuf.Timestamp time = 4;
-}
-
-enum VpcResourceAction {
-  VPC_INITIALIZE = 0;
-  VPC_SUBMIT = 1;
-  VPC_ACCEPT = 2;
-  VPC_WAIT = 3;
-  VPC_FAIL = 4;
-  VPC_SUCCESS = 5;
-  VPC_RECOMMISSION = 6;
-}
-
 message PxeInstructionRequest {
   MachineArchitecture arch = 1;
   common.MachineInterfaceId interface_id = 2;
@@ -4492,7 +4475,7 @@ message ExpectedMachine {
   // Unique identifier for the expected machine. When omitted, server generates one.
   optional common.UUID id = 8;
   repeated ExpectedHostNic host_nics = 9;
-  optional string rack_id = 10;
+  optional common.RackId rack_id = 10;
   optional bool default_pause_ingestion_and_poweron = 11;
   bool dpf_enabled = 12;
 }
@@ -5520,7 +5503,7 @@ message DpaInterface {
   string network_config = 11;
   string network_config_version = 12;
 
-  repeated DpaInterfaceStateHistory history = 13;
+  repeated DpaInterfaceStateHistoryRecord history = 13;
 
   google.protobuf.Timestamp last_hb_time = 14;
 
@@ -5552,7 +5535,7 @@ message DpaInterfaceList {
   repeated DpaInterface interfaces = 1;
 }
 
-message DpaInterfaceStateHistory {
+message DpaInterfaceStateHistoryRecord {
   string state = 1;
   string version = 2;
   google.protobuf.Timestamp time = 3;
@@ -5617,7 +5600,7 @@ message GetRackResponse {
 }
 
 message Rack {
-  string id = 1;
+  common.RackId id = 1;
   string rack_state = 2;
   repeated string expected_compute_trays = 3;
   repeated string expected_power_shelves = 4;
@@ -6401,7 +6384,7 @@ message RackFirmwareDeleteRequest {
 }
 
 message RackFirmwareApplyRequest {
-  string rack_id = 1;
+  common.RackId rack_id = 1;
   string firmware_id = 2;
   string firmware_type = 3; // "dev" or "prod"
 }

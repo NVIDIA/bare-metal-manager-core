@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide_uuid::rack::RackId;
 use config_version::ConfigVersion;
 use mac_address::MacAddress;
 use model::controller_outcome::PersistentStateHandlerOutcome;
@@ -24,7 +25,7 @@ use crate::{
 pub struct IdColumn;
 impl ColumnInfo<'_> for IdColumn {
     type TableType = Rack;
-    type ColumnType = String;
+    type ColumnType = RackId;
 
     fn column_name(&self) -> &'static str {
         "id"
@@ -43,6 +44,7 @@ pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Rack>>(
         .await
         .map_err(|e| DatabaseError::new(query.sql(), e))
 }
+
 pub async fn list(txn: &mut PgConnection) -> DatabaseResult<Vec<Rack>> {
     let query = "SELECT * from racks where deleted IS NULL".to_string();
     sqlx::query_as(&query)
@@ -51,10 +53,10 @@ pub async fn list(txn: &mut PgConnection) -> DatabaseResult<Vec<Rack>> {
         .map_err(|e| DatabaseError::new("racks get", e))
 }
 
-pub async fn get(txn: &mut PgConnection, rack_id: &str) -> DatabaseResult<Rack> {
+pub async fn get(txn: &mut PgConnection, rack_id: RackId) -> DatabaseResult<Rack> {
     let query = "SELECT * from racks l WHERE l.id=$1".to_string();
     sqlx::query_as(&query)
-        .bind(rack_id.to_string())
+        .bind(rack_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new("racks get", e))
@@ -62,7 +64,7 @@ pub async fn get(txn: &mut PgConnection, rack_id: &str) -> DatabaseResult<Rack> 
 
 pub async fn create(
     txn: &mut PgConnection,
-    rack_id: &str,
+    rack_id: RackId,
     expected_compute_trays: Vec<MacAddress>,
     expected_nvlink_switches: Vec<MacAddress>,
     expected_power_shelves: Vec<MacAddress>,
@@ -98,7 +100,7 @@ pub async fn create(
 // only update the config
 pub async fn update(
     txn: &mut PgConnection,
-    rack_id: &str,
+    rack_id: RackId,
     config: &RackConfig,
 ) -> DatabaseResult<Rack> {
     let query = "UPDATE racks SET config = $1::json, updated=NOW() WHERE id = $2 RETURNING *";
@@ -114,7 +116,7 @@ pub async fn update(
 
 pub async fn try_update_controller_state(
     txn: &mut PgConnection,
-    rack_id: &str,
+    rack_id: RackId,
     expected_version: ConfigVersion,
     new_state: &RackState,
 ) -> DatabaseResult<()> {
@@ -134,7 +136,7 @@ pub async fn try_update_controller_state(
 
 pub async fn update_controller_state_outcome(
     txn: &mut PgConnection,
-    rack_id: &str,
+    rack_id: RackId,
     outcome: PersistentStateHandlerOutcome,
 ) -> DatabaseResult<()> {
     sqlx::query("UPDATE racks SET controller_state_outcome = $1 WHERE id = $2")
@@ -150,7 +152,7 @@ pub async fn update_controller_state_outcome(
 pub async fn mark_as_deleted(rack: &Rack, txn: &mut PgConnection) -> DatabaseResult<Rack> {
     let query = "UPDATE racks SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
     let updated_rack = sqlx::query_as(query)
-        .bind(&rack.id)
+        .bind(rack.id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -159,7 +161,7 @@ pub async fn mark_as_deleted(rack: &Rack, txn: &mut PgConnection) -> DatabaseRes
 }
 
 #[allow(dead_code)]
-pub async fn final_delete(txn: &mut PgConnection, rack_id: &str) -> DatabaseResult<()> {
+pub async fn final_delete(txn: &mut PgConnection, rack_id: RackId) -> DatabaseResult<()> {
     let query = "DELETE from racks WHERE id=$1";
     sqlx::query(query)
         .bind(rack_id)

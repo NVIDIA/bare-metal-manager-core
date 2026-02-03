@@ -22,7 +22,7 @@ use model::site_explorer::{
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
 
-use crate::DatabaseError;
+use crate::{BIND_LIMIT, DatabaseError};
 
 #[derive(Debug)]
 struct DbExploredEndpoint {
@@ -467,6 +467,22 @@ pub async fn delete(txn: &mut PgConnection, address: IpAddr) -> Result<(), Datab
         .await
         .map(|_| ())
         .map_err(|e| DatabaseError::query(query, e))
+}
+
+pub async fn delete_many(
+    txn: &mut PgConnection,
+    addresses: &[IpAddr],
+) -> Result<(), DatabaseError> {
+    for chunk in addresses.chunks(BIND_LIMIT) {
+        let query = r#"DELETE FROM explored_endpoints WHERE address=ANY($1)"#;
+        sqlx::query(query)
+            .bind(chunk)
+            .execute(&mut *txn)
+            .await
+            .map(|_| ())
+            .map_err(|e| DatabaseError::query(query, e))?
+    }
+    Ok(())
 }
 
 /// Search the exploration report for any explored endpoint with a manager or system interface

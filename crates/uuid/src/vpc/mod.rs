@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,74 +10,39 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::fmt;
-use std::str::FromStr;
+use crate::typed_uuids::{TypedUuid, UuidSubtype};
 
-use serde::{Deserialize, Serialize};
-#[cfg(feature = "sqlx")]
-use sqlx::{
-    postgres::{PgHasArrayType, PgTypeInfo},
-    {FromRow, Type},
-};
+/// Marker type for VpcId
+pub struct VpcIdMarker;
 
-use super::typed_uuids::{TypedUuid, UuidSubtype};
-use crate::{UuidConversionError, grpc_uuid_message};
+impl UuidSubtype for VpcIdMarker {
+    const TYPE_NAME: &'static str = "VpcId";
+}
 
 /// VpcId is a strongly typed UUID specific to a VPC ID, with
 /// trait implementations allowing it to be passed around as
 /// a UUID, an RPC UUID, bound to sqlx queries, etc.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq, Default)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct VpcId(pub uuid::Uuid);
+pub type VpcId = TypedUuid<VpcIdMarker>;
 
-grpc_uuid_message!(VpcId);
-
-impl From<VpcId> for uuid::Uuid {
-    fn from(id: VpcId) -> Self {
-        id.0
-    }
-}
-
-impl From<uuid::Uuid> for VpcId {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
-    }
-}
-
-impl FromStr for VpcId {
-    type Err = UuidConversionError;
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "VpcId",
-                value: input.to_string(),
-            }
-        })?))
-    }
-}
-
-impl fmt::Display for VpcId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[cfg(feature = "sqlx")]
-impl PgHasArrayType for VpcId {
-    fn array_type_info() -> PgTypeInfo {
-        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
-    }
-
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
-    }
-}
-
-pub struct VpcPrefixMarker {}
+/// Marker type for VpcPrefixId
+pub struct VpcPrefixMarker;
 
 impl UuidSubtype for VpcPrefixMarker {
     const TYPE_NAME: &'static str = "VpcPrefixId";
 }
 
 pub type VpcPrefixId = TypedUuid<VpcPrefixMarker>;
+
+#[cfg(test)]
+mod vpc_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    typed_uuid_tests!(VpcId, "VpcId", "id");
+}
+
+#[cfg(test)]
+mod vpc_prefix_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    typed_uuid_tests!(VpcPrefixId, "VpcPrefixId", "id");
+}

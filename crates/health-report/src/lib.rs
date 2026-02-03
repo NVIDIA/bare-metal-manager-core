@@ -614,6 +614,11 @@ impl HealthAlertClassification {
     pub fn stop_reboot_for_automatic_recovery_from_state_machine() -> Self {
         Self("StopRebootForAutomaticRecoveryFromStateMachine".to_string())
     }
+
+    // Hardware related issues, such as sensor failures, bmc errors, BMS issues etc.
+    pub fn hardware() -> Self {
+        Self("Hardware".to_string())
+    }
 }
 
 /// A health report could not be converted from an external format

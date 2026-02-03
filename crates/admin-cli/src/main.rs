@@ -255,9 +255,7 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::Vpc(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::VpcPeering(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::VpcPrefix(cmd) => cmd.dispatch(ctx).await?,
-        CliCommand::RackFirmware(action) => {
-            rack_firmware::handle_rack_firmware(action, config.format, &ctx.api_client).await?
-        }
+        CliCommand::RackFirmware(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Dpf(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Redfish(action) => {
             if let redfish::Cmd::Browse(redfish::UriInfo { uri }) = &action.command {

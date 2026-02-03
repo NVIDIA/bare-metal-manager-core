@@ -11,11 +11,34 @@
  */
 use carbide_uuid::power_shelf::PowerShelfId;
 use config_version::ConfigVersion;
-use model::power_shelf::{PowerShelfControllerState, PowerShelfStateHistory};
-use model::power_shelf_state_history::DbPowerShelfStateHistory;
-use sqlx::PgConnection;
+use model::power_shelf::{PowerShelfControllerState, PowerShelfStateHistoryRecord};
+use sqlx::{FromRow, PgConnection};
 
 use crate::{DatabaseError, DatabaseResult};
+
+/// History of Power Shelf states for a single Power Shelf
+#[derive(Debug, Clone, FromRow)]
+struct DbPowerShelfStateHistoryRecord {
+    /// The ID of the power shelf that experienced the state change
+    power_shelf_id: PowerShelfId,
+
+    /// The state that was entered
+    state: String,
+
+    /// Current version.
+    state_version: ConfigVersion,
+    // The timestamp of the state change, currently unused
+    //timestamp: DateTime<Utc>,
+}
+
+impl From<DbPowerShelfStateHistoryRecord> for PowerShelfStateHistoryRecord {
+    fn from(event: DbPowerShelfStateHistoryRecord) -> Self {
+        Self {
+            state: event.state,
+            state_version: event.state_version,
+        }
+    }
+}
 
 /// Retrieve the power shelf state history for a list of Power Shelves
 ///
@@ -29,12 +52,12 @@ use crate::{DatabaseError, DatabaseResult};
 pub async fn find_by_power_shelf_ids(
     txn: &mut PgConnection,
     ids: &[PowerShelfId],
-) -> DatabaseResult<std::collections::HashMap<PowerShelfId, Vec<PowerShelfStateHistory>>> {
+) -> DatabaseResult<std::collections::HashMap<PowerShelfId, Vec<PowerShelfStateHistoryRecord>>> {
     let query = "SELECT power_shelf_id, state::TEXT, state_version, timestamp
         FROM power_shelf_state_history
         WHERE power_shelf_id=ANY($1)
         ORDER BY id ASC";
-    let query_results = sqlx::query_as::<_, DbPowerShelfStateHistory>(query)
+    let query_results = sqlx::query_as::<_, DbPowerShelfStateHistoryRecord>(query)
         .bind(ids)
         .fetch_all(txn)
         .await
@@ -42,9 +65,9 @@ pub async fn find_by_power_shelf_ids(
 
     let mut histories = std::collections::HashMap::new();
     for result in query_results.into_iter() {
-        let events: &mut Vec<PowerShelfStateHistory> =
+        let events: &mut Vec<PowerShelfStateHistoryRecord> =
             histories.entry(result.power_shelf_id).or_default();
-        events.push(PowerShelfStateHistory {
+        events.push(PowerShelfStateHistoryRecord {
             state: result.state,
             state_version: result.state_version,
         });
@@ -56,12 +79,12 @@ pub async fn find_by_power_shelf_ids(
 pub async fn for_power_shelf(
     txn: &mut PgConnection,
     id: &PowerShelfId,
-) -> DatabaseResult<Vec<PowerShelfStateHistory>> {
+) -> DatabaseResult<Vec<PowerShelfStateHistoryRecord>> {
     let query = "SELECT power_shelf_id, state::TEXT, state_version, timestamp
         FROM power_shelf_state_history
         WHERE power_shelf_id=$1
         ORDER BY id ASC";
-    sqlx::query_as::<_, DbPowerShelfStateHistory>(query)
+    sqlx::query_as::<_, DbPowerShelfStateHistoryRecord>(query)
         .bind(id)
         .fetch_all(txn)
         .await
@@ -75,11 +98,11 @@ pub async fn persist(
     power_shelf_id: &PowerShelfId,
     state: &PowerShelfControllerState,
     state_version: ConfigVersion,
-) -> DatabaseResult<PowerShelfStateHistory> {
+) -> DatabaseResult<PowerShelfStateHistoryRecord> {
     let query = "INSERT INTO power_shelf_state_history (power_shelf_id, state, state_version)
         VALUES ($1, $2, $3)
         RETURNING power_shelf_id, state::TEXT, state_version, timestamp";
-    sqlx::query_as::<_, DbPowerShelfStateHistory>(query)
+    sqlx::query_as::<_, DbPowerShelfStateHistoryRecord>(query)
         .bind(power_shelf_id)
         .bind(sqlx::types::Json(state))
         .bind(state_version)

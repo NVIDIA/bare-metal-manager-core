@@ -313,7 +313,7 @@ async fn create_ib_partition_with_api_with_id(
     )
     .await;
 
-    let id = IBPartitionId::from(uuid::Uuid::new_v4());
+    let id = IBPartitionId::new();
     let request = rpc::forge::IbPartitionCreationRequest {
         id: Some(id),
         config: Some(IbPartitionConfig {
@@ -343,7 +343,7 @@ async fn create_ib_partition_with_api_with_id(
 
 #[crate::sqlx_test]
 async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let id = IBPartitionId::from(uuid::Uuid::new_v4());
+    let id = IBPartitionId::new();
     let new_partition = NewIBPartition {
         id,
         config: IBPartitionConfig {
@@ -414,7 +414,7 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
 async fn test_reject_update_with_invalid_metadata(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let id = IBPartitionId::from(uuid::Uuid::new_v4());
+    let id = IBPartitionId::new();
     let new_partition = NewIBPartition {
         id,
         config: IBPartitionConfig {

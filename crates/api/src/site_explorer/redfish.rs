@@ -875,18 +875,17 @@ async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishErro
             continue;
         };
 
-        let Ok(net_adapter_list) = client
-            .get_chassis_network_adapters(chassis_id)
-            .await
-            .or_else(|err| match err {
-                RedfishError::NotSupported(_) => Ok(vec![]),
+        let net_adapter_list = if desc.network_adapters.is_some() {
+            match client.get_chassis_network_adapters(chassis_id).await {
+                Ok(v) => v,
+                Err(RedfishError::NotSupported(_)) => vec![],
                 // Nautobot uses Chassis_0 as the source of truth for the GB200 chassis serial number.
                 // Other chassis subsystems with network adapters may report different serial numbers.
-                RedfishError::MissingKey { .. } if chassis_id == "Chassis_0" => Ok(vec![]),
-                _ => Err(err),
-            })
-        else {
-            continue;
+                Err(RedfishError::MissingKey { .. }) if chassis_id == "Chassis_0" => vec![],
+                Err(_) => continue,
+            }
+        } else {
+            vec![]
         };
 
         let mut net_adapters: Vec<NetworkAdapter> = Vec::new();

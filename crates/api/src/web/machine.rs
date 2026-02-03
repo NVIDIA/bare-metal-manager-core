@@ -501,7 +501,7 @@ impl From<forgerpc::Machine> for MachineDetail {
         let mut history_records = Vec::new();
         for e in m.events.into_iter().rev() {
             history_records.push(MachineStateHistoryRecord {
-                event: e.event,
+                state: e.event,
                 version: e.version,
             });
         }

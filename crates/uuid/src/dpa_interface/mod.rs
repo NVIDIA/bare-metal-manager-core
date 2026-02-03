@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,65 +10,32 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::fmt;
-use std::str::FromStr;
+use crate::typed_uuids::{TypedUuid, UuidSubtype};
 
-use serde::{Deserialize, Serialize};
-#[cfg(feature = "sqlx")]
-use sqlx::postgres::{PgHasArrayType, PgTypeInfo};
-#[cfg(feature = "sqlx")]
-use sqlx::{FromRow, Type};
+/// Marker type for DpaInterfaceId
+pub struct DpaInterfaceIdMarker;
 
-use crate::{UuidConversionError, grpc_uuid_message};
-
-#[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq, Default, Ord, PartialOrd,
-)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct DpaInterfaceId(pub uuid::Uuid);
-
-grpc_uuid_message!(DpaInterfaceId);
-
-pub const NULL_DPA_INTERFACE_ID: DpaInterfaceId = DpaInterfaceId(uuid::Uuid::nil());
-
-impl From<DpaInterfaceId> for uuid::Uuid {
-    fn from(id: DpaInterfaceId) -> Self {
-        id.0
-    }
+impl UuidSubtype for DpaInterfaceIdMarker {
+    const TYPE_NAME: &'static str = "DpaInterfaceId";
 }
 
-impl From<uuid::Uuid> for DpaInterfaceId {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
-    }
-}
+/// DpaInterfaceId is a strongly typed UUID for DPA interfaces.
+pub type DpaInterfaceId = TypedUuid<DpaInterfaceIdMarker>;
 
-impl FromStr for DpaInterfaceId {
-    type Err = UuidConversionError;
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "DpaInterfaceId",
-                value: input.to_string(),
-            }
-        })?))
-    }
-}
+/// A constant representing a null/empty DPA interface ID.
+pub const NULL_DPA_INTERFACE_ID: DpaInterfaceId = TypedUuid::nil();
 
-impl fmt::Display for DpaInterfaceId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(DpaInterfaceId, "DpaInterfaceId", "id");
 
-#[cfg(feature = "sqlx")]
-impl PgHasArrayType for DpaInterfaceId {
-    fn array_type_info() -> PgTypeInfo {
-        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
-    }
-
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
+    #[test]
+    fn test_null_constant() {
+        assert_eq!(NULL_DPA_INTERFACE_ID, DpaInterfaceId::default());
+        assert_eq!(uuid::Uuid::from(NULL_DPA_INTERFACE_ID), uuid::Uuid::nil());
     }
 }

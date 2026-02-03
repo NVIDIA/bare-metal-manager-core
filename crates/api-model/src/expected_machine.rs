@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -12,6 +12,7 @@
 use std::collections::HashMap;
 
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::rack::RackId;
 use mac_address::MacAddress;
 use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
@@ -58,7 +59,7 @@ pub struct ExpectedMachineData {
     pub override_id: Option<Uuid>,
     #[serde(default)]
     pub host_nics: Vec<ExpectedHostNic>,
-    pub rack_id: Option<String>,
+    pub rack_id: Option<RackId>,
     pub default_pause_ingestion_and_poweron: Option<bool>,
     #[serde(default)]
     pub dpf_enabled: bool,

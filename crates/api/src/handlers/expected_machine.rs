@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use ::rpc::forge as rpc;
+use carbide_uuid::rack::RackId;
 use db::{WithTransaction, rack as db_rack};
 use futures_util::FutureExt;
 use lazy_static::lazy_static;
@@ -106,7 +107,7 @@ pub(crate) async fn add(
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
 
-    let request_rack_id = request.rack_id.clone();
+    let request_rack_id = request.rack_id;
     let mut db_data: ExpectedMachineData = request.try_into()?;
     // Ensure an id is always supplied by the server if the client omitted it
     if db_data.override_id.is_none() {
@@ -117,7 +118,7 @@ pub(crate) async fn add(
 
     db::expected_machine::create(&mut txn, parsed_mac, db_data).await?;
 
-    if let Some(rack_id) = request_rack_id.as_ref() {
+    if let Some(rack_id) = request_rack_id {
         match db_rack::get(&mut txn, rack_id).await {
             Ok(rack) => {
                 let mut config = rack.config.clone();
@@ -187,7 +188,7 @@ pub(crate) async fn update(
     // Save fields needed later before moving `request` into data conversion
     let request_id = request.id.clone();
     let request_mac = request.bmc_mac_address.clone();
-    let request_rack_id = request.rack_id.clone();
+    let request_rack_id = request.rack_id;
     let data: ExpectedMachineData = request.try_into()?;
 
     let mut txn = api.txn_begin().await?;
@@ -214,7 +215,7 @@ pub(crate) async fn update(
         // flow. That said, the backing queries could be changed to return
         // the bmc_mac_address in both cases, which would then let this
         // work for both cases.
-        if let Some(rack_id) = request_rack_id.as_ref() {
+        if let Some(rack_id) = request_rack_id {
             match db_rack::get(&mut txn, rack_id).await {
                 Ok(rack) => {
                     let mut config = rack.config.clone();
@@ -356,7 +357,7 @@ fn sanitize_expected_machine_and_get_ids(
 /// Helper function to process rack association
 async fn process_rack_association(
     txn: &mut sqlx::PgConnection,
-    rack_id: &str,
+    rack_id: RackId,
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
     match db_rack::get(txn, rack_id).await {
@@ -386,14 +387,14 @@ async fn create_expected_machine(
     id: Uuid,
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
-    let request_rack_id = machine.rack_id.clone();
+    let request_rack_id = machine.rack_id;
     let mut db_data: ExpectedMachineData = machine.try_into()?;
     db_data.override_id = Some(id);
 
     db::expected_machine::create(txn, parsed_mac, db_data).await?;
 
     // Handle rack association
-    if let Some(rack_id) = request_rack_id.as_ref() {
+    if let Some(rack_id) = request_rack_id {
         process_rack_association(txn, rack_id, parsed_mac).await?;
     }
 
@@ -407,13 +408,13 @@ async fn update_expected_machine(
     id: Uuid,
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
-    let request_rack_id = machine.rack_id.clone();
+    let request_rack_id = machine.rack_id;
     let data: ExpectedMachineData = machine.try_into()?;
 
     db::expected_machine::update_by_id(txn, id, data).await?;
 
     // Handle rack association
-    if let Some(rack_id) = request_rack_id.as_ref() {
+    if let Some(rack_id) = request_rack_id {
         process_rack_association(txn, rack_id, parsed_mac).await?;
     }
 

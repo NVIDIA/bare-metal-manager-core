@@ -42,7 +42,7 @@ pub async fn insert_measurement_bundle_record(
             let query = "insert into measurement_bundles(profile_id, name, state) values($1, $2, $3) returning *";
             sqlx::query_as(query)
                 .bind(profile_id)
-                .bind(name.clone())
+                .bind(&name)
                 .bind(set_state)
                 .fetch_one(txn)
                 .await
@@ -52,7 +52,7 @@ pub async fn insert_measurement_bundle_record(
                 "insert into measurement_bundles(profile_id, name) values($1, $2) returning *";
             sqlx::query_as(query)
                 .bind(profile_id)
-                .bind(name.clone())
+                .bind(&name)
                 .fetch_one(txn)
                 .await
         }
@@ -343,7 +343,7 @@ pub async fn import_measurement_bundle(
     sqlx::query_as(&query)
         .bind(bundle.bundle_id)
         .bind(bundle.profile_id)
-        .bind(bundle.name.clone())
+        .bind(&bundle.name)
         .bind(bundle.ts)
         .bind(bundle.state)
         .fetch_one(txn)
@@ -383,7 +383,7 @@ pub async fn import_measurement_bundles_value(
         .bind(bundle.value_id)
         .bind(bundle.bundle_id)
         .bind(bundle.pcr_register)
-        .bind(bundle.sha_any.clone())
+        .bind(&bundle.sha_any)
         .bind(bundle.ts)
         .fetch_one(txn)
         .await

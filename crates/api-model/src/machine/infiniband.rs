@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -89,7 +89,7 @@ impl From<MachineIbInterfaceStatusObservation> for rpc::forge::MachineIbInterfac
             }),
             associated_partition_ids: machine_ib_interface.associated_partition_ids.map(|ids| {
                 rpc::common::StringList {
-                    items: ids.into_iter().map(|id| id.0.into()).collect(),
+                    items: ids.into_iter().map(|id| id.into()).collect(),
                 }
             }),
         }

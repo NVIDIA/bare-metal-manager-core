@@ -10,54 +10,60 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::sync::atomic::Ordering;
+use std::borrow::Cow;
 
-use axum::Router;
-use axum::extract::{Json, State};
-use axum::response::Response;
-use axum::routing::get;
 use serde_json::json;
 
-use crate::json::JsonExt;
-use crate::mock_machine_router::MockWrapperState;
+use crate::json::{JsonExt, JsonPatch};
+use crate::redfish;
 
-pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
-    r.route(
-        "/redfish/v1/Systems/Bluefield/SecureBoot",
-        get(get_dpu_secure_boot).patch(patch_dpu_secure_boot),
-    )
-}
-
-async fn patch_dpu_secure_boot(
-    State(mut state): State<MockWrapperState>,
-    Json(secure_boot_request): Json<serde_json::Value>,
-) -> Response {
-    if let Some(v) = secure_boot_request
-        .get("SecureBootEnable")
-        .and_then(serde_json::Value::as_bool)
-    {
-        state.bmc_state.set_secure_boot_enabled(v);
+pub fn resource<'a>(system_id: &'a str) -> redfish::Resource<'a> {
+    let odata_id = format!(
+        "{}/SecureBoot",
+        redfish::computer_system::resource(system_id).odata_id
+    );
+    redfish::Resource {
+        odata_id: Cow::Owned(odata_id),
+        odata_type: Cow::Borrowed("#SecureBoot.v1_1_0.SecureBoot"),
+        id: Cow::Borrowed("SecureBoot"),
+        name: Cow::Borrowed("UEFI Secure Boot"),
     }
-    json!({}).into_ok_response()
 }
 
-async fn get_dpu_secure_boot(State(state): State<MockWrapperState>) -> Response {
-    let secure_boot_enabled = state.bmc_state.secure_boot_enabled.load(Ordering::Relaxed);
-    json!(
-        {
-            "@odata.context": "/redfish/v1/$metadata#SecureBoot.SecureBoot",
-            "@odata.id": "/redfish/v1/Systems/Bluefield/SecureBoot",
-            "@odata.type": "#SecureBoot.v1_6_0.SecureBoot",
-            "Id": "SecureBoot",
-            "Name": "UEFI Secure Boot",
-            "SecureBootEnable": secure_boot_enabled,
-            "SecureBootMode": "UserMode",
-            "SecureBootCurrentBoot": if secure_boot_enabled {
-                "Enabled"
-            } else {
-                "Disabled"
-            },
+pub fn builder(resource: &redfish::Resource) -> SecureBootBuilder {
+    SecureBootBuilder {
+        value: resource.json_patch(),
+    }
+}
+
+pub struct SecureBootBuilder {
+    value: serde_json::Value,
+}
+
+impl SecureBootBuilder {
+    pub fn secure_boot_enable(self, v: bool) -> Self {
+        self.apply_patch(json!({"SecureBootEnable": v}))
+    }
+
+    pub fn secure_boot_current_boot(self, enabled: bool) -> Self {
+        if enabled {
+            self.add_str_field("SecureBootCurrentBoot", "Enabled")
+        } else {
+            self.add_str_field("SecureBootCurrentBoot", "Disabled")
         }
-    )
-    .into_ok_response()
+    }
+
+    pub fn build(self) -> serde_json::Value {
+        self.value
+    }
+
+    fn add_str_field(self, name: &str, value: &str) -> Self {
+        self.apply_patch(json!({ name: value }))
+    }
+
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
+        }
+    }
 }

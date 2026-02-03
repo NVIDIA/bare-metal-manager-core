@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rand::Rng;
@@ -18,8 +17,11 @@ use rand::distr::StandardUniform;
 
 use crate::bug::InjectedBugs;
 use crate::json::json_patch;
+use crate::redfish;
+use crate::redfish::chassis::ChassisState;
 use crate::redfish::computer_system::SystemState;
 use crate::redfish::manager::ManagerState;
+use crate::redfish::update_service::UpdateServiceState;
 
 /// Dell Specific -- iDRAC job implementation
 /// TODO (spyda): move most of this logic to libredfish
@@ -49,10 +51,12 @@ impl Job {
 
 #[derive(Clone)]
 pub struct BmcState {
+    pub bmc_vendor: redfish::oem::BmcVendor,
     pub jobs: Arc<Mutex<HashMap<String, Job>>>,
-    pub secure_boot_enabled: Arc<AtomicBool>,
     pub manager: Arc<ManagerState>,
     pub system_state: Arc<SystemState>,
+    pub chassis_state: Arc<ChassisState>,
+    pub update_service_state: Arc<UpdateServiceState>,
     pub bios: Arc<Mutex<serde_json::Value>>,
     pub dell_attrs: Arc<Mutex<serde_json::Value>>,
     pub injected_bugs: Arc<InjectedBugs>,
@@ -103,10 +107,6 @@ impl BmcState {
             job.end_time = Some(chrono::offset::Utc::now());
             jobs.insert(job.job_id.clone(), job);
         }
-    }
-
-    pub fn set_secure_boot_enabled(&mut self, enabled: bool) {
-        self.secure_boot_enabled.store(enabled, Ordering::Relaxed);
     }
 
     pub fn update_bios(&mut self, v: serde_json::Value) {

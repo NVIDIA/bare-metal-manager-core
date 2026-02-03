@@ -79,6 +79,11 @@ pub async fn run(
     // Spin up the webserver which servers `/metrics` requests
     let (metrics_stop_tx, metrics_stop_rx) = oneshot::channel();
     if let Some(metrics_address) = carbide_config.metrics_endpoint {
+        // If a replacement prefix for "carbide_" is configured, also emit metrics under that
+        let additional_prefix = carbide_config
+            .alt_metric_prefix
+            .clone()
+            .map(|alt_prefix| ("carbide_".to_string(), alt_prefix));
         tokio::task::Builder::new()
             .name("metrics_endpoint")
             .spawn(async move {
@@ -86,6 +91,7 @@ pub async fn run(
                     &MetricsEndpointConfig {
                         address: metrics_address,
                         registry: metrics.registry,
+                        additional_prefix,
                     },
                     metrics_stop_rx,
                 )

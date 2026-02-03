@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,13 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide_uuid::rack::RackId;
 use model::rack::RackState;
 use sqlx::PgConnection;
 
 /// Helper function to set rack controller state directly in database
 pub async fn set_rack_controller_state(
     txn: &mut PgConnection,
-    rack_id: &str,
+    rack_id: RackId,
     state: RackState,
 ) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE racks SET controller_state = $1 WHERE id = $2")
@@ -31,7 +32,7 @@ pub async fn set_rack_controller_state(
 /// Helper function to mark rack as deleted
 pub async fn mark_rack_as_deleted(
     txn: &mut PgConnection,
-    rack_id: &str,
+    rack_id: RackId,
 ) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE racks SET deleted = NOW() WHERE id = $1")
         .bind(rack_id)

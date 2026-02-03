@@ -25,6 +25,10 @@ message PowerShelfId {
   string id = 1;
 }
 
+message RackId {
+  string id = 1;
+}
+
 message SwitchId {
   string id = 1;
 }

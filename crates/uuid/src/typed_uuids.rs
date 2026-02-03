@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -84,11 +84,31 @@ impl<T> TypedUuid<T>
 where
     T: UuidSubtype,
 {
+    /// Creates a nil (all zeros) TypedUuid. This is a const function so it can
+    /// be used to initialize constants.
+    pub const fn nil() -> Self {
+        Self {
+            uuid: Uuid::nil(),
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    /// Creates a new random v4 TypedUuid.
+    pub fn new() -> Self {
+        Uuid::new_v4().into()
+    }
+
     fn try_parse(input: &str) -> Result<Self, UuidError> {
         Uuid::try_parse(input).map(|uuid| Self {
             uuid,
             _marker: std::marker::PhantomData,
         })
+    }
+
+    /// Returns a new TypedUuid with its underlying u128 value offset by `n`.
+    /// Useful for creating sequential UUIDs in tests.
+    pub fn offset(self, n: u128) -> Self {
+        Uuid::from_u128(self.uuid.as_u128() + n).into()
     }
 }
 
@@ -134,6 +154,24 @@ where
 
 impl<T> Eq for TypedUuid<T> where T: UuidSubtype {}
 
+impl<T> PartialOrd for TypedUuid<T>
+where
+    T: UuidSubtype,
+{
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T> Ord for TypedUuid<T>
+where
+    T: UuidSubtype,
+{
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.uuid.cmp(&other.uuid)
+    }
+}
+
 impl<T> std::hash::Hash for TypedUuid<T>
 where
     T: 'static + UuidSubtype,
@@ -176,6 +214,15 @@ where
             uuid,
             _marker: std::marker::PhantomData,
         }
+    }
+}
+
+impl<T> From<TypedUuid<T>> for String
+where
+    T: UuidSubtype,
+{
+    fn from(typed: TypedUuid<T>) -> String {
+        typed.to_string()
     }
 }
 
@@ -255,6 +302,127 @@ where
     }
 }
 
+impl<T: UuidSubtype> crate::DbPrimaryUuid for TypedUuid<T> {
+    fn db_primary_uuid_name() -> &'static str {
+        T::DB_COLUMN_NAME
+    }
+}
+
+/// typed_uuid_tests generates standard tests for all IDS
+/// deriving from the TypedUuid type. This includes:
+///
+/// - UUID round-trip conversion.
+/// - String round-trip (to_string/FromStr).
+/// - JSON serialization round-trip.
+/// - Ordering (nil < max).
+/// - Default value (equals nil UUID).
+/// - Copy semantics.
+/// - Hash consistency.
+/// - Debug output includes type name.
+/// - DB column name.
+/// - Into<String> conversion.
+///
+/// Usage:
+///   typed_uuid_tests!(YourUuid, "<TYPE_NAME>", "<DB_COLUMN_NAME>");
+///   typed_uuid_tests!(YourUuid, "YourUuid", "your_id");
+#[macro_export]
+macro_rules! typed_uuid_tests {
+    ($type:ty, $type_name:expr, $db_column:expr) => {
+        #[test]
+        fn test_uuid_round_trip() {
+            let orig = uuid::Uuid::new_v4();
+            let id = <$type>::from(orig);
+            let back = uuid::Uuid::from(id);
+            assert_eq!(orig, back);
+        }
+
+        #[test]
+        fn test_string_round_trip() {
+            use std::str::FromStr;
+            let orig = uuid::Uuid::new_v4();
+            let id = <$type>::from(orig);
+            let as_string = id.to_string();
+            let parsed = <$type>::from_str(&as_string).expect("failed to parse");
+            assert_eq!(id, parsed);
+        }
+
+        #[test]
+        fn test_json_round_trip() {
+            let id = <$type>::new();
+            let json = serde_json::to_string(&id).expect("failed to serialize");
+            let parsed: $type = serde_json::from_str(&json).expect("failed to deserialize");
+            assert_eq!(id, parsed);
+            // Ensure it serializes as a plain string, not a nested object.
+            assert!(json.starts_with('"') && json.ends_with('"'));
+        }
+
+        #[test]
+        fn test_ordering() {
+            let id1 = <$type>::from(uuid::Uuid::nil());
+            let id2 = <$type>::from(uuid::Uuid::max());
+            assert!(id1 < id2);
+        }
+
+        #[test]
+        fn test_default() {
+            let id = <$type>::default();
+            assert_eq!(uuid::Uuid::from(id), uuid::Uuid::nil());
+        }
+
+        #[test]
+        fn test_copy() {
+            let id1 = <$type>::new();
+            let id2 = id1; // This should copy.
+            assert_eq!(id1, id2);
+        }
+
+        #[test]
+        fn test_hash_consistency() {
+            use std::collections::HashSet;
+            let uuid = uuid::Uuid::new_v4();
+            let id1 = <$type>::from(uuid);
+            let id2 = <$type>::from(uuid);
+            let mut set = HashSet::new();
+            set.insert(id1);
+            assert!(set.contains(&id2));
+        }
+
+        #[test]
+        fn test_debug_includes_type_name() {
+            let id = <$type>::from(uuid::Uuid::nil());
+            let debug = format!("{:?}", id);
+            assert!(
+                debug.contains($type_name),
+                "Debug output '{}' should contain '{}'",
+                debug,
+                $type_name
+            );
+        }
+
+        #[test]
+        // TODO(chet): It might be nice to actually make this
+        // an sqlx test that creates a test table with a column
+        // and make sure everything checks out.
+        fn test_db_column_name() {
+            use $crate::DbPrimaryUuid;
+            assert_eq!(
+                <$type>::db_primary_uuid_name(),
+                $db_column,
+                "DB_COLUMN_NAME should be '{}'",
+                $db_column
+            );
+        }
+
+        #[test]
+        fn test_into_string() {
+            let uuid = uuid::Uuid::new_v4();
+            let id = <$type>::from(uuid);
+            let s: String = id.into();
+            assert_eq!(s, uuid.to_string());
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,6 +433,8 @@ mod tests {
         const TYPE_NAME: &'static str = "ThingyId";
     }
 
+    typed_uuid_tests!(ThingyId, "ThingyId", "id");
+
     #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
     pub struct ThingyWithId {
         pub id: ThingyId,
@@ -272,26 +442,7 @@ mod tests {
     }
 
     #[test]
-    fn test_uuid_round_trip() {
-        let orig_id = Uuid::new_v4();
-        let id = ThingyId::from(orig_id);
-        let id = Uuid::from(id);
-        assert_eq!(orig_id, id);
-    }
-
-    #[test]
-    fn test_string_round_trip() {
-        let orig_id = Uuid::new_v4();
-        let orig_id_str = orig_id.to_string();
-        let parsed_id: ThingyId = orig_id_str
-            .parse()
-            .expect("Could not parse UUID as ThingyId");
-        let id = Uuid::from(parsed_id);
-        assert_eq!(orig_id, id);
-    }
-
-    #[test]
-    fn test_json_round_trip() {
+    fn test_json_struct_embedding() {
         let before = ThingyWithId {
             id: ThingyId::from(Uuid::nil()),
             name: String::from("Hello"),

@@ -38,10 +38,7 @@ pub async fn insert_measurement_profile_record(
     name: String,
 ) -> Result<MeasurementSystemProfileRecord, sqlx::Error> {
     let query = "insert into measurement_system_profiles(name) values($1) returning *";
-    sqlx::query_as(query)
-        .bind(name.clone())
-        .fetch_one(txn)
-        .await
+    sqlx::query_as(query).bind(&name).fetch_one(txn).await
 }
 
 /// insert_measurement_profile_attr_records takes a hashmap of
@@ -385,7 +382,7 @@ pub async fn import_measurement_profile(
 
     sqlx::query_as(&query)
         .bind(profile.profile_id)
-        .bind(profile.name.clone())
+        .bind(&profile.name)
         .bind(profile.ts)
         .fetch_one(txn)
         .await
@@ -426,8 +423,8 @@ pub async fn import_measurement_system_profiles_attr(
     sqlx::query_as(&query)
         .bind(bundle.attribute_id)
         .bind(bundle.profile_id)
-        .bind(bundle.key.clone())
-        .bind(bundle.value.clone())
+        .bind(&bundle.key)
+        .bind(&bundle.value)
         .bind(bundle.ts)
         .fetch_one(txn)
         .await

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,69 +10,23 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::fmt;
-use std::str::FromStr;
+use crate::typed_uuids::{TypedUuid, UuidSubtype};
 
-use serde::{Deserialize, Serialize};
-#[cfg(feature = "sqlx")]
-use sqlx::{
-    postgres::{PgHasArrayType, PgTypeInfo},
-    {FromRow, Type},
-};
+/// Marker type for InstanceId.
+pub struct InstanceIdMarker;
 
-use crate::{UuidConversionError, grpc_uuid_message};
-
-/// InstanceId is a strongly typed UUID specific to an instance ID,
-/// with trait implementations allowing it to be passed around as
-/// a UUID, an RPC UUID, bound to sqlx queries, etc. This is similar
-/// to what we do for MachineId, VpcId, and basically all of the IDs
-/// in measured boot.
-#[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default, Ord, PartialOrd,
-)]
-#[cfg_attr(feature = "sqlx", derive(FromRow, Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "UUID"))]
-pub struct InstanceId(pub uuid::Uuid);
-
-grpc_uuid_message!(InstanceId);
-
-impl From<InstanceId> for uuid::Uuid {
-    fn from(id: InstanceId) -> Self {
-        id.0
-    }
+impl UuidSubtype for InstanceIdMarker {
+    const TYPE_NAME: &'static str = "InstanceId";
 }
 
-impl From<uuid::Uuid> for InstanceId {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
-    }
-}
+/// InstanceId is a strongly typed UUID specific to an instance ID.
+pub type InstanceId = TypedUuid<InstanceIdMarker>;
 
-impl FromStr for InstanceId {
-    type Err = UuidConversionError;
-    fn from_str(input: &str) -> Result<Self, UuidConversionError> {
-        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            UuidConversionError::InvalidUuid {
-                ty: "InstanceId",
-                value: input.to_string(),
-            }
-        })?))
-    }
-}
-
-impl fmt::Display for InstanceId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[cfg(feature = "sqlx")]
-impl PgHasArrayType for InstanceId {
-    fn array_type_info() -> PgTypeInfo {
-        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
-    }
-
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
-    }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(InstanceId, "InstanceId", "id");
 }

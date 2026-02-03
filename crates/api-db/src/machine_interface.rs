@@ -148,7 +148,7 @@ pub async fn associate_interface_with_dpu_machine(
     let query =
         "UPDATE machine_interfaces SET attached_dpu_machine_id=$1 where id=$2::uuid RETURNING id";
     sqlx::query_as(query)
-        .bind(dpu_machine_id.to_string())
+        .bind(dpu_machine_id)
         .bind(*interface_id)
         .fetch_one(txn)
         .await
@@ -257,10 +257,12 @@ pub async fn find_one(
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     let mut interfaces = find_by(txn, ObjectColumnFilter::One(IdColumn, &interface_id)).await?;
     match interfaces.len() {
-        0 => Err(DatabaseError::FindOneReturnedNoResultsError(interface_id.0)),
+        0 => Err(DatabaseError::FindOneReturnedNoResultsError(
+            interface_id.into(),
+        )),
         1 => Ok(interfaces.remove(0)),
         _ => Err(DatabaseError::FindOneReturnedManyResultsError(
-            interface_id.0,
+            interface_id.into(),
         )),
     }
 }
@@ -772,7 +774,7 @@ pub async fn find_by_machine_and_segment(
         );
     }
     sqlx::query_as::<_, MachineInterfaceSnapshot>(&query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .bind(segment_id)
         .fetch_all(txn)
         .await

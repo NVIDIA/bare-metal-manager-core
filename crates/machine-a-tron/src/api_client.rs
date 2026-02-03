@@ -420,8 +420,6 @@ impl ApiClient {
                             prefix: format!("192.5.{subnet_count}.12/24"),
                             gateway: Some(format!("192.5.{subnet_count}.13")),
                             reserve_first: 1,
-                            state: None,
-                            events: vec![],
                             free_ip_count: 1022,
                             svi_ip: None,
                         }],

@@ -213,7 +213,7 @@ pub struct DpaInterface {
 
     pub card_state: Option<CardState>,
 
-    pub history: Vec<DpaInterfaceStateHistory>,
+    pub history: Vec<DpaInterfaceStateHistoryRecord>,
 }
 
 #[derive(Clone, Debug)]
@@ -316,12 +316,12 @@ impl From<DpaInterface> for rpc::forge::DpaInterface {
             None => String::new(),
         };
 
-        let history: Vec<rpc::forge::DpaInterfaceStateHistory> = src
+        let history: Vec<rpc::forge::DpaInterfaceStateHistoryRecord> = src
             .history
             .into_iter()
             .sorted_by(
-                |s1: &crate::dpa_interface::DpaInterfaceStateHistory,
-                 s2: &crate::dpa_interface::DpaInterfaceStateHistory| {
+                |s1: &crate::dpa_interface::DpaInterfaceStateHistoryRecord,
+                 s2: &crate::dpa_interface::DpaInterfaceStateHistoryRecord| {
                     Ord::cmp(&s1.state_version.timestamp(), &s2.state_version.timestamp())
                 },
             )
@@ -354,7 +354,7 @@ impl From<DpaInterface> for rpc::forge::DpaInterface {
 /// A record of a past state of a DpaInterface
 ///
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct DpaInterfaceStateHistory {
+pub struct DpaInterfaceStateHistoryRecord {
     /// The UUID of the dpa interface that experienced the state change
     interface_id: DpaInterfaceId,
 
@@ -366,9 +366,9 @@ pub struct DpaInterfaceStateHistory {
     timestamp: DateTime<Utc>,
 }
 
-impl From<DpaInterfaceStateHistory> for rpc::forge::DpaInterfaceStateHistory {
-    fn from(value: DpaInterfaceStateHistory) -> Self {
-        rpc::forge::DpaInterfaceStateHistory {
+impl From<DpaInterfaceStateHistoryRecord> for rpc::forge::DpaInterfaceStateHistoryRecord {
+    fn from(value: DpaInterfaceStateHistoryRecord) -> Self {
+        rpc::forge::DpaInterfaceStateHistoryRecord {
             state: value.state,
             version: value.state_version.version_string(),
             time: Some(value.timestamp.into()),
@@ -396,7 +396,7 @@ pub struct DpaInterfaceSnapshotPgJson {
     pub underlay_ip: Option<IpAddr>,
     pub overlay_ip: Option<IpAddr>,
     #[serde(default)]
-    pub history: Vec<DpaInterfaceStateHistory>,
+    pub history: Vec<DpaInterfaceStateHistoryRecord>,
 }
 
 impl TryFrom<DpaInterfaceSnapshotPgJson> for DpaInterface {
