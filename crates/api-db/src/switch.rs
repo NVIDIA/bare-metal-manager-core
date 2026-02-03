@@ -256,8 +256,7 @@ pub struct SwitchEndpointRow {
     pub ip_address: IpAddr,
 }
 
-/// Query for switches which have been assigned an IP address via DHCP
-pub async fn get_switch_endpoints_from_dhcp(
+pub async fn find_switch_addresses(
     txn: &mut PgConnection,
 ) -> DatabaseResult<Vec<SwitchEndpointRow>> {
     let sql = r#"
@@ -275,5 +274,5 @@ pub async fn get_switch_endpoints_from_dhcp(
     sqlx::query_as(sql)
         .fetch_all(txn)
         .await
-        .map_err(|err| DatabaseError::new("get_switch_endpoints_from_dhcp", err))
+        .map_err(|err| DatabaseError::new("find_switch_addresses", err))
 }
