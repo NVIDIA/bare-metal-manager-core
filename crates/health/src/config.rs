@@ -534,7 +534,7 @@ cache_size = 50
         if let Configurable::Enabled(ref health) = config.collectors.health {
             assert_eq!(health.rediscover_interval, Duration::from_secs(60));
             assert_eq!(health.sensor_fetch_interval, Duration::from_secs(30));
-            assert_eq!(health.include_sensor_thresholds, false);
+            assert!(!health.include_sensor_thresholds);
         } else {
             panic!("health empty")
         }
