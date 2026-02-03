@@ -138,7 +138,11 @@ mod tests {
                     count += 1;
                 }
             }
-            assert_eq!(count, 1, "Key {} should be assigned to exactly one shard", key);
+            assert_eq!(
+                count, 1,
+                "Key {} should be assigned to exactly one shard",
+                key
+            );
         }
     }
 

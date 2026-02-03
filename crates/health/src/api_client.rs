@@ -269,7 +269,11 @@ impl ApiClientWrapper {
                 let serial = s.config?.name;
 
                 Some(SwitchEndpoint {
-                    addr: SwitchAddr { ip, bmc_mac, serial },
+                    addr: SwitchAddr {
+                        ip,
+                        bmc_mac,
+                        serial,
+                    },
                 })
             })
             .collect();

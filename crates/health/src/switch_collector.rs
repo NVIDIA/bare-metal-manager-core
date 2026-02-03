@@ -62,7 +62,8 @@ fn parse_prometheus_line(line: &str) -> Option<NmxtMetricSample> {
         let name = &line[..brace_pos];
         let rest = &line[brace_pos..];
         (name, rest)
-    } else { // no labels
+    } else {
+        // no labels
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 2 {
             let name = parts[0];

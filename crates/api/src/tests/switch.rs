@@ -560,7 +560,7 @@ async fn test_find_switch_with_ip_addresses_no_matching_data(
     let find_request = SwitchQuery {
         name: None,
         switch_id: Some(switch_id),
-        include_addresses: Some(true), 
+        include_addresses: Some(true),
     };
 
     let find_response = env
@@ -577,7 +577,6 @@ async fn test_find_switch_with_ip_addresses_no_matching_data(
 
     Ok(())
 }
-
 
 #[crate::sqlx_test]
 async fn test_find_switch_with_include_addresses_matching_data(
@@ -652,7 +651,6 @@ async fn test_find_switch_with_include_addresses_matching_data(
     );
     let assigned_ip = machine_interface.addresses[0];
 
-
     let find_request = SwitchQuery {
         name: None,
         switch_id: Some(switch_id),
@@ -684,7 +682,11 @@ async fn test_find_switch_with_include_addresses_matching_data(
         "BMC MAC address should be populated when include_addresses=true"
     );
     assert_eq!(
-        found_switch.bmc_mac_address.as_ref().unwrap().to_uppercase(),
+        found_switch
+            .bmc_mac_address
+            .as_ref()
+            .unwrap()
+            .to_uppercase(),
         bmc_mac.to_string().to_uppercase(),
         "BMC MAC address should match the expected switch's BMC MAC"
     );
