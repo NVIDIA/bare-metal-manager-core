@@ -225,11 +225,9 @@ impl OverrideState {
                 KeyCode::Backspace => {
                     if let Some(index) = self.list_state.selected() {
                         let path = data.overrides.remove(index);
-                        if let Some(original) = data.original_routes.get(&path) {
-                            data.routes
-                                .lock()
-                                .unwrap()
-                                .insert(path.clone(), original.to_string());
+                        if let Some(_original) = data.original_routes.get(&path) {
+                            // TODO: cleanup overrides with path.
+                            tracing::error!("Not implemented clear override");
                         }
                         if data.overrides.is_empty() {
                             self.list_state = ListState::default();
@@ -241,8 +239,13 @@ impl OverrideState {
                 // Open an editor to modify the MAT response.
                 KeyCode::Char('e') if self.get_selected().is_some() => {
                     let selected = self.get_selected().unwrap();
-                    let routes = data.routes.lock().unwrap();
-                    if let Some(response) = routes.get(&data.overrides[selected]) {
+                    let request = |path| {
+                        // TODO: overrides: implement request to the API.
+                        Some(format!(
+                            "TODO not implemented getting routes from path. Path was: {path}"
+                        ))
+                    };
+                    if let Some(response) = request(&data.overrides[selected]) {
                         let path = format!(
                             "/tmp/machine-a-tron/rewrite/{}/index.json",
                             data.overrides[selected]
@@ -254,8 +257,6 @@ impl OverrideState {
                         std::fs::create_dir_all(path_buf.parent().unwrap())
                             .expect("could not create tempfile directory");
                         std::fs::write(&path, response).expect("could not write to tempfile");
-                        // Avoid holding the lock while editing the response.
-                        drop(routes);
 
                         // User edits file.
                         let editor = std::env::var("EDITOR").unwrap_or("/usr/bin/vim".to_string());
@@ -277,10 +278,10 @@ impl OverrideState {
                         // and maybe validate if is valid redfish response.
                         let content =
                             std::fs::read_to_string(path).expect("could not read from tempfile");
-                        data.routes
-                            .lock()
-                            .unwrap()
-                            .insert(data.overrides[selected].clone(), content);
+                        // TODO: overrides: implement overrides.
+                        tracing::error!(
+                            "Applying overrides is not implemented yet. Content was: {content}"
+                        );
                     }
                     // Fully redraw TUI next frame.
                     terminal.clear().unwrap();
@@ -330,10 +331,8 @@ impl OverrideState {
 
                         // Reset the original override if overriden.
                         if let Some(original) = data.original_routes.get(original_text) {
-                            data.routes
-                                .lock()
-                                .unwrap()
-                                .insert(original_text.clone(), original.to_string());
+                            // TODO: overrides: clear overrides on original_text
+                            tracing::error!("Not implemented clear override: original {original}");
                         }
                         self.mode = OverrideMode::Focused
                     }

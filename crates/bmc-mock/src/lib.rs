@@ -14,11 +14,9 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::ffi::OsStr;
 use std::future::Future;
-use std::io::ErrorKind;
 use std::net::{SocketAddr, TcpListener};
 use std::path::Path;
 use std::pin::Pin;
-use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -31,7 +29,7 @@ use rustls::ServerConfig;
 use rustls::pki_types::PrivateKeyDer;
 use rustls_pemfile::Item;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tower::{Layer, Service};
@@ -46,14 +44,12 @@ mod middleware_router;
 mod mock_machine_router;
 mod redfish;
 mod redfish_expander;
-mod tar_router;
 
 pub use machine_info::{DpuFirmwareVersions, DpuMachineInfo, HostMachineInfo, MachineInfo};
 pub use mock_machine_router::{
     BmcCommand, SetSystemPowerError, SetSystemPowerResult, machine_router,
 };
 pub use redfish_expander::wrap_router_with_redfish_expander;
-pub use tar_router::{EntryMap, TarGzOption, tar_router};
 
 #[derive(thiserror::Error, Debug)]
 pub enum BmcMockError {
@@ -357,92 +353,6 @@ impl Service<axum::http::Request<Incoming>> for BmcService {
                 .await
         })
     }
-}
-
-pub fn default_host_mock() -> Router {
-    let command_channel = spawn_qemu_reboot_handler();
-    let power_control = Arc::new(ChannelPowerControl::new(command_channel));
-    machine_router(
-        MachineInfo::Host(HostMachineInfo::new(vec![DpuMachineInfo::default()])),
-        power_control,
-        String::default(),
-    )
-}
-
-#[derive(Debug)]
-struct ChannelPowerControl {
-    command_channel: mpsc::UnboundedSender<BmcCommand>,
-}
-
-impl ChannelPowerControl {
-    fn new(command_channel: mpsc::UnboundedSender<BmcCommand>) -> Self {
-        Self { command_channel }
-    }
-}
-
-impl PowerControl for ChannelPowerControl {
-    fn get_power_state(&self) -> MockPowerState {
-        MockPowerState::On
-    }
-
-    fn send_power_command(
-        &self,
-        reset_type: SystemPowerControl,
-    ) -> Result<(), SetSystemPowerError> {
-        self.command_channel
-            .send(BmcCommand::SetSystemPower {
-                request: SetSystemPowerReq { reset_type },
-                reply: None,
-            })
-            .map_err(|err| SetSystemPowerError::CommandSendError(err.to_string()))
-    }
-}
-
-fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<BmcCommand> {
-    let (command_tx, mut command_rx) = mpsc::unbounded_channel();
-    tokio::spawn(async move {
-        loop {
-            let Some(command) = command_rx.recv().await else {
-                break;
-            };
-            match command {
-                // Assume SetSystemPower is just a reboot
-                BmcCommand::SetSystemPower { .. } => {}
-            }
-            let reboot_output = match Command::new("virsh")
-                .arg("reboot")
-                .arg("ManagedHost")
-                .output()
-            {
-                Ok(o) => o,
-                Err(err) if matches!(err.kind(), ErrorKind::NotFound) => {
-                    info!("`virsh` not found. Cannot reboot QEMU host.");
-                    continue;
-                }
-                Err(err) => {
-                    error!("Error trying to run 'virsh reboot ManagedHost'. {}", err);
-                    continue;
-                }
-            };
-
-            match reboot_output.status.code() {
-                Some(0) => {
-                    debug!("Rebooted qemu managed host...");
-                }
-                Some(exit_code) => {
-                    error!(
-                        "Reboot command 'virsh reboot ManagedHost' failed with exit code {exit_code}."
-                    );
-                    info!("STDOUT: {}", String::from_utf8_lossy(&reboot_output.stdout));
-                    info!("STDERR: {}", String::from_utf8_lossy(&reboot_output.stderr));
-                }
-                None => {
-                    error!("Reboot command killed by signal");
-                }
-            }
-        }
-    });
-    command_tx
 }
 
 /// Wrapper arond axum::Router::call which constructs a new request object. This works

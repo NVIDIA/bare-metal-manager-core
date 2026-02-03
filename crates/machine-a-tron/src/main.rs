@@ -208,9 +208,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let (ui_tx, ui_rx) = mpsc::channel(5000);
         let (quit_tx, quit_rx) = mpsc::channel(1);
 
-        let host_redfish_routes = Default::default();
         let tui_handle = Some(tokio::spawn(async {
-            let mut tui = Tui::new(ui_rx, quit_rx, app_tx, host_redfish_routes, tui_host_logs);
+            let mut tui = Tui::new(ui_rx, quit_rx, app_tx, tui_host_logs);
             _ = tui.run().await.inspect_err(|e| {
                 let estr = format!("Error running TUI: {e}");
                 tracing::error!(estr);

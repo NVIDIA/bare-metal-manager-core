@@ -231,16 +231,39 @@ impl State {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use axum::body::Body;
     use axum::http::{Method, Request};
     use serde_json::Value;
     use tower::Service;
 
-    use crate::{default_host_mock, wrap_router_with_redfish_expander};
+    use crate::*;
+
+    #[derive(Debug)]
+    struct TestPowerControl {}
+
+    impl PowerControl for TestPowerControl {
+        fn get_power_state(&self) -> MockPowerState {
+            MockPowerState::On
+        }
+        fn send_power_command(&self, _: SystemPowerControl) -> Result<(), SetSystemPowerError> {
+            Ok(())
+        }
+    }
+
+    fn test_host_mock() -> Router {
+        let power_control = Arc::new(TestPowerControl {});
+        crate::machine_router(
+            MachineInfo::Host(HostMachineInfo::new(vec![DpuMachineInfo::default()])),
+            power_control,
+            String::default(),
+        )
+    }
 
     #[tokio::test]
     async fn test_expand() {
-        let tar_router = default_host_mock();
+        let tar_router = test_host_mock();
         let mut subject = wrap_router_with_redfish_expander(tar_router.clone());
 
         let response_body = subject
