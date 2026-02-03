@@ -31,8 +31,6 @@ impl NetworkSegmentHelper {
             prefix: prefix.into(),
             gateway: Some(gateway.into()),
             reserve_first: 1,
-            state: None,
-            events: vec![],
             free_ip_count: 0,
             svi_ip: None,
         }];
@@ -87,8 +85,6 @@ pub async fn create_network_segment_with_api(
             prefix: "192.0.2.0/24".to_string(),
             gateway: Some("192.0.2.1".to_string()),
             reserve_first: num_reserved,
-            state: None,
-            events: vec![],
             free_ip_count: 0,
             svi_ip: None,
         }],

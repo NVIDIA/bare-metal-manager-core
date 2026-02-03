@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -35,101 +35,15 @@ impl UuidSubtype for NetworkPrefixIdMarker {
 pub type NetworkPrefixId = TypedUuid<NetworkPrefixIdMarker>;
 
 #[cfg(test)]
-mod tests {
-    use std::collections::HashSet;
-    use std::str::FromStr;
-
+mod network_segment_id_tests {
     use super::*;
+    use crate::typed_uuid_tests;
+    typed_uuid_tests!(NetworkSegmentId, "NetworkSegmentId", "id");
+}
 
-    // NetworkSegmentId tests
-    #[test]
-    fn test_segment_id_uuid_round_trip() {
-        let orig = uuid::Uuid::new_v4();
-        let id = NetworkSegmentId::from(orig);
-        let back = uuid::Uuid::from(id);
-        assert_eq!(orig, back);
-    }
-
-    #[test]
-    fn test_segment_id_string_round_trip() {
-        let orig = uuid::Uuid::new_v4();
-        let id = NetworkSegmentId::from(orig);
-        let as_string = id.to_string();
-        let parsed = NetworkSegmentId::from_str(&as_string).expect("failed to parse");
-        assert_eq!(id, parsed);
-    }
-
-    #[test]
-    fn test_segment_id_json_round_trip() {
-        let id = NetworkSegmentId::new();
-        let json = serde_json::to_string(&id).expect("failed to serialize");
-        let parsed: NetworkSegmentId = serde_json::from_str(&json).expect("failed to deserialize");
-        assert_eq!(id, parsed);
-        assert!(json.starts_with('"') && json.ends_with('"'));
-    }
-
-    #[test]
-    fn test_segment_id_ordering() {
-        let id1 = NetworkSegmentId::from(uuid::Uuid::nil());
-        let id2 = NetworkSegmentId::from(uuid::Uuid::max());
-        assert!(id1 < id2);
-    }
-
-    #[test]
-    fn test_segment_id_default() {
-        let id = NetworkSegmentId::default();
-        assert_eq!(uuid::Uuid::from(id), uuid::Uuid::nil());
-    }
-
-    #[test]
-    fn test_segment_id_copy() {
-        let id1 = NetworkSegmentId::new();
-        let id2 = id1;
-        assert_eq!(id1, id2);
-    }
-
-    #[test]
-    fn test_segment_id_hash_consistency() {
-        let uuid = uuid::Uuid::new_v4();
-        let id1 = NetworkSegmentId::from(uuid);
-        let id2 = NetworkSegmentId::from(uuid);
-        let mut set = HashSet::new();
-        set.insert(id1);
-        assert!(set.contains(&id2));
-    }
-
-    #[test]
-    fn test_segment_id_debug_includes_type_name() {
-        let id = NetworkSegmentId::from(uuid::Uuid::nil());
-        let debug = format!("{:?}", id);
-        assert!(debug.contains("NetworkSegmentId"));
-    }
-
-    // NetworkPrefixId tests
-    #[test]
-    fn test_network_prefix_id_serialization() {
-        // Make sure NetworkPrefixId serializes as a simple UUID.
-        let id = uuid::Uuid::new_v4();
-        let network_prefix_id = NetworkPrefixId::from(id);
-
-        let uuid_json = serde_json::to_string(&id).unwrap();
-        let nsid_json = serde_json::to_string(&network_prefix_id).unwrap();
-
-        assert_eq!(uuid_json, nsid_json);
-    }
-
-    #[test]
-    fn test_prefix_id_uuid_round_trip() {
-        let orig = uuid::Uuid::new_v4();
-        let id = NetworkPrefixId::from(orig);
-        let back = uuid::Uuid::from(id);
-        assert_eq!(orig, back);
-    }
-
-    #[test]
-    fn test_prefix_id_debug_includes_type_name() {
-        let id = NetworkPrefixId::from(uuid::Uuid::nil());
-        let debug = format!("{:?}", id);
-        assert!(debug.contains("NetworkPrefixId"));
-    }
+#[cfg(test)]
+mod network_prefix_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    typed_uuid_tests!(NetworkPrefixId, "NetworkPrefixId", "id");
 }

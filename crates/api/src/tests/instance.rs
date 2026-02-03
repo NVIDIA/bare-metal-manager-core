@@ -2011,7 +2011,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
 
     assert!(
         env.test_meter
-            .formatted_metric("forge_reboot_attempts_in_booting_with_discovery_image_count")
+            .formatted_metric("carbide_reboot_attempts_in_booting_with_discovery_image_count")
             .is_none(),
         "State is not changed. The reboot counter should only increased once state changed"
     );
@@ -2035,7 +2035,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
 
     assert!(
         env.test_meter
-            .formatted_metric("forge_reboot_attempts_in_booting_with_discovery_image_count")
+            .formatted_metric("carbide_reboot_attempts_in_booting_with_discovery_image_count")
             .is_none(),
         "State is not changed. The reboot counter should only increased once state changed"
     );
@@ -2044,13 +2044,13 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
 
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_reboot_attempts_in_booting_with_discovery_image_sum")
+            .formatted_metric("carbide_reboot_attempts_in_booting_with_discovery_image_sum")
             .unwrap(),
         "2"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_reboot_attempts_in_booting_with_discovery_image_count")
+            .formatted_metric("carbide_reboot_attempts_in_booting_with_discovery_image_count")
             .unwrap(),
         "1"
     );

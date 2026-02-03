@@ -57,7 +57,7 @@ async fn snapshot_desired_firmware_for_model(
 
     sqlx::query(query)
         .bind(model.vendor.to_pascalcase())
-        .bind(model.model.clone())
+        .bind(&model.model)
         .bind(sqlx::types::Json(DesiredFirmwareVersions::from(
             model.clone(),
         )))

@@ -61,8 +61,7 @@ pub async fn find_by_ids(
         "SELECT * FROM tenant_keysets WHERE (organization_id, keyset_id) IN ",
     );
     builder.push_tuples(ids.iter(), |mut b, id| {
-        b.push_bind(id.organization_id.clone())
-            .push_bind(id.keyset_id.clone());
+        b.push_bind(&id.organization_id).push_bind(&id.keyset_id);
     });
     // execute
     let query = builder.build_query_as();

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -12,93 +12,22 @@
 
 use crate::typed_uuids::{TypedUuid, UuidSubtype};
 
-/// Marker type for IBPartitionId
+/// Marker type for IBPartitionId.
 pub struct IBPartitionIdMarker;
 
 impl UuidSubtype for IBPartitionIdMarker {
     const TYPE_NAME: &'static str = "IBPartitionId";
 }
 
-/// IBPartitionId is a strongly typed UUID specific to an Infiniband
-/// segment ID, with trait implementations allowing it to be passed
-/// around as a UUID, an RPC UUID, bound to sqlx queries, etc.
+/// IBPartitionId is a strongly typed UUID specific to an
+/// Infiniband partition ID.
 pub type IBPartitionId = TypedUuid<IBPartitionIdMarker>;
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-    use std::str::FromStr;
-
     use super::*;
-
-    #[test]
-    fn test_uuid_round_trip() {
-        let orig = uuid::Uuid::new_v4();
-        let id = IBPartitionId::from(orig);
-        let back = uuid::Uuid::from(id);
-        assert_eq!(orig, back);
-    }
-
-    #[test]
-    fn test_string_round_trip() {
-        let orig = uuid::Uuid::new_v4();
-        let id = IBPartitionId::from(orig);
-        let as_string = id.to_string();
-        let parsed = IBPartitionId::from_str(&as_string).expect("failed to parse");
-        assert_eq!(id, parsed);
-    }
-
-    #[test]
-    fn test_json_round_trip() {
-        let id = IBPartitionId::new();
-        let json = serde_json::to_string(&id).expect("failed to serialize");
-        let parsed: IBPartitionId = serde_json::from_str(&json).expect("failed to deserialize");
-        assert_eq!(id, parsed);
-        assert!(json.starts_with('"') && json.ends_with('"'));
-    }
-
-    #[test]
-    fn test_ordering() {
-        let id1 = IBPartitionId::from(uuid::Uuid::nil());
-        let id2 = IBPartitionId::from(uuid::Uuid::max());
-        assert!(id1 < id2);
-    }
-
-    #[test]
-    fn test_default() {
-        let id = IBPartitionId::default();
-        assert_eq!(uuid::Uuid::from(id), uuid::Uuid::nil());
-    }
-
-    #[test]
-    fn test_copy() {
-        let id1 = IBPartitionId::new();
-        let id2 = id1;
-        assert_eq!(id1, id2);
-    }
-
-    #[test]
-    fn test_hash_consistency() {
-        let uuid = uuid::Uuid::new_v4();
-        let id1 = IBPartitionId::from(uuid);
-        let id2 = IBPartitionId::from(uuid);
-        let mut set = HashSet::new();
-        set.insert(id1);
-        assert!(set.contains(&id2));
-    }
-
-    #[test]
-    fn test_debug_includes_type_name() {
-        let id = IBPartitionId::from(uuid::Uuid::nil());
-        let debug = format!("{:?}", id);
-        assert!(debug.contains("IBPartitionId"));
-    }
-
-    #[test]
-    fn test_into_string() {
-        let uuid = uuid::Uuid::new_v4();
-        let id = IBPartitionId::from(uuid);
-        let s: String = id.into();
-        assert_eq!(s, uuid.to_string());
-    }
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(IBPartitionId, "IBPartitionId", "id");
 }

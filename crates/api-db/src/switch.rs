@@ -55,8 +55,8 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
         "INSERT INTO switches (id, name, config, controller_state, controller_state_version) VALUES ($1, $2, $3, $4, $5) RETURNING id",
     );
     let id = query
-        .bind(new_switch.id.to_string())
-        .bind(new_switch.config.name.clone())
+        .bind(new_switch.id)
+        .bind(&new_switch.config.name)
         .bind(sqlx::types::Json(&new_switch.config))
         .bind(sqlx::types::Json(&state))
         .bind(version)

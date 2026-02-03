@@ -410,16 +410,36 @@ impl RedfishClientPool for RedfishClientPoolImpl {
     }
 }
 
-/// redfish utility functions
-///
-/// host_power_control allows control over the power of the host
-#[allow(txn_held_across_await)]
-pub async fn host_power_control(
+#[track_caller]
+pub fn host_power_control(
     redfish_client: &dyn Redfish,
     machine: &Machine,
     action: SystemPowerControl,
     ipmi_tool: Arc<dyn IPMITool>,
     txn: &mut PgConnection,
+) -> impl Future<Output = CarbideResult<()>> {
+    let trigger_location = std::panic::Location::caller();
+    host_power_control_with_location(
+        redfish_client,
+        machine,
+        action,
+        ipmi_tool,
+        txn,
+        trigger_location,
+    )
+}
+
+/// redfish utility functions
+///
+/// host_power_control allows control over the power of the host
+#[allow(txn_held_across_await)]
+pub async fn host_power_control_with_location(
+    redfish_client: &dyn Redfish,
+    machine: &Machine,
+    action: SystemPowerControl,
+    ipmi_tool: Arc<dyn IPMITool>,
+    txn: &mut PgConnection,
+    trigger_location: &std::panic::Location<'_>,
 ) -> CarbideResult<()> {
     let action = if action == SystemPowerControl::ACPowercycle
         && !redfish_client.ac_powercycle_supported_by_power()
@@ -433,6 +453,7 @@ pub async fn host_power_control(
     tracing::info!(
         machine_id = machine.id.to_string(),
         action = action.to_string(),
+        trigger_location = %trigger_location,
         "Host Power Control"
     );
     db::machine::update_reboot_requested_time(&machine.id, txn, action.into()).await?;

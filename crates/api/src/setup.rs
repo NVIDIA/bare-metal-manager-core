@@ -652,7 +652,7 @@ pub async fn initialize_and_start_controllers(
     // If they are assigned to _ then the destructor will be immediately called
     let _machine_state_controller_handle = StateController::<MachineStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
-        .meter("forge_machines", meter.clone())
+        .meter("carbide_machines", meter.clone())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .iteration_config((&carbide_config.machine_state_controller.controller).into())
@@ -715,7 +715,7 @@ pub async fn initialize_and_start_controllers(
 
     let ns_builder = StateController::<NetworkSegmentStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
-        .meter("forge_network_segments", meter.clone())
+        .meter("carbide_network_segments", meter.clone())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone());
     let _network_segment_controller_handle = ns_builder
@@ -741,7 +741,7 @@ pub async fn initialize_and_start_controllers(
         _dpa_interface_state_controller_handle = Some(
             StateController::<DpaInterfaceStateControllerIO>::builder()
                 .database(db_pool.clone(), work_lock_manager_handle.clone())
-                .meter("forge_dpa_interfaces", meter.clone())
+                .meter("carbide_dpa_interfaces", meter.clone())
                 .processor_id(state_controller_id.clone())
                 .services(handler_services.clone())
                 .iteration_config(
@@ -764,7 +764,7 @@ pub async fn initialize_and_start_controllers(
 
         let _spdm_state_controller_handle = StateController::<SpdmStateControllerIO>::builder()
             .database(db_pool.clone(), work_lock_manager_handle.clone())
-            .meter("spdm_attestation", meter.clone())
+            .meter("carbide_spdm_attestation", meter.clone())
             .processor_id(state_controller_id.clone())
             .services(handler_services.clone())
             .iteration_config((&carbide_config.spdm_state_controller.controller).into())
@@ -779,7 +779,7 @@ pub async fn initialize_and_start_controllers(
     let _ib_partition_controller_handle =
         StateController::<IBPartitionStateControllerIO>::builder()
             .database(db_pool.clone(), work_lock_manager_handle.clone())
-            .meter("forge_ib_partitions", meter.clone())
+            .meter("carbide_ib_partitions", meter.clone())
             .processor_id(state_controller_id.clone())
             .services(handler_services.clone())
             .iteration_config((&carbide_config.ib_partition_state_controller.controller).into())
