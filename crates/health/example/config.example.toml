@@ -55,10 +55,10 @@ max_jitter = "40ms"
 
 [collectors.health]
 rediscover_interval = "5m"
-monitor_check_interval = "1m"
 state_refresh_interval = "30m"
 sensor_fetch_interval = "1m"
 sensor_fetch_concurrency = 10
+include_sensor_thresholds = true
 
 [collectors.firmware]
 firmware_refresh_interval = "30m"

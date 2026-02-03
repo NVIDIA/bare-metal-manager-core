@@ -161,6 +161,7 @@ pub async fn run_discovery_iteration(
                         state_refresh_interval: health_cfg.state_refresh_interval,
                         sensor_fetch_concurrency: health_cfg.sensor_fetch_concurrency,
                         collector_registry: collector_registry.clone(),
+                        include_sensor_thresholds: health_cfg.include_sensor_thresholds,
                     },
                     collector_registry,
                     ctx.client.clone(),
