@@ -50,14 +50,15 @@ async fn test_integration() -> eyre::Result<()> {
 
     let bmc_address_registry = BmcMockRegistry::default();
     let certs_dir = PathBuf::from(format!("{}/crates/bmc-mock", test_env.root_dir.display()));
+    let server_config = bmc_mock::tls::server_config(Some(certs_dir)).unwrap();
     let mut bmc_mock_handle = bmc_mock::run_combined_mock(
         bmc_address_registry.clone(),
-        Some(certs_dir),
         Some(ListenerOrAddress::Listener(
             // let OS choose available port
             TcpListener::bind("127.0.0.1:0")?,
         )),
-    )?;
+        server_config,
+    );
 
     // For preingestion firmware checks to work, carbide needs a directory which exists to be
     // configured as the firmware_directory. It can be empty, because our mocks should be showing
@@ -220,14 +221,15 @@ async fn test_metrics_integration() -> eyre::Result<()> {
 
     let bmc_address_registry = BmcMockRegistry::default();
     let certs_dir = PathBuf::from(format!("{}/crates/bmc-mock", test_env.root_dir.display()));
+    let server_config = bmc_mock::tls::server_config(Some(certs_dir)).unwrap();
     let mut bmc_mock_handle = bmc_mock::run_combined_mock(
         bmc_address_registry.clone(),
-        Some(certs_dir),
         Some(ListenerOrAddress::Listener(
             // let OS choose available port
             TcpListener::bind("127.0.0.1:0")?,
         )),
-    )?;
+        server_config,
+    );
 
     // For preingestion firmware checks to work, carbide needs a directory which exists to be
     // configured as the firmware_directory. It can be empty, because our mocks should be showing

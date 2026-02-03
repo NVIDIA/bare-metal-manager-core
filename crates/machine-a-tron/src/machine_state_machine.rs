@@ -16,9 +16,8 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use bmc_mock::{
-    BmcCommand, BmcMockError, HostMachineInfo, HostnameQuerying, MachineInfo, MockPowerState,
-    POWER_CYCLE_DELAY, PowerControl, SetSystemPowerError, SetSystemPowerReq, SetSystemPowerResult,
-    SystemPowerControl,
+    BmcCommand, HostMachineInfo, HostnameQuerying, MachineInfo, MockPowerState, POWER_CYCLE_DELAY,
+    PowerControl, SetSystemPowerError, SetSystemPowerResult, SystemPowerControl,
 };
 use carbide_uuid::machine::MachineId;
 use mac_address::MacAddress;
@@ -92,7 +91,7 @@ impl PowerControl for LiveStatePowerControl {
     ) -> Result<(), SetSystemPowerError> {
         self.command_channel
             .send(BmcCommand::SetSystemPower {
-                request: SetSystemPowerReq { reset_type },
+                request: reset_type,
                 reply: None,
             })
             .map_err(|err| SetSystemPowerError::CommandSendError(err.to_string()))
@@ -799,11 +798,11 @@ impl MachineStateMachine {
         Ok(())
     }
 
-    pub fn set_system_power(&mut self, request: SetSystemPowerReq) -> SetSystemPowerResult {
+    pub fn set_system_power(&mut self, request: SystemPowerControl) -> SetSystemPowerResult {
         let bmc_only = self.is_nic_mode_dpu();
         use SystemPowerControl::*;
         let (new_machine_state, new_power_state) = match (
-            request.reset_type,
+            request,
             self.live_state.read().unwrap().power_state,
         ) {
             // If we're off and we get an on or power-cycle signal, turn on.
@@ -816,7 +815,7 @@ impl MachineStateMachine {
                     tracing::debug!("Power cycling machine");
                 }
 
-                let new_power_state = match request.reset_type {
+                let new_power_state = match request {
                     PowerCycle => MockPowerState::PowerCycling {
                         since: Instant::now(),
                     },
@@ -1179,8 +1178,10 @@ pub enum MachineStateError {
     DhcpError(#[from] DhcpRelayError),
     #[error("Failed to get PXE response: {0}")]
     PxeError(#[from] PxeError),
-    #[error("Failed to run BMC mock: {0}")]
-    BmcMock(#[from] BmcMockError),
+    #[error("BMC mock TLS error: {0}")]
+    BmcMockTls(#[from] bmc_mock::tls::Error),
+    #[error("Mock SSH server error: {0}")]
+    MockSshServer(String),
     #[error("{0}")]
     WrongOsForMachine(String),
 }

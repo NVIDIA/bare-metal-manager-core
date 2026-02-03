@@ -12,10 +12,8 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::convert::Infallible;
-use std::ffi::OsStr;
 use std::future::Future;
 use std::net::{SocketAddr, TcpListener};
-use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,16 +23,12 @@ use axum::http::{Request, Response, StatusCode};
 use axum::{Router, ServiceExt};
 use axum_server::tls_rustls::RustlsConfig;
 use hyper::body::Incoming;
-use rustls::ServerConfig;
-use rustls::pki_types::PrivateKeyDer;
-use rustls_pemfile::Item;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tower::{Layer, Service};
 use tower_http::normalize_path::NormalizePathLayer;
-use tracing::{debug, error, info};
 
 mod bmc_state;
 mod bug;
@@ -43,23 +37,13 @@ mod machine_info;
 mod middleware_router;
 mod mock_machine_router;
 mod redfish;
-mod redfish_expander;
+pub mod tls;
 
 pub use machine_info::{DpuFirmwareVersions, DpuMachineInfo, HostMachineInfo, MachineInfo};
 pub use mock_machine_router::{
     BmcCommand, SetSystemPowerError, SetSystemPowerResult, machine_router,
 };
-pub use redfish_expander::wrap_router_with_redfish_expander;
-
-#[derive(thiserror::Error, Debug)]
-pub enum BmcMockError {
-    #[error("BMC Mock I/O error: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("BMC Mock Configuration error: {0}")]
-    Config(String),
-    #[error("Error running SSH server for BMC Mock: {0}")]
-    MockSshServer(String),
-}
+pub use redfish::expander::wrap_router_with_redfish_expander;
 
 #[derive(Debug)]
 pub struct BmcMockHandle {
@@ -99,12 +83,6 @@ impl BmcMockHandle {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
-#[serde(rename_all = "PascalCase")]
-pub struct SetSystemPowerReq {
-    pub reset_type: SystemPowerControl,
-}
-
 #[derive(Debug, Copy, Clone, Default)]
 pub enum MockPowerState {
     #[default]
@@ -120,7 +98,25 @@ pub trait PowerControl: std::fmt::Debug + Send + Sync {
     fn send_power_command(&self, reset_type: SystemPowerControl)
     -> Result<(), SetSystemPowerError>;
     fn set_power_state(&self, reset_type: SystemPowerControl) -> Result<(), SetSystemPowerError> {
-        validate_power_request(reset_type, self.get_power_state())?;
+        type C = SystemPowerControl;
+        match (reset_type, self.get_power_state()) {
+            (
+                C::GracefulShutdown | C::ForceOff | C::GracefulRestart | C::ForceRestart,
+                MockPowerState::Off,
+            ) => Err(SetSystemPowerError::BadRequest(
+                "bmc-mock: cannot power off machine, it is already off".to_string(),
+            )),
+            (C::On | C::ForceOn, MockPowerState::On) => Err(SetSystemPowerError::BadRequest(
+                "bmc-mock: cannot power on machine, it is already on".to_string(),
+            )),
+            (_, MockPowerState::PowerCycling { since }) if since.elapsed() < POWER_CYCLE_DELAY => {
+                Err(SetSystemPowerError::BadRequest(format!(
+                    "bmc-mock: cannot reset machine, it is in the middle of power cycling since {:?} ago",
+                    since.elapsed()
+                )))
+            }
+            _ => Ok(()),
+        }?;
         self.send_power_command(reset_type)
     }
 }
@@ -175,75 +171,17 @@ pub enum SystemPowerControl {
     Resume,
 }
 
-pub fn validate_power_request(
-    reset_type: SystemPowerControl,
-    power_state: MockPowerState,
-) -> Result<(), SetSystemPowerError> {
-    type C = SystemPowerControl;
-    match (reset_type, power_state) {
-        (
-            C::GracefulShutdown | C::ForceOff | C::GracefulRestart | C::ForceRestart,
-            MockPowerState::Off,
-        ) => Err(SetSystemPowerError::BadRequest(
-            "bmc-mock: cannot power off machine, it is already off".to_string(),
-        )),
-        (C::On | C::ForceOn, MockPowerState::On) => Err(SetSystemPowerError::BadRequest(
-            "bmc-mock: cannot power on machine, it is already on".to_string(),
-        )),
-        (_, MockPowerState::PowerCycling { since }) if since.elapsed() < POWER_CYCLE_DELAY => {
-            Err(SetSystemPowerError::BadRequest(format!(
-                "bmc-mock: cannot reset machine, it is in the middle of power cycling since {:?} ago",
-                since.elapsed()
-            )))
-        }
-        _ => Ok(()),
-    }
-}
-
 /// Mock multiple BMCs while listening on a single IP/port.
 ///
 /// Information on what machine to mock will be passed by carbide via the `x-really-to-mac` HTTP header,
 /// which will be used to route the request to the appropriate entry in the `bmc_routers_by_mac_address`
 /// table.
-pub fn run_combined_mock<T: AsRef<OsStr>>(
+pub fn run_combined_mock(
     bmc_routers_by_ip_address: Arc<RwLock<HashMap<String, Router>>>,
-    cert_path: Option<T>,
     listener_or_address: Option<ListenerOrAddress>,
-) -> Result<BmcMockHandle, BmcMockError> {
-    let cert_path = match cert_path.as_ref() {
-        Some(cert_path) => Path::new(cert_path),
-        None => {
-            let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-            match manifest_dir.try_exists() {
-                Ok(true) => manifest_dir,
-                Ok(false) => Path::new("/opt/carbide"),
-                Err(error) => {
-                    return Err(BmcMockError::Config(format!(
-                        "Could not determine if CARGO_MANIFEST_DIR exists: {error}"
-                    )));
-                }
-            }
-        }
-    };
-
-    let mut cert_file = cert_path.join("tls.crt");
-    let mut key_file = cert_path.join("tls.key");
-    if !cert_file.exists() {
-        // let's try once more. This can be docker-compose case.
-        let root_var =
-            std::env::var("REPO_ROOT").expect("Could not find the crt file for bmc-mock.");
-        let root_dir = Path::new(&root_var);
-        let cert_path = root_dir.join("crates/bmc-mock");
-        cert_file = cert_path.join("tls.crt");
-        key_file = cert_path.join("tls.key");
-    }
-    info!("Loading {:?} and {:?}", cert_file, key_file);
-    let tls_config = make_rustls_server_config(
-        std::fs::read(cert_file)?.as_slice(),
-        std::fs::read(key_file)?.as_slice(),
-    )
-    .map_err(|e| BmcMockError::Config(format!("Error building rustls config: {e}")))?;
-    let config = RustlsConfig::from_config(Arc::new(tls_config));
+    server_config: rustls::ServerConfig,
+) -> BmcMockHandle {
+    let config = RustlsConfig::from_config(Arc::new(server_config));
 
     let axum_handle = axum_server::Handle::new();
 
@@ -264,7 +202,7 @@ pub fn run_combined_mock<T: AsRef<OsStr>>(
             )
         }
     };
-    debug!("Listening on {}", addr);
+    tracing::info!("Listening on {}", addr);
 
     let bmc_service = BmcService {
         routers: bmc_routers_by_ip_address,
@@ -285,11 +223,11 @@ pub fn run_combined_mock<T: AsRef<OsStr>>(
             Ok(())
         })
         .expect("tokio spawn error");
-    Ok(BmcMockHandle {
+    BmcMockHandle {
         axum_handle,
         join_handle: Some(join_handle),
         address: addr,
-    })
+    }
 }
 
 pub enum ListenerOrAddress {
@@ -377,36 +315,4 @@ async fn call_router_with_new_request(
     let inner_request = rb.body(body).unwrap();
 
     router.call(inner_request).await.expect("Infallible error")
-}
-
-// Note: Axum has a simple RustlsConfig::from_pem we could use, but it constructs a rustls
-// ServerConfig without a default crypto provider. So we have to make our own rustls::ServerConfig
-// and pass that to RustlsConfig::from.
-fn make_rustls_server_config(tls_cert: &[u8], tls_key: &[u8]) -> eyre::Result<ServerConfig> {
-    let certs =
-        rustls_pemfile::certs(&mut tls_cert.to_vec().as_ref()).collect::<Result<Vec<_>, _>>()?;
-
-    // Check the entire PEM file for the key in case it is not first section
-    let key = rustls_pemfile::read_all(&mut tls_key.to_vec().as_ref())
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .filter_map(|i| match i {
-            Item::Sec1Key(key) => Some(key.secret_sec1_der().to_vec()),
-            Item::Pkcs1Key(key) => Some(key.secret_pkcs1_der().to_vec()),
-            Item::Pkcs8Key(key) => Some(key.secret_pkcs8_der().to_vec()),
-            _ => None,
-        })
-        .map(|data| PrivateKeyDer::try_from(data).map_err(|s| eyre::eyre!("{s}")))
-        .next()
-        .ok_or(eyre::eyre!("No keys in key file"))??;
-
-    let mut server_config =
-        ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-            .with_safe_default_protocol_versions()
-            .unwrap()
-            .with_no_client_auth()
-            .with_single_cert(certs, key)?;
-    // This is what axum is normally doing for you
-    server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-    Ok(server_config)
 }

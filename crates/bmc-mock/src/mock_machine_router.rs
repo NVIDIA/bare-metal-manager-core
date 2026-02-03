@@ -10,21 +10,20 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::HashMap;
-use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use axum::routing::get;
 use axum::{Json, Router};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 
 use crate::bmc_state::BmcState;
 use crate::bug::InjectedBugs;
 use crate::json::JsonExt;
 use crate::redfish::manager::ManagerState;
-use crate::{MachineInfo, PowerControl, SetSystemPowerReq, middleware_router};
+use crate::{MachineInfo, PowerControl, SystemPowerControl, middleware_router};
 
 #[derive(Clone)]
 pub(crate) struct MockWrapperState {
@@ -35,7 +34,7 @@ pub(crate) struct MockWrapperState {
 #[derive(Debug)]
 pub enum BmcCommand {
     SetSystemPower {
-        request: SetSystemPowerReq,
+        request: SystemPowerControl,
         reply: Option<oneshot::Sender<SetSystemPowerResult>>,
     },
 }
@@ -117,37 +116,6 @@ pub fn machine_router(
         },
     });
     middleware_router::append(mat_host_id, router, injected_bugs)
-}
-
-#[derive(thiserror::Error, Debug)]
-pub(crate) enum MockWrapperError {
-    #[error("Serde error: {0}")]
-    Serde(#[from] serde_json::Error),
-    #[error("Axum error on inner request: {0}")]
-    Axum(#[from] axum::Error),
-    #[error("Infallible error: {0}")]
-    Infallible(#[from] Infallible),
-    #[error("{0}")]
-    SetSystemPower(#[from] SetSystemPowerError),
-    #[error("Error sending to BMC command channel: {0}")]
-    BmcCommandSendError(#[from] mpsc::error::SendError<BmcCommand>),
-    #[error("Error receiving from BMC command channel: {0}")]
-    BmcCommandReceiveError(#[from] oneshot::error::RecvError),
-}
-
-impl IntoResponse for MockWrapperError {
-    fn into_response(self) -> axum::response::Response {
-        match self {
-            MockWrapperError::SetSystemPower(e) => {
-                let status = match e {
-                    SetSystemPowerError::BadRequest(_) => StatusCode::BAD_REQUEST,
-                    SetSystemPowerError::CommandSendError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-                };
-                (status, e.to_string()).into_response()
-            }
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()).into_response(),
-        }
-    }
 }
 
 async fn get_injected_bugs(State(state): State<MockWrapperState>) -> Response {

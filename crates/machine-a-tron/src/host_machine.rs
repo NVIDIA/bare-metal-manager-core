@@ -15,8 +15,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use bmc_mock::{
-    BmcCommand, HostMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult,
-    SystemPowerControl,
+    BmcCommand, HostMachineInfo, MachineInfo, SetSystemPowerResult, SystemPowerControl,
 };
 use carbide_uuid::machine::MachineId;
 use eyre::Context;
@@ -357,16 +356,16 @@ impl HostMachine {
         }
     }
 
-    fn set_system_power(&mut self, request: SetSystemPowerReq) -> SetSystemPowerResult {
+    fn set_system_power(&mut self, request: SystemPowerControl) -> SetSystemPowerResult {
         tracing::debug!("Host set_system_power request: {request:?}");
 
-        match request.reset_type {
+        match request {
             // Force-restart does not restart DPUs
             SystemPowerControl::ForceRestart => {}
             // Other power actions happen on the DPUs too (power cycle, force-off, etc.)
             _ => {
                 // Graceful restart might not restart DPUs if an OS is running (let's emulate that)
-                if matches!(request.reset_type, SystemPowerControl::GracefulRestart)
+                if matches!(request, SystemPowerControl::GracefulRestart)
                     && self.live_state.read().unwrap().booted_os.0.is_some()
                 {
                     tracing::debug!(

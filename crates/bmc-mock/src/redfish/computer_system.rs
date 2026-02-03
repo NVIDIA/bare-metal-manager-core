@@ -22,8 +22,8 @@ use axum::routing::{get, patch, post};
 use serde_json::json;
 
 use crate::json::{JsonExt, JsonPatch, json_patch};
-use crate::mock_machine_router::{MockWrapperError, MockWrapperState};
-use crate::{MockPowerState, POWER_CYCLE_DELAY, PowerControl, redfish};
+use crate::mock_machine_router::MockWrapperState;
+use crate::{MockPowerState, POWER_CYCLE_DELAY, PowerControl, SetSystemPowerError, redfish};
 
 pub fn collection() -> redfish::Collection<'static> {
     redfish::Collection {
@@ -327,10 +327,13 @@ async fn post_reset_system(
     // introduce a deadlock if the API server holds a lock on the row for this machine
     // while issuing a redfish call, and MachineStateMachine is blocked waiting for the row lock
     // to be released.
-    power_control
-        .set_power_state(reset_type)
-        .map_err(MockWrapperError::from)
-        .into_response()
+    match power_control.set_power_state(reset_type) {
+        Ok(_) => json!({}).into_ok_response(),
+        Err(SetSystemPowerError::BadRequest(_)) => StatusCode::BAD_REQUEST.into_response(),
+        Err(SetSystemPowerError::CommandSendError(_)) => {
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
 async fn get_secure_boot(
@@ -449,8 +452,6 @@ async fn patch_bios_settings(
     };
     match system_state.config.bios_mode {
         BiosMode::DellOem => {
-            // TODO: this is Dell-specific implementation. Need to be
-            // refactoried to be generic.
             // Clear is transformed to Enabled state after reboot. Check if we
             // need to apply this logic here.
             const TPM2_HIERARCHY: &str = "Tpm2Hierarchy";

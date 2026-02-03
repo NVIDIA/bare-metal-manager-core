@@ -21,7 +21,7 @@ use std::sync::Arc;
 use axum::Router;
 use bmc_mock::{
     BmcCommand, DpuMachineInfo, HostMachineInfo, ListenerOrAddress, MachineInfo, MockPowerState,
-    PowerControl, SetSystemPowerError, SetSystemPowerReq, SystemPowerControl,
+    PowerControl, SetSystemPowerError, SystemPowerControl,
 };
 use tar_router::TarGzOption;
 use tokio::sync::{RwLock, mpsc};
@@ -88,11 +88,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     routers_by_ip.insert("".to_owned(), router);
 
+    let server_config = bmc_mock::tls::server_config(args.cert_path)?;
     let mut handle = bmc_mock::run_combined_mock(
         Arc::new(RwLock::new(routers_by_ip)),
-        args.cert_path,
         listen_addr.map(ListenerOrAddress::Address),
-    )?;
+        server_config,
+    );
     handle.wait().await?;
     Ok(())
 }
@@ -176,7 +177,7 @@ impl PowerControl for ChannelPowerControl {
     ) -> Result<(), SetSystemPowerError> {
         self.command_channel
             .send(BmcCommand::SetSystemPower {
-                request: SetSystemPowerReq { reset_type },
+                request: reset_type,
                 reply: None,
             })
             .map_err(|err| SetSystemPowerError::CommandSendError(err.to_string()))
