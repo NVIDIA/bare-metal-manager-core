@@ -582,14 +582,16 @@ async fn test_find_switch_with_ip_addresses_no_matching_data(
 async fn test_find_switch_with_include_addresses_matching_data(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use db::expected_switch as db_expected_switch;
-    use db::machine_interface as db_machine_interface;
-    use db::network_segment as db_network_segment;
+    use std::collections::HashMap;
+
+    use db::{
+        expected_switch as db_expected_switch, machine_interface as db_machine_interface,
+        network_segment as db_network_segment,
+    };
     use mac_address::MacAddress;
     use model::address_selection_strategy::AddressSelectionStrategy;
     use model::metadata::Metadata;
     use model::network_segment::NetworkSegmentType;
-    use std::collections::HashMap;
 
     let env = create_test_env(pool).await;
 

@@ -268,7 +268,7 @@ pub async fn find_switch_addresses(
         JOIN machine_interfaces mi ON mi.mac_address = es.bmc_mac_address
         JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
         JOIN network_segments ns ON ns.id = mi.segment_id
-        WHERE ns.network_segment_type = 'Underlay'
+        WHERE ns.network_segment_type = 'underlay'
     "#;
 
     sqlx::query_as(sql)
