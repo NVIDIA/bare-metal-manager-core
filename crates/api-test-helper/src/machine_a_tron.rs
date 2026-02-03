@@ -13,7 +13,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use bmc_mock::TarGzOption;
 use forge_tls::client_config::get_forge_root_ca_path;
 use futures::future::try_join_all;
 use machine_a_tron::{
@@ -40,11 +39,6 @@ pub async fn run_local(
 ) -> eyre::Result<(Vec<HostMachineHandle>, MachineATronHandle)> {
     let forge_root_ca_path = get_forge_root_ca_path(None, None); // Will get it from the local repo
     let forge_client_config = ForgeClientConfig::new(forge_root_ca_path.clone(), None);
-
-    let dpu_tar_router =
-        bmc_mock::tar_router(TarGzOption::Disk(&app_config.bmc_mock_dpu_tar), None)?;
-    let host_tar_router =
-        bmc_mock::tar_router(TarGzOption::Disk(&app_config.bmc_mock_host_tar), None)?;
 
     let api_config = ApiConfig::new_with_multiple_urls(
         &app_config.carbide_api_url,
@@ -85,8 +79,6 @@ pub async fn run_local(
         app_config,
         forge_client_config,
         bmc_mock_certs_dir: Some(repo_root.join("crates/bmc-mock")),
-        host_tar_router,
-        dpu_tar_router,
         api_throttler,
         desired_firmware_versions: desired_firmware,
         forge_api_client,

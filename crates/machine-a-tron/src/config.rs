@@ -15,7 +15,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::Router;
 use bmc_mock::{DpuMachineInfo, HostMachineInfo};
 use carbide_uuid::machine::MachineId;
 use clap::Parser;
@@ -199,10 +198,6 @@ pub struct MachineATronConfig {
     #[serde(default = "default_false")]
     pub use_single_bmc_mock: bool,
 
-    #[serde(default = "default_bmc_mock_host_tar")]
-    pub bmc_mock_host_tar: PathBuf,
-    #[serde(default = "default_bmc_mock_dpu_tar")]
-    pub bmc_mock_dpu_tar: PathBuf,
     #[serde(default = "default_false")]
     pub use_pxe_api: bool,
     pub pxe_server_host: Option<String>,
@@ -356,13 +351,6 @@ fn default_bmc_mock_port() -> u16 {
     2000
 }
 
-fn default_bmc_mock_host_tar() -> PathBuf {
-    PathBuf::from("dev/bmc-mock/dell_poweredge_r750.tar.gz")
-}
-fn default_bmc_mock_dpu_tar() -> PathBuf {
-    PathBuf::from("dev/bmc-mock/nvidia_dpu.tar.gz")
-}
-
 fn default_template_dir() -> String {
     String::from("dev/machine-a-tron/templates")
 }
@@ -402,8 +390,6 @@ pub struct MachineATronContext {
     pub app_config: MachineATronConfig,
     pub forge_client_config: ForgeClientConfig,
     pub bmc_mock_certs_dir: Option<PathBuf>,
-    pub host_tar_router: Router,
-    pub dpu_tar_router: Router,
     pub bmc_registration_mode: BmcRegistrationMode,
     pub api_throttler: ApiThrottler,
     /// These are the firmware versions the server wants us to be on. If not configured for other

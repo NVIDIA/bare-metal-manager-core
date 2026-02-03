@@ -15,10 +15,10 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use crate::redfish;
 use crate::redfish::update_service::UpdateServiceConfig;
-
 static NEXT_MAC_ADDRESS: AtomicU32 = AtomicU32::new(1);
 
 /// Represents static information we know ahead of time about a host or DPU (independent of any
@@ -194,6 +194,27 @@ impl MachineInfo {
                                 .display_name("Unavailable: ubuntu")
                                 .build(),
                         ],
+                        bios_mode: redfish::computer_system::BiosMode::DellOem,
+                        base_bios: redfish::bios::builder(&redfish::bios::resource(system_id))
+                            .attributes(json!({
+                                "BootSeqRetry": "Disabled",
+                                "SetBootOrderEn": "NIC.HttpDevice.1-1,Disk.Bay.2:Enclosure.Internal.0-1",
+                                "InBandManageabilityInterface": "Enabled",
+                                "UefiVariableAccess": "Standard",
+                                "SerialComm": "OnConRedir",
+                                "SerialPortAddress": "Com1",
+                                "FailSafeBaud": "115200",
+                                "ConTermType": "Vt100Vt220",
+                                "RedirAfterBoot": "Enabled",
+                                "SriovGlobalEnable": "Enabled",
+                                "TpmSecurity": "On",
+                                "Tpm2Algorithm": "SHA256",
+                                "Tpm2Hierarchy": "Enabled",
+                                "HttpDev1EnDis": "Enabled",
+                                "PxeDev1EnDis": "Disabled",
+                                "HttpDev1Interface": "NIC.Slot.5-1",
+                            }))
+                            .build(),
                     }],
                 }
             }
@@ -208,6 +229,7 @@ impl MachineInfo {
                     .to_string()
                     .replace(':', "")
                     .to_ascii_uppercase();
+                let nic_mode = if dpu.nic_mode { "NicMode" } else { "DpuMode" };
                 redfish::computer_system::SystemConfig {
                     systems: vec![redfish::computer_system::SingleSystemConfig {
                         id: Cow::Borrowed("Bluefield"),
@@ -242,6 +264,14 @@ impl MachineInfo {
                                 .uefi_device_path(&format!("PciRoot(0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)/MAC({mocked_mac_no_colons},0x1)/IPv6(0000:0000:0000:0000:0000:0000:0000:0000,0x0,Static,0000:0000:0000:0000:0000:0000:0000:0000,0x40,0000:0000:0000:0000:0000:0000:0000:0000)"))
                                 .build()
                         ],
+                        bios_mode: redfish::computer_system::BiosMode::Generic,
+                        base_bios: redfish::bios::builder(&redfish::bios::resource(system_id))
+                            .attributes(json!({
+                                "NicMode": nic_mode,
+                                "HostPrivilegeLevel": "Unavailable",
+                                "InternalCPUModel": "Unavailable",
+                            }))
+                            .build(),
                     }],
                 }
             }

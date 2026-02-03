@@ -236,11 +236,11 @@ mod tests {
     use serde_json::Value;
     use tower::Service;
 
-    use crate::{default_host_tar_router, wrap_router_with_redfish_expander};
+    use crate::{default_host_mock, wrap_router_with_redfish_expander};
 
     #[tokio::test]
     async fn test_expand() {
-        let tar_router = default_host_tar_router(None);
+        let tar_router = default_host_mock();
         let mut subject = wrap_router_with_redfish_expander(tar_router.clone());
 
         let response_body = subject

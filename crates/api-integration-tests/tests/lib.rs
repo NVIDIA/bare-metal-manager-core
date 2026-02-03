@@ -584,14 +584,6 @@ where
         )]),
         carbide_api_url: format!("https://{}:{}", api_addr.ip(), api_addr.port()),
         log_file: None,
-        bmc_mock_host_tar: PathBuf::from(format!(
-            "{}/crates/bmc-mock/dell_poweredge_r750.tar.gz",
-            test_env.root_dir.to_string_lossy()
-        )),
-        bmc_mock_dpu_tar: PathBuf::from(format!(
-            "{}/crates/bmc-mock/nvidia_dpu.tar.gz",
-            test_env.root_dir.to_string_lossy()
-        )),
         use_pxe_api: true,
         pxe_server_host: None,
         pxe_server_port: None,

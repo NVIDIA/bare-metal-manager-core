@@ -10,13 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use bmc_mock::{BmcMockHandle, HostnameQuerying, ListenerOrAddress, TarGzOption};
+use bmc_mock::{BmcMockHandle, HostnameQuerying, ListenerOrAddress};
 use clap::Parser;
 use figment::Figment;
 use figment::providers::{Format, Toml};
@@ -101,18 +100,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ForgeClientConfig::new(forge_root_ca_path.clone(), Some(forge_client_cert));
     forge_client_config.socks_proxy(proxy);
 
-    let dpu_tar_router =
-        bmc_mock::tar_router(TarGzOption::Disk(&app_config.bmc_mock_dpu_tar), None)?;
-    let mut host_redfish_decompressed = HashMap::new();
-    let host_tar_router = bmc_mock::tar_router(
-        TarGzOption::Disk(&app_config.bmc_mock_host_tar),
-        Some(&mut host_redfish_decompressed),
-    )?;
-    let host_redfish_routes = host_redfish_decompressed
-        .into_values()
-        .next()
-        .expect("router creation should cache routes");
-
     let bmc_registration_mode = if app_config.use_single_bmc_mock {
         // Machines will register their BMC's with the shared registry
         BmcRegistrationMode::BackingInstance(BmcMockRegistry::default())
@@ -147,8 +134,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         app_config,
         forge_client_config,
         bmc_mock_certs_dir: None,
-        host_tar_router,
-        dpu_tar_router,
         bmc_registration_mode,
         api_throttler,
         desired_firmware_versions,
@@ -223,7 +208,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let (ui_tx, ui_rx) = mpsc::channel(5000);
         let (quit_tx, quit_rx) = mpsc::channel(1);
 
-        let host_redfish_routes = host_redfish_routes.clone();
+        let host_redfish_routes = Default::default();
         let tui_handle = Some(tokio::spawn(async {
             let mut tui = Tui::new(ui_rx, quit_rx, app_tx, host_redfish_routes, tui_host_logs);
             _ = tui.run().await.inspect_err(|e| {

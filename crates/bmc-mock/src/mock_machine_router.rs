@@ -13,9 +13,8 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
-use axum::body::Body;
 use axum::extract::State;
-use axum::http::{Method, Request, StatusCode, Uri};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
@@ -25,14 +24,11 @@ use crate::bmc_state::BmcState;
 use crate::bug::InjectedBugs;
 use crate::json::JsonExt;
 use crate::redfish::manager::ManagerState;
-use crate::{
-    MachineInfo, PowerControl, SetSystemPowerReq, call_router_with_new_request, middleware_router,
-};
+use crate::{MachineInfo, PowerControl, SetSystemPowerReq, middleware_router};
 
 #[derive(Clone)]
 pub(crate) struct MockWrapperState {
     pub machine_info: MachineInfo,
-    inner_router: Router,
     pub bmc_state: BmcState,
 }
 
@@ -66,14 +62,9 @@ impl AddRoutes for Router<MockWrapperState> {
     }
 }
 
-/// Return an axum::Router that mocks various redfish calls to match the provided MachineInfo.
-/// Any redfish calls not explicitly mocked will be delegated to inner_router (typically a tar_router.)
-///
-// TODO: This router is now more and more coupled to a particular tar_router (dell_poweredge_r750.tar.gz).
-// At this point this module no longer can be said to wrap any old tar router, but instead only works with
-// the Dell router. At the very least we may want to rename this module.
-pub fn wrap_router_with_mock_machine(
-    inner_router: Router,
+/// Return an axum::Router that mocks various redfish calls to match
+/// the provided MachineInfo.
+pub fn machine_router(
     machine_info: MachineInfo,
     power_control: Arc<dyn PowerControl>,
     mat_host_id: String,
@@ -94,8 +85,7 @@ pub fn wrap_router_with_mock_machine(
         .add_routes(crate::redfish::update_service::add_routes)
         .add_routes(crate::redfish::task_service::add_routes)
         .add_routes(crate::redfish::account_service::add_routes)
-        .add_routes(|routes| crate::redfish::computer_system::add_routes(routes, bmc_vendor))
-        .add_routes(crate::redfish::bios::add_routes);
+        .add_routes(|routes| crate::redfish::computer_system::add_routes(routes, bmc_vendor));
     let router = match &machine_info {
         MachineInfo::Dpu(_) => {
             router.add_routes(crate::redfish::oem::nvidia::bluefield::add_routes)
@@ -115,7 +105,6 @@ pub fn wrap_router_with_mock_machine(
     let injected_bugs = Arc::new(InjectedBugs::default());
     let router = router.with_state(MockWrapperState {
         machine_info,
-        inner_router,
         bmc_state: BmcState {
             bmc_vendor,
             jobs: Arc::new(Mutex::new(HashMap::new())),
@@ -123,40 +112,11 @@ pub fn wrap_router_with_mock_machine(
             system_state,
             chassis_state,
             update_service_state,
-            bios: Arc::new(Mutex::new(serde_json::json!({}))),
             dell_attrs: Arc::new(Mutex::new(serde_json::json!({}))),
             injected_bugs: injected_bugs.clone(),
         },
     });
     middleware_router::append(mat_host_id, router, injected_bugs)
-}
-
-impl MockWrapperState {
-    /// See docs in `call_router_with_new_request`
-    pub(crate) async fn call_inner_router(
-        &mut self,
-        request: Request<Body>,
-    ) -> Result<serde_json::Value, MockWrapperError> {
-        let (method, uri) = (request.method().clone(), request.uri().clone());
-        let response = self.proxy_inner(request).await;
-        let status = response.status();
-        let response_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
-        if !status.is_success() {
-            Err(MockWrapperError::InnerRequest(
-                method,
-                Box::new(uri),
-                status,
-                String::from_utf8_lossy(&response_bytes).to_string(),
-            ))
-        } else {
-            serde_json::from_slice::<serde_json::Value>(&response_bytes)
-                .map_err(MockWrapperError::from)
-        }
-    }
-
-    pub(crate) async fn proxy_inner(&mut self, request: Request<Body>) -> Response {
-        call_router_with_new_request(&mut self.inner_router, request).await
-    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -167,8 +127,6 @@ pub(crate) enum MockWrapperError {
     Axum(#[from] axum::Error),
     #[error("Infallible error: {0}")]
     Infallible(#[from] Infallible),
-    #[error("Inner request {0} {1} failed with HTTP error {2}: {3}")]
-    InnerRequest(Method, Box<Uri>, StatusCode, String),
     #[error("{0}")]
     SetSystemPower(#[from] SetSystemPowerError),
     #[error("Error sending to BMC command channel: {0}")]
@@ -179,16 +137,7 @@ pub(crate) enum MockWrapperError {
 
 impl IntoResponse for MockWrapperError {
     fn into_response(self) -> axum::response::Response {
-        // Don't log errors if the upstream request was the one that failed
-        if !matches!(self, MockWrapperError::InnerRequest(_, _, _, _)) {
-            tracing::error!("Mock machine router failure: {}", self.to_string());
-        }
-
         match self {
-            MockWrapperError::InnerRequest(_, _, status_code, body_bytes) => {
-                // Use the error's status code instead of INTERNAL_SERVER_ERROR
-                (status_code, body_bytes).into_response()
-            }
             MockWrapperError::SetSystemPower(e) => {
                 let status = match e {
                     SetSystemPowerError::BadRequest(_) => StatusCode::BAD_REQUEST,

@@ -47,17 +47,8 @@ impl BmcMockWrapper {
         hostname: Arc<dyn HostnameQuerying>,
         host_id: Uuid,
     ) -> Self {
-        let tar_router = match machine_info {
-            MachineInfo::Dpu(_) => app_context.dpu_tar_router.clone(),
-            MachineInfo::Host(_) => app_context.host_tar_router.clone(),
-        };
-
-        let bmc_mock_router = bmc_mock::wrap_router_with_mock_machine(
-            tar_router,
-            machine_info.clone(),
-            power_control,
-            host_id.to_string(),
-        );
+        let bmc_mock_router =
+            bmc_mock::machine_router(machine_info.clone(), power_control, host_id.to_string());
 
         BmcMockWrapper {
             machine_info,

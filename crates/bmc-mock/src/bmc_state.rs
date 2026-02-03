@@ -57,7 +57,6 @@ pub struct BmcState {
     pub system_state: Arc<SystemState>,
     pub chassis_state: Arc<ChassisState>,
     pub update_service_state: Arc<UpdateServiceState>,
-    pub bios: Arc<Mutex<serde_json::Value>>,
     pub dell_attrs: Arc<Mutex<serde_json::Value>>,
     pub injected_bugs: Arc<InjectedBugs>,
 }
@@ -107,17 +106,6 @@ impl BmcState {
             job.end_time = Some(chrono::offset::Utc::now());
             jobs.insert(job.job_id.clone(), job);
         }
-    }
-
-    pub fn update_bios(&mut self, v: serde_json::Value) {
-        let mut bios = self.bios.lock().unwrap();
-        json_patch(&mut bios, v);
-    }
-
-    pub fn get_bios(&self, mut base: serde_json::Value) -> serde_json::Value {
-        let bios = self.bios.lock().unwrap();
-        json_patch(&mut base, bios.clone());
-        base
     }
 
     pub fn update_dell_attrs(&mut self, v: serde_json::Value) {

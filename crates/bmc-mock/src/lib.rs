@@ -16,7 +16,7 @@ use std::ffi::OsStr;
 use std::future::Future;
 use std::io::ErrorKind;
 use std::net::{SocketAddr, TcpListener};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::pin::Pin;
 use std::process::Command;
 use std::sync::Arc;
@@ -50,12 +50,10 @@ mod tar_router;
 
 pub use machine_info::{DpuFirmwareVersions, DpuMachineInfo, HostMachineInfo, MachineInfo};
 pub use mock_machine_router::{
-    BmcCommand, SetSystemPowerError, SetSystemPowerResult, wrap_router_with_mock_machine,
+    BmcCommand, SetSystemPowerError, SetSystemPowerResult, machine_router,
 };
 pub use redfish_expander::wrap_router_with_redfish_expander;
 pub use tar_router::{EntryMap, TarGzOption, tar_router};
-
-static DEFAULT_HOST_MOCK_TAR: &[u8] = include_bytes!("../dell_poweredge_r750.tar.gz");
 
 #[derive(thiserror::Error, Debug)]
 pub enum BmcMockError {
@@ -361,18 +359,10 @@ impl Service<axum::http::Request<Incoming>> for BmcService {
     }
 }
 
-pub fn default_host_tar_router(
-    tar_router_entries: Option<&mut HashMap<PathBuf, EntryMap>>,
-) -> Router {
-    let tar_router = tar_router(
-        TarGzOption::Memory(DEFAULT_HOST_MOCK_TAR),
-        tar_router_entries,
-    )
-    .unwrap();
+pub fn default_host_mock() -> Router {
     let command_channel = spawn_qemu_reboot_handler();
     let power_control = Arc::new(ChannelPowerControl::new(command_channel));
-    wrap_router_with_mock_machine(
-        tar_router,
+    machine_router(
         MachineInfo::Host(HostMachineInfo::new(vec![DpuMachineInfo::default()])),
         power_control,
         String::default(),

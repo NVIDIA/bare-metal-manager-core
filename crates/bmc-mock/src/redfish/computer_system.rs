@@ -21,7 +21,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use serde_json::json;
 
-use crate::json::{JsonExt, JsonPatch};
+use crate::json::{JsonExt, JsonPatch, json_patch};
 use crate::mock_machine_router::{MockWrapperError, MockWrapperState};
 use crate::{MockPowerState, POWER_CYCLE_DELAY, PowerControl, redfish};
 
@@ -57,6 +57,7 @@ pub fn add_routes(
     const SYSTEM_ID: &str = "{system_id}";
     const ETH_ID: &str = "{eth_id}";
     const BOOT_OPTION_ID: &str = "{boot_option_id}";
+    let bios = redfish::bios::resource(SYSTEM_ID);
     r.route(&collection().odata_id, get(get_system_collection))
         .route(
             &resource(SYSTEM_ID).odata_id,
@@ -87,6 +88,15 @@ pub fn add_routes(
             &redfish::boot_option::resource(SYSTEM_ID, BOOT_OPTION_ID).odata_id,
             get(get_boot_option),
         )
+        .route(&bios.odata_id, get(get_bios))
+        .route(
+            &bmc_vendor.make_settings_odata_id(&bios),
+            patch(patch_bios_settings),
+        )
+        .route(
+            &redfish::bios::change_password_target(&bios),
+            post(change_bios_password_action),
+        )
 }
 
 pub struct SingleSystemConfig {
@@ -97,6 +107,8 @@ pub struct SingleSystemConfig {
     pub power_control: Option<Arc<dyn PowerControl>>,
     pub chassis: Vec<Cow<'static, str>>,
     pub boot_options: Vec<redfish::boot_option::BootOption>,
+    pub bios_mode: BiosMode,
+    pub base_bios: serde_json::Value,
 }
 
 pub struct SystemConfig {
@@ -111,10 +123,17 @@ pub struct SingleSystemState {
     config: SingleSystemConfig,
     boot_order_override: Mutex<Option<Vec<String>>>,
     secure_boot_enabled: Arc<AtomicBool>,
+    bios_overrides: Arc<Mutex<serde_json::Value>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BootOrderMode {
+    DellOem,
+    Generic,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BiosMode {
     DellOem,
     Generic,
 }
@@ -146,6 +165,7 @@ impl SingleSystemState {
             config,
             boot_order_override: Mutex::new(None),
             secure_boot_enabled: Arc::new(AtomicBool::new(false)),
+            bios_overrides: Arc::new(Mutex::new(serde_json::json!({}))),
         }
     }
 
@@ -185,6 +205,7 @@ async fn get_system(
         .ethernet_interfaces(redfish::ethernet_interface::system_collection(&system_id))
         .serial_number(&system_state.config.serial_number)
         .boot_options(&redfish::boot_option::collection(&system_id))
+        .bios(&redfish::bios::resource(&system_id))
         .link_chassis(&system_state.config.chassis);
 
     if let Some(state) = system_state
@@ -395,6 +416,79 @@ async fn get_boot_option(
         .unwrap_or_else(not_found)
 }
 
+async fn get_bios(
+    State(state): State<MockWrapperState>,
+    Path(system_id): Path<String>,
+) -> Response {
+    state
+        .bmc_state
+        .system_state
+        .find(&system_id)
+        .map(|system_state| {
+            let overrides = system_state
+                .bios_overrides
+                .lock()
+                .expect("mutex is poisoned");
+            system_state
+                .config
+                .base_bios
+                .clone()
+                .patch(overrides.clone())
+                .into_ok_response()
+        })
+        .unwrap_or_else(not_found)
+}
+
+async fn patch_bios_settings(
+    State(state): State<MockWrapperState>,
+    Path(system_id): Path<String>,
+    Json(patch_bios_request): Json<serde_json::Value>,
+) -> Response {
+    let Some(system_state) = state.bmc_state.system_state.find(&system_id) else {
+        return not_found();
+    };
+    match system_state.config.bios_mode {
+        BiosMode::DellOem => {
+            // TODO: this is Dell-specific implementation. Need to be
+            // refactoried to be generic.
+            // Clear is transformed to Enabled state after reboot. Check if we
+            // need to apply this logic here.
+            const TPM2_HIERARCHY: &str = "Tpm2Hierarchy";
+            const ATTRIBUTES: &str = "Attributes";
+            let tpm2_clear_to_enabled = patch_bios_request
+                .as_object()
+                .and_then(|obj| obj.get(ATTRIBUTES))
+                .and_then(|v| v.as_object())
+                .and_then(|obj| obj.get(TPM2_HIERARCHY))
+                .and_then(|v| v.as_str())
+                .is_some_and(|v| v == "Clear");
+            let patch_bios_request = if tpm2_clear_to_enabled {
+                patch_bios_request.patch(json!({ATTRIBUTES: {
+                    TPM2_HIERARCHY: "Enabled"
+                }}))
+            } else {
+                patch_bios_request
+            };
+            json_patch(
+                &mut system_state.bios_overrides.lock().expect("mutex poisoned"),
+                patch_bios_request,
+            );
+            redfish::oem::dell::idrac::create_job_with_location(state)
+        }
+        BiosMode::Generic => {
+            json_patch(
+                &mut system_state.bios_overrides.lock().expect("mutex poisoned"),
+                patch_bios_request,
+            );
+            json!({}).into_ok_response()
+        }
+    }
+}
+
+async fn change_bios_password_action(Path(_system_id): Path<String>) -> Response {
+    json!({}).into_ok_response()
+}
+
 fn not_found() -> Response {
     json!("").into_response(StatusCode::NOT_FOUND)
 }
@@ -429,6 +523,10 @@ impl SystemBuilder {
     pub fn pcie_devices(self, devices: &[redfish::Resource<'_>]) -> Self {
         let devices = devices.iter().map(|r| r.entity_ref()).collect::<Vec<_>>();
         self.apply_patch(json!({"PCIeDevices": devices}))
+    }
+
+    pub fn bios(self, resource: &redfish::Resource<'_>) -> Self {
+        self.apply_patch(resource.nav_property("Bios"))
     }
 
     pub fn power_state(self, state: MockPowerState) -> Self {

@@ -75,8 +75,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("Using archive {} as default", tar_path.to_string_lossy());
         bmc_mock::tar_router(TarGzOption::Disk(&tar_path), Some(&mut tar_router_entries)).unwrap()
     } else {
-        info!("Using default targz handler");
-        bmc_mock::default_host_tar_router(Some(&mut tar_router_entries))
+        info!("Using default BMC mock");
+        bmc_mock::default_host_mock()
     };
 
     routers_by_ip.insert("".to_owned(), router);
