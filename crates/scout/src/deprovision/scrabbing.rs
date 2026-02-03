@@ -124,28 +124,21 @@ fn select_best_lba_format(
     lbafs: &[NvmeLbaFormat],
     target_ds: u8,
 ) -> Option<(usize, &NvmeLbaFormat)> {
-    let mut best_format: Option<(usize, &NvmeLbaFormat)> = None;
-
-    for (idx, lbaf) in lbafs.iter().enumerate() {
-        if lbaf.ds == target_ds {
-            match best_format {
-                None => best_format = Some((idx, lbaf)),
-                Some((_, current_best)) => {
-                    // Prefer formats with no metadata
-                    if lbaf.ms == 0 && current_best.ms != 0 {
-                        best_format = Some((idx, lbaf));
-                    } else if lbaf.ms == current_best.ms {
-                        // If metadata is same, prefer better performance (lower rp)
-                        if lbaf.rp < current_best.rp {
-                            best_format = Some((idx, lbaf));
-                        }
-                    }
-                }
+    lbafs
+        .iter()
+        .enumerate()
+        .filter(|(_, lbaf)| lbaf.ds == target_ds)
+        .reduce(|(best_idx, best_lbaf), (idx, lbaf)| {
+            // Prefer formats with no metadata
+            if lbaf.ms == 0 && best_lbaf.ms != 0
+                // If metadata is same, prefer better performance (lower rp)
+                || lbaf.ms == best_lbaf.ms && lbaf.rp < best_lbaf.rp
+            {
+                (idx, lbaf)
+            } else {
+                (best_idx, best_lbaf)
             }
-        }
-    }
-
-    best_format
+        })
 }
 
 /// Get namespace parameters by running nvme id-ns command.
