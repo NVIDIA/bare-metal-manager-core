@@ -13,7 +13,7 @@
 use carbide_uuid::machine::MachineId;
 use model::machine::{
     DpfState, DpuInitNextStateResolver, DpuInitState, Machine, ManagedHostState,
-    ManagedHostStateSnapshot, PerformPowerOperation, ReprovisioingPhase, ReprovisionState,
+    ManagedHostStateSnapshot, PerformPowerOperation, ReprovisionState, ReprovisioningPhase,
     WaitForNetworkConfigAndRemoveAnnotationResult,
 };
 use sqlx::PgConnection;
@@ -148,7 +148,7 @@ pub async fn handle_dpf_state_with_reprovision(
     }
 
     match dpf_state {
-        DpfState::TriggerReprovisioing { phase } => match phase {
+        DpfState::TriggerReprovisioning { phase } => match phase {
             // There is a bug in DPF which does not handle multi-dpu correctly (https://redmine.mellanox.com/issues/4845800).
             // Due to this, if carbide deletes both DPUs together, the DPF will wait to remove "NodeEffectAnnotation" annotation.
             // If Carbide removes only one DPU, DPU moves to directly "Os Installing" phase.
@@ -156,7 +156,7 @@ pub async fn handle_dpf_state_with_reprovision(
             // There is another problem where DPF stuck and does not move to next state if it is in some intermediate phase.
             // To avoid this, we will set the DPU status to Error. DPF always starts provisioing if state is either "Error" or "Ready".
             // (In case of milestone 1, Cluster Config)
-            ReprovisioingPhase::UpdateDpuStatusToError => {
+            ReprovisioningPhase::UpdateDpuStatusToError => {
                 handle_update_dpu_status_to_error_state(
                     state,
                     dpu_snapshot,
@@ -165,10 +165,10 @@ pub async fn handle_dpf_state_with_reprovision(
                 )
                 .await
             }
-            ReprovisioingPhase::DeleteDpu => {
+            ReprovisioningPhase::DeleteDpu => {
                 handle_delete_dpu_state(state, dpu_snapshot, dpf_config, state_resolver).await
             }
-            ReprovisioingPhase::WaitingForAllDpusUnderReprovisioingToBeDeleted => {
+            ReprovisioningPhase::WaitingForAllDpusUnderReprovisioningToBeDeleted => {
                 handle_waiting_for_all_dpus_to_be_deleted_state(state, dpu_snapshot, state_resolver)
             }
         },
@@ -230,8 +230,8 @@ async fn handle_update_dpu_status_to_error_state(
     // If reprovisioning is not requested for this DPU, we will not update the DPU status to Error.
     if dpu_snapshot.reprovision_requested.is_none() {
         let next_state = DpuInitState::DpfStates {
-            state: DpfState::TriggerReprovisioing {
-                phase: ReprovisioingPhase::WaitingForAllDpusUnderReprovisioingToBeDeleted,
+            state: DpfState::TriggerReprovisioning {
+                phase: ReprovisioningPhase::WaitingForAllDpusUnderReprovisioningToBeDeleted,
             },
         }
         .next_state(&state.managed_state, &dpu_snapshot.id)?;
@@ -249,8 +249,8 @@ async fn handle_update_dpu_status_to_error_state(
     let next_state = next_state_resolver.next_dpf_state(
         &state.managed_state,
         &dpu_snapshot.id,
-        DpfState::TriggerReprovisioing {
-            phase: ReprovisioingPhase::DeleteDpu,
+        DpfState::TriggerReprovisioning {
+            phase: ReprovisioningPhase::DeleteDpu,
         },
     )?;
     Ok(StateHandlerOutcome::transition(next_state))
@@ -281,8 +281,8 @@ async fn handle_delete_dpu_state(
     let next_state = next_state_resolver.next_dpf_state(
         &state.managed_state,
         &dpu_snapshot.id,
-        DpfState::TriggerReprovisioing {
-            phase: ReprovisioingPhase::WaitingForAllDpusUnderReprovisioingToBeDeleted,
+        DpfState::TriggerReprovisioning {
+            phase: ReprovisioningPhase::WaitingForAllDpusUnderReprovisioningToBeDeleted,
         },
     )?;
     Ok(StateHandlerOutcome::transition(next_state))

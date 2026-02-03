@@ -554,7 +554,7 @@ pub async fn update_reboot_requested_time(
     let query = "UPDATE machines SET last_reboot_requested=$1 WHERE id=$2 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(sqlx::types::Json(&data))
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -574,7 +574,7 @@ pub async fn update_restart_verification_status(
     let query = "UPDATE machines SET last_reboot_requested=$1 WHERE id=$2 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(sqlx::types::Json(&current_reboot))
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -601,7 +601,7 @@ pub async fn update_bios_password_set_time(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET bios_password_set_time=NOW() WHERE id=$1 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -615,7 +615,7 @@ pub async fn update_discovery_time(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET last_discovery_time=NOW() WHERE id=$1 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -629,7 +629,7 @@ pub async fn update_scout_contact_time(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET last_scout_contact_time=NOW() WHERE id=$1 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -649,7 +649,7 @@ pub async fn find_host_by_dpu_machine_id(
         );
     }
     let machine = sqlx::query_as(&query)
-        .bind(dpu_machine_id.to_string())
+        .bind(dpu_machine_id)
         .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::query(&query, e))?;
@@ -692,7 +692,7 @@ pub async fn find_dpus_by_host_machine_id(
         );
     }
     let machines = sqlx::query_as(&query)
-        .bind(host_machine_id.to_string())
+        .bind(host_machine_id)
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(&query, e))?;
@@ -718,7 +718,7 @@ pub async fn update_metadata(
         .bind(&metadata.name)
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .bind(expected_version)
         .fetch_one(txn)
         .await;
@@ -747,7 +747,7 @@ pub async fn update_network_status_observation(
                 ) RETURNING id";
     let _id: (MachineId,) = match sqlx::query_as(query)
         .bind(sqlx::types::Json(&observation))
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .bind(observation.observed_at)
         .fetch_one(&mut *txn)
         .await
@@ -786,7 +786,7 @@ pub async fn update_infiniband_status_observation(
             ) RETURNING id";
     let _id: (MachineId,) = sqlx::query_as(query)
         .bind(sqlx::types::Json(&observation))
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .bind(observation.observed_at.to_rfc3339())
         .fetch_one(txn)
         .await
@@ -804,7 +804,7 @@ pub async fn update_nvlink_status_observation(
                 (nvlink_status_observation->>'observed_at' IS NULL OR nvlink_status_observation->>'observed_at' <= $3) RETURNING id";
     let _id: (MachineId,) = sqlx::query_as(query)
         .bind(sqlx::types::Json(&observation))
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .bind(observation.observed_at.to_rfc3339())
         .fetch_one(txn)
         .await
@@ -829,7 +829,7 @@ async fn update_health_report(
     let observed_at = health_report.observed_at.unwrap_or_else(chrono::Utc::now);
     let _id: (MachineId,) = match sqlx::query_as(&query)
         .bind(sqlx::types::Json(&health_report))
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .bind(observed_at)
         .fetch_one(&mut *txn)
         .await
@@ -862,7 +862,7 @@ async fn debug_failed_machine_status_update(
     // Dump the raw Machine state for debugging purposes
     let query = "SELECT * from machines WHERE id = $1";
     match sqlx::query(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_optional(txn)
         .await
     {
@@ -915,7 +915,7 @@ pub async fn update_log_parser_health_report(
     );
     let _id: (MachineId,) = sqlx::query_as(&query)
         .bind(sqlx::types::Json(&health_report))
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new("update health report", e))?;
@@ -1002,7 +1002,7 @@ pub async fn insert_health_report_override(
 
     let _id: (MachineId,) = sqlx::query_as(&query)
         .bind(sqlx::types::Json(&health_report))
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new("insert health report override", e))?;
@@ -1027,7 +1027,7 @@ pub async fn remove_health_report_override(
     );
 
     let _id: (MachineId,) = sqlx::query_as(&query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new("remove health report override", e))?;
@@ -1045,7 +1045,7 @@ pub async fn update_agent_reported_inventory(
     tracing::debug!(machine_id = %machine_id, "Updating machine inventory");
     let _id: (MachineId,) = sqlx::query_as(query)
         .bind(sqlx::types::Json(&inventory))
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -1089,7 +1089,7 @@ pub async fn force_cleanup(
     // it stays up to date.
     let query = r#"call cleanup_machine_by_id($1)"#;
     let _query_result = sqlx::query(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -1115,7 +1115,7 @@ pub async fn try_update_network_config(
     let query_result: Result<MachineId, _> = sqlx::query_as(query)
         .bind(next_version)
         .bind(sqlx::types::Json(new_state))
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .bind(expected_version)
         .fetch_one(txn)
         .await;
@@ -1165,8 +1165,8 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
     // also change.
     let query = "UPDATE machines SET id=$1 WHERE id=$2 RETURNING id";
     let machine_id = sqlx::query_as(query)
-        .bind(stable_machine_id.to_string())
-        .bind(current_machine_id.to_string())
+        .bind(stable_machine_id)
+        .bind(current_machine_id)
         .fetch_one(&mut *txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -1176,9 +1176,9 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
     // If someone changed the name manually then don't bother
     let query = "UPDATE machines SET name=$1 WHERE id=$2 AND name=$3";
     sqlx::query(query)
-        .bind(stable_machine_id.to_string())
-        .bind(stable_machine_id.to_string())
-        .bind(current_machine_id.to_string())
+        .bind(stable_machine_id)
+        .bind(stable_machine_id)
+        .bind(current_machine_id)
         .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -1207,7 +1207,7 @@ pub async fn clear_failure_details(
     let query = "UPDATE machines SET failure_details = $1::json WHERE id = $2 RETURNING id";
     let _id: (MachineId,) = sqlx::query_as(query)
         .bind(sqlx::types::Json(failure_details))
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -1331,7 +1331,7 @@ pub async fn trigger_dpu_reprovisioning_request(
 
     let query = "UPDATE machines SET reprovisioning_requested=$2 WHERE id=$1 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .bind(sqlx::types::Json(req))
         .fetch_one(txn)
         .await
@@ -1352,7 +1352,7 @@ pub async fn update_dpu_reprovision_start_time(
                                                 '{started_at}', $2, true)
                        WHERE id=$1 RETURNING id"#;
     let _id = sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .bind(sqlx::types::Json(current_time))
         .fetch_one(txn)
         .await
@@ -1372,7 +1372,7 @@ pub async fn update_host_reprovision_start_time(
                                                 '{started_at}', $2, true)
                        WHERE id=$1 RETURNING id"#;
     let _id = sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .bind(sqlx::types::Json(current_time))
         .fetch_one(txn)
         .await
@@ -1426,7 +1426,7 @@ pub async fn update_update_complete(
                         SET update_complete = $2
                        WHERE id=$1 RETURNING id"#;
     let _id = sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .bind(complete)
         .fetch_one(txn)
         .await
@@ -1443,7 +1443,7 @@ pub async fn update_controller_state_outcome(
     let query = "UPDATE machines SET controller_state_outcome=$1 WHERE id=$2";
     sqlx::query(query)
         .bind(sqlx::types::Json(outcome))
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -1461,7 +1461,7 @@ pub async fn approve_dpu_reprovision_request(
                                                 '{user_approval_received}', $2, true)
                        WHERE id=$1 RETURNING id"#;
     let _id = sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .bind(sqlx::types::Json(true))
         .fetch_one(txn)
         .await
@@ -1480,7 +1480,7 @@ pub async fn approve_host_reprovision_request(
                                                 '{user_approval_received}', $2, true)
                        WHERE id=$1 RETURNING id"#;
     let _id = sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .bind(sqlx::types::Json(true))
         .fetch_one(txn)
         .await
@@ -1535,7 +1535,7 @@ pub async fn clear_dpu_reprovisioning_request(
     };
 
     let _id = sqlx::query_as::<_, MachineId>(&query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new("clear reprovisioning_requested", e))?;
@@ -1627,7 +1627,7 @@ pub async fn set_dpu_agent_upgrade_requested(
     let query = "UPDATE machines SET dpu_agent_upgrade_requested = $1::json WHERE id = $2";
     sqlx::query(query)
         .bind(sqlx::types::Json(decision))
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -1745,7 +1745,7 @@ pub async fn update_machine_validation_time(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET last_machine_validation_time=NOW() WHERE id=$1 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -1761,7 +1761,7 @@ pub async fn update_machine_validation_id(
     let base_query = "UPDATE machines SET {column}=$1 WHERE id=$2 RETURNING id".to_owned();
     sqlx::query_as(&base_query.replace("{column}", context_column_name.as_str()))
         .bind(validation_id)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(&base_query, e))
@@ -1775,7 +1775,7 @@ pub async fn update_failure_details_by_machine_id(
     let query = "UPDATE machines SET failure_details = $1::json WHERE id = $2 RETURNING id";
     let _id: (MachineId,) = sqlx::query_as(query)
         .bind(sqlx::types::Json(failure))
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -1957,7 +1957,7 @@ pub async fn set_machine_validation_request(
     let query =
         "UPDATE machines SET on_demand_machine_validation_request=$2 WHERE id=$1 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .bind(machine_validation_request)
         .fetch_one(txn)
         .await

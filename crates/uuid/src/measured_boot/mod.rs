@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -37,7 +37,10 @@ use crate::machine::MachineId;
 use crate::typed_uuids::{TypedUuid, UuidSubtype};
 
 // ============================================================================
-// TrustedMachineId - Special enum type (not migrated to TypedUuid)
+// TrustedMachineId
+//
+// TODO(chet): Consider having a HardwareUuid type that things like MachineId,
+// TrustedMachineId, RackId, etc, can all use).
 // ============================================================================
 
 /// TrustedMachineId is a special adaptation of a
@@ -112,11 +115,31 @@ impl crate::DbPrimaryUuid for TrustedMachineId {
     }
 }
 
+#[cfg(test)]
+mod trusted_machine_id_tests {
+    use std::str::FromStr;
+
+    use super::*;
+    use crate::DbPrimaryUuid;
+
+    // TrustedMachineId is a special enum type, not a TypedUuid.
+    #[test]
+    fn test_trusted_machine_id_any() {
+        let id = TrustedMachineId::from_str("*").expect("failed to parse");
+        assert_eq!(id, TrustedMachineId::Any);
+        assert_eq!(id.to_string(), "*");
+    }
+
+    #[test]
+    fn test_trusted_machine_id_db_column_name() {
+        assert_eq!(TrustedMachineId::db_primary_uuid_name(), "machine_id");
+    }
+}
 // ============================================================================
 // MeasurementSystemProfileId
 // ============================================================================
 
-/// Marker type for MeasurementSystemProfileId
+/// Marker type for MeasurementSystemProfileId.
 pub struct MeasurementSystemProfileIdMarker;
 
 impl UuidSubtype for MeasurementSystemProfileIdMarker {
@@ -128,11 +151,24 @@ impl UuidSubtype for MeasurementSystemProfileIdMarker {
 /// containing general metadata about a machine profile.
 pub type MeasurementSystemProfileId = TypedUuid<MeasurementSystemProfileIdMarker>;
 
+#[cfg(test)]
+mod system_profile_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(
+        MeasurementSystemProfileId,
+        "MeasurementSystemProfileId",
+        "profile_id"
+    );
+}
+
 // ============================================================================
 // MeasurementSystemProfileAttrId
 // ============================================================================
 
-/// Marker type for MeasurementSystemProfileAttrId
+/// Marker type for MeasurementSystemProfileAttrId.
 pub struct MeasurementSystemProfileAttrIdMarker;
 
 impl UuidSubtype for MeasurementSystemProfileAttrIdMarker {
@@ -143,11 +179,24 @@ impl UuidSubtype for MeasurementSystemProfileAttrIdMarker {
 /// the table containing the attributes used to map machines to profiles.
 pub type MeasurementSystemProfileAttrId = TypedUuid<MeasurementSystemProfileAttrIdMarker>;
 
+#[cfg(test)]
+mod system_profile_attr_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(
+        MeasurementSystemProfileAttrId,
+        "MeasurementSystemProfileAttrId",
+        "id"
+    );
+}
+
 // ============================================================================
 // MeasurementBundleId
 // ============================================================================
 
-/// Marker type for MeasurementBundleId
+/// Marker type for MeasurementBundleId.
 pub struct MeasurementBundleIdMarker;
 
 impl UuidSubtype for MeasurementBundleIdMarker {
@@ -159,11 +208,20 @@ impl UuidSubtype for MeasurementBundleIdMarker {
 /// a collection of measurements that come from the measurement_bundles table.
 pub type MeasurementBundleId = TypedUuid<MeasurementBundleIdMarker>;
 
+#[cfg(test)]
+mod bundle_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(MeasurementBundleId, "MeasurementBundleId", "bundle_id");
+}
+
 // ============================================================================
 // MeasurementBundleValueId
 // ============================================================================
 
-/// Marker type for MeasurementBundleValueId
+/// Marker type for MeasurementBundleValueId.
 pub struct MeasurementBundleValueIdMarker;
 
 impl UuidSubtype for MeasurementBundleValueIdMarker {
@@ -174,11 +232,20 @@ impl UuidSubtype for MeasurementBundleValueIdMarker {
 /// a single measurement that is part of a measurement bundle.
 pub type MeasurementBundleValueId = TypedUuid<MeasurementBundleValueIdMarker>;
 
+#[cfg(test)]
+mod bundle_value_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(MeasurementBundleValueId, "MeasurementBundleValueId", "id");
+}
+
 // ============================================================================
 // MeasurementReportId
 // ============================================================================
 
-/// Marker type for MeasurementReportId
+/// Marker type for MeasurementReportId.
 pub struct MeasurementReportIdMarker;
 
 impl UuidSubtype for MeasurementReportIdMarker {
@@ -190,11 +257,20 @@ impl UuidSubtype for MeasurementReportIdMarker {
 /// of all reported measurement bundles for a given machine.
 pub type MeasurementReportId = TypedUuid<MeasurementReportIdMarker>;
 
+#[cfg(test)]
+mod report_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(MeasurementReportId, "MeasurementReportId", "report_id");
+}
+
 // ============================================================================
 // MeasurementReportValueId
 // ============================================================================
 
-/// Marker type for MeasurementReportValueId
+/// Marker type for MeasurementReportValueId.
 pub struct MeasurementReportValueIdMarker;
 
 impl UuidSubtype for MeasurementReportValueIdMarker {
@@ -205,11 +281,20 @@ impl UuidSubtype for MeasurementReportValueIdMarker {
 /// backing values reported for each report into measurement_reports.
 pub type MeasurementReportValueId = TypedUuid<MeasurementReportValueIdMarker>;
 
+#[cfg(test)]
+mod report_value_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(MeasurementReportValueId, "MeasurementReportValueId", "id");
+}
+
 // ============================================================================
 // MeasurementJournalId
 // ============================================================================
 
-/// Marker type for MeasurementJournalId
+/// Marker type for MeasurementJournalId.
 pub struct MeasurementJournalIdMarker;
 
 impl UuidSubtype for MeasurementJournalIdMarker {
@@ -221,11 +306,20 @@ impl UuidSubtype for MeasurementJournalIdMarker {
 /// of all reported measurement bundles for a given machine.
 pub type MeasurementJournalId = TypedUuid<MeasurementJournalIdMarker>;
 
+#[cfg(test)]
+mod journal_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(MeasurementJournalId, "MeasurementJournalId", "journal_id");
+}
+
 // ============================================================================
 // MeasurementApprovedMachineId
 // ============================================================================
 
-/// Marker type for MeasurementApprovedMachineId
+/// Marker type for MeasurementApprovedMachineId.
 pub struct MeasurementApprovedMachineIdMarker;
 
 impl UuidSubtype for MeasurementApprovedMachineIdMarker {
@@ -238,11 +332,24 @@ impl UuidSubtype for MeasurementApprovedMachineIdMarker {
 /// into golden measurement bundles.
 pub type MeasurementApprovedMachineId = TypedUuid<MeasurementApprovedMachineIdMarker>;
 
+#[cfg(test)]
+mod approved_machine_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(
+        MeasurementApprovedMachineId,
+        "MeasurementApprovedMachineId",
+        "approval_id"
+    );
+}
+
 // ============================================================================
 // MeasurementApprovedProfileId
 // ============================================================================
 
-/// Marker type for MeasurementApprovedProfileId
+/// Marker type for MeasurementApprovedProfileId.
 pub struct MeasurementApprovedProfileIdMarker;
 
 impl UuidSubtype for MeasurementApprovedProfileIdMarker {
@@ -255,175 +362,15 @@ impl UuidSubtype for MeasurementApprovedProfileIdMarker {
 /// for a specific profile into golden measurement bundles.
 pub type MeasurementApprovedProfileId = TypedUuid<MeasurementApprovedProfileIdMarker>;
 
-// ============================================================================
-// Tests
-// ============================================================================
-
 #[cfg(test)]
-mod tests {
-    use std::str::FromStr;
-
+mod approved_profile_id_tests {
     use super::*;
-    use crate::DbPrimaryUuid;
-
-    // MeasurementSystemProfileId tests
-    #[test]
-    fn test_system_profile_id_round_trip() {
-        let orig = uuid::Uuid::new_v4();
-        let id = MeasurementSystemProfileId::from(orig);
-        assert_eq!(uuid::Uuid::from(id), orig);
-    }
-
-    #[test]
-    fn test_system_profile_id_db_column() {
-        assert_eq!(
-            MeasurementSystemProfileId::db_primary_uuid_name(),
-            "profile_id"
-        );
-    }
-
-    #[test]
-    fn test_system_profile_id_debug() {
-        let id = MeasurementSystemProfileId::from(uuid::Uuid::nil());
-        assert!(format!("{:?}", id).contains("MeasurementSystemProfileId"));
-    }
-
-    // MeasurementSystemProfileAttrId tests
-    #[test]
-    fn test_system_profile_attr_id_round_trip() {
-        let orig = uuid::Uuid::new_v4();
-        let id = MeasurementSystemProfileAttrId::from(orig);
-        assert_eq!(uuid::Uuid::from(id), orig);
-    }
-
-    #[test]
-    fn test_system_profile_attr_id_db_column() {
-        assert_eq!(MeasurementSystemProfileAttrId::db_primary_uuid_name(), "id");
-    }
-
-    // MeasurementBundleId tests
-    #[test]
-    fn test_bundle_id_round_trip() {
-        let orig = uuid::Uuid::new_v4();
-        let id = MeasurementBundleId::from(orig);
-        assert_eq!(uuid::Uuid::from(id), orig);
-    }
-
-    #[test]
-    fn test_bundle_id_db_column() {
-        assert_eq!(MeasurementBundleId::db_primary_uuid_name(), "bundle_id");
-    }
-
-    #[test]
-    fn test_bundle_id_string_round_trip() {
-        let orig = uuid::Uuid::new_v4();
-        let id = MeasurementBundleId::from(orig);
-        let parsed = MeasurementBundleId::from_str(&id.to_string()).unwrap();
-        assert_eq!(id, parsed);
-    }
-
-    // MeasurementBundleValueId tests
-    #[test]
-    fn test_bundle_value_id_round_trip() {
-        let orig = uuid::Uuid::new_v4();
-        let id = MeasurementBundleValueId::from(orig);
-        assert_eq!(uuid::Uuid::from(id), orig);
-    }
-
-    #[test]
-    fn test_bundle_value_id_db_column() {
-        assert_eq!(MeasurementBundleValueId::db_primary_uuid_name(), "id");
-    }
-
-    // MeasurementReportId tests
-    #[test]
-    fn test_report_id_round_trip() {
-        let orig = uuid::Uuid::new_v4();
-        let id = MeasurementReportId::from(orig);
-        assert_eq!(uuid::Uuid::from(id), orig);
-    }
-
-    #[test]
-    fn test_report_id_db_column() {
-        assert_eq!(MeasurementReportId::db_primary_uuid_name(), "report_id");
-    }
-
-    #[test]
-    fn test_report_id_json_round_trip() {
-        let id = MeasurementReportId::new();
-        let json = serde_json::to_string(&id).unwrap();
-        let parsed: MeasurementReportId = serde_json::from_str(&json).unwrap();
-        assert_eq!(id, parsed);
-    }
-
-    // MeasurementReportValueId tests
-    #[test]
-    fn test_report_value_id_round_trip() {
-        let orig = uuid::Uuid::new_v4();
-        let id = MeasurementReportValueId::from(orig);
-        assert_eq!(uuid::Uuid::from(id), orig);
-    }
-
-    #[test]
-    fn test_report_value_id_db_column() {
-        assert_eq!(MeasurementReportValueId::db_primary_uuid_name(), "id");
-    }
-
-    // MeasurementJournalId tests
-    #[test]
-    fn test_journal_id_round_trip() {
-        let orig = uuid::Uuid::new_v4();
-        let id = MeasurementJournalId::from(orig);
-        assert_eq!(uuid::Uuid::from(id), orig);
-    }
-
-    #[test]
-    fn test_journal_id_db_column() {
-        assert_eq!(MeasurementJournalId::db_primary_uuid_name(), "journal_id");
-    }
-
-    // MeasurementApprovedMachineId tests
-    #[test]
-    fn test_approved_machine_id_round_trip() {
-        let orig = uuid::Uuid::new_v4();
-        let id = MeasurementApprovedMachineId::from(orig);
-        assert_eq!(uuid::Uuid::from(id), orig);
-    }
-
-    #[test]
-    fn test_approved_machine_id_db_column() {
-        assert_eq!(
-            MeasurementApprovedMachineId::db_primary_uuid_name(),
-            "approval_id"
-        );
-    }
-
-    // MeasurementApprovedProfileId tests
-    #[test]
-    fn test_approved_profile_id_round_trip() {
-        let orig = uuid::Uuid::new_v4();
-        let id = MeasurementApprovedProfileId::from(orig);
-        assert_eq!(uuid::Uuid::from(id), orig);
-    }
-
-    #[test]
-    fn test_approved_profile_id_db_column() {
-        assert_eq!(
-            MeasurementApprovedProfileId::db_primary_uuid_name(),
-            "approval_id"
-        );
-    }
-
-    // TrustedMachineId tests (special enum type)
-    #[test]
-    fn test_trusted_machine_id_any() {
-        let id = TrustedMachineId::from_str("*").expect("failed to parse");
-        assert_eq!(id, TrustedMachineId::Any);
-        assert_eq!(id.to_string(), "*");
-    }
-
-    #[test]
-    fn test_trusted_machine_id_db_column_name() {
-        assert_eq!(TrustedMachineId::db_primary_uuid_name(), "machine_id");
-    }
+    use crate::typed_uuid_tests;
+    // Run all boilerplate TypedUuid tests for this type, also
+    // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
+    typed_uuid_tests!(
+        MeasurementApprovedProfileId,
+        "MeasurementApprovedProfileId",
+        "approval_id"
+    );
 }

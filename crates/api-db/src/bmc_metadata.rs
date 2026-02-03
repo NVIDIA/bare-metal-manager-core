@@ -34,7 +34,7 @@ pub async fn update_bmc_network_into_topologies(
     let query = "UPDATE machine_topologies SET topology = jsonb_set(topology, '{bmc_info}', $1, true) WHERE machine_id=$2 RETURNING machine_id";
     sqlx::query_as::<_, MachineId>(query)
         .bind(json!(bmc_info))
-        .bind(machine_id.to_string())
+        .bind(machine_id)
         .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?

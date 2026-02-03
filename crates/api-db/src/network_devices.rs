@@ -182,7 +182,7 @@ pub mod dpu_to_network_device_map {
                        RETURNING *"#;
 
         sqlx::query_as(query)
-            .bind(dpu_id.to_string())
+            .bind(dpu_id)
             .bind(local_port)
             .bind(remote_port)
             .bind(network_device_id)
@@ -201,7 +201,7 @@ pub mod dpu_to_network_device_map {
         let query = r#"DELETE from port_to_network_device_map WHERE dpu_id=$1 RETURNING dpu_id"#;
 
         let _ids = sqlx::query_as::<_, MachineId>(query)
-            .bind(dpu_id.to_string())
+            .bind(dpu_id)
             .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::query(query, e))?;
