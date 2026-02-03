@@ -20,6 +20,7 @@ pub mod test;
 pub mod utils;
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::OnceLock;
 
 use k8s_openapi::api::core::v1::{ConfigMap, Secret};
 use kube::api::{ListParams, Patch, PatchParams, PostParams};
@@ -49,6 +50,9 @@ const BF_CFG_FW_UPDATE_DATA_TEMPLATE: &str = include_str!("../../../pxe/template
 
 const BFB_URL: &str = "http://carbide-pxe.forge/public/blobs/internal/aarch64/forge.bfb";
 
+static DPF_INIT: OnceLock<Result<(), eyre::Report>> = OnceLock::new();
+
+/// Creates a BFB object with the given input.
 fn bfb_crd(name: &str) -> BFB {
     BFB {
         metadata: ObjectMeta {
@@ -64,10 +68,36 @@ fn bfb_crd(name: &str) -> BFB {
     }
 }
 
-pub fn init() {
-    // Set crypto provider regardless of DPF flag.
-    if CryptoProvider::get_default().is_none() {
-        CryptoProvider::install_default(aws_lc_rs::default_provider()).unwrap();
+/// Initializes the DPF library by setting up the cryptographic provider.
+///
+/// This function ensures that the rustls crypto provider is installed globally
+/// before any DPF operations are performed. It uses a `OnceLock` to guarantee
+/// that initialization happens exactly once, even if called multiple times or
+/// from multiple threads.
+///
+/// # Returns
+/// * `&'static Result<(), eyre::Report>` - A static reference to the initialization result.
+///   Returns `Ok(())` if the crypto provider was successfully installed or was already present.
+///   Returns `Err` if the crypto provider installation failed.
+///
+/// # Thread Safety
+/// This function is thread-safe and idempotent. Multiple concurrent calls will only
+/// perform the initialization once.
+pub fn init() -> Result<(), eyre::Report> {
+    let res = DPF_INIT.get_or_init(|| {
+        // Set crypto provider regardless of DPF flag.
+        if CryptoProvider::get_default().is_none() {
+            CryptoProvider::install_default(aws_lc_rs::default_provider())
+                .map_err(|e| eyre::eyre!(format!("Install default error: {e:?}")))?
+        }
+
+        Ok(())
+    });
+
+    match res {
+        Ok(()) => Ok(()),
+        // eyre::report does not implement Clone or Copy.
+        Err(err) => Err(eyre::eyre!(err)),
     }
 }
 
