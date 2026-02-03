@@ -556,7 +556,103 @@ async fn test_find_switch_with_ip_addresses_no_matching_data(
     let env = create_test_env(pool).await;
     let switch_id = new_switch(&env, Some("Test Switch No Match".to_string()), None).await?;
 
-    // Find the switch with include_addresses = true, but no expected_switch/explored_endpoint data
+    // ask for data when nothing exists in expected_switch or explored_endpoint
+    let find_request = SwitchQuery {
+        name: None,
+        switch_id: Some(switch_id),
+        include_addresses: Some(true), 
+    };
+
+    let find_response = env
+        .api
+        .find_switches(tonic::Request::new(find_request))
+        .await?;
+
+    let switch_list = find_response.into_inner();
+    assert_eq!(switch_list.switches.len(), 1);
+
+    let found_switch = &switch_list.switches[0];
+    assert!(found_switch.ip_address.is_none());
+    assert!(found_switch.bmc_mac_address.is_none());
+
+    Ok(())
+}
+
+
+#[crate::sqlx_test]
+async fn test_find_switch_with_include_addresses_matching_data(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use db::expected_switch as db_expected_switch;
+    use db::machine_interface as db_machine_interface;
+    use db::network_segment as db_network_segment;
+    use mac_address::MacAddress;
+    use model::address_selection_strategy::AddressSelectionStrategy;
+    use model::metadata::Metadata;
+    use model::network_segment::NetworkSegmentType;
+    use std::collections::HashMap;
+
+    let env = create_test_env(pool).await;
+
+    // Positive test
+    // create switch with all fields populated
+    let switch_serial = "TestSwitch-001";
+    let switch_id = new_switch(&env, Some(switch_serial.to_string()), None).await?;
+    let bmc_mac: MacAddress = "AA:BB:CC:DD:EE:FF".parse().unwrap();
+    let mut txn = env.pool.begin().await?;
+
+    db_expected_switch::create(
+        &mut txn,
+        bmc_mac,
+        "admin".to_string(),
+        "password".to_string(),
+        switch_serial.to_string(), // serial_number matches switch config.name
+        Metadata {
+            name: "Test Expected Switch".to_string(),
+            description: "Test switch for address lookup".to_string(),
+            labels: HashMap::new(),
+        },
+        None,
+        Some("nvos_user".to_string()),
+        Some("nvos_pass".to_string()),
+    )
+    .await?;
+
+    // create switch BMC interface
+    let underlay_segment_id = env
+        .underlay_segment
+        .expect("Underlay segment should exist in test env");
+
+    let underlay_segments = db_network_segment::find_by(
+        &mut txn,
+        db::ObjectColumnFilter::One(db_network_segment::IdColumn, &underlay_segment_id),
+        Default::default(),
+    )
+    .await?;
+    let underlay_segment = underlay_segments
+        .first()
+        .expect("Should find underlay segment");
+    assert_eq!(underlay_segment.segment_type, NetworkSegmentType::Underlay);
+
+    let machine_interface = db_machine_interface::create(
+        &mut txn,
+        underlay_segment,
+        &bmc_mac,
+        underlay_segment.subdomain_id,
+        false,
+        AddressSelectionStrategy::Automatic,
+    )
+    .await?;
+
+    txn.commit().await?;
+
+    assert!(
+        !machine_interface.addresses.is_empty(),
+        "Machine interface should have at least one address"
+    );
+    let assigned_ip = machine_interface.addresses[0];
+
+
     let find_request = SwitchQuery {
         name: None,
         switch_id: Some(switch_id),
@@ -572,25 +668,26 @@ async fn test_find_switch_with_ip_addresses_no_matching_data(
     assert_eq!(switch_list.switches.len(), 1);
 
     let found_switch = &switch_list.switches[0];
-    // IP address should be None when there's no matching expected_switch/explored_endpoint
-    assert!(found_switch.ip_address.is_none());
+
+    // verify IP and BMC MAC address are properly returned
+    assert!(
+        found_switch.ip_address.is_some(),
+        "IP address should be populated when include_addresses=true"
+    );
+    assert_eq!(
+        found_switch.ip_address.as_ref().unwrap(),
+        &assigned_ip.to_string(),
+        "IP address should match the assigned address"
+    );
+    assert!(
+        found_switch.bmc_mac_address.is_some(),
+        "BMC MAC address should be populated when include_addresses=true"
+    );
+    assert_eq!(
+        found_switch.bmc_mac_address.as_ref().unwrap().to_uppercase(),
+        bmc_mac.to_string().to_uppercase(),
+        "BMC MAC address should match the expected switch's BMC MAC"
+    );
 
     Ok(())
 }
-
-// TODO: Rewrite test for "include_addresses" which returns BMC MAC address and IP address
-// The old approach used explored_endpoints with JSON MAC matching.
-// The new approach uses expected_switches -> machine_interfaces -> machine_interface_addresses.
-// For now, the test is commented out as it requires setting up network segments and DHCP data.
-//
-// #[crate::sqlx_test]
-// async fn test_find_switch_with_include_addresses_matching_data(
-//     pool: sqlx::PgPool,
-// ) -> Result<(), Box<dyn std::error::Error>> {
-//     // Test setup would need to:
-//     // 1. Create expected_switch with bmc_mac_address
-//     // 2. Create network_segment with type 'Underlay'
-//     // 3. Create machine_interface linking mac_address to segment
-//     // 4. Create machine_interface_address with the IP
-//     // Then verify find_switches with include_addresses=true returns the IP
-// }
