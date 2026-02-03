@@ -147,7 +147,7 @@ pub async fn create_new_run(
         .bind(format!("Test_{machine_id}"))
         .bind(machine_id)
         .bind(sqlx::types::Json(filter))
-        .bind(context.clone())
+        .bind(&context)
         .bind(format!("Running validation on {machine_id}"))
         .bind(status.state.to_string())
         .execute(&mut *txn)

@@ -68,6 +68,7 @@ pub async fn start(
             r#"
         listen = "{addr}"
         metrics_endpoint = "{metrics_addr}"
+        alt_metric_prefix = "alt_metric_"
         database_url = "{db_url}"
         max_database_connections = 1000
         asn = 65535

@@ -225,7 +225,7 @@ impl HostFirmwareUpdateMetrics {
         let pending_firmware_updates = self.pending_firmware_updates.clone();
         let active_firmware_updates = self.active_firmware_updates.clone();
         meter
-            .u64_observable_gauge("forge_pending_host_firmware_update_count")
+            .u64_observable_gauge("carbide_pending_host_firmware_update_count")
             .with_description(
                 "The number of host machines in the system that need a firmware update.",
             )
@@ -234,7 +234,7 @@ impl HostFirmwareUpdateMetrics {
             })
             .build();
         meter
-            .u64_observable_gauge("forge_active_host_firmware_update_count")
+            .u64_observable_gauge("carbide_active_host_firmware_update_count")
             .with_description(
                 "The number of host machines in the system currently working on updating their firmware.",
             )

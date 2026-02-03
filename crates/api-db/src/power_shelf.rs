@@ -60,8 +60,8 @@ pub async fn create(
         "INSERT INTO power_shelves (id, name, config, controller_state, controller_state_version) VALUES ($1, $2, $3, $4, $5) RETURNING id",
     );
     let _: PowerShelfId = query
-        .bind(new_power_shelf.id.to_string())
-        .bind(new_power_shelf.config.name.clone())
+        .bind(new_power_shelf.id)
+        .bind(&new_power_shelf.config.name)
         .bind(sqlx::types::Json(&new_power_shelf.config))
         .bind(sqlx::types::Json(&state))
         .bind(version)

@@ -84,7 +84,9 @@ use crate::cfg::file::{
     PowerManagerOptions, TimePeriod,
 };
 use crate::firmware_downloader::FirmwareDownloader;
-use crate::redfish::{self, host_power_control, set_host_uefi_password};
+use crate::redfish::{
+    self, host_power_control, host_power_control_with_location, set_host_uefi_password,
+};
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::{
@@ -3398,7 +3400,7 @@ impl DpuMachineStateHandler {
                     .power(SystemPowerControl::On)
                     .await
                     .map_err(|e| StateHandlerError::RedfishError {
-                        operation: "host_power_off",
+                        operation: "host_power_on",
                         error: e,
                     })?;
 
@@ -4053,14 +4055,36 @@ enum SetBootOrderOutcome {
 /// In case a error is returned, last_reboot_requested won't be updated in db by state handler.
 /// This will cause continuous reboot of machine after first failure_retry_time is
 /// passed.
-#[allow(txn_held_across_await)]
-pub async fn trigger_reboot_if_needed(
+#[track_caller]
+pub fn trigger_reboot_if_needed(
     target: &Machine,
     state: &ManagedHostStateSnapshot,
     retry_count: Option<i64>,
     reachability_params: &ReachabilityParams,
     services: &CommonStateHandlerServices,
     txn: &mut PgConnection,
+) -> impl Future<Output = Result<RebootStatus, StateHandlerError>> {
+    let trigger_location = std::panic::Location::caller();
+    trigger_reboot_if_needed_with_location(
+        target,
+        state,
+        retry_count,
+        reachability_params,
+        services,
+        txn,
+        trigger_location,
+    )
+}
+
+#[allow(txn_held_across_await)]
+pub async fn trigger_reboot_if_needed_with_location(
+    target: &Machine,
+    state: &ManagedHostStateSnapshot,
+    retry_count: Option<i64>,
+    reachability_params: &ReachabilityParams,
+    services: &CommonStateHandlerServices,
+    txn: &mut PgConnection,
+    trigger_location: &std::panic::Location<'_>,
 ) -> Result<RebootStatus, StateHandlerError> {
     let host = &state.host_snapshot;
     // Its highly unlikely that the host has never been rebooted (and the last_reboot_reqeusted
@@ -4116,7 +4140,8 @@ pub async fn trigger_reboot_if_needed(
         };
 
         tracing::trace!(machine_id=%target.id, "Redfish setting host power state to {action}");
-        handler_host_power_control(state, services, action, txn).await?;
+        handler_host_power_control_with_location(state, services, action, txn, trigger_location)
+            .await?;
         return Ok(RebootStatus {
             increase_retry_count: false,
             status: format!("Set power state to {action} using Redfish API"),
@@ -4200,7 +4225,14 @@ pub async fn trigger_reboot_if_needed(
                     SystemPowerControl::ForceOff
                 };
 
-                handler_host_power_control(state, services, action, txn).await?;
+                handler_host_power_control_with_location(
+                    state,
+                    services,
+                    action,
+                    txn,
+                    trigger_location,
+                )
+                .await?;
 
                 format!(
                     "{vendor} has not come up after {time_elapsed_since_state_change} minutes, trying {action}, cycle: {cycle}",
@@ -4210,11 +4242,12 @@ pub async fn trigger_reboot_if_needed(
                 if target.id.machine_type().is_dpu() {
                     handler_restart_dpu(target, services, txn).await?;
                 } else {
-                    handler_host_power_control(
+                    handler_host_power_control_with_location(
                         state,
                         services,
                         SystemPowerControl::ForceRestart,
                         txn,
+                        trigger_location,
                     )
                     .await?;
                 }
@@ -8261,12 +8294,30 @@ async fn handle_boss_job_failure(
     }
 }
 
-#[allow(txn_held_across_await)]
-pub async fn handler_host_power_control(
+#[track_caller]
+pub fn handler_host_power_control(
     managedhost_snapshot: &ManagedHostStateSnapshot,
     services: &CommonStateHandlerServices,
     action: SystemPowerControl,
     txn: &mut PgConnection,
+) -> impl Future<Output = Result<(), StateHandlerError>> {
+    let trigger_location = std::panic::Location::caller();
+    handler_host_power_control_with_location(
+        managedhost_snapshot,
+        services,
+        action,
+        txn,
+        trigger_location,
+    )
+}
+
+#[allow(txn_held_across_await)]
+pub async fn handler_host_power_control_with_location(
+    managedhost_snapshot: &ManagedHostStateSnapshot,
+    services: &CommonStateHandlerServices,
+    action: SystemPowerControl,
+    txn: &mut PgConnection,
+    location: &std::panic::Location<'_>,
 ) -> Result<(), StateHandlerError> {
     let mut action = action;
     let redfish_client = services
@@ -8294,12 +8345,13 @@ pub async fn handler_host_power_control(
             tracing::warn!(%power_state, %action, "Power state is Off and requested action is restart. Trying to power on the host.");
             action = SystemPowerControl::On;
         }
-        host_power_control(
+        host_power_control_with_location(
             redfish_client.as_ref(),
             &managedhost_snapshot.host_snapshot,
             action,
             services.ipmi_tool.clone(),
             txn,
+            location,
         )
         .await
         .map_err(|e| {

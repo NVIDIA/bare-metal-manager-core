@@ -76,3 +76,4 @@ logs_max_backups = 5
 
 [metrics]
 endpoint = "0.0.0.0:9009"
+prefix = "carbide_hardware_health"

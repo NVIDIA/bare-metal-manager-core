@@ -136,25 +136,25 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     assert_eq!(&machine.state, "Assigned/Ready");
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machines_with_missing_pkeys_count")
+            .formatted_metric("carbide_ib_monitor_machines_with_missing_pkeys_count")
             .unwrap(),
         "0"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machines_with_unexpected_pkeys_count")
+            .formatted_metric("carbide_ib_monitor_machines_with_unexpected_pkeys_count")
             .unwrap(),
         "0"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machines_with_unknown_pkeys_count")
+            .formatted_metric("carbide_ib_monitor_machines_with_unknown_pkeys_count")
             .unwrap(),
         "0"
     );
     assert_eq!(
         env.test_meter
-            .parsed_metrics("forge_ib_monitor_ufm_changes_applied_total"),
+            .parsed_metrics("carbide_ib_monitor_ufm_changes_applied_total"),
         vec![
             (
                 "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
@@ -235,7 +235,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     verify_pkey_guids(ib_conn.clone(), &[(pkey_u16, vec![])]).await;
     assert_eq!(
         env.test_meter
-            .parsed_metrics("forge_ib_monitor_ufm_changes_applied_total"),
+            .parsed_metrics("carbide_ib_monitor_ufm_changes_applied_total"),
         vec![
             (
                 "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
@@ -690,25 +690,25 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
     assert_eq!(&machine.state, "Assigned/Ready");
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machines_with_missing_pkeys_count")
+            .formatted_metric("carbide_ib_monitor_machines_with_missing_pkeys_count")
             .unwrap(),
         "0"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machines_with_unexpected_pkeys_count")
+            .formatted_metric("carbide_ib_monitor_machines_with_unexpected_pkeys_count")
             .unwrap(),
         "0"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machines_with_unknown_pkeys_count")
+            .formatted_metric("carbide_ib_monitor_machines_with_unknown_pkeys_count")
             .unwrap(),
         "0"
     );
     assert_eq!(
         env.test_meter
-            .parsed_metrics("forge_ib_monitor_ufm_changes_applied_total"),
+            .parsed_metrics("carbide_ib_monitor_ufm_changes_applied_total"),
         vec![
             (
                 "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
@@ -854,25 +854,25 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
     env.run_ib_fabric_monitor_iteration().await;
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machine_ib_status_updates_count")
+            .formatted_metric("carbide_ib_monitor_machine_ib_status_updates_count")
             .unwrap(),
         "0"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machines_with_missing_pkeys_count")
+            .formatted_metric("carbide_ib_monitor_machines_with_missing_pkeys_count")
             .unwrap(),
         "1"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machines_with_unexpected_pkeys_count")
+            .formatted_metric("carbide_ib_monitor_machines_with_unexpected_pkeys_count")
             .unwrap(),
         "1"
     );
     assert_eq!(
         env.test_meter
-            .parsed_metrics("forge_ib_monitor_ufm_changes_applied_total"),
+            .parsed_metrics("carbide_ib_monitor_ufm_changes_applied_total"),
         vec![
             (
                 "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
@@ -907,25 +907,25 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
     env.run_ib_fabric_monitor_iteration().await;
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machine_ib_status_updates_count")
+            .formatted_metric("carbide_ib_monitor_machine_ib_status_updates_count")
             .unwrap(),
         "1"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machines_with_missing_pkeys_count")
+            .formatted_metric("carbide_ib_monitor_machines_with_missing_pkeys_count")
             .unwrap(),
         "0"
     );
     assert_eq!(
         env.test_meter
-            .formatted_metric("forge_ib_monitor_machines_with_unexpected_pkeys_count")
+            .formatted_metric("carbide_ib_monitor_machines_with_unexpected_pkeys_count")
             .unwrap(),
         "0"
     );
     assert_eq!(
         env.test_meter
-            .parsed_metrics("forge_ib_monitor_ufm_changes_applied_total"),
+            .parsed_metrics("carbide_ib_monitor_ufm_changes_applied_total"),
         vec![
             (
                 "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
@@ -1000,7 +1000,7 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
     .await;
     assert_eq!(
         env.test_meter
-            .parsed_metrics("forge_ib_monitor_ufm_changes_applied_total"),
+            .parsed_metrics("carbide_ib_monitor_ufm_changes_applied_total"),
         vec![
             (
                 "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
