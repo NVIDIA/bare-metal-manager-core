@@ -117,29 +117,17 @@ async fn get_nvme_params(nvmename: &str) -> Result<NvmeParams, CarbideClientErro
     Ok(nvme_drive_params)
 }
 
-async fn get_512b_lba_format(nvmename: &str) -> Result<(u8, u64), CarbideClientError> {
-    let namespace_params_lines = cmdrun::run_prog(
-        NVME_CLI_PROG,
-        ["id-ns", nvmename, "-n", "0xffffffff", "-o", "json"],
-    )
-    .await?;
-
-    let namespace_params: NvmeNamespaceParams = match serde_json::from_str(&namespace_params_lines)
-    {
-        Ok(o) => o,
-        Err(e) => {
-            return Err(CarbideClientError::GenericError(format!(
-                "nvme id-ns parse error: {e}"
-            )));
-        }
-    };
-
-    // Find 512B LBA format (ds=9 means 2^9 = 512 bytes)
-    // Prefer formats with ms=0 (no metadata) and rp=0 (best performance)
+/// Select the best LBA format with the given data size (ds).
+/// Prefers formats with no metadata (ms=0) and best performance (lowest rp).
+/// Returns the index and a reference to the selected format, or None if not found.
+fn select_best_lba_format(
+    lbafs: &[NvmeLbaFormat],
+    target_ds: u8,
+) -> Option<(usize, &NvmeLbaFormat)> {
     let mut best_format: Option<(usize, &NvmeLbaFormat)> = None;
 
-    for (idx, lbaf) in namespace_params.lbafs.iter().enumerate() {
-        if lbaf.ds == 9 {
+    for (idx, lbaf) in lbafs.iter().enumerate() {
+        if lbaf.ds == target_ds {
             match best_format {
                 None => best_format = Some((idx, lbaf)),
                 Some((_, current_best)) => {
@@ -157,37 +145,78 @@ async fn get_512b_lba_format(nvmename: &str) -> Result<(u8, u64), CarbideClientE
         }
     }
 
-    match best_format {
-        Some((idx, lbaf)) => {
-            tracing::info!(
-                "Selected FLBAS {} for {} with sector_size=512 bytes (ms={}, rp={})",
-                idx,
-                nvmename,
-                lbaf.ms,
-                lbaf.rp
-            );
-            Ok((idx as u8, 512u64))
+    best_format
+}
+
+/// Get namespace parameters by running nvme id-ns command.
+async fn get_namespace_params(nvmename: &str) -> Result<NvmeNamespaceParams, CarbideClientError> {
+    let namespace_params_lines = cmdrun::run_prog(
+        NVME_CLI_PROG,
+        ["id-ns", nvmename, "-n", "0xffffffff", "-o", "json"],
+    )
+    .await?;
+
+    let namespace_params: NvmeNamespaceParams = match serde_json::from_str(&namespace_params_lines)
+    {
+        Ok(o) => o,
+        Err(e) => {
+            return Err(CarbideClientError::GenericError(format!(
+                "nvme id-ns parse error: {e}"
+            )));
         }
-        None => {
-            tracing::warn!(
-                "No 512B LBA format found for {}, falling back to FLBAS 0",
-                nvmename
-            );
-            // Fallback to FLBAS 0 - determine its actual sector size
-            if let Some(lbaf0) = namespace_params.lbafs.first() {
-                let sector_size = 1u64 << lbaf0.ds;
-                tracing::warn!(
-                    "FLBAS 0 has sector_size={} bytes (ds={})",
-                    sector_size,
-                    lbaf0.ds
-                );
-                Ok((0u8, sector_size))
-            } else {
-                Err(CarbideClientError::GenericError(
-                    "No LBA formats available for device".to_string(),
-                ))
-            }
-        }
+    };
+
+    Ok(namespace_params)
+}
+
+/// Get the best available LBA format for the given device.
+/// Prefers 512B sectors (ds=9) with no metadata and best performance.
+/// Falls back to 4K sectors (ds=12) if no 512B format is available.
+/// If neither is found, falls back to FLBAS 0.
+async fn get_best_lba_format(nvmename: &str) -> Result<(u8, u64), CarbideClientError> {
+    let namespace_params = get_namespace_params(nvmename).await?;
+
+    // Try 512B format first (ds=9 means 2^9 = 512 bytes)
+    if let Some((idx, lbaf)) = select_best_lba_format(&namespace_params.lbafs, 9) {
+        tracing::info!(
+            "Selected FLBAS {} for {} with sector_size=512 bytes (ms={}, rp={})",
+            idx,
+            nvmename,
+            lbaf.ms,
+            lbaf.rp
+        );
+        return Ok((idx as u8, 512u64));
+    }
+
+    // Try 4K format (ds=12 means 2^12 = 4096 bytes)
+    if let Some((idx, lbaf)) = select_best_lba_format(&namespace_params.lbafs, 12) {
+        tracing::info!(
+            "Selected FLBAS {} for {} with sector_size=4096 bytes (ms={}, rp={})",
+            idx,
+            nvmename,
+            lbaf.ms,
+            lbaf.rp
+        );
+        return Ok((idx as u8, 4096u64));
+    }
+
+    // Fallback to FLBAS 0 - determine its actual sector size
+    tracing::warn!(
+        "No 512B or 4K LBA format found for {}, falling back to FLBAS 0",
+        nvmename
+    );
+    if let Some(lbaf0) = namespace_params.lbafs.first() {
+        let sector_size = 1u64 << lbaf0.ds;
+        tracing::warn!(
+            "FLBAS 0 has sector_size={} bytes (ds={})",
+            sector_size,
+            lbaf0.ds
+        );
+        Ok((0u8, sector_size))
+    } else {
+        Err(CarbideClientError::GenericError(
+            "No LBA formats available for device".to_string(),
+        ))
     }
 }
 
@@ -295,7 +324,7 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
         }
 
         if namespaces_supported {
-            let (flbas_index, sector_size) = get_512b_lba_format(nvmename).await?;
+            let (flbas_index, sector_size) = get_best_lba_format(nvmename).await?;
             let sectors = nvme_drive_params.tnvmcap / sector_size;
             let flbas_str = flbas_index.to_string();
 
@@ -849,7 +878,7 @@ mod tests {
 
     #[test]
     fn test_select_best_512b_format() {
-        // Test case 1: Multiple 512B formats, prefer ms=0 and rp=0
+        // Test case: Multiple 512B formats, prefer ms=0 and rp=0
         let lbafs = vec![
             NvmeLbaFormat {
                 ms: 8,
@@ -868,25 +897,77 @@ mod tests {
             },
         ];
 
-        let mut best_format: Option<(usize, &NvmeLbaFormat)> = None;
-        for (idx, lbaf) in lbafs.iter().enumerate() {
-            if lbaf.ds == 9 {
-                match best_format {
-                    None => best_format = Some((idx, lbaf)),
-                    Some((_, current_best)) => {
-                        if lbaf.ms == 0 && current_best.ms != 0 {
-                            best_format = Some((idx, lbaf));
-                        } else if lbaf.ms == current_best.ms && lbaf.rp < current_best.rp {
-                            best_format = Some((idx, lbaf));
-                        }
-                    }
-                }
-            }
-        }
-
+        let best_format = select_best_lba_format(&lbafs, 9);
         assert!(best_format.is_some());
-        let (idx, _) = best_format.unwrap();
+        let (idx, lbaf) = best_format.unwrap();
         assert_eq!(idx, 1); // Should select format at index 1 (ms=0, rp=0)
+        assert_eq!(lbaf.ms, 0);
+        assert_eq!(lbaf.rp, 0);
+    }
+
+    #[test]
+    fn test_select_best_4k_format() {
+        // Test case: Multiple 4K formats, prefer ms=0 and best rp
+        let lbafs = vec![
+            NvmeLbaFormat {
+                ms: 8,
+                ds: 12,
+                rp: 2,
+            },
+            NvmeLbaFormat {
+                ms: 0,
+                ds: 12,
+                rp: 1,
+            },
+            NvmeLbaFormat {
+                ms: 0,
+                ds: 12,
+                rp: 0,
+            },
+        ];
+
+        let best_format = select_best_lba_format(&lbafs, 12);
+        assert!(best_format.is_some());
+        let (idx, lbaf) = best_format.unwrap();
+        assert_eq!(idx, 2); // Should select format at index 2 (ms=0, rp=0)
+        assert_eq!(lbaf.ms, 0);
+        assert_eq!(lbaf.rp, 0);
+    }
+
+    #[test]
+    fn test_select_format_prefer_no_metadata() {
+        // Test case: Prefer no metadata even with slightly worse performance
+        let lbafs = vec![
+            NvmeLbaFormat {
+                ms: 8,
+                ds: 9,
+                rp: 0,
+            },
+            NvmeLbaFormat {
+                ms: 0,
+                ds: 9,
+                rp: 1,
+            },
+        ];
+
+        let best_format = select_best_lba_format(&lbafs, 9);
+        assert!(best_format.is_some());
+        let (idx, lbaf) = best_format.unwrap();
+        assert_eq!(idx, 1); // Should prefer ms=0 even though rp is worse
+        assert_eq!(lbaf.ms, 0);
+    }
+
+    #[test]
+    fn test_select_format_not_found() {
+        // Test case: No matching format
+        let lbafs = vec![NvmeLbaFormat {
+            ms: 0,
+            ds: 12,
+            rp: 0,
+        }];
+
+        let best_format = select_best_lba_format(&lbafs, 9);
+        assert!(best_format.is_none());
     }
 
     #[test]
