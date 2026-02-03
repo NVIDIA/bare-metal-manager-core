@@ -132,7 +132,7 @@ pub async fn list_switches(api_client: &ApiClient) -> Result<()> {
     let query = rpc::forge::SwitchQuery {
         name: None,
         switch_id: None,
-        include_ip_addresses: false,
+        include_addresses: None,
     };
 
     let response = api_client.0.find_switches(query).await?;
@@ -199,12 +199,12 @@ pub async fn handle_show(
                 Ok(switch_id) => rpc::forge::SwitchQuery {
                     name: None,
                     switch_id: Some(switch_id),
-                    include_ip_addresses: false,
+                    include_addresses: None,
                 },
                 Err(_) => rpc::forge::SwitchQuery {
                     name: Some(id),
                     switch_id: None,
-                    include_ip_addresses: false,
+                    include_addresses: None,
                 },
             }
         }
@@ -213,7 +213,7 @@ pub async fn handle_show(
             rpc::forge::SwitchQuery {
                 name: None,
                 switch_id: None,
-                include_ip_addresses: false,
+                include_addresses: None,
             }
         }
     };
