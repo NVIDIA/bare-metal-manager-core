@@ -64,6 +64,13 @@ fn bfb_crd(name: &str) -> BFB {
     }
 }
 
+pub fn init() {
+    // Set crypto provider regardless of DPF flag.
+    if CryptoProvider::get_default().is_none() {
+        CryptoProvider::install_default(aws_lc_rs::default_provider()).unwrap();
+    }
+}
+
 /// Trait for a Kubernetes client implementation.
 #[async_trait::async_trait]
 pub trait KubeImpl: Send + Sync + std::fmt::Debug + 'static {
@@ -167,8 +174,6 @@ pub async fn create_crds_and_secret_with_client(
     bmc_password: String,
     mode: &impl KubeImpl,
 ) -> Result<(), DpfError> {
-    CryptoProvider::install_default(aws_lc_rs::default_provider()).unwrap();
-
     // Step 0: Create secret for bmc password
     create_secret_for_bmc_password(bmc_password, mode).await?;
 

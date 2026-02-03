@@ -623,6 +623,9 @@ pub async fn initialize_and_start_controllers(
         .to_string_lossy()
         .to_string();
 
+    // Run dpf init regardless of dpf flag.
+    carbide_dpf::init();
+
     // Create DPF CRDs if enabled
     if carbide_config.dpf.enabled {
         tracing::info!("Creating DPF CRDs");
