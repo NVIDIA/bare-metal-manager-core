@@ -56,10 +56,10 @@ pub fn machine_get_filename(
         let base_url = config.dhcp_config.carbide_provisioning_server_ipv4;
         match arch {
             MachineArchitecture::EfiX64 => {
-                format!("http://{base_url}:8080/public/blobs/internal/x86_64/golan.efi")
+                format!("http://{base_url}:8080/public/blobs/internal/x86_64/ipxe.efi")
             }
             MachineArchitecture::Arm64 => {
-                format!("http://{base_url}:8080/public/blobs/internal/aarch64/golan.efi")
+                format!("http://{base_url}:8080/public/blobs/internal/aarch64/ipxe.efi")
             }
             MachineArchitecture::BiosX86 => {
                 tracing::warn!(
