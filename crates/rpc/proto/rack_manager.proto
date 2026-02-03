@@ -1,3 +1,20 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 syntax = "proto3";
 
 package rack_manager;
@@ -22,11 +39,6 @@ enum RackPowerOperation {
 enum ReturnCode {
   SUCCESS = 0;
   FAILURE = 1;
-}
-
-enum PowerComplianceValue {
-  MIN = 0;
-  MAX = 1;
 }
 
 enum FirmwareUpdateError {
@@ -95,7 +107,7 @@ message FirmwareInventoryInfo {
 }
 
 /*************************************************************
- * METADATA DEFINITION                                       *
+ * METADATA DEFINITION                                       *    
  * Every request and response will have this metadata field. *
  * Allows for tracing and debugging of message flow          *
  *************************************************************/
@@ -111,10 +123,7 @@ message Metadata {
 service RackManager {
   rpc PowerControl(PowerControlRequest) returns (PowerControlResponse) {}
   rpc InventoryControl(InventoryRequest) returns (InventoryResponse) {}
-  rpc SecurityControl(SecurityRequest) returns (SecurityResponse) {}
   rpc FirmwareControl(FirmwareRequest) returns (FirmwareResponse) {}
-  rpc UploadFile(FileUploadRequest) returns (FileUploadResponse) {}
-  rpc PowerCompliance(PowerComplianceRequest) returns (PowerComplianceResponse) {}
   rpc Version(google.protobuf.Empty) returns (google.protobuf.Empty) {}
   rpc NmxControl(NmxControlRequest) returns (NmxControlResponse) {}
   rpc SwitchControl(SwitchControlRequest) returns (SwitchControlResponse) {}
@@ -171,32 +180,14 @@ message InventoryResponse {
   }
 }
 
-// SecurityControl request/response
-message SecurityRequest {
-  Metadata metadata = 1;
-  oneof command {
-    GetAttestationCommand get_attestation = 2;
-  }
-}
-
-message SecurityResponse {
-  Metadata metadata = 1;
-  ReturnCode status = 2;
-  oneof response {
-    GetAttestationResponse get_attestation = 3;
-  }
-}
-
 message FirmwareRequest {
   Metadata metadata = 1;
   oneof command {
-    GetFirmwareInventoryCommand get_firmware_inventory = 2;
+    GetNodeFirmwareInventoryCommand get_node_firmware_inventory = 2;
     UpdateFirmwareCommand update_firmware = 3;
     UpdateFirmwareByNodeTypeCommand update_firmware_by_node_type = 4;
     GetAvailableFwImagesCommand get_available_fw_images = 5;
-    GetBKCFilesCommand get_bkc_files = 6;
-    SelectActiveBKCFileCommand select_active_bkc_file = 7;
-    CheckBKCComplianceCommand check_bkc_compliance = 8;
+    GetRackFirmwareInventoryCommand get_rack_firmware_inventory = 6;
   }
 }
 
@@ -204,30 +195,11 @@ message FirmwareResponse {
   Metadata metadata = 1;
   ReturnCode status = 2;
   oneof response {
-    GetFirmwareInventoryResponse firm_inventory_response = 3;
+    GetNodeFirmwareInventoryResponse get_node_firmware_inventory = 3;
     UpdateFirmwareResponse update_firmware = 4;
     UpdateFirmwareByNodeTypeResponse update_firmware_by_node_type = 5;
     GetAvailableFwImagesResponse get_available_fw_images = 6;
-    GetBKCFilesResponse get_bkc_files = 7;
-    SelectActiveBKCFileResponse select_active_bkc_file = 8;
-    CheckBKCComplianceResponse check_bkc_compliance = 9;
-  }
-}
-
-message PowerComplianceRequest {
-  Metadata metadata = 1;
-  oneof command {
-    GetRackPowerCommand get_power_limit = 2;
-    SetRackPowerCommand set_power_limit = 3;
-  }
-}
-
-message PowerComplianceResponse {
-  Metadata metadata = 1;
-  ReturnCode status = 2;
-  oneof response {
-    GetRackPowerResponse get_power_limit = 3;
-    SetRackPowerResponse set_power_limit = 4;
+    GetRackFirmwareInventoryResponse get_rack_firmware_inventory = 7;
   }
 }
 
@@ -354,28 +326,29 @@ message SetPowerOnOrderResponse {
 }
 
 /*********************************
- * SECURITY CONTROL SUBMESSAGES *
- *********************************/
-message GetAttestationCommand {
-  string node_id = 1;
-  string rack_id = 2;
-}
-
-message GetAttestationResponse {
-  bool attested = 1; // placeholder
-}
-
-/*********************************
  * FIRMWARE CONTROL SUBMESSAGES *
  *********************************/
 
-message GetFirmwareInventoryCommand {
+message GetNodeFirmwareInventoryCommand {
   string node_id = 1;
   string rack_id = 2;
 }
 
-message GetFirmwareInventoryResponse {
+message GetNodeFirmwareInventoryResponse {
   repeated FirmwareInventoryInfo firmware_list = 1;
+}
+
+message GetRackFirmwareInventoryCommand {
+  string rack_id = 1;
+}
+
+message NodeFirmwareInventory {
+  string node_id = 1;
+  repeated FirmwareInventoryInfo firmware_list = 2;
+}
+
+message GetRackFirmwareInventoryResponse {
+  repeated NodeFirmwareInventory nodes = 1;
 }
 
 message UpdateFirmwareCommand {
@@ -428,141 +401,43 @@ message GetAvailableFwImagesResponse {
   repeated FirmwareFileInfo firmware_files = 1;
 }
 
-message GetBKCFilesCommand {
-}
-
-message BKCFileInfo {
-  string filename = 1;
-  int64 size = 2;
-  string hash = 3;
-  string description = 4;
-  bool is_active = 5;
-}
-
-message GetBKCFilesResponse {
-  repeated BKCFileInfo bkc_files = 1;
-}
-
-message SelectActiveBKCFileCommand {
-  string filename = 1;
-}
-
-message SelectActiveBKCFileResponse {
-  string message = 1;
-  string active_bkc_file = 2;
-}
-
-message CheckBKCComplianceCommand {
-}
-
-message NonCompliantNode {
-  string node_id = 1;
-  string firmware_name = 2;
-  string current_version = 3;
-  string expected_version = 4;
-  string reason = 5;
-}
-
-message CheckBKCComplianceResponse {
-  bool is_compliant = 1;
-  string message = 2;
-  repeated NonCompliantNode non_compliant_nodes = 3;
-  string active_bkc_file = 4;
-}
-
-/*********************************
- * FILE UPLOAD MESSAGES *
- *********************************/
-message FileUploadRequest {
-  Metadata metadata = 1;
-  oneof upload_data {
-    FileUploadMetadata upload_metadata = 2;
-    FileChunk chunk = 3;
-  }
-}
-
-message FileUploadMetadata {
-  string node_id = 1;
-  string file_name = 2;
-  int32 file_type = 3;
-  string target = 4;
-  int64 total_size = 5;
-  string file_hash = 6;  // SHA-256 hash of the file
-  int32 total_chunks = 7;  // Total number of chunks in the file
-}
-
-message FileChunk {
-  bytes data = 1;
-  int32 sequence_number = 2;
-}
-
-message FileUploadResponse {
-  Metadata metadata = 1;
-  ReturnCode status = 2;
-  string message = 3;
-  string file_path = 4;
-}
-
-/*********************************
- * POWER COMPLIANCE CONTROL SUBMESSAGES *
- *********************************/
-
-message GetRackPowerCommand {
-  PowerComplianceValue request_type = 1;
-}
-
-message SetRackPowerCommand {
-  PowerComplianceValue request_type = 1;
-  int64 power_value = 2;
-}
-
-message GetRackPowerResponse {
-  int64 power_value = 1;
-}
-
-message SetRackPowerResponse {
-}
-
 /*********************************
 * NMX CONTROL SUBMESSAGES *
 *********************************/
 
 message ConfigureNmxcCommand {
-  string switch_host = 1;      // Switch hostname or IP
-  string hardware_platform = 2; // Hardware platform (e.g., "gb200_72x1")
-  string username = 3;         // Switch username
-  string password = 4;         // Switch password
-  int32 switch_port = 5;       // NVUE API port (default: 443)
-  bool verify_ssl = 6;         // Whether to verify SSL certificates
+  string rack_id = 1;           
+  string node_id = 2;           
+  string vault_path = 3;        
+  string hardware_platform = 4; 
+  int32 switch_port = 5;       
+  bool verify_ssl = 6;         
 }
 
 message ConfigureNmxcResponse {
-  string message = 1;          // Status message
-  string topology_used = 2;    // The topology that was applied
-  bool cluster_enabled = 3;    // Whether cluster was enabled
-  bool grpc_enabled = 4;       // Whether gRPC API is enabled
+  string message = 1;          
+  string topology_used = 2;    
+  bool cluster_enabled = 3;    
+  bool grpc_enabled = 4;       
 }
 
 /**************************************
  * SWITCH MANAGER CONTROL DEFINITIONS *
  **************************************/
 
-// SwitchControl request/response
 message SwitchControlRequest {
   Metadata metadata = 1;
   oneof command {
-    GetSwitchCredentialsCommand get_switch_credentials = 2;
-    FetchSystemImageCommand fetch_system_image = 3;
-    InstallSystemImageCommand install_system_image = 4;
-    ListSystemImagesCommand list_system_images = 5;
-    UpdateClusterConfigCommand update_cluster_config = 6;
-    GetClusterStateCommand get_cluster_state_cmd = 7;
-    GetClusterAppsStatusCommand get_cluster_apps_status = 8;
-    EnableNmxGrpcCommand enable_nmx_grpc = 9;
-    RestartClusterAppCommand restart_cluster_app = 10;
-    CheckNmxGrpcStatusCommand check_nmx_grpc_status = 11;
-    ConfigureSwitchGnmiServiceCommand configure_switch_gnmi_service = 12;
-    ConfigureSwitchNmxcCommand configure_switch_nmxc = 13;
+    FetchSystemImageCommand fetch_system_image = 2;
+    InstallSystemImageCommand install_system_image = 3;
+    ListSystemImagesCommand list_system_images = 4;
+    UpdateClusterConfigCommand update_cluster_config = 5;
+    GetClusterStateCommand get_cluster_state_cmd = 6;
+    GetClusterAppsStatusCommand get_cluster_apps_status = 7;
+    EnableNmxGrpcCommand enable_nmx_grpc = 8;
+    RestartClusterAppCommand restart_cluster_app = 9;
+    CheckNmxGrpcStatusCommand check_nmx_grpc_status = 10;
+    GNMIServiceCommand gnmi_service = 11;
   }
 }
 
@@ -570,38 +445,26 @@ message SwitchControlResponse {
   Metadata metadata = 1;
   ReturnCode status = 2;
   oneof response {
-    GetSwitchCredentialsResponse get_switch_credentials = 3;
-    FetchSystemImageResponse fetch_system_image = 4;
-    InstallSystemImageResponse install_system_image = 5;
-    ListSystemImagesResponse list_system_images = 6;
-    UpdateClusterConfigResponse update_cluster_config = 7;
-    GetClusterStateResponse get_cluster_state_resp = 8;
-    GetClusterAppsStatusResponse get_cluster_apps_status = 9;
-    EnableNmxGrpcResponse enable_nmx_grpc = 10;
-    RestartClusterAppResponse restart_cluster_app = 11;
-    CheckNmxGrpcStatusResponse check_nmx_grpc_status = 12;
-    ConfigureSwitchGnmiServiceResponse configure_switch_gnmi_service = 13;
-    ConfigureSwitchNmxcResponse configure_switch_nmxc = 14;
+    FetchSystemImageResponse fetch_system_image = 3;
+    InstallSystemImageResponse install_system_image = 4;
+    ListSystemImagesResponse list_system_images = 5;
+    UpdateClusterConfigResponse update_cluster_config = 6;
+    GetClusterStateResponse get_cluster_state_resp = 7;
+    GetClusterAppsStatusResponse get_cluster_apps_status = 8;
+    EnableNmxGrpcResponse enable_nmx_grpc = 9;
+    RestartClusterAppResponse restart_cluster_app = 10;
+    CheckNmxGrpcStatusResponse check_nmx_grpc_status = 11;
+    GNMIServiceResponse gnmi_service = 12;
   }
 }
 
-// GetSwitchCredentials command/response
-message GetSwitchCredentialsCommand {
-  string switch_name = 1;  // RMS Node ID - RMS resolves credentials from Vault
-}
-
-message GetSwitchCredentialsResponse {
-  optional string username = 1;  // Username from Vault (if available)
-  optional string password = 2;  // Password from Vault (if available)
-  string error_message = 3;      // Error message if credentials could not be retrieved
-}
-
-// FetchSystemImage command/response
 message FetchSystemImageCommand {
-  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
-  optional int32 switch_port = 2;  // Optional: RMS might have default
-  optional bool verify_ssl = 3;  // Optional: RMS might have default
-  string remote_url = 4;
+  string rack_id = 1;           
+  string node_id = 2;           
+  string vault_path = 3;        
+  int32 port = 4;              
+  bool verify_ssl = 5;         
+  string remote_url = 6;       
 }
 
 message FetchSystemImageResponse {
@@ -609,12 +472,13 @@ message FetchSystemImageResponse {
   string error_message = 2;
 }
 
-// InstallSystemImage command/response
 message InstallSystemImageCommand {
-  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
-  optional int32 switch_port = 2;  // Optional: RMS might have default
-  optional bool verify_ssl = 3;  // Optional: RMS might have default
-  string image_filename = 4;
+  string rack_id = 1;           
+  string node_id = 2;           
+  string vault_path = 3;        
+  int32 port = 4;              
+  bool verify_ssl = 5;         
+  string image_filename = 6;   
 }
 
 message InstallSystemImageResponse {
@@ -622,24 +486,26 @@ message InstallSystemImageResponse {
   string error_message = 2;
 }
 
-// ListSystemImages command/response
 message ListSystemImagesCommand {
-  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
-  optional int32 switch_port = 2;  // Optional: RMS might have default
-  optional bool verify_ssl = 3;  // Optional: RMS might have default
+  string rack_id = 1;           
+  string node_id = 2;           
+  string vault_path = 3;        
+  int32 port = 4;              
+  bool verify_ssl = 5;         
 }
 
 message ListSystemImagesResponse {
-  string images_json = 1;  // JSON string containing list of images
+  string images_json = 1;  
   string error_message = 2;
 }
 
-// UpdateClusterConfig command/response
 message UpdateClusterConfigCommand {
-  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
-  optional int32 switch_port = 2;  // Optional: RMS might have default
-  optional bool verify_ssl = 3;  // Optional: RMS might have default
-  bool enabled = 4;
+  string rack_id = 1;           
+  string node_id = 2;           
+  string vault_path = 3;        
+  int32 port = 4;              
+  bool verify_ssl = 5;         
+  bool enabled = 6;            
 }
 
 message UpdateClusterConfigResponse {
@@ -647,51 +513,55 @@ message UpdateClusterConfigResponse {
   string error_message = 2;
 }
 
-// GetClusterState command/response
 message GetClusterStateCommand {
-  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
-  optional int32 switch_port = 2;  // Optional: RMS might have default
-  optional bool verify_ssl = 3;  // Optional: RMS might have default
+  string rack_id = 1;           
+  string node_id = 2;           
+  string vault_path = 3;        
+  int32 port = 4;              
+  bool verify_ssl = 5;         
 }
 
 message GetClusterStateResponse {
-  string state_json = 1;  // JSON string containing cluster state
+  string state_json = 1;  
   string error_message = 2;
 }
 
-// GetClusterAppsStatus command/response
 message GetClusterAppsStatusCommand {
-  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
-  optional int32 switch_port = 2;  // Optional: RMS might have default
-  optional bool verify_ssl = 3;  // Optional: RMS might have default
-  string app_name = 4;
+  string rack_id = 1;           
+  string node_id = 2;           
+  string vault_path = 3;        
+  int32 port = 4;              
+  bool verify_ssl = 5;         
+  string app_name = 6;         
 }
 
 message GetClusterAppsStatusResponse {
-  string status_json = 1;  // JSON string containing app status
+  string status_json = 1;  
   string error_message = 2;
 }
 
-// EnableNmxGrpc command/response
 message EnableNmxGrpcCommand {
-  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
-  optional int32 switch_port = 2;  // Optional: RMS might have default
-  optional bool verify_ssl = 3;  // Optional: RMS might have default
-  string app_name = 4;
-  bool enabled = 5;
+  string rack_id = 1;           
+  string node_id = 2;           
+  string vault_path = 3;        
+  int32 port = 4;              
+  bool verify_ssl = 5;         
+  string app_name = 6;         
+  bool enabled = 7;            
 }
 
 message EnableNmxGrpcResponse {
-  string result_json = 1;  // JSON string containing result
+  string result_json = 1;  
   string error_message = 2;
 }
 
-// RestartClusterApp command/response
 message RestartClusterAppCommand {
-  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
-  optional int32 switch_port = 2;  // Optional: RMS might have default
-  optional bool verify_ssl = 3;  // Optional: RMS might have default
-  string app_name = 4;
+  string rack_id = 1;           
+  string node_id = 2;           
+  string vault_path = 3;        
+  int32 port = 4;              
+  bool verify_ssl = 5;         
+  string app_name = 6;         
 }
 
 message RestartClusterAppResponse {
@@ -699,43 +569,31 @@ message RestartClusterAppResponse {
   string error_message = 2;
 }
 
-// CheckNmxGrpcStatus command/response
 message CheckNmxGrpcStatusCommand {
-  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
-  optional int32 switch_port = 2;  // Optional: RMS might have default
-  optional bool verify_ssl = 3;  // Optional: RMS might have default
-  string app_name = 4;
-  optional string target_switch_name = 5;
+  string rack_id = 1;           
+  string node_id = 2;           
+  string vault_path = 3;        
+  int32 port = 4;              
+  bool verify_ssl = 5;         
+  string app_name = 6;         
+  string target_switch_name = 7; 
 }
 
 message CheckNmxGrpcStatusResponse {
-  string status_json = 1;  // JSON string containing connectivity status
+  string status_json = 1;  
   string error_message = 2;
 }
 
-// ConfigureSwitchGnmiService command/response
-message ConfigureSwitchGnmiServiceCommand {
-  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
-  optional int32 switch_port = 2;  // Optional: RMS might have default
-  optional bool verify_ssl = 3;  // Optional: RMS might have default
-  bool enabled = 4;
+message GNMIServiceCommand {
+  string rack_id = 1;           
+  string node_id = 2;           
+  string vault_path = 3;        
+  int32 port = 4;              
+  bool verify_ssl = 5;         
+  bool enabled = 6;            
 }
 
-message ConfigureSwitchGnmiServiceResponse {
-  string result_json = 1;  // JSON string containing result
+message GNMIServiceResponse {
+  string result_json = 1;  
   string error_message = 2;
 }
-
-// ConfigureSwitchNmxc command/response
-message ConfigureSwitchNmxcCommand {
-  string switch_name = 1;  // RMS Node ID - RMS resolves IP, MAC, credentials from this
-  optional int32 switch_port = 2;  // Optional: RMS might have default
-  optional bool verify_ssl = 3;  // Optional: RMS might have default
-  string hardware_platform = 4;
-}
-
-message ConfigureSwitchNmxcResponse {
-  string result_json = 1;  // JSON string containing result
-  string error_message = 2;
-}
-
