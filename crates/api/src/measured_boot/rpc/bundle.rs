@@ -17,8 +17,7 @@
 use db::WithTransaction;
 use db::measured_boot::bundle;
 use db::measured_boot::interface::bundle::{
-    get_machines_for_bundle_id, get_machines_for_bundle_name,
-    get_measurement_bundle_records_with_txn,
+    get_machines_for_bundle_id, get_machines_for_bundle_name, get_measurement_bundle_records,
 };
 use futures_util::FutureExt;
 use measured_boot::pcr::PcrRegisterValue;
@@ -48,7 +47,7 @@ pub async fn handle_create_measurement_bundle(
 ) -> Result<CreateMeasurementBundleResponse, Status> {
     let mut txn = api.txn_begin().await?;
     let state = req.state();
-    let bundle = db::measured_boot::bundle::new_with_txn(
+    let bundle = db::measured_boot::bundle::new(
         &mut txn,
         req.profile_id
             .ok_or(CarbideError::MissingArgument("profile_id"))?,
@@ -75,7 +74,7 @@ pub async fn handle_delete_measurement_bundle(
     let bundle = match req.selector {
         // Delete for the given bundle ID.
         Some(delete_measurement_bundle_request::Selector::BundleId(bundle_uuid)) => {
-            db::measured_boot::bundle::delete_for_id_with_txn(&mut txn, bundle_uuid, false)
+            db::measured_boot::bundle::delete_for_id(&mut txn, bundle_uuid, false)
                 .await
                 .map_err(|e| Status::internal(format!("deletion failed: {e}")))?
         }
@@ -146,7 +145,7 @@ pub async fn handle_update_measurement_bundle(
         Some(update_measurement_bundle_request::Selector::BundleId(bundle_uuid)) => bundle_uuid,
         // Update for the given bundle name.
         Some(update_measurement_bundle_request::Selector::BundleName(bundle_name)) => {
-            db::measured_boot::bundle::from_name_with_txn(&mut txn, bundle_name)
+            db::measured_boot::bundle::from_name(&mut txn, bundle_name)
                 .await
                 .map_err(|e| Status::internal(format!("deletion failed: {e}")))?
                 .bundle_id
@@ -177,12 +176,12 @@ pub async fn handle_show_measurement_bundle(
     let mut txn = api.txn_begin().await?;
     let bundle = match req.selector {
         Some(show_measurement_bundle_request::Selector::BundleId(bundle_uuid)) => {
-            db::measured_boot::bundle::from_id_with_txn(&mut txn, bundle_uuid)
+            db::measured_boot::bundle::from_id(&mut txn, bundle_uuid)
                 .await
                 .map_err(|e| Status::internal(format!("{e}")))?
         }
         Some(show_measurement_bundle_request::Selector::BundleName(bundle_name)) => {
-            db::measured_boot::bundle::from_name_with_txn(&mut txn, bundle_name)
+            db::measured_boot::bundle::from_name(&mut txn, bundle_name)
                 .await
                 .map_err(|e| Status::internal(format!("{e}")))?
         }
@@ -219,7 +218,7 @@ pub async fn handle_list_measurement_bundles(
     _req: ListMeasurementBundlesRequest,
 ) -> Result<ListMeasurementBundlesResponse, Status> {
     let bundles: Vec<MeasurementBundleRecordPb> = api
-        .with_txn(|txn| get_measurement_bundle_records_with_txn(txn).boxed())
+        .with_txn(|txn| get_measurement_bundle_records(txn).boxed())
         .await?
         .map_err(|e| Status::internal(format!("{e}")))?
         .into_iter()
@@ -274,7 +273,7 @@ pub async fn handle_find_closest_match(
         .report_id
         .ok_or(CarbideError::MissingArgument("report_id"))?;
 
-    let report = db::measured_boot::report::from_id_with_txn(&mut txn, report_id)
+    let report = db::measured_boot::report::from_id(&mut txn, report_id)
         .await
         .map_err(|e| Status::internal(format!("{e}")))?;
 
@@ -282,7 +281,7 @@ pub async fn handle_find_closest_match(
     let journal =
         db::measured_boot::journal::get_journal_for_report_id(&mut txn, report_id).await?;
 
-    let bundle = match bundle::find_closest_match_with_txn(
+    let bundle = match bundle::find_closest_match(
         &mut txn,
         journal.profile_id.ok_or(Status::invalid_argument(
             "A journal without profile detected",

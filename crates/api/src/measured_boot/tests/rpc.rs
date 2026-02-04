@@ -194,12 +194,9 @@ mod tests {
             },
         ];
 
-        let princess_report = db::measured_boot::report::new_with_txn(
-            &mut txn,
-            princess_network.machine_id,
-            &princess_values,
-        )
-        .await?;
+        let princess_report =
+            db::measured_boot::report::new(&mut txn, princess_network.machine_id, &princess_values)
+                .await?;
         assert_eq!(princess_report.machine_id, princess_network.machine_id);
         txn.commit().await?;
 

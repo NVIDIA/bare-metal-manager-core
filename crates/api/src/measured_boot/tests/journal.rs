@@ -32,7 +32,7 @@ mod tests {
             MachineId::from_str("fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530")?;
         let report_id = MeasurementReportId::new();
         let profile_id = MeasurementSystemProfileId::new();
-        let journal = db::measured_boot::journal::new_with_txn(
+        let journal = db::measured_boot::journal::new(
             &mut txn,
             machine_id,
             report_id,

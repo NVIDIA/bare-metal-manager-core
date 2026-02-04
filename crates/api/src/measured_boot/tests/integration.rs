@@ -227,14 +227,11 @@ mod tests {
         // deal with princess-network and beer-louisiana
 
         let dell_r750_profile =
-            db::measured_boot::profile::new_with_txn(&mut txn, None, &dell_r750_attrs).await?;
+            db::measured_boot::profile::new(&mut txn, None, &dell_r750_attrs).await?;
 
-        let princess_report = db::measured_boot::report::new_with_txn(
-            &mut txn,
-            princess_network.machine_id,
-            &princess_values,
-        )
-        .await?;
+        let princess_report =
+            db::measured_boot::report::new(&mut txn, princess_network.machine_id, &princess_values)
+                .await?;
         assert_eq!(princess_report.machine_id, princess_network.machine_id);
 
         let princess_journal =
@@ -251,12 +248,9 @@ mod tests {
         );
         assert_eq!(princess_journal.bundle_id, None);
 
-        let report = db::measured_boot::report::new_with_txn(
-            &mut txn,
-            beer_louisiana.machine_id,
-            &beer_values,
-        )
-        .await?;
+        let report =
+            db::measured_boot::report::new(&mut txn, beer_louisiana.machine_id, &beer_values)
+                .await?;
         assert_eq!(report.machine_id, beer_louisiana.machine_id);
 
         let beer_journal = db::measured_boot::journal::get_latest_for_machine_id(
@@ -269,12 +263,9 @@ mod tests {
         assert_eq!(beer_journal.state, MeasurementMachineState::PendingBundle);
         assert_eq!(beer_journal.bundle_id, None);
 
-        let lime_report = db::measured_boot::report::new_with_txn(
-            &mut txn,
-            lime_coconut.machine_id,
-            &bad_dell_values,
-        )
-        .await?;
+        let lime_report =
+            db::measured_boot::report::new(&mut txn, lime_coconut.machine_id, &bad_dell_values)
+                .await?;
         assert_eq!(lime_report.machine_id, lime_coconut.machine_id);
 
         let lime_journal = db::measured_boot::journal::get_latest_for_machine_id(
@@ -287,12 +278,9 @@ mod tests {
         assert_eq!(lime_journal.state, MeasurementMachineState::PendingBundle);
 
         // and now deal with slippery-lilac
-        let report = db::measured_boot::report::new_with_txn(
-            &mut txn,
-            slippery_lilac.machine_id,
-            &dgx_h100_values,
-        )
-        .await?;
+        let report =
+            db::measured_boot::report::new(&mut txn, slippery_lilac.machine_id, &dgx_h100_values)
+                .await?;
         assert_eq!(report.machine_id, slippery_lilac.machine_id);
 
         let slippery_profile =
@@ -318,7 +306,7 @@ mod tests {
         assert_eq!(slippery_journal.bundle_id, None);
 
         // and now kick off silly-salander and cat-videos
-        let report = db::measured_boot::report::new_with_txn(
+        let report = db::measured_boot::report::new(
             &mut txn,
             silly_salamander.machine_id,
             &dgx_h100_v1_values,
@@ -326,12 +314,9 @@ mod tests {
         .await?;
         assert_eq!(report.machine_id, silly_salamander.machine_id);
 
-        let cat_report = db::measured_boot::report::new_with_txn(
-            &mut txn,
-            cat_videos.machine_id,
-            &dgx_h100_v1_values,
-        )
-        .await?;
+        let cat_report =
+            db::measured_boot::report::new(&mut txn, cat_videos.machine_id, &dgx_h100_v1_values)
+                .await?;
         assert_eq!(cat_report.machine_id, cat_videos.machine_id);
 
         let silly_journal = db::measured_boot::journal::get_latest_for_machine_id(
@@ -351,7 +336,7 @@ mod tests {
         assert_eq!(silly_journal.state, cat_journal.state);
 
         let pcr_set = parse_pcr_index_input("0-2,4")?;
-        let bundle = db::measured_boot::report::create_active_bundle_with_txn(
+        let bundle = db::measured_boot::report::create_active_bundle(
             &mut txn,
             &princess_report,
             &Some(pcr_set),
@@ -424,7 +409,7 @@ mod tests {
         );
 
         let pcr_set = parse_pcr_index_input("1")?;
-        let bundle = db::measured_boot::report::create_revoked_bundle_with_txn(
+        let bundle = db::measured_boot::report::create_revoked_bundle(
             &mut txn,
             &lime_report,
             &Some(pcr_set),
@@ -497,8 +482,7 @@ mod tests {
         );
 
         let bundle =
-            db::measured_boot::report::create_active_bundle_with_txn(&mut txn, &cat_report, &None)
-                .await?;
+            db::measured_boot::report::create_active_bundle(&mut txn, &cat_report, &None).await?;
         assert_eq!(bundle.pcr_values().len(), 5);
         assert_eq!(bundle.state, MeasurementBundleState::Active);
 

@@ -266,8 +266,6 @@ where
 /// you're done. If you want more control, you can
 /// use acquire_advisory_lock + release_advisory_lock.
 pub async fn acquire_advisory_txn_lock(
-    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
-    // which must happen in a transaction.
     txn: &mut PgTransaction<'_>,
     key: &str,
 ) -> Result<(), DatabaseError> {

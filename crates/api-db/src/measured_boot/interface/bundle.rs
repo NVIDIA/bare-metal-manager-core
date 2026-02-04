@@ -215,14 +215,6 @@ pub async fn get_measurement_bundle_records(
         .map_err(|e| e.with_op_name("get_measurement_bundle_records"))
 }
 
-pub async fn get_measurement_bundle_records_with_txn(
-    txn: &mut PgConnection,
-) -> Result<Vec<MeasurementBundleRecord>, DatabaseError> {
-    common::get_all_objects(txn)
-        .await
-        .map_err(|e| e.with_op_name("get_measurement_bundle_records_with_txn"))
-}
-
 /// get_measurement_bundle_records_for_profile_id returns all
 /// MeasurementBundleRecord instances in the database with the given profile
 /// ID.

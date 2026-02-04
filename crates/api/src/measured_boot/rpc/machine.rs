@@ -38,7 +38,7 @@ pub async fn handle_attest_candidate_machine(
     req: AttestCandidateMachineRequest,
 ) -> Result<AttestCandidateMachineResponse, Status> {
     let mut txn = api.txn_begin().await?;
-    let report = db::measured_boot::report::new_with_txn(
+    let report = db::measured_boot::report::new(
         &mut txn,
         MachineId::from_str(&req.machine_id).map_err(|_| {
             CarbideError::from(RpcDataConversionError::InvalidMachineId(req.machine_id))
@@ -63,7 +63,7 @@ pub async fn handle_show_candidate_machine(
     let machine = match req.selector {
         // Show a machine with the given ID.
         Some(show_candidate_machine_request::Selector::MachineId(machine_uuid)) => {
-            db::measured_boot::machine::from_id_with_txn(
+            db::measured_boot::machine::from_id(
                 &mut txn,
                 MachineId::from_str(&machine_uuid).map_err(|_| {
                     CarbideError::from(RpcDataConversionError::InvalidMachineId(machine_uuid))
