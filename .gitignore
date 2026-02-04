@@ -36,3 +36,11 @@ ssh-console/legacy/ssh-console
 
 book/src/mdbook-plantuml-img/**
 dev/mac-local-dev/carbide-api-config-*.toml
+
+# External profiles (any profiles not in carbide-core itself)
+pxe/mkosi.profiles/*-sysext-*
+pxe/mkosi.profiles/*-confext-*
+
+# sysupdate config staged by carbide-extras
+pxe/mkosi.profiles/*/mkosi.extra/usr/lib/sysupdate.d
+
