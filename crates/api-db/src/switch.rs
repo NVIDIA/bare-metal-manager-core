@@ -256,7 +256,7 @@ pub struct SwitchEndpointRow {
     pub ip_address: IpAddr,
 }
 
-pub async fn find_switch_addresses(
+pub async fn list_switch_addresses(
     txn: &mut PgConnection,
 ) -> DatabaseResult<Vec<SwitchEndpointRow>> {
     let sql = r#"

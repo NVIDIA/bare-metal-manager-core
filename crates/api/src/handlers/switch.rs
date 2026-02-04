@@ -64,7 +64,7 @@ pub async fn find_switch(
     // if include_addresses, attempt to get IP address and BMC MAC address for each switch
     let address_map: std::collections::HashMap<String, (String, String)> =
         if query.include_addresses.unwrap_or(false) {
-            let endpoints = db_switch::find_switch_addresses(&mut txn)
+            let endpoints = db_switch::list_switch_addresses(&mut txn)
                 .await
                 .map_err(|e| Status::internal(format!("Failed to get switch addresses: {}", e)))?;
 
