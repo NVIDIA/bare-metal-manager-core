@@ -15,10 +15,10 @@ use axum::response::Response;
 use axum::routing::get;
 use serde_json::json;
 
+use crate::bmc_state::BmcState;
 use crate::json::JsonExt;
-use crate::mock_machine_router::MockWrapperState;
 
-pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
+pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     r.route("/redfish/v1/TaskService/Tasks/{task_id}", get(get_task))
 }
 

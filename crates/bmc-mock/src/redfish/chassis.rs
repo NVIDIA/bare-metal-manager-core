@@ -19,8 +19,8 @@ use axum::response::Response;
 use axum::routing::get;
 use serde_json::json;
 
+use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch};
-use crate::mock_machine_router::MockWrapperState;
 use crate::{http, redfish};
 
 pub fn resource<'a>(chassis_id: &'a str) -> redfish::Resource<'a> {
@@ -47,7 +47,7 @@ pub fn builder(resource: &redfish::Resource) -> ChassisBuilder {
     }
 }
 
-pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
+pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     const CHASSIS_ID: &str = "{chassis_id}";
     const NET_ADAPTER_ID: &str = "{network_adapter_id}";
     const NET_FUNC_ID: &str = "{function_id}";
@@ -151,9 +151,8 @@ impl SingleChassisState {
     }
 }
 
-async fn get_chassis_collection(State(state): State<MockWrapperState>) -> Response {
+async fn get_chassis_collection(State(state): State<BmcState>) -> Response {
     let members = state
-        .bmc_state
         .chassis_state
         .chassis
         .iter()
@@ -162,11 +161,8 @@ async fn get_chassis_collection(State(state): State<MockWrapperState>) -> Respon
     collection().with_members(&members).into_ok_response()
 }
 
-async fn get_chassis(
-    State(state): State<MockWrapperState>,
-    Path(chassis_id): Path<String>,
-) -> Response {
-    let Some(chassis_state) = state.bmc_state.chassis_state.find(&chassis_id) else {
+async fn get_chassis(State(state): State<BmcState>, Path(chassis_id): Path<String>) -> Response {
+    let Some(chassis_state) = state.chassis_state.find(&chassis_id) else {
         return http::not_found();
     };
     let b = builder(&resource(&chassis_id));
@@ -189,11 +185,10 @@ async fn get_chassis(
 }
 
 async fn get_chassis_network_adapters(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path(chassis_id): Path<String>,
 ) -> Response {
     state
-        .bmc_state
         .chassis_state
         .find(&chassis_id)
         .and_then(|chassis_state| chassis_state.config.network_adapters.as_ref())
@@ -214,13 +209,13 @@ async fn get_chassis_network_adapters(
 }
 
 async fn get_chassis_network_adapter(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path((chassis_id, network_adapter_id)): Path<(String, String)>,
 ) -> Response {
-    let Some(chassis_state) = state.bmc_state.chassis_state.find(&chassis_id) else {
+    let Some(chassis_state) = state.chassis_state.find(&chassis_id) else {
         return http::not_found();
     };
-    if let Some(helper) = state.bmc_state.injected_bugs.all_dpu_lost_on_host() {
+    if let Some(helper) = state.injected_bugs.all_dpu_lost_on_host() {
         return helper
             .network_adapter(&chassis_id, &network_adapter_id)
             .into_ok_response();
@@ -232,11 +227,10 @@ async fn get_chassis_network_adapter(
 }
 
 async fn get_chassis_network_adapters_network_device_functions_list(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path((chassis_id, network_adapter_id)): Path<(String, String)>,
 ) -> Response {
     state
-        .bmc_state
         .chassis_state
         .find(&chassis_id)
         .and_then(|chassis_state| chassis_state.find_network_adapter(&network_adapter_id))
@@ -261,11 +255,10 @@ async fn get_chassis_network_adapters_network_device_functions_list(
 }
 
 async fn get_chassis_network_adapters_network_device_function(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path((chassis_id, network_adapter_id, function_id)): Path<(String, String, String)>,
 ) -> Response {
     state
-        .bmc_state
         .chassis_state
         .find(&chassis_id)
         .and_then(|chassis_state| chassis_state.find_network_adapter(&network_adapter_id))
@@ -275,22 +268,15 @@ async fn get_chassis_network_adapters_network_device_function(
 }
 
 async fn get_pcie_device(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path((chassis_id, pcie_device_id)): Path<(String, String)>,
 ) -> Response {
     state
-        .bmc_state
         .chassis_state
         .find(&chassis_id)
         .and_then(|chassis_state| chassis_state.find_pcie_device(&pcie_device_id))
         .map(|pcie_device| {
-            if pcie_device.is_mat_dpu
-                && state
-                    .bmc_state
-                    .injected_bugs
-                    .all_dpu_lost_on_host()
-                    .is_some()
-            {
+            if pcie_device.is_mat_dpu && state.injected_bugs.all_dpu_lost_on_host().is_some() {
                 json!("All DPU lost bug injected").into_response(StatusCode::NOT_FOUND)
             } else {
                 pcie_device.to_json().into_ok_response()
@@ -300,11 +286,10 @@ async fn get_pcie_device(
 }
 
 async fn get_chassis_pcie_devices(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path(chassis_id): Path<String>,
 ) -> Response {
     state
-        .bmc_state
         .chassis_state
         .find(&chassis_id)
         .and_then(|chassis_state| chassis_state.config.pcie_devices.as_ref())

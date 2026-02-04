@@ -36,3 +36,10 @@ impl BmcVendor {
         }
     }
 }
+
+#[derive(Clone)]
+pub enum State {
+    NvidiaBluefield(nvidia::bluefield::BluefieldState),
+    DellIdrac(dell::idrac::IdracState),
+    Other,
+}

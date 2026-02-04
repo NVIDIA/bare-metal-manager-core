@@ -260,7 +260,7 @@ mod tests {
     #[tokio::test]
     async fn test_expand() {
         let bmc_mock = test_host_mock();
-        let mut subject = redfish::expander::append(bmc_mock.clone());
+        let mut subject = redfish::expander_router::append(bmc_mock.clone());
 
         let response_body = subject
             .call(

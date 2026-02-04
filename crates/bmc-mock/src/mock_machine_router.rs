@@ -9,8 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -24,12 +23,6 @@ use crate::bug::InjectedBugs;
 use crate::json::JsonExt;
 use crate::redfish::manager::ManagerState;
 use crate::{MachineInfo, PowerControl, SystemPowerControl, middleware_router, redfish};
-
-#[derive(Clone)]
-pub(crate) struct MockWrapperState {
-    pub machine_info: MachineInfo,
-    pub bmc_state: BmcState,
-}
 
 #[derive(Debug)]
 pub enum BmcCommand {
@@ -55,7 +48,7 @@ trait AddRoutes {
         Self: Sized;
 }
 
-impl AddRoutes for Router<MockWrapperState> {
+impl AddRoutes for Router<BmcState> {
     fn add_routes(self, f: impl FnOnce(Self) -> Self) -> Self {
         f(self)
     }
@@ -72,6 +65,7 @@ pub fn machine_router(
     let chassis_config = machine_info.chassis_config();
     let update_service_config = machine_info.update_service_config();
     let bmc_vendor = machine_info.bmc_vendor();
+    let oem_state = machine_info.oem_state();
     let router = Router::new()
         // Couple routes for bug injection.
         .route(
@@ -102,36 +96,31 @@ pub fn machine_router(
         crate::redfish::update_service::UpdateServiceState::from_config(update_service_config),
     );
     let injected_bugs = Arc::new(InjectedBugs::default());
-    let router = router.with_state(MockWrapperState {
-        machine_info,
-        bmc_state: BmcState {
-            bmc_vendor,
-            jobs: Arc::new(Mutex::new(HashMap::new())),
-            manager,
-            system_state,
-            chassis_state,
-            update_service_state,
-            dell_attrs: Arc::new(Mutex::new(serde_json::json!({}))),
-            injected_bugs: injected_bugs.clone(),
-        },
+    let router = router.with_state(BmcState {
+        bmc_vendor,
+        oem_state,
+        manager,
+        system_state,
+        chassis_state,
+        update_service_state,
+        injected_bugs: injected_bugs.clone(),
     });
-    let router_with_expansion = redfish::expander::append(router);
+    let router_with_expansion = redfish::expander_router::append(router);
     middleware_router::append(mat_host_id, router_with_expansion, injected_bugs)
 }
 
-async fn get_injected_bugs(State(state): State<MockWrapperState>) -> Response {
-    state.bmc_state.injected_bugs.get().into_ok_response()
+async fn get_injected_bugs(State(state): State<BmcState>) -> Response {
+    state.injected_bugs.get().into_ok_response()
 }
 
 async fn post_injected_bugs(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Json(bug_args): Json<serde_json::Value>,
 ) -> Response {
     state
-        .bmc_state
         .injected_bugs
         .update(bug_args)
-        .map(|_| state.bmc_state.injected_bugs.get().into_ok_response())
+        .map(|_| state.injected_bugs.get().into_ok_response())
         .unwrap_or_else(|err| {
             serde_json::json!({"error": format!("{err:?}")}).into_response(StatusCode::BAD_REQUEST)
         })

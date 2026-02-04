@@ -31,7 +31,7 @@ pub mod software_inventory;
 pub mod task_service;
 pub mod update_service;
 
-pub mod expander;
+pub mod expander_router;
 
 pub use collection::Collection;
 pub use resource::Resource;

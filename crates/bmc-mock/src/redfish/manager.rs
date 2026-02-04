@@ -21,8 +21,8 @@ use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde_json::json;
 
+use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch};
-use crate::mock_machine_router::MockWrapperState;
 use crate::{http, redfish};
 
 pub fn collection() -> redfish::Collection<'static> {
@@ -124,7 +124,7 @@ impl ManagerBuilder {
     }
 }
 
-pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
+pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     const MGR_ID: &str = "{manager_id}";
     const ETH_ID: &str = "{ethernet_id}";
     r.route(&collection().odata_id, get(get_manager_collection))
@@ -171,19 +171,16 @@ impl ManagerState {
     }
 }
 
-async fn get_manager_collection(State(state): State<MockWrapperState>) -> Response {
+async fn get_manager_collection(State(state): State<BmcState>) -> Response {
     collection()
         .with_members(std::slice::from_ref(
-            &resource(state.bmc_state.manager.id).entity_ref(),
+            &resource(state.manager.id).entity_ref(),
         ))
         .into_ok_response()
 }
 
-async fn get_manager(
-    State(state): State<MockWrapperState>,
-    Path(manager_id): Path<String>,
-) -> Response {
-    let this = state.bmc_state.manager;
+async fn get_manager(State(state): State<BmcState>, Path(manager_id): Path<String>) -> Response {
+    let this = state.manager;
     if this.id != manager_id {
         return http::not_found();
     }
@@ -205,10 +202,10 @@ async fn get_manager(
 }
 
 async fn get_ethernet_interface_collection(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path(manager_id): Path<String>,
 ) -> Response {
-    let this = state.bmc_state.manager;
+    let this = state.manager;
     if this.id != manager_id {
         return http::not_found();
     }
@@ -223,10 +220,10 @@ async fn get_ethernet_interface_collection(
 }
 
 async fn get_ethernet_interface(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path((manager_id, eth_id)): Path<(String, String)>,
 ) -> Response {
-    let this = state.bmc_state.manager;
+    let this = state.manager;
     if this.id != manager_id {
         return http::not_found();
     }
@@ -238,10 +235,10 @@ async fn get_ethernet_interface(
 }
 
 async fn get_network_protocol(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path(manager_id): Path<String>,
 ) -> Response {
-    let this = state.bmc_state.manager;
+    let this = state.manager;
     if this.id != manager_id {
         return http::not_found();
     }
@@ -253,11 +250,11 @@ async fn get_network_protocol(
 }
 
 async fn patch_network_protocol(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path(manager_id): Path<String>,
     Json(json): Json<serde_json::Value>,
 ) -> Response {
-    let this = state.bmc_state.manager;
+    let this = state.manager;
     if this.id != manager_id {
         return http::not_found();
     }

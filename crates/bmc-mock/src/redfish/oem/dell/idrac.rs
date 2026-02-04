@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 use std::borrow::Cow;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use axum::Router;
 use axum::extract::{Json, Path, State};
@@ -17,14 +19,15 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::response::Response;
 use axum::routing::{get, post};
 use lazy_static::lazy_static;
+use rand::Rng;
+use rand::distr::StandardUniform;
 use serde_json::json;
 
-use crate::bmc_state::JobState;
-use crate::json::{JsonExt, JsonPatch};
-use crate::mock_machine_router::MockWrapperState;
-use crate::redfish;
+use crate::bmc_state::{BmcState, JobState};
+use crate::json::{JsonExt, JsonPatch, json_patch};
+use crate::{http, redfish};
 
-pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
+pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     r.route(
         "/redfish/v1/Managers/iDRAC.Embedded.1/Attributes",
         get(get_managers_oem_dell_attributes).patch(patch_managers_oem_dell_attributes),
@@ -63,7 +66,10 @@ fn attributes_resource() -> redfish::Resource<'static> {
     }
 }
 
-async fn get_managers_oem_dell_attributes(State(state): State<MockWrapperState>) -> Response {
+async fn get_managers_oem_dell_attributes(State(state): State<BmcState>) -> Response {
+    let redfish::oem::State::DellIdrac(state) = state.oem_state else {
+        return http::not_found();
+    };
     lazy_static! {
         // Only attributes required by libredfish:
         static ref base: serde_json::Value = attributes_resource().json_patch().patch(json!({
@@ -81,25 +87,25 @@ async fn get_managers_oem_dell_attributes(State(state): State<MockWrapperState>)
             }
         }));
     }
-    state
-        .bmc_state
-        .get_dell_attrs(base.clone())
-        .into_ok_response()
+    state.get_attrs(base.clone()).into_ok_response()
 }
 
 async fn patch_managers_oem_dell_attributes(
-    State(mut state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Json(attrs): Json<serde_json::Value>,
 ) -> Response {
-    state.bmc_state.update_dell_attrs(attrs);
+    let redfish::oem::State::DellIdrac(state) = state.oem_state else {
+        return http::not_found();
+    };
+    state.update_attrs(attrs);
     json!({}).into_ok_response()
 }
 
-async fn get_dell_job(
-    State(state): State<MockWrapperState>,
-    Path(job_id): Path<String>,
-) -> Response {
-    let Some(job) = state.bmc_state.get_job(&job_id) else {
+async fn get_dell_job(State(state): State<BmcState>, Path(job_id): Path<String>) -> Response {
+    let redfish::oem::State::DellIdrac(state) = state.oem_state else {
+        return http::not_found();
+    };
+    let Some(job) = state.get_job(&job_id) else {
         return json!(format!("could not find iDRAC job: {job_id}"))
             .into_response(StatusCode::NOT_FOUND);
     };
@@ -133,8 +139,11 @@ async fn get_dell_job(
     .into_ok_response()
 }
 
-pub fn create_job_with_location(mut state: MockWrapperState) -> Response {
-    match state.bmc_state.add_job() {
+pub fn create_job_with_location(state: BmcState) -> Response {
+    let redfish::oem::State::DellIdrac(state) = state.oem_state else {
+        return http::not_found();
+    };
+    match state.add_job() {
         Ok(job_id) => json!({}).into_ok_response_with_location(
             HeaderValue::try_from(format!(
                 "/redfish/v1/Managers/iDRAC.Embedded.1/Jobs/{job_id}"
@@ -145,7 +154,7 @@ pub fn create_job_with_location(mut state: MockWrapperState) -> Response {
     }
 }
 
-async fn post_dell_create_bios_job(State(state): State<MockWrapperState>) -> Response {
+async fn post_dell_create_bios_job(State(state): State<BmcState>) -> Response {
     create_job_with_location(state)
 }
 
@@ -153,6 +162,98 @@ async fn post_delete_job_queue() -> Response {
     json!({}).into_ok_response()
 }
 
-async fn post_import_sys_configuration(State(state): State<MockWrapperState>) -> Response {
+async fn post_import_sys_configuration(State(state): State<BmcState>) -> Response {
     create_job_with_location(state)
+}
+
+const DELL_JOB_TYPE: &str = "DellConfiguration";
+
+#[derive(Debug, Clone)]
+pub struct Job {
+    pub job_id: String,
+    pub job_state: JobState,
+    pub job_type: String,
+    pub start_time: chrono::DateTime<chrono::Utc>,
+    pub end_time: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl Job {
+    pub fn is_dell_job(&self) -> bool {
+        matches!(self.job_type.as_str(), DELL_JOB_TYPE)
+    }
+
+    pub fn percent_complete(&self) -> i32 {
+        match &self.job_state {
+            JobState::Completed => 100,
+            _ => 0,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct IdracState {
+    pub jobs: Arc<Mutex<HashMap<String, Job>>>,
+    pub dell_attrs: Arc<Mutex<serde_json::Value>>,
+}
+
+impl Default for IdracState {
+    fn default() -> Self {
+        Self {
+            jobs: Arc::new(Mutex::new(HashMap::new())),
+            dell_attrs: Arc::new(Mutex::new(serde_json::json!({}))),
+        }
+    }
+}
+
+impl IdracState {
+    pub fn get_job(&self, job_id: &String) -> Option<Job> {
+        self.jobs.lock().unwrap().get(job_id).cloned()
+    }
+
+    pub fn add_job(&self) -> Result<String, Box<dyn std::error::Error>> {
+        let mut jobs = self.jobs.lock().unwrap();
+
+        let job_id = rand::rng()
+            .sample_iter::<u64, _>(StandardUniform)
+            .map(|r| format!("JID_{r}"))
+            .find(|id| !jobs.contains_key(id))
+            .unwrap();
+
+        let job = Job {
+            job_id: job_id.clone(),
+            job_state: JobState::Scheduled,
+            job_type: DELL_JOB_TYPE.to_string(),
+            start_time: chrono::offset::Utc::now(),
+            end_time: None,
+        };
+
+        jobs.insert(job_id.clone(), job);
+        Ok(job_id)
+    }
+
+    pub fn complete_all_bios_jobs(&self) {
+        let mut jobs = self.jobs.lock().unwrap();
+
+        let bios_jobs: Vec<Job> = jobs
+            .values()
+            .filter(|job| job.is_dell_job())
+            .cloned()
+            .collect();
+        for mut job in bios_jobs {
+            job.job_state = JobState::Completed;
+            job.end_time = Some(chrono::offset::Utc::now());
+            jobs.insert(job.job_id.clone(), job);
+        }
+    }
+
+    pub fn update_attrs(&self, v: serde_json::Value) {
+        let mut dell_attrs = self.dell_attrs.lock().unwrap();
+        json_patch(&mut dell_attrs, v);
+    }
+
+    pub fn get_attrs(&self, mut base: serde_json::Value) -> serde_json::Value {
+        let dell_attrs = self.dell_attrs.lock().unwrap();
+        json_patch(&mut base, dell_attrs.clone());
+        base
+    }
 }

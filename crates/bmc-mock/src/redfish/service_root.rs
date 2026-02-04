@@ -18,8 +18,8 @@ use axum::response::Response;
 use axum::routing::get;
 use serde_json::json;
 
+use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch};
-use crate::mock_machine_router::MockWrapperState;
 use crate::redfish;
 
 pub fn resource<'a>() -> redfish::Resource<'a> {
@@ -31,7 +31,7 @@ pub fn resource<'a>() -> redfish::Resource<'a> {
     }
 }
 
-pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
+pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     r.route(&resource().odata_id, get(get_service_root))
 }
 
@@ -41,10 +41,10 @@ pub fn builder(resource: &redfish::Resource) -> ServiceRootBuilder {
     }
 }
 
-async fn get_service_root(State(state): State<MockWrapperState>) -> Response {
+async fn get_service_root(State(state): State<BmcState>) -> Response {
     builder(&resource())
         .redfish_version("1.13.1")
-        .vendor(state.bmc_state.bmc_vendor.service_root_value())
+        .vendor(state.bmc_vendor.service_root_value())
         .account_service(&redfish::account_service::resource())
         .chassis_collection(&redfish::chassis::collection())
         .system_collection(&redfish::computer_system::collection())
