@@ -364,6 +364,9 @@
               10.217.5.125/32: {} 
         router:
           bgp:
+            path-selection:
+              multipath:
+                aspath-ignore: on
             address-family:
               ipv4-unicast:
                 enable: on
@@ -442,6 +445,9 @@
               10.217.5.124/32: {} 
         router:
           bgp:
+            path-selection:
+              multipath:
+                aspath-ignore: on
             address-family:
               ipv4-unicast:
                 enable: on

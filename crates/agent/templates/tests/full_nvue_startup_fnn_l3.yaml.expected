@@ -317,6 +317,9 @@
                 vlan10:
                   type: interface
           bgp:
+            path-selection:
+              multipath:
+                aspath-ignore: on
             address-family:
               ipv4-unicast:
                 network:
