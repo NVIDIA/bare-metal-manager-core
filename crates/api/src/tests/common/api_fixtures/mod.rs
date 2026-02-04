@@ -87,6 +87,7 @@ use crate::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
 use crate::ib_fabric_monitor::IbFabricMonitor;
 use crate::ipmitool::IPMIToolTestImpl;
 use crate::logging::level_filter::ActiveLevel;
+use crate::logging::log_limiter::LogLimiter;
 use crate::nvl_partition_monitor::NvlPartitionMonitor;
 use crate::nvlink::NmxmClientPool;
 use crate::nvlink::test_support::NmxmSimClient;

@@ -72,9 +72,10 @@ pub struct Api {
     pub(crate) rms_client: Option<Arc<dyn RmsApi>>,
     pub(crate) nmxm_pool: Arc<dyn NmxmClientPool>,
     pub(crate) work_lock_manager_handle: WorkLockManagerHandle,
-    pub metrics: ApiMetricEmitters,
     pub(crate) kube_client_provider: Arc<dyn KubeImpl>,
     pub(crate) machine_state_handler_enqueuer: Enqueuer<MachineStateControllerIO>,
+
+    pub metrics: ApiMetricEmitters,
 }
 
 pub(crate) type ScoutStreamType =
@@ -2859,7 +2860,7 @@ impl Api {
         ib_fabric_manager: Arc<dyn IBFabricManager>,
         redfish_pool: Arc<dyn RedfishClientPool>,
         runtime_config: Arc<CarbideConfig>,
-        rms_client: Option<Arc<Box<dyn RmsApi>>>,
+        rms_client: Option<Arc<dyn RmsApi>>,
         nmxm_pool: Arc<dyn NmxmClientPool>,
         work_lock_manager_handle: WorkLockManagerHandle,
         meter: &opentelemetry::metrics::Meter,
@@ -2884,9 +2885,9 @@ impl Api {
             rms_client,
             nmxm_pool,
             work_lock_manager_handle,
-            metrics,
             kube_client_provider,
             machine_state_handler_enqueuer,
+            metrics,
         }
     }
 

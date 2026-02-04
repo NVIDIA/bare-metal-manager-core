@@ -48,6 +48,7 @@ use crate::ib::{self, IBFabricManager};
 use crate::ib_fabric_monitor::IbFabricMonitor;
 use crate::ipmitool::{IPMITool, IPMIToolImpl, IPMIToolTestImpl};
 use crate::listener::ApiListenMode;
+use crate::logging::log_limiter::LogLimiter;
 use crate::logging::service_health_metrics::{
     ServiceHealthContext, start_export_service_health_metrics,
 };
