@@ -94,7 +94,7 @@ use crate::nvlink::NmxmClientPool;
 use crate::nvlink::test_support::NmxmSimClient;
 use crate::rack::rms_client::test_support::RmsSim;
 use crate::redfish::test_support::RedfishSim;
-use crate::scout_stream::ConnectionRegistry;
+use crate::scout_stream;
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::controller::{Enqueuer, StateController};
@@ -1345,22 +1345,22 @@ pub async fn create_test_env_with_overrides(
     let rms_sim = Arc::new(RmsSim);
 
     let api = Arc::new(Api {
-        database_connection: db_pool.clone(),
+        kube_client_provider: Arc::new(TestDpfKubeClient {}),
+        runtime_config: config.clone(),
         credential_provider: credential_provider.clone(),
         certificate_provider: certificate_provider.clone(),
+        database_connection: db_pool.clone(),
         redfish_pool: redfish_sim.clone(),
         eth_data: eth_virt_data.clone(),
         common_pools: common_pools.clone(),
         ib_fabric_manager: ib_fabric_manager.clone(),
-        runtime_config: config.clone(),
-        dpu_health_log_limiter: LogLimiter::default(),
         dynamic_settings: dyn_settings,
         endpoint_explorer: bmc_explorer,
-        scout_stream_registry: ConnectionRegistry::new(),
+        dpu_health_log_limiter: LogLimiter::default(),
+        scout_stream_registry: scout_stream::ConnectionRegistry::new(),
         rms_client: rms_sim.as_rms_client(),
         nmxm_pool: nmxm_sim.clone(),
         work_lock_manager_handle: work_lock_manager_handle.clone(),
-        kube_client_provider: Arc::new(TestDpfKubeClient {}),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool.clone()),
         metrics: ApiMetricEmitters::new(&test_meter.meter()),
     });
