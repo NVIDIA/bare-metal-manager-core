@@ -1681,7 +1681,7 @@ fn need_host_fw_upgrade(
         return None;
     };
 
-    // Now find the desired version, if it's not the version that is currently installed.
+    // Now find the desired version, if it's not the version that is currently installed
     fw_info
         .components
         .get(&firmware_type)?
@@ -5666,7 +5666,10 @@ impl InstanceStateHandler {
                         Ok(StateHandlerOutcome::transition(
                             ManagedHostState::Assigned {
                                 instance_state: InstanceState::HostReprovision {
-                                    reprovision_state: HostReprovisionState::CheckingFirmware,
+                                    reprovision_state: HostReprovisionState::CheckingFirmwareV2 {
+                                        firmware_type: None,
+                                        firmware_number: None,
+                                    },
                                 },
                             },
                         ))
@@ -6488,10 +6491,22 @@ impl HostUpgradeState {
                 reprovision_state,
                 retry_count,
             } => (reprovision_state, *retry_count),
-            ManagedHostState::Ready => (&HostReprovisionState::CheckingFirmware, 0),
+            ManagedHostState::Ready => (
+                &HostReprovisionState::CheckingFirmwareV2 {
+                    firmware_type: None,
+                    firmware_number: None,
+                },
+                0,
+            ),
             ManagedHostState::Assigned { instance_state } => match &instance_state {
                 InstanceState::HostReprovision { reprovision_state } => (reprovision_state, 0),
-                InstanceState::Ready => (&HostReprovisionState::CheckingFirmware, 0),
+                InstanceState::Ready => (
+                    &HostReprovisionState::CheckingFirmwareV2 {
+                        firmware_type: None,
+                        firmware_number: None,
+                    },
+                    0,
+                ),
                 _ => {
                     return Err(StateHandlerError::InvalidState(format!(
                         "Invalid state for calling handle_host_reprovision {:?}",
@@ -6516,9 +6531,15 @@ impl HostUpgradeState {
             })
         {
             tracing::info!(%machine_id, "Host firmware upgrade reset requested, returning to CheckingFirmwareRepeat");
-            host_reprovision_state = &HostReprovisionState::CheckingFirmwareRepeat;
+            host_reprovision_state = &HostReprovisionState::CheckingFirmwareRepeatV2 {
+                firmware_type: None,
+                firmware_number: None,
+            };
             state.managed_state = ManagedHostState::HostReprovision {
-                reprovision_state: HostReprovisionState::CheckingFirmwareRepeat,
+                reprovision_state: HostReprovisionState::CheckingFirmwareRepeatV2 {
+                    firmware_type: None,
+                    firmware_number: None,
+                },
                 retry_count: 0,
             };
             db::host_machine_update::reset_host_reprovisioning_request(txn, machine_id, true)
@@ -6527,12 +6548,58 @@ impl HostUpgradeState {
 
         match host_reprovision_state {
             HostReprovisionState::CheckingFirmware => {
-                self.host_checking_fw(state, services, original_state, scenario, false, txn)
-                    .await
+                self.host_checking_fw(
+                    &HostReprovisionState::CheckingFirmwareV2 {
+                        firmware_type: None,
+                        firmware_number: None,
+                    },
+                    state,
+                    services,
+                    original_state,
+                    scenario,
+                    false,
+                    txn,
+                )
+                .await
             }
             HostReprovisionState::CheckingFirmwareRepeat => {
-                self.host_checking_fw(state, services, original_state, scenario, true, txn)
-                    .await
+                self.host_checking_fw(
+                    &HostReprovisionState::CheckingFirmwareRepeatV2 {
+                        firmware_type: None,
+                        firmware_number: None,
+                    },
+                    state,
+                    services,
+                    original_state,
+                    scenario,
+                    false,
+                    txn,
+                )
+                .await
+            }
+            details @ HostReprovisionState::CheckingFirmwareV2 { .. } => {
+                self.host_checking_fw(
+                    details,
+                    state,
+                    services,
+                    original_state,
+                    scenario,
+                    false,
+                    txn,
+                )
+                .await
+            }
+            details @ HostReprovisionState::CheckingFirmwareRepeatV2 { .. } => {
+                self.host_checking_fw(
+                    details,
+                    state,
+                    services,
+                    original_state,
+                    scenario,
+                    true,
+                    txn,
+                )
+                .await
             }
             HostReprovisionState::WaitingForManualUpgrade { .. } => {
                 self.waiting_for_manual_upgrade(state, scenario)
@@ -6583,7 +6650,10 @@ impl HostUpgradeState {
                 if should_retry {
                     tracing::info!("Retrying firmware upgrade on {}", state.host_snapshot.id);
 
-                    let reprovision_state = HostReprovisionState::CheckingFirmware;
+                    let reprovision_state = HostReprovisionState::CheckingFirmwareV2 {
+                        firmware_type: None,
+                        firmware_number: None,
+                    };
                     scenario.actual_new_state(reprovision_state, retry_count + 1)
                 } else {
                     // doesn't make sense to retry anymore, remain in this failure state
@@ -6593,8 +6663,10 @@ impl HostUpgradeState {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn host_checking_fw(
         &self,
+        details: &HostReprovisionState,
         state: &ManagedHostStateSnapshot,
         services: &CommonStateHandlerServices,
         original_state: &ManagedHostState,
@@ -6604,7 +6676,7 @@ impl HostUpgradeState {
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
         let machine_id = &state.host_snapshot.id;
         let mut ret = self
-            .host_checking_fw_noclear(state, services, machine_id, scenario, repeat, txn)
+            .host_checking_fw_noclear(details, state, services, machine_id, scenario, repeat, txn)
             .await?;
 
         // Check if we are returning to the ready state, and clear the host reprovisioning request if so.
@@ -6638,8 +6710,10 @@ impl HostUpgradeState {
     }
 
     #[allow(txn_held_across_await)]
+    #[allow(clippy::too_many_arguments)]
     async fn host_checking_fw_noclear(
         &self,
+        details: &HostReprovisionState,
         state: &ManagedHostStateSnapshot,
         services: &CommonStateHandlerServices,
         machine_id: &MachineId,
@@ -6663,6 +6737,23 @@ impl HostUpgradeState {
             );
         }
 
+        let (current_firmware_type, current_firmware_number): (Option<FirmwareComponentType>, u32) =
+            match details {
+                HostReprovisionState::CheckingFirmwareV2 {
+                    firmware_number,
+                    firmware_type,
+                }
+                | HostReprovisionState::CheckingFirmwareRepeatV2 {
+                    firmware_number,
+                    firmware_type,
+                } => (*firmware_type, firmware_number.unwrap_or(0)),
+                _ => {
+                    return Err(StateHandlerError::GenericError(eyre!(
+                        "Wrong enum in host_checking_fw_noclear"
+                    )));
+                }
+            };
+
         let Some(explored_endpoint) =
             find_explored_refreshed_endpoint(state, machine_id, txn).await?
         else {
@@ -6670,7 +6761,10 @@ impl HostUpgradeState {
 
             tracing::debug!("Managed host {machine_id} waiting for site explorer to revisit");
             return scenario.actual_new_state(
-                HostReprovisionState::CheckingFirmwareRepeat,
+                HostReprovisionState::CheckingFirmwareRepeatV2 {
+                    firmware_type: current_firmware_type,
+                    firmware_number: Some(current_firmware_number),
+                },
                 state.managed_state.get_host_repro_retry_count(),
             );
         };
@@ -6680,6 +6774,18 @@ impl HostUpgradeState {
         };
 
         for firmware_type in fw_info.ordering() {
+            // ordering() will give a list of firmware types in the order they should be installed.
+            // So, `firmware_type` may not be equal to `current_firmware_type` inside this loop.
+            // We need to set `firmware_number` to 0 in case they are not equal because `firmware_number` coming
+            // from outside this loop belongs only to the `current_firmware_type`
+            let firmware_number = if let Some(ft) = current_firmware_type
+                && ft == firmware_type
+            {
+                current_firmware_number
+            } else {
+                0
+            };
+
             if let Some(to_install) =
                 need_host_fw_upgrade(&explored_endpoint, &fw_info, firmware_type)
             {
@@ -6689,8 +6795,9 @@ impl HostUpgradeState {
                         .await;
                 }
                 tracing::info!(%machine_id,
-                    "Installing {:?} on {}",
+                    "Installing {:?} (number #{}) on {}",
                     to_install,
+                    firmware_number,
                     explored_endpoint.address
                 );
 
@@ -6709,7 +6816,7 @@ impl HostUpgradeState {
                             model: fw_info.model.as_str(),
                             to_install: &to_install,
                             component_type: &firmware_type,
-                            firmware_number: &0,
+                            firmware_number: &firmware_number,
                         },
                         scenario,
                         txn,
@@ -6922,7 +7029,10 @@ impl HostUpgradeState {
             );
 
             return scenario.actual_new_state(
-                HostReprovisionState::CheckingFirmwareRepeat,
+                HostReprovisionState::CheckingFirmwareRepeatV2 {
+                    firmware_type: None,
+                    firmware_number: None,
+                },
                 state.managed_state.get_host_repro_retry_count(),
             );
         }
@@ -6950,7 +7060,10 @@ impl HostUpgradeState {
 
         if success {
             scenario.actual_new_state(
-                HostReprovisionState::CheckingFirmwareRepeat,
+                HostReprovisionState::CheckingFirmwareRepeatV2 {
+                    firmware_type: None,
+                    firmware_number: None,
+                },
                 state.managed_state.get_host_repro_retry_count(),
             )
         } else {
@@ -7062,7 +7175,10 @@ impl HostUpgradeState {
                 }
                 // Now we can actually proceed with the upgrade.  Go back to checking firmware so we don't have to store all of that info.
                 scenario.actual_new_state(
-                    HostReprovisionState::CheckingFirmwareRepeat,
+                    HostReprovisionState::CheckingFirmwareRepeatV2 {
+                        firmware_type: None,
+                        firmware_number: None,
+                    },
                     state.managed_state.get_host_repro_retry_count(),
                 )
             }
@@ -7222,7 +7338,10 @@ impl HostUpgradeState {
                     "Apparent restart before upload to {machine_id} {address} completion, returning to CheckingFirmware"
                 );
                 scenario.actual_new_state(
-                    HostReprovisionState::CheckingFirmwareRepeat,
+                    HostReprovisionState::CheckingFirmwareRepeatV2 {
+                        firmware_type: Some(*firmware_type),
+                        firmware_number: *firmware_number,
+                    },
                     state.managed_state.get_host_repro_retry_count(),
                 )
             }
@@ -7258,7 +7377,10 @@ impl HostUpgradeState {
                                 self.async_firmware_uploader.finish_upload(&machine_id);
                                 // The upload thread already logged this
                                 scenario.actual_new_state(
-                                    HostReprovisionState::CheckingFirmwareRepeat,
+                                    HostReprovisionState::CheckingFirmwareRepeatV2 {
+                                        firmware_type: Some(*firmware_type),
+                                        firmware_number: *firmware_number,
+                                    },
                                     state.managed_state.get_host_repro_retry_count(),
                                 )
                             }
@@ -7355,28 +7477,24 @@ impl HostUpgradeState {
                             if firmware_number
                                 < selected_firmware.filenames.len().try_into().unwrap_or(0)
                             {
-                                tracing::info!(
-                                    "Installing {:?} chain step {} on {}",
+                                tracing::debug!(
+                                    "Moving {:?} chain step {} on {} to CheckingFirmware",
                                     selected_firmware,
                                     firmware_number,
                                     endpoint.address
                                 );
 
-                                return self
-                                    .initiate_host_fw_update(
-                                        endpoint.address,
-                                        state,
-                                        services,
-                                        FullFirmwareInfo {
-                                            model: fw_info.model.as_str(),
-                                            to_install: selected_firmware,
-                                            component_type: firmware_type,
-                                            firmware_number: &firmware_number,
-                                        },
-                                        scenario,
-                                        txn,
-                                    )
-                                    .await;
+                                // There are more files to install.
+                                // Move to CheckingFirmware and start installing
+                                let reprovision_state = HostReprovisionState::CheckingFirmwareV2 {
+                                    firmware_type: Some(*firmware_type),
+                                    firmware_number: Some(firmware_number),
+                                };
+
+                                return scenario.actual_new_state(
+                                    reprovision_state,
+                                    state.managed_state.get_host_repro_retry_count(),
+                                );
                             }
                         }
 
@@ -7388,6 +7506,7 @@ impl HostUpgradeState {
                         let reprovision_state = HostReprovisionState::ResetForNewFirmware {
                             final_version: final_version.to_string(),
                             firmware_type: *firmware_type,
+                            firmware_number: *firmware_number,
                             power_drains_needed: *power_drains_needed,
                             delay_until: None,
                             last_power_drain_operation: None,
@@ -7463,8 +7582,12 @@ impl HostUpgradeState {
                                 "Marking completion of Redfish task of firmware upgrade for {} with missing task",
                                 &endpoint.address
                             );
+
                             return scenario.actual_new_state(
-                                HostReprovisionState::CheckingFirmwareRepeat,
+                                HostReprovisionState::CheckingFirmwareRepeatV2 {
+                                    firmware_type: Some(*firmware_type),
+                                    firmware_number: *firmware_number,
+                                },
                                 state.managed_state.get_host_repro_retry_count(),
                             );
                         }
@@ -7479,7 +7602,10 @@ impl HostUpgradeState {
                                 &endpoint.address
                             );
                             return scenario.actual_new_state(
-                                HostReprovisionState::CheckingFirmwareRepeat,
+                                HostReprovisionState::CheckingFirmwareRepeatV2 {
+                                    firmware_type: Some(*firmware_type),
+                                    firmware_number: *firmware_number,
+                                },
                                 state.managed_state.get_host_repro_retry_count(),
                             );
                         }
@@ -7510,6 +7636,7 @@ impl HostUpgradeState {
         let (
             final_version,
             firmware_type,
+            firmware_number,
             power_drains_needed,
             delay_until,
             last_power_drain_operation,
@@ -7517,12 +7644,14 @@ impl HostUpgradeState {
             HostReprovisionState::ResetForNewFirmware {
                 final_version,
                 firmware_type,
+                firmware_number,
                 power_drains_needed,
                 delay_until,
                 last_power_drain_operation,
             } => (
                 final_version,
                 firmware_type,
+                firmware_number,
                 power_drains_needed,
                 delay_until,
                 last_power_drain_operation,
@@ -7575,6 +7704,7 @@ impl HostUpgradeState {
                         let reprovision_state = HostReprovisionState::ResetForNewFirmware {
                             final_version: final_version.clone(),
                             firmware_type: *firmware_type,
+                            firmware_number: *firmware_number,
                             power_drains_needed: Some(*power_drains_needed),
                             delay_until: Some(chrono::Utc::now().timestamp() + delay),
                             last_power_drain_operation: Some(PowerDrainState::Off),
@@ -7599,6 +7729,7 @@ impl HostUpgradeState {
                     let reprovision_state = HostReprovisionState::ResetForNewFirmware {
                         final_version: final_version.clone(),
                         firmware_type: *firmware_type,
+                        firmware_number: *firmware_number,
                         power_drains_needed: Some(*power_drains_needed),
                         delay_until: Some(chrono::Utc::now().timestamp() + delay),
                         last_power_drain_operation: Some(PowerDrainState::Powercycle),
@@ -7617,6 +7748,7 @@ impl HostUpgradeState {
                     let reprovision_state = HostReprovisionState::ResetForNewFirmware {
                         final_version: final_version.clone(),
                         firmware_type: *firmware_type,
+                        firmware_number: *firmware_number,
                         power_drains_needed: Some(power_drains_needed - 1),
                         delay_until: Some(chrono::Utc::now().timestamp() + delay),
                         last_power_drain_operation: Some(PowerDrainState::On),
@@ -7687,6 +7819,7 @@ impl HostUpgradeState {
         // Now we can go on to waiting for the correct version to be reported
         let reprovision_state = HostReprovisionState::NewFirmwareReportedWait {
             firmware_type: *firmware_type,
+            firmware_number: *firmware_number,
             final_version: final_version.to_string(),
             previous_reset_time: Some(Utc::now().timestamp()),
         };
@@ -7705,12 +7838,18 @@ impl HostUpgradeState {
         scenario: HostFirmwareScenario,
         txn: &mut PgConnection,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
-        let (final_version, firmware_type, previous_reset_time) = match details {
+        let (final_version, firmware_type, firmware_number, previous_reset_time) = match details {
             HostReprovisionState::NewFirmwareReportedWait {
                 final_version,
                 firmware_type,
+                firmware_number,
                 previous_reset_time,
-            } => (final_version, firmware_type, previous_reset_time),
+            } => (
+                final_version,
+                firmware_type,
+                firmware_number,
+                previous_reset_time,
+            ),
             _ => {
                 return Err(StateHandlerError::GenericError(eyre!(
                     "Wrong enum in host_new_firmware_reported_wait"
@@ -7726,7 +7865,10 @@ impl HostUpgradeState {
         let Some(fw_info) = self.parsed_hosts.find_fw_info_for_host(&endpoint) else {
             tracing::error!("Could no longer find firmware info for {machine_id}");
             return scenario.actual_new_state(
-                HostReprovisionState::CheckingFirmwareRepeat,
+                HostReprovisionState::CheckingFirmwareRepeatV2 {
+                    firmware_type: Some(*firmware_type),
+                    firmware_number: *firmware_number,
+                },
                 state.managed_state.get_host_repro_retry_count(),
             );
         };
@@ -7735,7 +7877,10 @@ impl HostUpgradeState {
         if current_versions.is_empty() {
             tracing::error!("Could no longer find current versions for {machine_id}");
             return scenario.actual_new_state(
-                HostReprovisionState::CheckingFirmwareRepeat,
+                HostReprovisionState::CheckingFirmwareRepeatV2 {
+                    firmware_type: Some(*firmware_type),
+                    firmware_number: *firmware_number,
+                },
                 state.managed_state.get_host_repro_retry_count(),
             );
         };
@@ -7753,7 +7898,10 @@ impl HostUpgradeState {
             // Done waiting, go back to overall checking of version`2s
             tracing::debug!("Done waiting for {machine_id} to reach version");
             scenario.actual_new_state(
-                HostReprovisionState::CheckingFirmwareRepeat,
+                HostReprovisionState::CheckingFirmwareRepeatV2 {
+                    firmware_type: Some(*firmware_type),
+                    firmware_number: *firmware_number,
+                },
                 state.managed_state.get_host_repro_retry_count(),
             )
         } else {
@@ -7769,6 +7917,7 @@ impl HostUpgradeState {
                 let details = &HostReprovisionState::ResetForNewFirmware {
                     final_version: final_version.to_string(),
                     firmware_type: *firmware_type,
+                    firmware_number: *firmware_number,
                     power_drains_needed: None,
                     delay_until: None,
                     last_power_drain_operation: None,

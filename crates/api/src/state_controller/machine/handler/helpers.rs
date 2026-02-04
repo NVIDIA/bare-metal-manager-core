@@ -394,7 +394,10 @@ impl NextState for InstanceNextStateResolver {
                 if host_snapshot.host_reprovision_requested.is_some() {
                     Ok(ManagedHostState::Assigned {
                         instance_state: InstanceState::HostReprovision {
-                            reprovision_state: HostReprovisionState::CheckingFirmware,
+                            reprovision_state: HostReprovisionState::CheckingFirmwareV2 {
+                                firmware_type: None,
+                                firmware_number: None,
+                            },
                         },
                     })
                 } else {

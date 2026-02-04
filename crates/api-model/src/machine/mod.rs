@@ -1395,8 +1395,18 @@ pub enum NetworkConfigUpdateState {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum HostReprovisionState {
+    // deprecated, kept for backwards compatibility with existing database entries: FORGE-7975
     CheckingFirmware,
+    // deprecated, kept for backwards compatibility with existing database entries: FORGE-7975
     CheckingFirmwareRepeat,
+    CheckingFirmwareV2 {
+        firmware_type: Option<FirmwareComponentType>,
+        firmware_number: Option<u32>,
+    },
+    CheckingFirmwareRepeatV2 {
+        firmware_type: Option<FirmwareComponentType>,
+        firmware_number: Option<u32>,
+    },
     InitialReset {
         phase: InitialResetPhase,
         last_time: DateTime<Utc>,
@@ -1422,6 +1432,7 @@ pub enum HostReprovisionState {
     ResetForNewFirmware {
         final_version: String,
         firmware_type: FirmwareComponentType,
+        firmware_number: Option<u32>,
         power_drains_needed: Option<u32>,
         delay_until: Option<i64>,
         last_power_drain_operation: Option<PowerDrainState>,
@@ -1429,6 +1440,7 @@ pub enum HostReprovisionState {
     NewFirmwareReportedWait {
         final_version: String,
         firmware_type: FirmwareComponentType,
+        firmware_number: Option<u32>,
         previous_reset_time: Option<i64>,
     },
     FailedFirmwareUpgrade {
