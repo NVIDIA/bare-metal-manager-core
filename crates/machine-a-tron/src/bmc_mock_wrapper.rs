@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use bmc_mock::{
-    BmcMockHandle, HostnameQuerying, ListenerOrAddress, MachineInfo, MockPowerState,
+    CombinedServer, HostnameQuerying, ListenerOrAddress, MachineInfo, MockPowerState,
     POWER_CYCLE_DELAY, PowerControl,
 };
 use tokio::sync::RwLock;
@@ -138,7 +138,8 @@ impl BmcMockWrapper {
         let tls_server_config = bmc_mock::tls::server_config(Some(certs_dir))?;
         let bmc_mock_router = self.bmc_mock_router.clone();
         Ok(BmcMockWrapperHandle {
-            _bmc_mock: bmc_mock::run_combined_mock(
+            _bmc_mock: CombinedServer::run(
+                "bmc-mock",
                 Arc::new(RwLock::new(HashMap::from([(
                     "".to_string(),
                     bmc_mock_router,
@@ -157,7 +158,7 @@ impl BmcMockWrapper {
 
 #[derive(Debug)]
 pub struct BmcMockWrapperHandle {
-    pub _bmc_mock: BmcMockHandle,
+    pub _bmc_mock: CombinedServer,
     pub ssh_handle: Option<MockSshServerHandle>,
 }
 

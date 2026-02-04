@@ -23,7 +23,7 @@ use crate::bmc_state::BmcState;
 use crate::bug::InjectedBugs;
 use crate::json::JsonExt;
 use crate::redfish::manager::ManagerState;
-use crate::{MachineInfo, PowerControl, SystemPowerControl, middleware_router};
+use crate::{MachineInfo, PowerControl, SystemPowerControl, middleware_router, redfish};
 
 #[derive(Clone)]
 pub(crate) struct MockWrapperState {
@@ -115,7 +115,8 @@ pub fn machine_router(
             injected_bugs: injected_bugs.clone(),
         },
     });
-    middleware_router::append(mat_host_id, router, injected_bugs)
+    let router_with_expansion = redfish::expander::append(router);
+    middleware_router::append(mat_host_id, router_with_expansion, injected_bugs)
 }
 
 async fn get_injected_bugs(State(state): State<MockWrapperState>) -> Response {

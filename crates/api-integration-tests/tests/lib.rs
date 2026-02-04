@@ -51,7 +51,8 @@ async fn test_integration() -> eyre::Result<()> {
     let bmc_address_registry = BmcMockRegistry::default();
     let certs_dir = PathBuf::from(format!("{}/crates/bmc-mock", test_env.root_dir.display()));
     let server_config = bmc_mock::tls::server_config(Some(certs_dir)).unwrap();
-    let mut bmc_mock_handle = bmc_mock::run_combined_mock(
+    let mut bmc_mock_handle = bmc_mock::CombinedServer::run(
+        "bmc-mock",
         bmc_address_registry.clone(),
         Some(ListenerOrAddress::Listener(
             // let OS choose available port
@@ -222,7 +223,8 @@ async fn test_metrics_integration() -> eyre::Result<()> {
     let bmc_address_registry = BmcMockRegistry::default();
     let certs_dir = PathBuf::from(format!("{}/crates/bmc-mock", test_env.root_dir.display()));
     let server_config = bmc_mock::tls::server_config(Some(certs_dir)).unwrap();
-    let mut bmc_mock_handle = bmc_mock::run_combined_mock(
+    let mut bmc_mock_handle = bmc_mock::CombinedServer::run(
+        "bmc-mock",
         bmc_address_registry.clone(),
         Some(ListenerOrAddress::Listener(
             // let OS choose available port

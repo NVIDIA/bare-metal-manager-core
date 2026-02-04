@@ -89,7 +89,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     routers_by_ip.insert("".to_owned(), router);
 
     let server_config = bmc_mock::tls::server_config(args.cert_path)?;
-    let mut handle = bmc_mock::run_combined_mock(
+    let mut handle = bmc_mock::CombinedServer::run(
+        "bmc-mock",
         Arc::new(RwLock::new(routers_by_ip)),
         listen_addr.map(ListenerOrAddress::Address),
         server_config,

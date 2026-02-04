@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use bmc_mock::{BmcMockHandle, HostnameQuerying, ListenerOrAddress};
+use bmc_mock::{CombinedServer, HostnameQuerying, ListenerOrAddress};
 use clap::Parser;
 use figment::Figment;
 use figment::providers::{Format, Toml};
@@ -146,7 +146,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut mat = MachineATron::new(app_context.clone());
 
     // If we're using a combined BMC mock that routes to each mock machine using headers, launch it now
-    let maybe_bmc_mock_handles: Option<(BmcMockHandle, Option<MockSshServerHandle>)> =
+    let maybe_bmc_mock_handles: Option<(CombinedServer, Option<MockSshServerHandle>)> =
         match &app_context.bmc_registration_mode {
             BmcRegistrationMode::BackingInstance(bmc_mock_registry) => {
                 let certs_dir = PathBuf::from(forge_root_ca_path.clone())
@@ -154,7 +154,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     .map(Path::to_path_buf);
 
                 let server_config = bmc_mock::tls::server_config(certs_dir)?;
-                let bmc_https_mock = bmc_mock::run_combined_mock(
+                let bmc_https_mock = bmc_mock::CombinedServer::run(
+                    "bmc-mock",
                     bmc_mock_registry.clone(),
                     Some(ListenerOrAddress::Address(
                         format!("0.0.0.0:{bmc_mock_port}").parse().unwrap(),
