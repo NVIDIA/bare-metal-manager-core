@@ -17,7 +17,6 @@ use std::panic::Location;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use self::metrics::ApiMetricEmitters;
 pub use ::rpc::forge as rpc;
 use ::rpc::forge::{RemoveSkuRequest, SkuIdList};
 use ::rpc::protos::dns::{
@@ -40,6 +39,7 @@ use sqlx::{PgPool, PgTransaction};
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status, Streaming};
 
+use self::metrics::ApiMetricEmitters;
 use self::rpc::forge_server::Forge;
 use crate::cfg::file::CarbideConfig;
 use crate::dynamic_settings::DynamicSettings;
