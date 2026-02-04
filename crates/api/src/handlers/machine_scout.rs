@@ -297,7 +297,10 @@ pub(crate) async fn forge_agent_control(
 }
 
 /// Records reboot duration metric for a machine if applicable
-fn record_reboot_duration_metric(metric_emitter: &ApiMetricsEmitter, machine: &model::machine::Machine) {
+fn record_reboot_duration_metric(
+    metric_emitter: &ApiMetricsEmitter,
+    machine: &model::machine::Machine,
+) {
     let Some(last_reboot_requested) = &machine.last_reboot_requested else {
         return;
     };
