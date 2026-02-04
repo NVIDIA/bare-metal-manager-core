@@ -21,7 +21,7 @@ use serde_json::json;
 
 use crate::json::{JsonExt, JsonPatch};
 use crate::mock_machine_router::MockWrapperState;
-use crate::redfish;
+use crate::{http, redfish};
 
 pub fn resource<'a>(chassis_id: &'a str) -> redfish::Resource<'a> {
     let odata_id = format!("{}/{chassis_id}", collection().odata_id);
@@ -167,7 +167,7 @@ async fn get_chassis(
     Path(chassis_id): Path<String>,
 ) -> Response {
     let Some(chassis_state) = state.bmc_state.chassis_state.find(&chassis_id) else {
-        return not_found();
+        return http::not_found();
     };
     let b = builder(&resource(&chassis_id));
     let b = if chassis_state.config.pcie_devices.is_some() {
@@ -210,7 +210,7 @@ async fn get_chassis_network_adapters(
                 .with_members(&members)
                 .into_ok_response()
         })
-        .unwrap_or_else(not_found)
+        .unwrap_or_else(http::not_found)
 }
 
 async fn get_chassis_network_adapter(
@@ -218,7 +218,7 @@ async fn get_chassis_network_adapter(
     Path((chassis_id, network_adapter_id)): Path<(String, String)>,
 ) -> Response {
     let Some(chassis_state) = state.bmc_state.chassis_state.find(&chassis_id) else {
-        return not_found();
+        return http::not_found();
     };
     if let Some(helper) = state.bmc_state.injected_bugs.all_dpu_lost_on_host() {
         return helper
@@ -228,7 +228,7 @@ async fn get_chassis_network_adapter(
     chassis_state
         .find_network_adapter(&network_adapter_id)
         .map(|eth| eth.to_json().into_ok_response())
-        .unwrap_or_else(not_found)
+        .unwrap_or_else(http::not_found)
 }
 
 async fn get_chassis_network_adapters_network_device_functions_list(
@@ -257,7 +257,7 @@ async fn get_chassis_network_adapters_network_device_functions_list(
                 .with_members(&members)
                 .into_ok_response()
         })
-        .unwrap_or_else(not_found)
+        .unwrap_or_else(http::not_found)
 }
 
 async fn get_chassis_network_adapters_network_device_function(
@@ -271,7 +271,7 @@ async fn get_chassis_network_adapters_network_device_function(
         .and_then(|chassis_state| chassis_state.find_network_adapter(&network_adapter_id))
         .and_then(|network_adapter| network_adapter.find_function(&function_id))
         .map(|function| function.to_json().into_ok_response())
-        .unwrap_or_else(not_found)
+        .unwrap_or_else(http::not_found)
 }
 
 async fn get_pcie_device(
@@ -296,7 +296,7 @@ async fn get_pcie_device(
                 pcie_device.to_json().into_ok_response()
             }
         })
-        .unwrap_or_else(not_found)
+        .unwrap_or_else(http::not_found)
 }
 
 async fn get_chassis_pcie_devices(
@@ -319,7 +319,7 @@ async fn get_chassis_pcie_devices(
                 .with_members(&members)
                 .into_ok_response()
         })
-        .unwrap_or_else(not_found)
+        .unwrap_or_else(http::not_found)
 }
 
 pub struct ChassisBuilder {
@@ -352,8 +352,4 @@ impl ChassisBuilder {
             value: self.value.patch(patch),
         }
     }
-}
-
-fn not_found() -> Response {
-    json!("").into_response(StatusCode::NOT_FOUND)
 }

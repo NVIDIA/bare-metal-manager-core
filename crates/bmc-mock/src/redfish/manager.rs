@@ -23,7 +23,7 @@ use serde_json::json;
 
 use crate::json::{JsonExt, JsonPatch};
 use crate::mock_machine_router::MockWrapperState;
-use crate::redfish;
+use crate::{http, redfish};
 
 pub fn collection() -> redfish::Collection<'static> {
     redfish::Collection {
@@ -185,7 +185,7 @@ async fn get_manager(
 ) -> Response {
     let this = state.bmc_state.manager;
     if this.id != manager_id {
-        return not_found();
+        return http::not_found();
     }
 
     builder(&resource(&manager_id))
@@ -210,7 +210,7 @@ async fn get_ethernet_interface_collection(
 ) -> Response {
     let this = state.bmc_state.manager;
     if this.id != manager_id {
-        return not_found();
+        return http::not_found();
     }
     let members = this
         .eth_interfaces
@@ -228,13 +228,13 @@ async fn get_ethernet_interface(
 ) -> Response {
     let this = state.bmc_state.manager;
     if this.id != manager_id {
-        return not_found();
+        return http::not_found();
     }
     this.eth_interfaces
         .iter()
         .find(|eth| eth.id == eth_id)
         .map(|eth| eth.to_json().into_ok_response())
-        .unwrap_or_else(not_found)
+        .unwrap_or_else(http::not_found)
 }
 
 async fn get_network_protocol(
@@ -243,7 +243,7 @@ async fn get_network_protocol(
 ) -> Response {
     let this = state.bmc_state.manager;
     if this.id != manager_id {
-        return not_found();
+        return http::not_found();
     }
     let resource = redfish::manager_network_protocol::manager_resource(&manager_id);
     redfish::manager_network_protocol::builder(&resource)
@@ -259,7 +259,7 @@ async fn patch_network_protocol(
 ) -> Response {
     let this = state.bmc_state.manager;
     if this.id != manager_id {
-        return not_found();
+        return http::not_found();
     }
     if let Some(v) = json
         .get("IPMI")
@@ -273,10 +273,6 @@ async fn patch_network_protocol(
 
 async fn get_log_services() -> Response {
     not_implemented()
-}
-
-fn not_found() -> Response {
-    json!("").into_response(StatusCode::NOT_FOUND)
 }
 
 fn not_implemented() -> Response {

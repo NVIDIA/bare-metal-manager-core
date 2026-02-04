@@ -14,14 +14,12 @@ use std::borrow::Cow;
 
 use axum::Router;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
 use axum::response::Response;
 use axum::routing::{get, post};
-use serde_json::json;
 
 use crate::json::{JsonExt, JsonPatch};
 use crate::mock_machine_router::MockWrapperState;
-use crate::redfish;
+use crate::{http, redfish};
 
 pub fn resource<'a>() -> redfish::Resource<'a> {
     redfish::Resource {
@@ -112,7 +110,7 @@ async fn get_firmware_inventory_resource(
         .update_service_state
         .find_firmware_inventory(&fw_inventory_id)
         .map(|fw_inv| fw_inv.to_json().into_ok_response())
-        .unwrap_or_else(not_found)
+        .unwrap_or_else(http::not_found)
 }
 
 pub struct UpdateServiceBuilder {
@@ -132,8 +130,4 @@ impl UpdateServiceBuilder {
             value: self.value.patch(patch),
         }
     }
-}
-
-fn not_found() -> Response {
-    json!("").into_response(StatusCode::NOT_FOUND)
 }

@@ -12,7 +12,16 @@
 
 use axum::body::Body;
 use axum::extract::Request;
+use axum::http::StatusCode;
+use axum::response::Response;
+use serde_json::json;
 use tower::Service;
+
+use crate::json::JsonExt;
+
+pub(crate) fn not_found() -> Response {
+    json!("").into_response(StatusCode::NOT_FOUND)
+}
 
 /// Wrapper arond axum::Router::call which constructs a new request object. This works
 /// around an issue where if you just call inner_router.call(request) when that request's
