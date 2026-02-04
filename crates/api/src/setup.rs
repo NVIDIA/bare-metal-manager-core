@@ -38,6 +38,7 @@ use tokio::sync::{Semaphore, oneshot};
 use tracing_log::AsLog as _;
 
 use crate::api::Api;
+use crate::api::metrics::ApiMetricEmitters;
 use crate::cfg::file::{CarbideConfig, ListenMode};
 use crate::dpa::DpaInfo;
 use crate::dynamic_settings::DynamicSettings;
@@ -61,6 +62,7 @@ use crate::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
 use crate::preingestion_manager::PreingestionManager;
 use crate::rack::rms_client::{RackManagerClientPool, RmsClientPool};
 use crate::redfish::RedfishClientPool;
+use crate::scout_stream::ConnectionRegistry;
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::controller::{Enqueuer, StateController};
@@ -361,25 +363,26 @@ pub async fn start_api(
 
     let shared_nmxm_pool: Arc<dyn NmxmClientPool> = Arc::new(nmxm_pool);
 
-    let api_service = Arc::new(Api::new(
-        vault_client.clone(),
-        common_pools,
-        vault_client,
-        db_pool.clone(),
-        LogLimiter::default(),
-        dynamic_settings,
-        bmc_explorer,
+    let api_service = Arc::new(Api {
+        database_connection: db_pool.clone(),
+        credential_provider: vault_client.clone(),
+        certificate_provider: vault_client,
+        redfish_pool: shared_redfish_pool,
         eth_data,
+        common_pools,
         ib_fabric_manager,
-        shared_redfish_pool,
-        carbide_config.clone(),
-        rms_client.clone(),
-        shared_nmxm_pool,
+        runtime_config: carbide_config.clone(),
+        dpu_health_log_limiter: LogLimiter::default(),
+        dynamic_settings,
+        endpoint_explorer: bmc_explorer,
+        scout_stream_registry: ConnectionRegistry::new(),
+        rms_client: rms_client.clone(),
+        nmxm_pool: shared_nmxm_pool,
         work_lock_manager_handle,
-        &meter,
-        Arc::new(carbide_dpf::Production {}),
-        Enqueuer::new(db_pool),
-    ));
+        kube_client_provider: Arc::new(carbide_dpf::Production {}),
+        machine_state_handler_enqueuer: Enqueuer::new(db_pool),
+        metrics: ApiMetricEmitters::new(&meter),
+    });
 
     let (controllers_stop_tx, controllers_stop_rx) = oneshot::channel();
     let controllers_handle = if carbide_config.listen_only {

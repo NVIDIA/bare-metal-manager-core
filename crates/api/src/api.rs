@@ -10,14 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
-mod metrics;
+pub mod metrics;
 
 use std::collections::HashMap;
 use std::panic::Location;
 use std::pin::Pin;
 use std::sync::Arc;
 
-pub use self::metrics::ApiMetricEmitters;
+use self::metrics::ApiMetricEmitters;
 pub use ::rpc::forge as rpc;
 use ::rpc::forge::{RemoveSkuRequest, SkuIdList};
 use ::rpc::protos::dns::{
@@ -2846,51 +2846,6 @@ impl TransactionVending for PgPool {
 }
 
 impl Api {
-    /// Creates a new Api instance with all dependencies
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        certificate_provider: Arc<dyn CertificateProvider>,
-        common_pools: Arc<CommonPools>,
-        credential_provider: Arc<dyn CredentialProvider>,
-        database_connection: sqlx::PgPool,
-        dpu_health_log_limiter: LogLimiter<MachineId>,
-        dynamic_settings: DynamicSettings,
-        endpoint_explorer: Arc<dyn EndpointExplorer>,
-        eth_data: EthVirtData,
-        ib_fabric_manager: Arc<dyn IBFabricManager>,
-        redfish_pool: Arc<dyn RedfishClientPool>,
-        runtime_config: Arc<CarbideConfig>,
-        rms_client: Option<Arc<dyn RmsApi>>,
-        nmxm_pool: Arc<dyn NmxmClientPool>,
-        work_lock_manager_handle: WorkLockManagerHandle,
-        meter: &opentelemetry::metrics::Meter,
-        kube_client_provider: Arc<dyn KubeImpl>,
-        machine_state_handler_enqueuer: Enqueuer<MachineStateControllerIO>,
-    ) -> Self {
-        let metrics = ApiMetricEmitters::new(meter);
-
-        Self {
-            database_connection,
-            credential_provider,
-            certificate_provider,
-            redfish_pool,
-            eth_data,
-            common_pools,
-            ib_fabric_manager,
-            runtime_config,
-            dpu_health_log_limiter,
-            dynamic_settings,
-            endpoint_explorer,
-            scout_stream_registry: ConnectionRegistry::new(),
-            rms_client,
-            nmxm_pool,
-            work_lock_manager_handle,
-            kube_client_provider,
-            machine_state_handler_enqueuer,
-            metrics,
-        }
-    }
-
     // This function can just async when
     // https://github.com/rust-lang/rust/issues/110011 will be
     // implemented
