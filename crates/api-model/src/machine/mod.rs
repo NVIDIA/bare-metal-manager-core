@@ -728,6 +728,11 @@ pub struct Machine {
 
     /// Whether the DPF is enabled for this machine
     pub dpf_enabled: bool,
+
+    /// Timestamp when manual firmware upgrade was marked as completed
+    /// TEMPORARY: Used for workflow where manual upgrades are required before automatic ones
+    /// TODO: Remove after upgrade-through-scout is complete
+    pub manual_firmware_upgrade_completed: Option<DateTime<Utc>>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -1395,6 +1400,9 @@ pub enum HostReprovisionState {
     InitialReset {
         phase: InitialResetPhase,
         last_time: DateTime<Utc>,
+    },
+    WaitingForManualUpgrade {
+        manual_upgrade_started: DateTime<Utc>,
     },
     WaitingForScript {},
     WaitingForUpload {

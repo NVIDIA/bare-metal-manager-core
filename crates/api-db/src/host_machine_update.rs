@@ -42,7 +42,7 @@ pub async fn find_upgrade_needed(
     let query = format!(
         r#"select machines.id, explored_endpoints.exploration_report->>'Vendor', explored_endpoints.exploration_report->>'Model'
         FROM explored_endpoints
-        INNER JOIN machine_topologies 
+        INNER JOIN machine_topologies
             ON SPLIT_PART(explored_endpoints.address::text, '/', 1) = machine_topologies.topology->'bmc_info'->>'ip'
         INNER JOIN machines
             ON machine_topologies.machine_id = machines.id
@@ -138,5 +138,33 @@ pub async fn reset_host_reprovisioning_request(
         .fetch_one(&mut *txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
+
+pub async fn set_manual_firmware_upgrade_completed(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machines SET manual_firmware_upgrade_completed = NOW() WHERE id = $1";
+    sqlx::query(query)
+        .bind(machine_id)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(())
+}
+
+pub async fn clear_manual_firmware_upgrade_completed(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machines SET manual_firmware_upgrade_completed = NULL WHERE id = $1";
+    sqlx::query(query)
+        .bind(machine_id)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
     Ok(())
 }

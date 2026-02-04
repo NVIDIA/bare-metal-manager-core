@@ -6534,6 +6534,9 @@ impl HostUpgradeState {
                 self.host_checking_fw(state, services, original_state, scenario, true, txn)
                     .await
             }
+            HostReprovisionState::WaitingForManualUpgrade { .. } => {
+                self.waiting_for_manual_upgrade(state, scenario)
+            }
             HostReprovisionState::WaitingForScript { .. } => {
                 self.waiting_for_script(state, services, scenario)
             }
@@ -6614,6 +6617,12 @@ impl HostUpgradeState {
                 _ => {
                     db::host_machine_update::clear_host_reprovisioning_request(txn, machine_id)
                         .await?;
+
+                    // TODO: Remove when manual upgrade feature is removed
+                    db::host_machine_update::clear_manual_firmware_upgrade_completed(
+                        txn, machine_id,
+                    )
+                    .await?;
                 }
             };
         }
@@ -6638,6 +6647,22 @@ impl HostUpgradeState {
         repeat: bool,
         txn: &mut PgConnection,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
+        // temporary check if manual upgrade is required before proceeding with automatic ones,
+        // should be removed once we complete upgrades through the scout.
+        // For now, only gb200s need manual upgrades.
+        if requires_manual_firmware_upgrade(state, &services.site_config) {
+            tracing::info!(
+                "Machine {} (GB200) requires manual firmware upgrade, transitioning to WaitingForManualUpgrade",
+                machine_id
+            );
+            return scenario.actual_new_state(
+                HostReprovisionState::WaitingForManualUpgrade {
+                    manual_upgrade_started: Utc::now(),
+                },
+                state.managed_state.get_host_repro_retry_count(),
+            );
+        }
+
         let Some(explored_endpoint) =
             find_explored_refreshed_endpoint(state, machine_id, txn).await?
         else {
@@ -6880,6 +6905,33 @@ impl HostUpgradeState {
             HostReprovisionState::WaitingForScript {},
             state.managed_state.get_host_repro_retry_count(),
         )
+    }
+
+    fn waiting_for_manual_upgrade(
+        &self,
+        state: &ManagedHostStateSnapshot,
+        scenario: HostFirmwareScenario,
+    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
+        let machine_id = &state.host_snapshot.id;
+
+        if let Some(completed_at) = state.host_snapshot.manual_firmware_upgrade_completed {
+            tracing::info!(
+                "Manual firmware upgrade completed for {} at {}, proceeding to automatic upgrades",
+                machine_id,
+                completed_at
+            );
+
+            return scenario.actual_new_state(
+                HostReprovisionState::CheckingFirmwareRepeat,
+                state.managed_state.get_host_repro_retry_count(),
+            );
+        }
+
+        tracing::debug!(
+            "Machine {} still waiting for manual firmware upgrade to be marked complete",
+            machine_id
+        );
+        Ok(None)
     }
 
     fn waiting_for_script(
@@ -7875,6 +7927,31 @@ pub async fn host_power_state(
             operation: "get_power_state",
             error: e,
         })
+}
+
+fn requires_manual_firmware_upgrade(
+    state: &ManagedHostStateSnapshot,
+    config: &CarbideConfig,
+) -> bool {
+    if !config.firmware_global.requires_manual_upgrade {
+        return false;
+    }
+
+    let is_gb200 = state
+        .host_snapshot
+        .hardware_info
+        .as_ref()
+        .map(|hi| hi.is_gbx00())
+        .unwrap_or(false);
+
+    if !is_gb200 {
+        return false;
+    }
+
+    state
+        .host_snapshot
+        .manual_firmware_upgrade_completed
+        .is_none()
 }
 
 fn get_next_state_boss_job_failure(

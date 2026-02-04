@@ -46,7 +46,10 @@ use crate::preingestion_manager::PreingestionManager;
 use crate::redfish::test_support::RedfishSimAction;
 use crate::state_controller::machine::handler::MAX_FIRMWARE_UPGRADE_RETRIES;
 use crate::tests::common;
-use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env};
+use crate::tests::common::api_fixtures::managed_host::HardwareInfoTemplate;
+use crate::tests::common::api_fixtures::{
+    TestEnvOverrides, create_managed_host_with_hardware_info_template, create_test_env,
+};
 use crate::tests::common::rpc_builder::DhcpDiscovery;
 
 #[crate::sqlx_test]
@@ -2397,6 +2400,176 @@ async fn test_preingestion_time_sync_retry_logic(
         }
     }
     txn.commit().await?;
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_manual_firmware_upgrade_workflow(pool: sqlx::PgPool) -> CarbideResult<()> {
+    // create an env with requires_manual_upgrade = true
+    let mut config = common::api_fixtures::get_config();
+    config.firmware_global.requires_manual_upgrade = true;
+    config.bom_validation.enabled = false;
+    config.machine_validation_config.enabled = false;
+    let env =
+        create_test_env_with_overrides(pool.clone(), TestEnvOverrides::with_config(config)).await;
+
+    // create a gb200
+    let mh = create_managed_host_with_hardware_info_template(
+        &env,
+        HardwareInfoTemplate::Custom(
+            crate::tests::common::api_fixtures::host::GB200_COMPUTE_TRAY_1_INFO_JSON,
+        ),
+    )
+    .await;
+
+    // Create and start an update manager
+    let update_manager = MachineUpdateManager::new(
+        env.pool.clone(),
+        env.config.clone(),
+        env.test_meter.meter(),
+        env.api.work_lock_manager_handle.clone(),
+    );
+    update_manager.run_single_iteration().await?;
+
+    // verify reprovision was requested
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    assert!(host.host_reprovision_requested.is_some());
+    txn.commit().await.unwrap();
+
+    // state machine iteration
+    // Ready -> WaitingForManualUpgrade
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    assert!(
+        matches!(
+            host.current_state(),
+            ManagedHostState::HostReprovision {
+                reprovision_state: HostReprovisionState::WaitingForManualUpgrade { .. },
+                ..
+            }
+        ),
+        "Machine should still be in HostReprovision::WaitingForManualUpgrade"
+    );
+
+    // multiple state machine iterations
+    // should stay in WaitingForManualUpgrade
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    assert!(
+        matches!(
+            host.current_state(),
+            ManagedHostState::HostReprovision {
+                reprovision_state: HostReprovisionState::WaitingForManualUpgrade { .. },
+                ..
+            }
+        ),
+        "Machine should still be in HostReprovision::WaitingForManualUpgrade"
+    );
+
+    // Mark manual upgrade as complete
+    db::host_machine_update::set_manual_firmware_upgrade_completed(&mut txn, &mh.host().id).await?;
+    txn.commit().await.unwrap();
+
+    // state machine iteration
+    // WaitingForManualUpgrade -> CheckingFirmwareRepeat
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+
+    assert!(host.manual_firmware_upgrade_completed.is_some());
+
+    assert!(
+        matches!(
+            host.current_state(),
+            ManagedHostState::HostReprovision {
+                reprovision_state: HostReprovisionState::CheckingFirmwareRepeat,
+                ..
+            }
+        ),
+        "Machine should be in HostReprovision::CheckingFirmwareRepeat"
+    );
+
+    // CheckingFirmwareRepeat -> WaitingForUpload
+    env.run_machine_state_controller_iteration().await;
+
+    // Wait a bit for upload to complete
+    sleep(Duration::from_millis(6000)).await;
+
+    // WaitingForUpload -> WaitingForFirmwareUpgrade
+    env.run_machine_state_controller_iteration().await;
+
+    // WaitingForFirmwareUpgrade -> ResetForNewFirmware
+    env.run_machine_state_controller_iteration().await;
+
+    // ResetForNewFirmware -> NewFirmwareReportedWait
+    env.run_machine_state_controller_iteration().await;
+
+    // "Site explorer" pass
+    let endpoints =
+        db::explored_endpoints::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()])
+            .await
+            .unwrap();
+    let mut endpoint = endpoints.into_iter().next().unwrap();
+    endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
+    endpoint.report.service[0].inventories[1].version = Some("1.13.2".to_string());
+    endpoint
+        .report
+        .versions
+        .insert(FirmwareComponentType::Uefi, "1.13.2".to_string());
+    endpoint
+        .report
+        .versions
+        .insert(FirmwareComponentType::Bmc, "6.00.30.00".to_string());
+    db::explored_endpoints::try_update(
+        host.bmc_info.ip_addr().unwrap(),
+        endpoint.report_version,
+        &endpoint.report,
+        false,
+        &mut txn,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    // NewFirmwareReportedWait -> CheckingFirmwareRepeat
+    env.run_machine_state_controller_iteration().await;
+
+    // CheckingFirmwareRepeat -> WaitingForLockdown
+    env.run_machine_state_controller_iteration().await;
+
+    // WaitingForLockdown -> BomValidating
+    env.run_machine_state_controller_iteration().await;
+
+    // BomValidating -> Validation (RebootHost)
+    env.run_machine_state_controller_iteration().await;
+
+    // Validation (RebootHost) -> Validation (MachineValidating)
+    env.run_machine_state_controller_iteration().await;
+
+    // reboot makes it move forward from MachineValidating
+    common::api_fixtures::reboot_completed(&env, mh.host().id).await;
+
+    // Validation (MachineValidating) -> HostInit
+    env.run_machine_state_controller_iteration().await;
+
+    // HostInit -> Ready
+    env.run_machine_state_controller_iteration().await;
+
+    // assert manual_firmware_upgrade_completed is cleared
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+
+    assert!(host.manual_firmware_upgrade_completed.is_none());
 
     Ok(())
 }
