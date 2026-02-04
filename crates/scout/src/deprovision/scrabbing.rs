@@ -85,6 +85,24 @@ struct NvmeParams {
     fr: String,
 }
 
+#[derive(Deserialize, Debug)]
+struct NvmeLbaFormat {
+    // metadata size
+    ms: u16,
+
+    // data size (as power of 2, e.g., 9 = 512B, 12 = 4096B)
+    ds: u8,
+
+    // relative performance
+    rp: u8,
+}
+
+#[derive(Deserialize, Debug)]
+struct NvmeNamespaceParams {
+    // LBA formats array
+    lbafs: Vec<NvmeLbaFormat>,
+}
+
 async fn get_nvme_params(nvmename: &str) -> Result<NvmeParams, CarbideClientError> {
     let nvme_params_lines =
         cmdrun::run_prog(NVME_CLI_PROG, ["id-ctrl", nvmename, "-o", "json"]).await?;
@@ -97,6 +115,102 @@ async fn get_nvme_params(nvmename: &str) -> Result<NvmeParams, CarbideClientErro
         }
     };
     Ok(nvme_drive_params)
+}
+
+/// Select the best LBA format with the given data size (ds).
+/// Prefers formats with no metadata (ms=0) and best performance (lowest rp).
+/// Returns the index and a reference to the selected format, or None if not found.
+fn select_best_lba_format(
+    lbafs: &[NvmeLbaFormat],
+    target_ds: u8,
+) -> Option<(usize, &NvmeLbaFormat)> {
+    lbafs
+        .iter()
+        .enumerate()
+        .filter(|(_, lbaf)| lbaf.ds == target_ds)
+        .reduce(|(best_idx, best_lbaf), (idx, lbaf)| {
+            // Prefer formats with no metadata
+            if lbaf.ms == 0 && best_lbaf.ms != 0
+                // If metadata is same, prefer better performance (lower rp)
+                || lbaf.ms == best_lbaf.ms && lbaf.rp < best_lbaf.rp
+            {
+                (idx, lbaf)
+            } else {
+                (best_idx, best_lbaf)
+            }
+        })
+}
+
+/// Get namespace parameters by running nvme id-ns command.
+async fn get_namespace_params(nvmename: &str) -> Result<NvmeNamespaceParams, CarbideClientError> {
+    let namespace_params_lines = cmdrun::run_prog(
+        NVME_CLI_PROG,
+        ["id-ns", nvmename, "-n", "0xffffffff", "-o", "json"],
+    )
+    .await?;
+
+    let namespace_params: NvmeNamespaceParams = match serde_json::from_str(&namespace_params_lines)
+    {
+        Ok(o) => o,
+        Err(e) => {
+            return Err(CarbideClientError::GenericError(format!(
+                "nvme id-ns parse error: {e}"
+            )));
+        }
+    };
+
+    Ok(namespace_params)
+}
+
+/// Get the best available LBA format for the given device.
+/// Prefers 512B sectors (ds=9) with no metadata and best performance.
+/// Falls back to 4K sectors (ds=12) if no 512B format is available.
+/// If neither is found, falls back to FLBAS 0.
+async fn get_best_lba_format(nvmename: &str) -> Result<(u8, u64), CarbideClientError> {
+    let namespace_params = get_namespace_params(nvmename).await?;
+
+    // Try 512B format first (ds=9 means 2^9 = 512 bytes)
+    if let Some((idx, lbaf)) = select_best_lba_format(&namespace_params.lbafs, 9) {
+        tracing::info!(
+            "Selected FLBAS {} for {} with sector_size=512 bytes (ms={}, rp={})",
+            idx,
+            nvmename,
+            lbaf.ms,
+            lbaf.rp
+        );
+        return Ok((idx as u8, 512u64));
+    }
+
+    // Try 4K format (ds=12 means 2^12 = 4096 bytes)
+    if let Some((idx, lbaf)) = select_best_lba_format(&namespace_params.lbafs, 12) {
+        tracing::info!(
+            "Selected FLBAS {} for {} with sector_size=4096 bytes (ms={}, rp={})",
+            idx,
+            nvmename,
+            lbaf.ms,
+            lbaf.rp
+        );
+        return Ok((idx as u8, 4096u64));
+    }
+
+    // Fallback to FLBAS 0 - determine its actual sector size
+    tracing::warn!(
+        "No 512B or 4K LBA format found for {}, falling back to FLBAS 0",
+        nvmename
+    );
+    if let Some(lbaf0) = namespace_params.lbafs.first() {
+        let sector_size = 1u64 << lbaf0.ds;
+        tracing::warn!(
+            "FLBAS 0 has sector_size={} bytes (ds={})",
+            sector_size,
+            lbaf0.ds
+        );
+        Ok((0u8, sector_size))
+    } else {
+        Err(CarbideClientError::GenericError(
+            "No LBA formats available for device".to_string(),
+        ))
+    }
 }
 
 async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
@@ -203,9 +317,18 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
         }
 
         if namespaces_supported {
-            let sectors = nvme_drive_params.tnvmcap / 512;
-            // creating new namespace with all available sectors
-            tracing::debug!("Creating namespace on {}", nvmename);
+            let (flbas_index, sector_size) = get_best_lba_format(nvmename).await?;
+            let sectors = nvme_drive_params.tnvmcap / sector_size;
+            let flbas_str = flbas_index.to_string();
+
+            tracing::debug!(
+                "Creating namespace on {} with flbas={}, sector_size={}, sectors={}",
+                nvmename,
+                flbas_index,
+                sector_size,
+                sectors
+            );
+
             let line_created_ns_id = cmdrun::run_prog(
                 NVME_CLI_PROG,
                 [
@@ -214,7 +337,7 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
                     &format!("--nsze={sectors}"),
                     &format!("--ncap={sectors}"),
                     "--flbas",
-                    "0",
+                    &flbas_str,
                     "--dps=0",
                 ],
             )
@@ -707,4 +830,166 @@ pub async fn run_no_api() -> Result<(), CarbideClientError> {
     reset_ib_devices().await?;
     tracing::debug!("IB devices reset OK");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_namespace_params_512b_first() {
+        let json = r#"{
+            "lbafs": [
+                {"ms": 0, "ds": 9, "rp": 0},
+                {"ms": 8, "ds": 9, "rp": 1},
+                {"ms": 0, "ds": 12, "rp": 0}
+            ]
+        }"#;
+
+        let params: NvmeNamespaceParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.lbafs.len(), 3);
+        assert_eq!(params.lbafs[0].ds, 9);
+        assert_eq!(params.lbafs[0].ms, 0);
+        assert_eq!(params.lbafs[2].ds, 12);
+    }
+
+    #[test]
+    fn test_parse_namespace_params_4096b_first() {
+        let json = r#"{
+            "lbafs": [
+                {"ms": 0, "ds": 12, "rp": 0},
+                {"ms": 8, "ds": 12, "rp": 1},
+                {"ms": 0, "ds": 9, "rp": 0}
+            ]
+        }"#;
+
+        let params: NvmeNamespaceParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.lbafs.len(), 3);
+        assert_eq!(params.lbafs[0].ds, 12);
+        assert_eq!(params.lbafs[2].ds, 9);
+    }
+
+    #[test]
+    fn test_select_best_512b_format() {
+        // Test case: Multiple 512B formats, prefer ms=0 and rp=0
+        let lbafs = vec![
+            NvmeLbaFormat {
+                ms: 8,
+                ds: 9,
+                rp: 1,
+            },
+            NvmeLbaFormat {
+                ms: 0,
+                ds: 9,
+                rp: 0,
+            },
+            NvmeLbaFormat {
+                ms: 0,
+                ds: 12,
+                rp: 0,
+            },
+        ];
+
+        let best_format = select_best_lba_format(&lbafs, 9);
+        assert!(best_format.is_some());
+        let (idx, lbaf) = best_format.unwrap();
+        assert_eq!(idx, 1); // Should select format at index 1 (ms=0, rp=0)
+        assert_eq!(lbaf.ms, 0);
+        assert_eq!(lbaf.rp, 0);
+    }
+
+    #[test]
+    fn test_select_best_4k_format() {
+        // Test case: Multiple 4K formats, prefer ms=0 and best rp
+        let lbafs = vec![
+            NvmeLbaFormat {
+                ms: 8,
+                ds: 12,
+                rp: 2,
+            },
+            NvmeLbaFormat {
+                ms: 0,
+                ds: 12,
+                rp: 1,
+            },
+            NvmeLbaFormat {
+                ms: 0,
+                ds: 12,
+                rp: 0,
+            },
+        ];
+
+        let best_format = select_best_lba_format(&lbafs, 12);
+        assert!(best_format.is_some());
+        let (idx, lbaf) = best_format.unwrap();
+        assert_eq!(idx, 2); // Should select format at index 2 (ms=0, rp=0)
+        assert_eq!(lbaf.ms, 0);
+        assert_eq!(lbaf.rp, 0);
+    }
+
+    #[test]
+    fn test_select_format_prefer_no_metadata() {
+        // Test case: Prefer no metadata even with slightly worse performance
+        let lbafs = vec![
+            NvmeLbaFormat {
+                ms: 8,
+                ds: 9,
+                rp: 0,
+            },
+            NvmeLbaFormat {
+                ms: 0,
+                ds: 9,
+                rp: 1,
+            },
+        ];
+
+        let best_format = select_best_lba_format(&lbafs, 9);
+        assert!(best_format.is_some());
+        let (idx, lbaf) = best_format.unwrap();
+        assert_eq!(idx, 1); // Should prefer ms=0 even though rp is worse
+        assert_eq!(lbaf.ms, 0);
+    }
+
+    #[test]
+    fn test_select_format_not_found() {
+        // Test case: No matching format
+        let lbafs = vec![NvmeLbaFormat {
+            ms: 0,
+            ds: 12,
+            rp: 0,
+        }];
+
+        let best_format = select_best_lba_format(&lbafs, 9);
+        assert!(best_format.is_none());
+    }
+
+    #[test]
+    fn test_sector_count_calculations() {
+        // Test with 512B sectors
+        let tnvmcap = 1_000_000_000_000u64; // 1TB
+        let sector_size_512 = 512u64;
+        let sectors_512 = tnvmcap / sector_size_512;
+        assert_eq!(sectors_512, 1_953_125_000);
+
+        // Test with 4096B sectors
+        let sector_size_4096 = 4096u64;
+        let sectors_4096 = tnvmcap / sector_size_4096;
+        assert_eq!(sectors_4096, 244_140_625);
+
+        // Verify the ratio is 8:1
+        assert_eq!(sectors_512 / sectors_4096, 8);
+    }
+
+    #[test]
+    fn test_lbaf_sector_size_calculation() {
+        // ds=9 means 2^9 = 512 bytes
+        let ds_512 = 9u8;
+        let sector_size_512 = 1u64 << ds_512;
+        assert_eq!(sector_size_512, 512);
+
+        // ds=12 means 2^12 = 4096 bytes
+        let ds_4096 = 12u8;
+        let sector_size_4096 = 1u64 << ds_4096;
+        assert_eq!(sector_size_4096, 4096);
+    }
 }
