@@ -11,10 +11,11 @@
  */
 
 use std::ops::Add;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ApiConfig};
+use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use carbide_host_support::registration;
 use eyre::Context;
 use forge_tls::client_config::ClientCert;
@@ -30,14 +31,11 @@ const MAX_CERT_RENEWAL_FAILURE_TIME_SECS: u64 = 5 * 60; // 5min
 pub struct ClientCertRenewer {
     cert_renewal_time: std::time::Instant,
     forge_api_server: String,
-    client_config: forge_tls_client::ForgeClientConfig,
+    client_config: Arc<ForgeClientConfig>,
 }
 
 impl ClientCertRenewer {
-    pub fn new(
-        forge_api_server: String,
-        client_config: forge_tls_client::ForgeClientConfig,
-    ) -> Self {
+    pub fn new(forge_api_server: String, client_config: Arc<ForgeClientConfig>) -> Self {
         let cert_renewal_period =
             rand::rng().random_range(MIN_CERT_RENEWAL_TIME_SECS..MAX_CERT_RENEWAL_TIME_SECS);
         let cert_renewal_time = Instant::now().add(Duration::from_secs(cert_renewal_period));

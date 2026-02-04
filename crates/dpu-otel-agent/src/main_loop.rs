@@ -12,9 +12,10 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use ::rpc::forge_tls_client;
+use ::rpc::forge_tls_client::ForgeClientConfig;
 use carbide_host_support::agent_config::AgentConfig;
 use carbide_systemd::systemd;
 use forge_certs::cert_renewal::ClientCertRenewer;
@@ -35,7 +36,7 @@ pub enum ProcessingError {
 }
 
 pub async fn setup_and_run(
-    forge_client_config: forge_tls_client::ForgeClientConfig,
+    forge_client_config: Arc<ForgeClientConfig>,
     agent_config: AgentConfig,
     options: command_line::RunOptions,
 ) -> eyre::Result<()> {
@@ -52,7 +53,7 @@ pub async fn setup_and_run(
     // Setup client certificate renewal
     let forge_api_server = agent_config.forge_system.api_server.clone();
     let mut client_cert_renewer =
-        ClientCertRenewer::new(forge_api_server.clone(), forge_client_config.clone());
+        ClientCertRenewer::new(forge_api_server.clone(), Arc::clone(&forge_client_config));
 
     // If the configured certs do not exist, copy them to the configured path from existing certs
     // specified in the run args. If they do exist, also check that they are not more than a day

@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
 use carbide_uuid::dpu_remediations::RemediationId;
@@ -53,14 +54,14 @@ impl MachineInfo {
 
 pub struct RemediationExecutor {
     forge_api_server: String,
-    forge_client_config: ForgeClientConfig,
+    forge_client_config: Arc<ForgeClientConfig>,
     machine_info: MachineInfo,
 }
 
 impl RemediationExecutor {
     pub fn new(
         forge_api_server: String,
-        forge_client_config: ForgeClientConfig,
+        forge_client_config: Arc<ForgeClientConfig>,
         machine_info: MachineInfo,
     ) -> Self {
         Self {

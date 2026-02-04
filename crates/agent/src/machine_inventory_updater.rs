@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::sync::Arc;
 use std::time::Duration;
 
 use ::rpc::forge as rpc;
@@ -25,7 +26,7 @@ pub struct MachineInventoryUpdaterConfig {
     pub update_inventory_interval: Duration,
     pub machine_id: MachineId,
     pub forge_api: String,
-    pub forge_client_config: ForgeClientConfig,
+    pub forge_client_config: Arc<ForgeClientConfig>,
 }
 
 pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<()> {

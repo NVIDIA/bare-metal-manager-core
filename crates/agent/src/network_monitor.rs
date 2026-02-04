@@ -110,7 +110,7 @@ impl NetworkMonitor {
     pub async fn run(
         &mut self,
         forge_api: &str,
-        client_config: ForgeClientConfig,
+        client_config: Arc<ForgeClientConfig>,
         close_receiver: &mut watch::Receiver<bool>,
     ) {
         // Initial fetch peer dpu list from API

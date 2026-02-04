@@ -99,14 +99,16 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         tracing::warn!("Pretending local host is a DPU. Dev only.");
     }
 
-    let forge_client_config = ForgeClientConfig::new(
-        agent.forge_system.root_ca.clone(),
-        Some(ClientCert {
-            cert_path: agent.forge_system.client_cert.clone(),
-            key_path: agent.forge_system.client_key.clone(),
-        }),
-    )
-    .use_mgmt_vrf()?;
+    let forge_client_config = Arc::new(
+        ForgeClientConfig::new(
+            agent.forge_system.root_ca.clone(),
+            Some(ClientCert {
+                cert_path: agent.forge_system.client_cert.clone(),
+                key_path: agent.forge_system.client_key.clone(),
+            }),
+        )
+        .use_mgmt_vrf()?,
+    );
 
     match cmdline.cmd {
         None => {
@@ -223,7 +225,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     ),
                     machine_id,
                     forge_api: forge_api_server.clone(),
-                    forge_client_config: forge_client_config.clone(),
+                    forge_client_config: Arc::clone(&forge_client_config),
                 },
             )
             .await;

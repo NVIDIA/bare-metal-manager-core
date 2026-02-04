@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::sync::Arc;
+
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use carbide_host_support::agent_config::AgentConfig;
 pub use command_line::{AgentCommand, Options, RunOptions};
@@ -35,14 +37,16 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
     };
     tracing::info!("Using configuration from {path}: {agent:?}");
 
-    let forge_client_config = ForgeClientConfig::new(
-        agent.forge_system.root_ca.clone(),
-        Some(ClientCert {
-            cert_path: agent.forge_system.client_cert.clone(),
-            key_path: agent.forge_system.client_key.clone(),
-        }),
-    )
-    .use_mgmt_vrf()?;
+    let forge_client_config = Arc::new(
+        ForgeClientConfig::new(
+            agent.forge_system.root_ca.clone(),
+            Some(ClientCert {
+                cert_path: agent.forge_system.client_cert.clone(),
+                key_path: agent.forge_system.client_key.clone(),
+            }),
+        )
+        .use_mgmt_vrf()?,
+    );
 
     match cmdline.cmd {
         None => {

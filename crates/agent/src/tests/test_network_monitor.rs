@@ -89,14 +89,16 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
         ),
     };
 
-    let forge_client_config = ForgeClientConfig::new(
-        agent.forge_system.root_ca.clone(),
-        Some(ClientCert {
-            cert_path: agent.forge_system.client_cert.clone(),
-            key_path: agent.forge_system.client_key.clone(),
-        }),
-    )
-    .use_mgmt_vrf()?;
+    let forge_client_config = Arc::new(
+        ForgeClientConfig::new(
+            agent.forge_system.root_ca.clone(),
+            Some(ClientCert {
+                cert_path: agent.forge_system.client_cert.clone(),
+                key_path: agent.forge_system.client_key.clone(),
+            }),
+        )
+        .use_mgmt_vrf()?,
+    );
 
     let forge_api = agent.forge_system.api_server;
 
@@ -109,7 +111,7 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
 
     // Initialize network monitor
     let forge_api_clone = forge_api.clone();
-    let client_config_clone = forge_client_config.clone();
+    let forge_client_config_clone = Arc::clone(&forge_client_config);
     let (close_sender, mut close_receiver) = watch::channel(false);
 
     info!("Initializing network monitor");
@@ -122,7 +124,11 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
     info!("Starting network monitor");
     tokio::spawn(async move {
         network_monitor
-            .run(&forge_api_clone, client_config_clone, &mut close_receiver)
+            .run(
+                &forge_api_clone,
+                forge_client_config_clone,
+                &mut close_receiver,
+            )
             .await
     });
 
