@@ -33,7 +33,7 @@ pub mod logs_collector;
 pub mod metrics;
 pub mod monitor;
 pub mod sharding;
-pub mod switch_collector;
+pub mod nmxt_collector;
 
 pub use config::Config;
 pub use discovery::{DiscoveryIterationStats, DiscoveryLoopContext};
@@ -244,9 +244,9 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
         }
     });
 
-    // spawn switch collector
-    let join_switch_collector: Option<tokio::task::JoinHandle<Result<(), HealthError>>> =
-        if config_arc.collectors.switch.is_enabled() {
+    // spawn nmxt collector
+    let join_nmxt_collector: Option<tokio::task::JoinHandle<Result<(), HealthError>>> =
+        if config_arc.collectors.nmxt.is_enabled() {
             if let Configurable::Enabled(ref api_cfg) = config_arc.endpoint_sources.carbide_api {
                 let api_client = Arc::new(ApiClientWrapper::new(
                     api_cfg.root_ca.clone(),
@@ -254,22 +254,22 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
                     api_cfg.client_key.clone(),
                     &api_cfg.api_url,
                 ));
-                let switch_config = config_arc.collectors.switch.clone();
-                let switch_registry = registry.clone();
+                let nmxt_config = config_arc.collectors.nmxt.clone();
+                let nmxt_registry = registry.clone();
                 let shard_manager = ShardManager::new(config_arc.shard, config_arc.shards_count);
 
                 Some(tokio::spawn(async move {
-                    switch_collector::run_switch_collector(
+                    nmxt_collector::run_nmxt_collector(
                         api_client,
-                        switch_config,
+                        nmxt_config,
                         shard_manager,
-                        &switch_registry,
+                        &nmxt_registry,
                     )
                     .await
                 }))
             } else {
                 tracing::warn!(
-                    "Switch collector is enabled but Carbide API is not configured, skipping"
+                    "NMX-T collector is enabled but Carbide API is not configured, skipping"
                 );
                 None
             }
@@ -305,20 +305,20 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
             }
         }
         res = async {
-            match join_switch_collector {
+            match join_nmxt_collector {
                 Some(handle) => handle.await,
                 None => std::future::pending().await,
             }
         } => {
             match res {
                 Ok(Ok(_)) => {
-                    tracing::info!("Switch collector shutdown");
+                    tracing::info!("NMX-T collector shutdown");
                 }
                 Ok(Err(e)) => {
-                    tracing::error!(error=?e, "Switch collector failed");
+                    tracing::error!(error=?e, "NMX-T collector failed");
                 }
                 Err(e) => {
-                    tracing::error!(error=?e, "Switch collector join error");
+                    tracing::error!(error=?e, "NMX-t collector join error");
                 }
             }
         }

@@ -21,7 +21,7 @@ use prometheus::{GaugeVec, Opts, Registry};
 
 use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
-use crate::config::{Configurable, SwitchCollectorConfig};
+use crate::config::{Configurable, CollectorConfig};
 
 /// default NMX-T port
 const NMXT_PORT: u16 = 9352;
@@ -100,7 +100,7 @@ fn parse_prometheus_line(line: &str) -> Option<NmxtMetricSample> {
     })
 }
 
-/// scrape metrics from a single switch
+/// scrape nmxt metrics from a single switch
 async fn scrape_switch_nmxt_metrics(
     http_client: &reqwest::Client,
     switch_ip: &str,
@@ -136,20 +136,20 @@ async fn scrape_switch_nmxt_metrics(
 
 use crate::sharding::ShardManager;
 
-pub struct SwitchCollector {
+pub struct NmxtCollector {
     api_client: Arc<ApiClientWrapper>,
     http_client: reqwest::Client,
-    config: SwitchCollectorConfig,
+    config: CollectorConfig,
     shard_manager: ShardManager,
     effective_ber_gauge: GaugeVec,
     symbol_error_gauge: GaugeVec,
     link_down_gauge: GaugeVec,
 }
 
-impl SwitchCollector {
+impl Collector {
     pub fn new(
         api_client: Arc<ApiClientWrapper>,
-        config: SwitchCollectorConfig,
+        config: CollectorConfig,
         shard_manager: ShardManager,
         registry: &Registry,
     ) -> Result<Self, HealthError> {
@@ -198,7 +198,7 @@ impl SwitchCollector {
         })
     }
 
-    /// Scrapes metrics from switches assigned to this shard.
+    /// Scrapes nmxt metrics from switches assigned to this shard.
     pub async fn scrape_iteration(&self) -> Result<(), HealthError> {
         let endpoints = self.api_client.fetch_switch_endpoints().await?;
         let total_count = endpoints.len();
@@ -275,26 +275,26 @@ impl SwitchCollector {
     }
 }
 
-/// run the switch collector loop
-pub async fn run_switch_collector(
+/// run the nmxt collector loop
+pub async fn run_nmxt_collector(
     api_client: Arc<ApiClientWrapper>,
-    config: Configurable<SwitchCollectorConfig>,
+    config: Configurable<CollectorConfig>,
     shard_manager: ShardManager,
     registry: &Registry,
 ) -> Result<(), HealthError> {
     let config = match config {
         Configurable::Enabled(cfg) => cfg,
         Configurable::Disabled => {
-            tracing::info!("Switch collector is disabled");
+            tracing::info!("Nmxt collector is disabled");
             return Ok(());
         }
     };
 
-    let collector = SwitchCollector::new(api_client, config, shard_manager, registry)?;
+    let collector = Collector::new(api_client, config, shard_manager, registry)?;
 
     loop {
         if let Err(e) = collector.scrape_iteration().await {
-            tracing::error!(error = ?e, "Switch scrape iteration failed");
+            tracing::error!(error = ?e, "Nmxt scrape iteration failed");
         }
 
         tokio::time::sleep(collector.scrape_interval()).await;

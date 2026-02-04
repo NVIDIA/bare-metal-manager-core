@@ -70,7 +70,7 @@ logs_output_dir = "/tmp/logs"
 logs_max_file_size = 104857600                            # 100MB
 logs_max_backups = 5
 
-[collectors.switch]
+[collectors.nmxt]
 scrape_interval = "1m"
 
 # ==============================================================================
