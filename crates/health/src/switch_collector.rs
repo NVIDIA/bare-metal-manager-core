@@ -293,18 +293,11 @@ pub async fn run_switch_collector(
     let collector = SwitchCollector::new(api_client, config, shard_manager, registry)?;
 
     loop {
-        let start = std::time::Instant::now();
-
         if let Err(e) = collector.scrape_iteration().await {
             tracing::error!(error = ?e, "Switch scrape iteration failed");
         }
 
-        let elapsed = start.elapsed();
-        tracing::debug!("Switch scrape iteration took {:?}", elapsed);
-
-        let remaining = collector.scrape_interval().saturating_sub(elapsed);
-        let sleep_time = remaining.max(Duration::from_secs(5));
-        tokio::time::sleep(sleep_time).await;
+        tokio::time::sleep(collector.scrape_interval()).await;
     }
 }
 
