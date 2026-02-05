@@ -150,3 +150,32 @@ fn parse_reprovision_set_missing_id_fails() {
     let result = Cmd::try_parse_from(["host", "reprovision", "set"]);
     assert!(result.is_err(), "should fail without --id");
 }
+
+// parse_reprovision_mark_manual_upgrade_complete ensures
+// mark-manual-upgrade-complete parses with required --id.
+#[test]
+fn parse_reprovision_mark_manual_upgrade_complete() {
+    let cmd = Cmd::try_parse_from([
+        "host",
+        "reprovision",
+        "mark-manual-upgrade-complete",
+        "--id",
+        TEST_MACHINE_ID,
+    ])
+    .expect("should parse mark-manual-upgrade-complete");
+
+    match cmd {
+        Cmd::Reprovision(HostReprovision::MarkManualUpgradeComplete(args)) => {
+            assert_eq!(args.id.to_string(), TEST_MACHINE_ID);
+        }
+        _ => panic!("expected Reprovision MarkManualUpgradeComplete variant"),
+    }
+}
+
+// parse_reprovision_mark_manual_upgrade_complete_missing_id_fails
+// ensures mark-manual-upgrade-complete requires --id.
+#[test]
+fn parse_reprovision_mark_manual_upgrade_complete_missing_id_fails() {
+    let result = Cmd::try_parse_from(["host", "reprovision", "mark-manual-upgrade-complete"]);
+    assert!(result.is_err(), "should fail without --id");
+}

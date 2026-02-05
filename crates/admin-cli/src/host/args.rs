@@ -37,6 +37,9 @@ pub enum HostReprovision {
     Clear(HostReprovisionClear),
     #[clap(about = "List all hosts pending reprovisioning.")]
     List,
+    // TODO: Remove when manual upgrade feature is removed
+    #[clap(about = "Mark manual firmware upgrade as complete for a host.")]
+    MarkManualUpgradeComplete(ManualFirmwareUpgradeComplete),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -66,4 +69,14 @@ pub struct HostReprovisionClear {
 
     #[clap(short, long, action)]
     pub update_firmware: bool,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct ManualFirmwareUpgradeComplete {
+    #[clap(
+        short,
+        long,
+        help = "Machine ID for which manual firmware upgrade should be set."
+    )]
+    pub id: MachineId,
 }

@@ -281,6 +281,9 @@ service Forge {
   rpc TriggerHostReprovisioning(HostReprovisioningRequest) returns (google.protobuf.Empty);
   // List hosts waiting for reprovisioning
   rpc ListHostsWaitingForReprovisioning(HostReprovisioningListRequest) returns (HostReprovisioningListResponse);
+  // TODO: Remove when manual upgrade feature is removed
+  // Mark host as having completed manual firmware upgrade
+  rpc MarkManualFirmwareUpgradeComplete(common.MachineId) returns (google.protobuf.Empty);
 
   rpc GetDpuInfoList(GetDpuInfoListRequest) returns (GetDpuInfoListResponse);
 

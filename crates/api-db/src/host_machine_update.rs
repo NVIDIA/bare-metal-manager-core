@@ -145,10 +145,11 @@ pub async fn set_manual_firmware_upgrade_completed(
     txn: &mut PgConnection,
     machine_id: &MachineId,
 ) -> Result<(), DatabaseError> {
-    let query = "UPDATE machines SET manual_firmware_upgrade_completed = NOW() WHERE id = $1";
-    sqlx::query(query)
+    let query =
+        "UPDATE machines SET manual_firmware_upgrade_completed = NOW() WHERE id = $1 RETURNING id";
+    let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine_id)
-        .execute(txn)
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 

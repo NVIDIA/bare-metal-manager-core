@@ -1065,6 +1065,14 @@ impl Forge for Api {
         crate::handlers::host_reprovisioning::trigger_host_reprovisioning(self, request).await
     }
 
+    async fn mark_manual_firmware_upgrade_complete(
+        &self,
+        request: Request<MachineId>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::host_reprovisioning::mark_manual_firmware_upgrade_complete(self, request)
+            .await
+    }
+
     async fn list_hosts_waiting_for_reprovisioning(
         &self,
         request: Request<rpc::HostReprovisioningListRequest>,
