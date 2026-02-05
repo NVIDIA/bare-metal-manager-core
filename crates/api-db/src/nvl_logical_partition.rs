@@ -204,6 +204,7 @@ impl TryFrom<LogicalPartition> for rpc::NvLinkLogicalPartition {
             config_version: src.config_version.version_string(),
             status,
             config: Some(config),
+            created: Some(src.created.into()),
         })
     }
 }
