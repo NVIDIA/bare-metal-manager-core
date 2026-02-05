@@ -20,7 +20,7 @@ use axum::routing::any;
 use tracing::instrument;
 
 use crate::bug::InjectedBugs;
-use crate::call_router_with_new_request;
+use crate::http::call_router_with_new_request;
 
 pub fn append(mat_host_id: String, router: Router, injected_bugs: Arc<InjectedBugs>) -> Router {
     Router::new()

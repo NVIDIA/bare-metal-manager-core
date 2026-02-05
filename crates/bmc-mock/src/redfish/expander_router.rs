@@ -14,7 +14,7 @@ use std::str::FromStr;
 
 use axum::Router;
 use axum::body::Body;
-use axum::extract::State as AxumState;
+use axum::extract::State;
 use axum::http::{Method, Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -22,27 +22,22 @@ use futures::future::join_all;
 use itertools::Itertools;
 use serde_json::Value;
 
-use crate::call_router_with_new_request;
+use crate::http::call_router_with_new_request;
 
-/**
-This module exists to support `$expand=.($levels=N)` per the redfish spec:
-
-https://www.dmtf.org/sites/default/files/standards/documents/DSP0268_2024.2.pdf
-*/
-pub fn wrap_router_with_redfish_expander(router: Router) -> Router {
+// Add support of `$expand=.($levels=N)` per the redfish spec
+//
+// https://www.dmtf.org/sites/default/files/standards/documents/DSP0268_2024.2.pdf
+pub fn append(router: Router) -> Router {
     Router::new()
-        .route("/{*all}", get(redfish_expand).fallback(fallback))
-        .with_state(State { inner: router })
+        .route("/{*all}", get(process).fallback(fallback))
+        .with_state(Expander { inner: router })
 }
 
-async fn fallback(AxumState(mut state): AxumState<State>, request: Request<Body>) -> Response {
+async fn fallback(State(mut state): State<Expander>, request: Request<Body>) -> Response {
     state.call_inner_router(request).await
 }
 
-async fn redfish_expand(
-    AxumState(mut state): AxumState<State>,
-    request: Request<Body>,
-) -> Response {
+async fn process(State(mut state): State<Expander>, request: Request<Body>) -> Response {
     let expand_level = expansion_level(&request);
     let response = state.call_inner_router(request).await;
 
@@ -130,7 +125,7 @@ async fn redfish_expand(
                         ))
                         .body(Body::empty())
                         .unwrap();
-                    redfish_expand(AxumState(state), req).await
+                    process(State(state), req).await
                 } else {
                     let req = Request::builder()
                         .method(Method::GET)
@@ -208,7 +203,7 @@ fn expansion_level<T>(request: &Request<T>) -> Option<u8> {
 }
 
 #[derive(Debug, Clone)]
-struct State {
+struct Expander {
     inner: Router,
 }
 
@@ -222,7 +217,7 @@ enum MemberRequestError {
     Axum(String, axum::Error),
 }
 
-impl State {
+impl Expander {
     /// See docs in `call_router_with_new_request`
     async fn call_inner_router(&mut self, request: Request<Body>) -> axum::response::Response {
         call_router_with_new_request(&mut self.inner, request).await
@@ -231,17 +226,41 @@ impl State {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use axum::Router;
     use axum::body::Body;
     use axum::http::{Method, Request};
     use serde_json::Value;
     use tower::Service;
 
-    use crate::{default_host_mock, wrap_router_with_redfish_expander};
+    use crate::*;
+
+    #[derive(Debug)]
+    struct TestPowerControl {}
+
+    impl PowerControl for TestPowerControl {
+        fn get_power_state(&self) -> MockPowerState {
+            MockPowerState::On
+        }
+        fn send_power_command(&self, _: SystemPowerControl) -> Result<(), SetSystemPowerError> {
+            Ok(())
+        }
+    }
+
+    fn test_host_mock() -> Router {
+        let power_control = Arc::new(TestPowerControl {});
+        crate::machine_router(
+            MachineInfo::Host(HostMachineInfo::new(vec![DpuMachineInfo::default()])),
+            power_control,
+            String::default(),
+        )
+    }
 
     #[tokio::test]
     async fn test_expand() {
-        let tar_router = default_host_mock();
-        let mut subject = wrap_router_with_redfish_expander(tar_router.clone());
+        let bmc_mock = test_host_mock();
+        let mut subject = redfish::expander_router::append(bmc_mock.clone());
 
         let response_body = subject
             .call(

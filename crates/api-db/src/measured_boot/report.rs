@@ -45,9 +45,7 @@ use crate::measured_boot::interface::site::{
 use crate::measured_boot::machine::bundle_state_to_machine_state;
 use crate::{DatabaseError, DatabaseResult};
 
-pub async fn new_with_txn(
-    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
-    // which must happen in a transaction.
+pub async fn new(
     txn: &mut PgTransaction<'_>,
     machine_id: MachineId,
     values: &[PcrRegisterValue],
@@ -55,11 +53,11 @@ pub async fn new_with_txn(
     create_measurement_report(txn, machine_id, values).await
 }
 
-pub async fn from_id_with_txn(
+pub async fn from_id(
     txn: &mut PgConnection,
     report_id: MeasurementReportId,
 ) -> DatabaseResult<MeasurementReport> {
-    get_measurement_report_by_id_with_txn(txn, report_id).await
+    get_measurement_report_by_id(txn, report_id).await
 }
 
 /// delete_for_id deletes a MeasurementReport and associated
@@ -95,9 +93,7 @@ pub async fn get_all(txn: &mut PgConnection) -> DatabaseResult<Vec<MeasurementRe
     get_all_measurement_reports(txn).await
 }
 
-pub async fn create_active_bundle_with_txn(
-    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
-    // which must happen in a transaction.
+pub async fn create_active_bundle(
     txn: &mut PgTransaction<'_>,
     report: &MeasurementReport,
     pcr_set: &Option<PcrSet>,
@@ -105,9 +101,7 @@ pub async fn create_active_bundle_with_txn(
     create_bundle_with_state(txn, report, MeasurementBundleState::Active, pcr_set).await
 }
 
-pub async fn create_revoked_bundle_with_txn(
-    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
-    // which must happen in a transaction.
+pub async fn create_revoked_bundle(
     txn: &mut PgTransaction<'_>,
     report: &MeasurementReport,
     pcr_set: &Option<PcrSet>,
@@ -118,8 +112,6 @@ pub async fn create_revoked_bundle_with_txn(
 /// create_measurement_report handles the work of creating a new
 /// measurement report as well as all associated value records.
 pub async fn create_measurement_report(
-    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
-    // which must happen in a transaction.
     txn: &mut PgTransaction<'_>,
     machine_id: MachineId,
     values: &[PcrRegisterValue],
@@ -159,7 +151,7 @@ pub async fn create_measurement_report(
     // time to make a new journal entry that captures the [possible]
     // bundle_id, the profile_id, and the values to log to the journal.
     let journal = if new_report_created {
-        crate::measured_boot::journal::new_with_txn(
+        crate::measured_boot::journal::new(
             txn,
             report.machine_id,
             report.report_id,
@@ -236,7 +228,7 @@ pub async fn get_all_measurement_reports(
 
 /// get_measurement_report_by_id does the work of populating a full
 /// MeasurementReport instance, with values and all.
-pub async fn get_measurement_report_by_id_with_txn(
+pub async fn get_measurement_report_by_id(
     txn: &mut PgConnection,
     report_id: MeasurementReportId,
 ) -> DatabaseResult<MeasurementReport> {
@@ -290,8 +282,6 @@ struct JournalData {
 
 impl JournalData {
     pub async fn new_from_values(
-        // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
-        // which must happen in a transaction.
         txn: &mut PgTransaction<'_>,
         machine_id: MachineId,
         values: &[PcrRegisterValue],
@@ -299,13 +289,11 @@ impl JournalData {
         let state: MeasurementMachineState;
         let bundle_id: Option<MeasurementBundleId>;
 
-        let machine = crate::measured_boot::machine::from_id_with_txn(txn, machine_id).await?;
+        let machine = crate::measured_boot::machine::from_id(txn, machine_id).await?;
         let discovery_attributes = crate::measured_boot::machine::discovery_attributes(&machine)?;
-        let profile = crate::measured_boot::profile::match_from_attrs_or_new_with_txn(
-            txn,
-            &discovery_attributes,
-        )
-        .await?;
+        let profile =
+            crate::measured_boot::profile::match_from_attrs_or_new(txn, &discovery_attributes)
+                .await?;
 
         match crate::measured_boot::bundle::match_from_values(txn, profile.profile_id, values)
             .await?
@@ -336,8 +324,6 @@ impl JournalData {
 /// It's worth mentioning that this in and of itself will create an additional
 /// journal entry, should a new bundle be created.
 async fn maybe_auto_approve_machine(
-    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
-    // which must happen in a transaction.
     txn: &mut PgTransaction<'_>,
     report: &MeasurementReport,
 ) -> DatabaseResult<bool> {
@@ -347,7 +333,7 @@ async fn maybe_auto_approve_machine(
                 Some(pcr_registers) => Some(parse_pcr_index_input(pcr_registers.as_str())?),
                 None => None,
             };
-            let _ = create_active_bundle_with_txn(txn, report, &pcr_set).await?;
+            let _ = create_active_bundle(txn, report, &pcr_set).await?;
 
             // If this is a oneshot approval, then remove the approval
             // entry after this automatic journal promotion.
@@ -367,7 +353,7 @@ async fn maybe_auto_approve_machine(
                     Some(pcr_registers) => Some(parse_pcr_index_input(pcr_registers.as_str())?),
                     None => None,
                 };
-                let _ = create_active_bundle_with_txn(txn, report, &pcr_set).await?;
+                let _ = create_active_bundle(txn, report, &pcr_set).await?;
 
                 // If this is a oneshot approval, then remove the approval
                 // entry after this automatic journal promotion.
@@ -389,8 +375,6 @@ async fn maybe_auto_approve_machine(
 /// It's worth mentioning that this in and of itself will create an additional
 /// journal entry, should a new bundle be created.
 async fn maybe_auto_approve_profile(
-    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
-    // which must happen in a transaction.
     txn: &mut PgTransaction<'_>,
     journal: &MeasurementJournal,
     report: &MeasurementReport,
@@ -401,7 +385,7 @@ async fn maybe_auto_approve_profile(
                 Some(pcr_registers) => Some(parse_pcr_index_input(pcr_registers.as_str())?),
                 None => None,
             };
-            let _ = create_active_bundle_with_txn(txn, report, &pcr_set).await?;
+            let _ = create_active_bundle(txn, report, &pcr_set).await?;
 
             // If this is a oneshot approval, then remove the approval
             // entry after this automatic journal promotion.
@@ -423,8 +407,6 @@ async fn maybe_auto_approve_profile(
 /// create a new bundle with registers 0-6).
 ////////////////////////////////////////////////////////////
 pub async fn create_bundle_with_state(
-    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
-    // which must happen in a transaction.
     txn: &mut PgTransaction<'_>,
     report: &MeasurementReport,
     state: MeasurementBundleState,
@@ -432,11 +414,10 @@ pub async fn create_bundle_with_state(
 ) -> DatabaseResult<MeasurementBundle> {
     // Get machine + profile information for the journal entry
     // that needs to be associated with the bundle change.
-    let machine = crate::measured_boot::machine::from_id_with_txn(txn, report.machine_id).await?;
+    let machine = crate::measured_boot::machine::from_id(txn, report.machine_id).await?;
     let discovery_attributes = crate::measured_boot::machine::discovery_attributes(&machine)?;
     let profile =
-        crate::measured_boot::profile::match_from_attrs_or_new_with_txn(txn, &discovery_attributes)
-            .await?;
+        crate::measured_boot::profile::match_from_attrs_or_new(txn, &discovery_attributes).await?;
 
     // Convert the input MeasurementReportValueRecord entries
     // into a list of PcrRegisterValue entries for the purpose
@@ -465,8 +446,7 @@ pub async fn create_bundle_with_state(
         None => report.pcr_values(),
     };
 
-    crate::measured_boot::bundle::new_with_txn(txn, profile.profile_id, None, &values, Some(state))
-        .await
+    crate::measured_boot::bundle::new(txn, profile.profile_id, None, &values, Some(state)).await
 }
 
 enum SameOrNot {
@@ -485,8 +465,7 @@ async fn same_as_previous_one(
             None => return Ok(SameOrNot::Different),
         };
 
-    let latest_report =
-        get_measurement_report_by_id_with_txn(txn, latest_journal.report_id).await?;
+    let latest_report = get_measurement_report_by_id(txn, latest_journal.report_id).await?;
 
     let mut incoming_values = values.to_vec();
     incoming_values.sort_by_key(|e| e.pcr_register);

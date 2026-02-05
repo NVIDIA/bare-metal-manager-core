@@ -74,7 +74,7 @@ impl DbTable for CandidateMachineRecord {
     }
 }
 
-pub async fn from_id_with_txn(
+pub async fn from_id(
     txn: &mut PgConnection,
     machine_id: MachineId,
 ) -> DatabaseResult<CandidateMachine> {

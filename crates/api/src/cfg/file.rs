@@ -1791,6 +1791,8 @@ pub struct FirmwareGlobal {
         serialize_with = "as_duration"
     )]
     pub hgx_bmc_gpu_reboot_delay: Duration,
+    #[serde(default)]
+    pub requires_manual_upgrade: bool,
 }
 
 impl FirmwareGlobal {
@@ -1808,6 +1810,7 @@ impl FirmwareGlobal {
             instance_updates_manual_tagging: false,
             no_reset_retries: false,
             hgx_bmc_gpu_reboot_delay: FirmwareGlobal::hgx_bmc_gpu_reboot_delay_default(),
+            requires_manual_upgrade: false,
         }
     }
 
@@ -1874,6 +1877,7 @@ impl Default for FirmwareGlobal {
             instance_updates_manual_tagging: false,
             no_reset_retries: false,
             hgx_bmc_gpu_reboot_delay: FirmwareGlobal::hgx_bmc_gpu_reboot_delay_default(),
+            requires_manual_upgrade: false,
         }
     }
 }

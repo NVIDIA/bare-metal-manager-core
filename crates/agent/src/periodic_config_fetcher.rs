@@ -100,7 +100,7 @@ impl Drop for PeriodicConfigFetcher {
 
 impl PeriodicConfigFetcher {
     pub async fn new(config: PeriodicConfigFetcherConfig) -> Self {
-        let forge_client_config = config.forge_client_config.clone();
+        let forge_client_config = Arc::clone(&config.forge_client_config);
         // Fetch the sitename from Carbide at the start and keep it in State
         // so that it can be made available as instance metadata.
         let sitename = match fetch_sitename(&forge_client_config, &config.forge_api).await {
@@ -157,7 +157,7 @@ pub struct PeriodicConfigFetcherConfig {
     pub config_fetch_interval: Duration,
     pub machine_id: MachineId,
     pub forge_api: String,
-    pub forge_client_config: ForgeClientConfig,
+    pub forge_client_config: Arc<ForgeClientConfig>,
 }
 
 // Use the version grpc call to carbide to get

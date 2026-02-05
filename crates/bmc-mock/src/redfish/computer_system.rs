@@ -21,9 +21,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use serde_json::json;
 
+use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch, json_patch};
-use crate::mock_machine_router::{MockWrapperError, MockWrapperState};
-use crate::{MockPowerState, POWER_CYCLE_DELAY, PowerControl, redfish};
+use crate::{MockPowerState, POWER_CYCLE_DELAY, PowerControl, SetSystemPowerError, http, redfish};
 
 pub fn collection() -> redfish::Collection<'static> {
     redfish::Collection {
@@ -50,10 +50,7 @@ pub fn reset_target(system_id: &str) -> String {
     )
 }
 
-pub fn add_routes(
-    r: Router<MockWrapperState>,
-    bmc_vendor: redfish::oem::BmcVendor,
-) -> Router<MockWrapperState> {
+pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> Router<BmcState> {
     const SYSTEM_ID: &str = "{system_id}";
     const ETH_ID: &str = "{eth_id}";
     const BOOT_OPTION_ID: &str = "{boot_option_id}";
@@ -182,9 +179,8 @@ impl SingleSystemState {
     }
 }
 
-async fn get_system_collection(State(state): State<MockWrapperState>) -> Response {
+async fn get_system_collection(State(state): State<BmcState>) -> Response {
     let members = state
-        .bmc_state
         .system_state
         .systems()
         .iter()
@@ -193,12 +189,9 @@ async fn get_system_collection(State(state): State<MockWrapperState>) -> Respons
     collection().with_members(&members).into_ok_response()
 }
 
-async fn get_system(
-    State(state): State<MockWrapperState>,
-    Path(system_id): Path<String>,
-) -> Response {
-    let Some(system_state) = state.bmc_state.system_state.find(&system_id) else {
-        return not_found();
+async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>) -> Response {
+    let Some(system_state) = state.system_state.find(&system_id) else {
+        return http::not_found();
     };
 
     let mut b = builder(&resource(&system_id))
@@ -225,18 +218,18 @@ async fn get_system(
         .config
         .chassis
         .iter()
-        .flat_map(|chassis_id| state.bmc_state.chassis_state.find(chassis_id))
+        .flat_map(|chassis_id| state.chassis_state.find(chassis_id))
         .flat_map(|chassis| chassis.pcie_devices_resources().into_iter())
         .collect::<Vec<_>>();
     b.pcie_devices(&pcie_devices).build().into_ok_response()
 }
 
 async fn get_ethernet_interface(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path((system_id, interface_id)): Path<(String, String)>,
 ) -> Response {
-    let Some(system_state) = state.bmc_state.system_state.find(&system_id) else {
-        return not_found();
+    let Some(system_state) = state.system_state.find(&system_id) else {
+        return http::not_found();
     };
     system_state
         .config
@@ -244,15 +237,15 @@ async fn get_ethernet_interface(
         .iter()
         .find(|eth| eth.id == interface_id)
         .map(|eth| eth.to_json().into_ok_response())
-        .unwrap_or_else(not_found)
+        .unwrap_or_else(http::not_found)
 }
 
 async fn get_ethernet_interface_collection(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path(system_id): Path<String>,
 ) -> Response {
-    let Some(system_state) = state.bmc_state.system_state.find(&system_id) else {
-        return not_found();
+    let Some(system_state) = state.system_state.find(&system_id) else {
+        return http::not_found();
     };
     let members = system_state
         .config
@@ -270,12 +263,12 @@ async fn patch_settings() -> Response {
 }
 
 async fn patch_system(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path(system_id): Path<String>,
     Json(patch_system): Json<serde_json::Value>,
 ) -> Response {
-    let Some(system_state) = state.bmc_state.system_state.find(&system_id) else {
-        return not_found();
+    let Some(system_state) = state.system_state.find(&system_id) else {
+        return http::not_found();
     };
     if let Some(new_boot_order) = patch_system
         .get("Boot")
@@ -299,18 +292,17 @@ async fn patch_system(
 }
 
 async fn post_reset_system(
-    State(mut state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path(system_id): Path<String>,
     Json(mut power_request): Json<serde_json::Value>,
 ) -> Response {
-    // Dell specific call back after a reset -- sets the job status for all scheduled BIOS jobs to "Completed"
-    state.bmc_state.complete_all_bios_jobs();
+    state.complete_all_bios_jobs();
 
-    let Some(system_state) = state.bmc_state.system_state.find(&system_id) else {
-        return not_found();
+    let Some(system_state) = state.system_state.find(&system_id) else {
+        return http::not_found();
     };
     let Some(power_control) = system_state.config.power_control.as_ref() else {
-        return not_found();
+        return http::not_found();
     };
     let Some(reset_type) = power_request
         .get_mut("ResetType")
@@ -327,18 +319,18 @@ async fn post_reset_system(
     // introduce a deadlock if the API server holds a lock on the row for this machine
     // while issuing a redfish call, and MachineStateMachine is blocked waiting for the row lock
     // to be released.
-    power_control
-        .set_power_state(reset_type)
-        .map_err(MockWrapperError::from)
-        .into_response()
+    match power_control.set_power_state(reset_type) {
+        Ok(_) => json!({}).into_ok_response(),
+        Err(SetSystemPowerError::BadRequest(_)) => StatusCode::BAD_REQUEST.into_response(),
+        Err(SetSystemPowerError::CommandSendError(_)) => {
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
-async fn get_secure_boot(
-    State(state): State<MockWrapperState>,
-    Path(system_id): Path<String>,
-) -> Response {
-    let Some(system_state) = state.bmc_state.system_state.find(&system_id) else {
-        return not_found();
+async fn get_secure_boot(State(state): State<BmcState>, Path(system_id): Path<String>) -> Response {
+    let Some(system_state) = state.system_state.find(&system_id) else {
+        return http::not_found();
     };
     let secure_boot_enabled = system_state.secure_boot_enabled.load(Ordering::Relaxed);
     redfish::secure_boot::builder(&redfish::secure_boot::resource(&system_id))
@@ -349,12 +341,12 @@ async fn get_secure_boot(
 }
 
 async fn patch_secure_boot(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path(system_id): Path<String>,
     Json(secure_boot_request): Json<serde_json::Value>,
 ) -> Response {
-    let Some(system_state) = state.bmc_state.system_state.find(&system_id) else {
-        return not_found();
+    let Some(system_state) = state.system_state.find(&system_id) else {
+        return http::not_found();
     };
     if let Some(v) = secure_boot_request
         .get("SecureBootEnable")
@@ -366,11 +358,11 @@ async fn patch_secure_boot(
 }
 
 async fn get_boot_options_collection(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path(system_id): Path<String>,
 ) -> Response {
-    let Some(system_state) = state.bmc_state.system_state.find(&system_id) else {
-        return not_found();
+    let Some(system_state) = state.system_state.find(&system_id) else {
+        return http::not_found();
     };
     let boot_options = &system_state.config.boot_options;
     let boot_options_order = match system_state.config.boot_order_mode {
@@ -404,24 +396,19 @@ async fn get_boot_options_collection(
 }
 
 async fn get_boot_option(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path((system_id, boot_option_id)): Path<(String, String)>,
 ) -> Response {
     state
-        .bmc_state
         .system_state
         .find(&system_id)
         .and_then(|system_state| system_state.find_boot_option(&boot_option_id))
         .map(|boot_option| boot_option.to_json().into_ok_response())
-        .unwrap_or_else(not_found)
+        .unwrap_or_else(http::not_found)
 }
 
-async fn get_bios(
-    State(state): State<MockWrapperState>,
-    Path(system_id): Path<String>,
-) -> Response {
+async fn get_bios(State(state): State<BmcState>, Path(system_id): Path<String>) -> Response {
     state
-        .bmc_state
         .system_state
         .find(&system_id)
         .map(|system_state| {
@@ -436,21 +423,19 @@ async fn get_bios(
                 .patch(overrides.clone())
                 .into_ok_response()
         })
-        .unwrap_or_else(not_found)
+        .unwrap_or_else(http::not_found)
 }
 
 async fn patch_bios_settings(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path(system_id): Path<String>,
     Json(patch_bios_request): Json<serde_json::Value>,
 ) -> Response {
-    let Some(system_state) = state.bmc_state.system_state.find(&system_id) else {
-        return not_found();
+    let Some(system_state) = state.system_state.find(&system_id) else {
+        return http::not_found();
     };
     match system_state.config.bios_mode {
         BiosMode::DellOem => {
-            // TODO: this is Dell-specific implementation. Need to be
-            // refactoried to be generic.
             // Clear is transformed to Enabled state after reboot. Check if we
             // need to apply this logic here.
             const TPM2_HIERARCHY: &str = "Tpm2Hierarchy";
@@ -487,10 +472,6 @@ async fn patch_bios_settings(
 
 async fn change_bios_password_action(Path(_system_id): Path<String>) -> Response {
     json!({}).into_ok_response()
-}
-
-fn not_found() -> Response {
-    json!("").into_response(StatusCode::NOT_FOUND)
 }
 
 pub fn builder(resource: &redfish::Resource) -> SystemBuilder {

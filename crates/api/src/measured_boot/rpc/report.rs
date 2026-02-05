@@ -47,7 +47,7 @@ pub async fn handle_create_measurement_report(
     req: CreateMeasurementReportRequest,
 ) -> Result<CreateMeasurementReportResponse, Status> {
     let mut txn = api.txn_begin().await?;
-    let report = db::measured_boot::report::new_with_txn(
+    let report = db::measured_boot::report::new(
         &mut txn,
         MachineId::from_str(&req.machine_id).map_err(|_| {
             CarbideError::from(RpcDataConversionError::InvalidMachineId(req.machine_id))
@@ -99,7 +99,7 @@ pub async fn handle_promote_measurement_report(
             false => None,
         };
 
-    let report = db::measured_boot::report::from_id_with_txn(
+    let report = db::measured_boot::report::from_id(
         &mut txn,
         req.report_id
             .ok_or(CarbideError::MissingArgument("report_id"))?,
@@ -107,14 +107,13 @@ pub async fn handle_promote_measurement_report(
     .await
     .map_err(|e| Status::internal(format!("promotion failed fetching report: {e}")))?;
 
-    let bundle =
-        db::measured_boot::report::create_active_bundle_with_txn(&mut txn, &report, &pcr_set)
-            .await
-            .map_err(|e| {
-                Status::internal(format!(
-                    "promotion failed promoting into active bundle: {e}"
-                ))
-            })?;
+    let bundle = db::measured_boot::report::create_active_bundle(&mut txn, &report, &pcr_set)
+        .await
+        .map_err(|e| {
+            Status::internal(format!(
+                "promotion failed promoting into active bundle: {e}"
+            ))
+        })?;
 
     txn.commit().await?;
     Ok(PromoteMeasurementReportResponse {
@@ -137,7 +136,7 @@ pub async fn handle_revoke_measurement_report(
             })?),
         };
 
-    let report = db::measured_boot::report::from_id_with_txn(
+    let report = db::measured_boot::report::from_id(
         &mut txn,
         req.report_id
             .ok_or(CarbideError::MissingArgument("report_id"))?,
@@ -145,14 +144,13 @@ pub async fn handle_revoke_measurement_report(
     .await
     .map_err(|e| Status::internal(format!("promotion failed fetching report: {e}")))?;
 
-    let bundle =
-        db::measured_boot::report::create_revoked_bundle_with_txn(&mut txn, &report, &pcr_set)
-            .await
-            .map_err(|e| {
-                Status::internal(format!(
-                    "promotion failed promoting into revoked bundle: {e}"
-                ))
-            })?;
+    let bundle = db::measured_boot::report::create_revoked_bundle(&mut txn, &report, &pcr_set)
+        .await
+        .map_err(|e| {
+            Status::internal(format!(
+                "promotion failed promoting into revoked bundle: {e}"
+            ))
+        })?;
 
     txn.commit().await?;
     Ok(RevokeMeasurementReportResponse {
@@ -169,7 +167,7 @@ pub async fn handle_show_measurement_report_for_id(
     let mut txn = api.txn_begin().await?;
     let result = Ok(ShowMeasurementReportForIdResponse {
         report: Some(
-            db::measured_boot::report::from_id_with_txn(
+            db::measured_boot::report::from_id(
                 &mut txn,
                 req.report_id
                     .ok_or(CarbideError::MissingArgument("report_id"))?,

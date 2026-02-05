@@ -14,14 +14,12 @@ use std::borrow::Cow;
 
 use axum::Router;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
 use axum::response::Response;
 use axum::routing::{get, post};
-use serde_json::json;
 
+use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch};
-use crate::mock_machine_router::MockWrapperState;
-use crate::redfish;
+use crate::{http, redfish};
 
 pub fn resource<'a>() -> redfish::Resource<'a> {
     redfish::Resource {
@@ -42,7 +40,7 @@ pub fn simple_update_target() -> String {
     format!("{}/Actions/UpdateService.SimpleUpdate", resource().odata_id)
 }
 
-pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
+pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     const FW_INVENTORY_ID: &str = "{fw_inventory_id}";
     r.route(&resource().odata_id, get(get_update_service))
         .route(&simple_update_target(), post(update_firmware_simple_update))
@@ -90,9 +88,8 @@ async fn update_firmware_simple_update() -> Response {
     redfish::task_service::update_firmware_simple_update_task()
 }
 
-async fn get_firmware_inventory_collection(State(state): State<MockWrapperState>) -> Response {
+async fn get_firmware_inventory_collection(State(state): State<BmcState>) -> Response {
     let members = state
-        .bmc_state
         .update_service_state
         .firmware_inventory
         .iter()
@@ -104,15 +101,14 @@ async fn get_firmware_inventory_collection(State(state): State<MockWrapperState>
 }
 
 async fn get_firmware_inventory_resource(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path(fw_inventory_id): Path<String>,
 ) -> Response {
     state
-        .bmc_state
         .update_service_state
         .find_firmware_inventory(&fw_inventory_id)
         .map(|fw_inv| fw_inv.to_json().into_ok_response())
-        .unwrap_or_else(not_found)
+        .unwrap_or_else(http::not_found)
 }
 
 pub struct UpdateServiceBuilder {
@@ -132,8 +128,4 @@ impl UpdateServiceBuilder {
             value: self.value.patch(patch),
         }
     }
-}
-
-fn not_found() -> Response {
-    json!("").into_response(StatusCode::NOT_FOUND)
 }

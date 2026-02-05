@@ -20,6 +20,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use ::rpc::forge::ManagedHostNetworkConfigResponse;
+use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::{forge as rpc, forge_tls_client};
 use carbide_host_support::agent_config::AgentConfig;
 use carbide_systemd::systemd;
@@ -65,7 +66,7 @@ use crate::{
 pub async fn setup_and_run(
     machine_id: MachineId,
     factory_mac_address: MacAddress,
-    forge_client_config: forge_tls_client::ForgeClientConfig,
+    forge_client_config: Arc<ForgeClientConfig>,
     agent_config: AgentConfig,
     options: command_line::RunOptions,
 ) -> eyre::Result<()> {
@@ -90,12 +91,12 @@ pub async fn setup_and_run(
     let forge_api_server = agent_config.forge_system.api_server.clone();
     // Setup client certificate renewal
     let client_cert_renewer =
-        ClientCertRenewer::new(forge_api_server.clone(), forge_client_config.clone());
+        ClientCertRenewer::new(forge_api_server.clone(), Arc::clone(&forge_client_config));
 
     let machine_info = MachineInfo::new(machine_id);
     let remediation_executor = RemediationExecutor::new(
         forge_api_server.clone(),
-        forge_client_config.clone(),
+        Arc::clone(&forge_client_config),
         machine_info,
     );
     tokio::task::spawn(async move {
@@ -106,7 +107,7 @@ pub async fn setup_and_run(
         instance_metadata_endpoint::InstanceMetadataRouterStateImpl::new(
             machine_id,
             forge_api_server.clone(),
-            forge_client_config.clone(),
+            Arc::clone(&forge_client_config),
         ),
     );
 
@@ -177,7 +178,7 @@ pub async fn setup_and_run(
             ),
             machine_id,
             forge_api: forge_api_server.clone(),
-            forge_client_config: forge_client_config.clone(),
+            forge_client_config: Arc::clone(&forge_client_config),
         },
     )
     .await;
@@ -241,7 +242,7 @@ pub async fn setup_and_run(
         update_inventory_interval: Duration::from_secs(agent_config.period.inventory_update_secs),
         machine_id,
         forge_api: forge_api_server.clone(),
-        forge_client_config: forge_client_config.clone(),
+        forge_client_config: Arc::clone(&forge_client_config),
     };
 
     // Get all DPU Ip addresses via gRPC call
@@ -268,10 +269,14 @@ pub async fn setup_and_run(
                 Arc::from(pinger_type),
             );
             let forge_api_clone = forge_api_server.clone();
-            let client_config_clone = forge_client_config.clone();
+            let forge_client_config_clone = Arc::clone(&forge_client_config);
             let network_monitor_handle = tokio::spawn(async move {
                 network_monitor
-                    .run(&forge_api_clone, client_config_clone, &mut close_receiver)
+                    .run(
+                        &forge_api_clone,
+                        forge_client_config_clone,
+                        &mut close_receiver,
+                    )
                     .await
             });
             Some(network_monitor_handle)
@@ -322,7 +327,7 @@ pub async fn setup_and_run(
 }
 
 struct MainLoop {
-    forge_client_config: forge_tls_client::ForgeClientConfig,
+    forge_client_config: Arc<ForgeClientConfig>,
     machine_id: MachineId,
     factory_mac_address: MacAddress,
     build_version: String,

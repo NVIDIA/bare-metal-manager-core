@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-use bmc_mock::{BmcCommand, DpuMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult};
+use bmc_mock::{BmcCommand, DpuMachineInfo, MachineInfo, SetSystemPowerResult, SystemPowerControl};
 use eyre::Context;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -300,7 +300,7 @@ impl DpuMachine {
 
 enum DpuMachineMessage {
     SetSystemPower {
-        request: SetSystemPowerReq,
+        request: SystemPowerControl,
         reply: Option<oneshot::Sender<SetSystemPowerResult>>,
     },
     WaitUntilMachineUpWithApiState(String, oneshot::Sender<()>),
@@ -332,7 +332,7 @@ struct DpuMachineActor {
 pub struct DpuMachineHandle(Arc<DpuMachineActor>);
 
 impl DpuMachineHandle {
-    pub fn set_system_power(&self, request: SetSystemPowerReq) -> eyre::Result<()> {
+    pub fn set_system_power(&self, request: SystemPowerControl) -> eyre::Result<()> {
         Ok(self.0.message_tx.send(DpuMachineMessage::SetSystemPower {
             request,
             reply: None,

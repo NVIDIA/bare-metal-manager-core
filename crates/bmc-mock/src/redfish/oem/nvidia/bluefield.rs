@@ -14,14 +14,24 @@ use std::borrow::Cow;
 
 use axum::Router;
 use axum::extract::State;
-use axum::http::StatusCode;
 use axum::response::Response;
 use axum::routing::{get, patch, post};
 use serde_json::json;
 
+use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch};
-use crate::mock_machine_router::MockWrapperState;
-use crate::{MachineInfo, redfish};
+use crate::{http, redfish};
+
+#[derive(Clone)]
+pub struct BluefieldState {
+    nic_mode: bool,
+}
+
+impl BluefieldState {
+    pub fn new(nic_mode: bool) -> Self {
+        Self { nic_mode }
+    }
+}
 
 pub fn resource() -> redfish::Resource<'static> {
     redfish::Resource {
@@ -35,7 +45,7 @@ pub fn resource() -> redfish::Resource<'static> {
 }
 const SYSTEMS_OEM_RESOURCE_DELETE_FIELDS: &[&str] = &["Id", "Name"];
 
-pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
+pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     r.route(&resource().odata_id, get(get_oem_nvidia))
         .route(
             // TODO: This is BF-3 only.
@@ -52,15 +62,11 @@ async fn hostrshim_set() -> Response {
     json!({}).into_ok_response()
 }
 
-async fn get_oem_nvidia(State(state): State<MockWrapperState>) -> Response {
-    let MachineInfo::Dpu(dpu_machine) = state.machine_info else {
-        return json!({}).into_response(StatusCode::NOT_FOUND);
+async fn get_oem_nvidia(State(state): State<BmcState>) -> Response {
+    let redfish::oem::State::NvidiaBluefield(state) = state.oem_state else {
+        return http::not_found();
     };
-    let mode = if dpu_machine.nic_mode {
-        "NicMode"
-    } else {
-        "DpuMode"
-    };
+    let mode = if state.nic_mode { "NicMode" } else { "DpuMode" };
     resource()
         .json_patch()
         .patch(json!({"Mode": mode}))

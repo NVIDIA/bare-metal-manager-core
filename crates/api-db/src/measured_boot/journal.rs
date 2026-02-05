@@ -31,7 +31,7 @@ use crate::measured_boot::interface::journal::{
 };
 use crate::{DatabaseError, DatabaseResult};
 
-pub async fn new_with_txn(
+pub async fn new(
     txn: &mut PgConnection,
     machine_id: MachineId,
     report_id: MeasurementReportId,

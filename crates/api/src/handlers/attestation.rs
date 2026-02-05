@@ -180,18 +180,15 @@ pub(crate) async fn attest_quote(
     // In this case, we're not doing anything with
     // the resulting report (at least not yet), so just
     // throw it away.
-    let report = db::measured_boot::report::new_with_txn(
-        &mut txn,
-        machine_id,
-        pcr_values.into_inner().as_slice(),
-    )
-    .await
-    .map_err(|e| {
-        Status::internal(format!(
-            "Failed storing measurement report: (machine_id: {}, err: {})",
-            &machine_id, e
-        ))
-    })?;
+    let report =
+        db::measured_boot::report::new(&mut txn, machine_id, pcr_values.into_inner().as_slice())
+            .await
+            .map_err(|e| {
+                Status::internal(format!(
+                    "Failed storing measurement report: (machine_id: {}, err: {})",
+                    &machine_id, e
+                ))
+            })?;
 
     txn.commit().await?;
 

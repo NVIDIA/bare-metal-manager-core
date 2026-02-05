@@ -53,7 +53,8 @@ use crate::tests::common::api_fixtures::network_segment::{
 };
 use crate::tests::common::api_fixtures::{
     TestEnv, TestManagedHost, forge_agent_control, get_machine_validation_runs,
-    machine_validation_completed, persist_machine_validation_result, update_machine_validation_run,
+    machine_validation_completed, persist_machine_validation_result, reboot_completed,
+    update_machine_validation_run,
 };
 use crate::tests::common::rpc_builder::DhcpDiscovery;
 
@@ -822,7 +823,13 @@ impl<'a> MockExploredHost<'a> {
             return self;
         }
 
-        machine_validation_completed(self.test_env, &host_machine_id, None).await;
+        if self.test_env.config.machine_validation_config.enabled {
+            machine_validation_completed(self.test_env, &host_machine_id, None).await;
+        } else {
+            // need to mark as reboot completed to move it to the next state
+            // even if machine validation is disabled
+            reboot_completed(self.test_env, host_machine_id).await;
+        }
 
         let stop_state = self
             .test_env

@@ -64,7 +64,7 @@ pub struct InstanceMetadataRouterStateImpl {
     latest_network_config: ArcSwapOption<ManagedHostNetworkConfigResponse>,
     machine_id: MachineId,
     forge_api: String,
-    forge_client_config: ForgeClientConfig,
+    forge_client_config: Arc<ForgeClientConfig>,
     outbound_governor:
         Arc<RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>>,
 }
@@ -110,7 +110,7 @@ impl InstanceMetadataRouterStateImpl {
     pub fn new(
         machine_id: MachineId,
         forge_api: String,
-        forge_client_config: ForgeClientConfig,
+        forge_client_config: Arc<ForgeClientConfig>,
     ) -> Self {
         Self {
             latest_instance_data: ArcSwapOption::new(None),

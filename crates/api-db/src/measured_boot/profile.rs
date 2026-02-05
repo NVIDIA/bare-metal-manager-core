@@ -19,7 +19,6 @@ use std::collections::HashMap;
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::measured_boot::MeasurementSystemProfileId;
-use futures_util::FutureExt;
 use measured_boot::profile::MeasurementSystemProfile;
 use measured_boot::records::{MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord};
 use sqlx::{PgConnection, PgTransaction};
@@ -34,11 +33,9 @@ use crate::measured_boot::interface::profile::{
     insert_measurement_profile_attr_records, insert_measurement_profile_record,
     rename_profile_for_profile_id, rename_profile_for_profile_name,
 };
-use crate::{DatabaseError, DatabaseResult, Transaction, WithTransaction};
+use crate::{DatabaseError, DatabaseResult};
 
-pub async fn new_with_txn(
-    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
-    // which must happen in a transaction.
+pub async fn new(
     txn: &mut PgTransaction<'_>,
     name: Option<String>,
     attrs: &HashMap<String, String>,
@@ -64,19 +61,17 @@ pub fn from_info_and_attrs(
     })
 }
 
-pub async fn match_from_attrs_or_new_with_txn(
-    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
-    // which must happen in a transaction.
+pub async fn match_from_attrs_or_new(
     txn: &mut PgTransaction<'_>,
     attrs: &HashMap<String, String>,
 ) -> DatabaseResult<MeasurementSystemProfile> {
     match match_profile(txn, attrs).await? {
-        Some(profile_id) => Ok(load_from_id_with_txn(txn, profile_id).await?),
-        None => Ok(new_with_txn(txn, None, attrs).await?),
+        Some(profile_id) => Ok(load_from_id(txn, profile_id).await?),
+        None => Ok(new(txn, None, attrs).await?),
     }
 }
 
-pub async fn load_from_id_with_txn(
+pub async fn load_from_id(
     txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
 ) -> DatabaseResult<MeasurementSystemProfile> {
@@ -181,7 +176,7 @@ pub async fn rename_for_name(
 }
 
 pub async fn get_all(txn: &mut PgConnection) -> DatabaseResult<Vec<MeasurementSystemProfile>> {
-    get_measurement_system_profiles_with_txn(txn).await
+    get_all_profiles(txn).await
 }
 
 /// get_machines gets a list of all MachineIds for a given
@@ -207,7 +202,7 @@ async fn match_profile(
     // Get all profiles, and figure out which one intersects
     // with the provided attrs. After that, we'll attempt to find the
     // most specific match (if there are multiple matches).
-    let mut all_profiles = get_measurement_system_profiles_with_txn(txn).await?;
+    let mut all_profiles = get_all_profiles(txn).await?;
 
     let match_attempts: DatabaseResult<Vec<MeasurementSystemProfile>> = all_profiles
         .drain(..)
@@ -251,8 +246,6 @@ async fn match_profile(
 /// into both the measurement_system_profiles and measurement_system_profiles_attrs
 /// tables.
 pub async fn create_measurement_profile(
-    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
-    // which must happen in a transaction.
     txn: &mut PgTransaction<'_>,
     profile_name: String,
     attrs: &HashMap<String, String>,
@@ -284,13 +277,9 @@ pub async fn create_measurement_profile(
                         profile_name.clone(),
                         db_err
                     )),
-                    _ => {
-                        DatabaseError::new("MeasurementSystemProfile.new_with_txn db_err", sqlx_err)
-                    }
+                    _ => DatabaseError::new("MeasurementSystemProfile.new db_err", sqlx_err),
                 },
-                None => {
-                    DatabaseError::new("MeasurementSystemProfile.new_with_txn sqlx_err", sqlx_err)
-                }
+                None => DatabaseError::new("MeasurementSystemProfile.new sqlx_err", sqlx_err),
             }
         })?;
 
@@ -377,7 +366,7 @@ pub async fn delete_profile_for_name(
     delete_profile_for_id(txn, profile.profile_id).await
 }
 
-pub async fn get_measurement_system_profiles_with_txn(
+pub async fn get_all_profiles(
     txn: &mut PgConnection,
 ) -> DatabaseResult<Vec<MeasurementSystemProfile>> {
     let mut res: Vec<MeasurementSystemProfile> = Vec::new();
@@ -407,26 +396,6 @@ fn attr_map_to_string(attr_map: &HashMap<String, String>) -> String {
         .join(",")
 }
 
-use sqlx::{Pool, Postgres};
-
-////////////////////////////////////////////////////////////////
-/// new creates a new MeasurementSystemProfile in the database,
-/// if it doesn't exist, populating the corresponding table(s),
-/// and returning the newly-inserted data.
-////////////////////////////////////////////////////////////////
-pub async fn new(
-    db_conn: &sqlx::Pool<Postgres>,
-    name: Option<String>,
-    attrs: &HashMap<String, String>,
-) -> DatabaseResult<MeasurementSystemProfile> {
-    let mut txn = Transaction::begin(db_conn).await?;
-
-    let profile = new_with_txn(&mut txn, name, attrs).await?;
-
-    txn.commit().await?;
-    Ok(profile)
-}
-
 /// attr_records_to_string returns a consistent (sorted by key)
 /// string of the attributes, paired by a colon, separated by a comma.
 pub fn attr_records_to_string(profile: &MeasurementSystemProfile) -> String {
@@ -443,22 +412,9 @@ pub async fn match_from_attrs(
     attrs: &HashMap<String, String>,
 ) -> DatabaseResult<Option<MeasurementSystemProfile>> {
     match match_profile(txn, attrs).await? {
-        Some(info) => Ok(Some(load_from_id_with_txn(txn, info).await?)),
+        Some(info) => Ok(Some(load_from_id(txn, info).await?)),
         None => Ok(None),
     }
-}
-
-////////////////////////////////////////////////////////////////
-/// load_from_id loads an existing measurement profile (and its
-/// attributes), returning a MeasurementSystemProfile instance.
-////////////////////////////////////////////////////////////////
-pub async fn load_from_id(
-    db_conn: &Pool<Postgres>,
-    profile_id: MeasurementSystemProfileId,
-) -> DatabaseResult<MeasurementSystemProfile> {
-    db_conn
-        .with_txn(|txn| load_from_id_with_txn(txn, profile_id).boxed())
-        .await?
 }
 
 #[cfg(test)]

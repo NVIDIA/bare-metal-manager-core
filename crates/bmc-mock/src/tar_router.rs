@@ -42,14 +42,12 @@ struct TarRouterCache {
 /// filesystem.
 pub enum TarGzOption<'a> {
     Disk(&'a PathBuf),
-    Memory(&'a [u8]),
 }
 
 impl TarGzOption<'_> {
     fn path(&self) -> Option<&PathBuf> {
         match self {
             TarGzOption::Disk(path) => Some(path),
-            TarGzOption::Memory(_) => None,
         }
     }
 }
@@ -78,7 +76,6 @@ pub fn tar_router(
                     );
                     GzDecoder::new(_owned_gz_data.as_ref().unwrap().reader())
                 }
-                TarGzOption::Memory(bytes) => GzDecoder::new(bytes.reader()),
             };
 
             let entries = tar::Archive::new(gz_decoder)

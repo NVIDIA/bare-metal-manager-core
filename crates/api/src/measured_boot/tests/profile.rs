@@ -55,14 +55,15 @@ mod tests {
 
         // Make sure the profile itself is in tact.
         let profile1 =
-            db::measured_boot::profile::new(&pool, Some(String::from("my-profile")), &vals).await?;
+            db::measured_boot::profile::new(&mut txn, Some(String::from("my-profile")), &vals)
+                .await?;
         assert_eq!(profile1.name, String::from("my-profile"));
         assert_eq!(profile1.attrs.len(), 3);
 
         // And now get the profile in various ways to make sure the
         // various ways work.
         let profile_from_id =
-            db::measured_boot::profile::load_from_id(&pool, profile1.profile_id).await?;
+            db::measured_boot::profile::load_from_id(&mut txn, profile1.profile_id).await?;
         assert_eq!(profile1.profile_id, profile_from_id.profile_id);
         assert_eq!(profile1.name, profile_from_id.name);
         assert_eq!(
@@ -110,7 +111,7 @@ mod tests {
         ]);
 
         let profile2 =
-            db::measured_boot::profile::new(&pool, Some(String::from("my-profile2")), &vals2)
+            db::measured_boot::profile::new(&mut txn, Some(String::from("my-profile2")), &vals2)
                 .await?;
         assert_eq!(profile2.name, String::from("my-profile2"));
         assert_eq!(profile2.attrs.len(), 4);
@@ -118,7 +119,7 @@ mod tests {
         // And now get the profile in various ways to make sure the
         // various ways work.
         let profile2_from_id =
-            db::measured_boot::profile::load_from_id(&pool, profile2.profile_id).await?;
+            db::measured_boot::profile::load_from_id(&mut txn, profile2.profile_id).await?;
         assert_eq!(profile2.profile_id, profile2_from_id.profile_id);
         assert_eq!(profile2.name, profile2_from_id.name);
         assert_eq!(
@@ -180,19 +181,34 @@ mod tests {
             (String::from("bios_version"), String::from("v1")),
         ]);
 
-        db::measured_boot::profile::new(&pool, Some(String::from("my-profile")), &vals).await?;
+        // Create the first profile and commit it
+        let mut txn = pool.begin().await?;
+        db::measured_boot::profile::new(&mut txn, Some(String::from("my-profile")), &vals).await?;
+        txn.commit().await?;
 
+        // Try to create a duplicate by name (should fail) - use separate txn since failure aborts it
+        let mut txn = pool.begin().await?;
         let dupe_by_name =
-            db::measured_boot::profile::new(&pool, Some(String::from("my-profile")), &vals2).await;
+            db::measured_boot::profile::new(&mut txn, Some(String::from("my-profile")), &vals2)
+                .await;
         assert!(dupe_by_name.is_err());
+        // txn is aborted due to error, don't try to use it further
 
+        // Try to create a duplicate by attrs (should fail) - use separate txn
+        let mut txn = pool.begin().await?;
         let dupe_by_vals =
-            db::measured_boot::profile::new(&pool, Some(String::from("my-profile2")), &vals).await;
+            db::measured_boot::profile::new(&mut txn, Some(String::from("my-profile2")), &vals)
+                .await;
         assert!(dupe_by_vals.is_err());
+        // txn is aborted due to error, don't try to use it further
 
+        // Create a non-duplicate (should succeed)
+        let mut txn = pool.begin().await?;
         let not_a_dupe =
-            db::measured_boot::profile::new(&pool, Some(String::from("my-profile2")), &vals2).await;
+            db::measured_boot::profile::new(&mut txn, Some(String::from("my-profile2")), &vals2)
+                .await;
         assert!(not_a_dupe.is_ok());
+        txn.commit().await?;
 
         Ok(())
     }
@@ -237,7 +253,7 @@ mod tests {
             (String::from("product_name"), String::from("dgx_h100")),
         ]);
 
-        match db::measured_boot::profile::new(&pool, None, &vals1).await {
+        match db::measured_boot::profile::new(&mut txn, None, &vals1).await {
             Ok(profile1) => {
                 let match1_vals = HashMap::from([
                     (String::from("sys_vendor"), String::from("dell")),
@@ -252,7 +268,7 @@ mod tests {
             Err(e) => return Err(eyre::eyre!("failed to create profile1: {}", e).into()),
         }
 
-        match db::measured_boot::profile::new(&pool, None, &vals2).await {
+        match db::measured_boot::profile::new(&mut txn, None, &vals2).await {
             Ok(profile2) => {
                 let match2_vals = HashMap::from([
                     (String::from("sys_vendor"), String::from("dell")),
@@ -269,7 +285,7 @@ mod tests {
             Err(e) => return Err(eyre::eyre!("failed to create profile2: {}", e).into()),
         }
 
-        match db::measured_boot::profile::new(&pool, None, &vals3).await {
+        match db::measured_boot::profile::new(&mut txn, None, &vals3).await {
             Ok(profile3) => {
                 let match3_vals = HashMap::from([
                     (String::from("sys_vendor"), String::from("dell")),
@@ -288,7 +304,7 @@ mod tests {
             Err(e) => return Err(eyre::eyre!("failed to create profile3: {}", e).into()),
         }
 
-        match db::measured_boot::profile::new(&pool, None, &vals4).await {
+        match db::measured_boot::profile::new(&mut txn, None, &vals4).await {
             Ok(profile4) => {
                 let match4_vals = HashMap::from([
                     (String::from("sys_vendor"), String::from("dell")),
@@ -307,7 +323,7 @@ mod tests {
             Err(e) => return Err(eyre::eyre!("failed to create profile4: {}", e).into()),
         }
 
-        match db::measured_boot::profile::new(&pool, None, &vals5).await {
+        match db::measured_boot::profile::new(&mut txn, None, &vals5).await {
             Ok(profile5) => {
                 let match5_vals = HashMap::from([
                     (String::from("sys_vendor"), String::from("nvidia")),

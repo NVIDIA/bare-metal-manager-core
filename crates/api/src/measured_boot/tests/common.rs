@@ -54,7 +54,7 @@ pub async fn create_test_machine(
     )
     .await?;
     db::machine_topology::create_or_update(txn, &machine_id, topology).await?;
-    let machine = db::measured_boot::machine::from_id_with_txn(txn, machine_id).await?;
+    let machine = db::measured_boot::machine::from_id(txn, machine_id).await?;
     assert_eq!(machine_id, machine.machine_id);
     Ok(machine)
 }

@@ -105,6 +105,17 @@ impl HostMachineInfo {
 }
 
 impl MachineInfo {
+    pub fn oem_state(&self) -> redfish::oem::State {
+        match self {
+            MachineInfo::Dpu(dpu) => redfish::oem::State::NvidiaBluefield(
+                redfish::oem::nvidia::bluefield::BluefieldState::new(dpu.nic_mode),
+            ),
+            MachineInfo::Host(_) => {
+                redfish::oem::State::DellIdrac(redfish::oem::dell::idrac::IdracState::default())
+            }
+        }
+    }
+
     pub fn manager_config(&self) -> redfish::manager::Config {
         match self {
             MachineInfo::Dpu(dpu) => redfish::manager::Config {

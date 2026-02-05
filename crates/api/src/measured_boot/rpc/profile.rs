@@ -61,7 +61,7 @@ pub async fn handle_create_system_measurement_profile(
         vals.insert(kv_pair.key, kv_pair.value);
     }
 
-    let system_profile = db::measured_boot::profile::new_with_txn(&mut txn, req.name, &vals)
+    let system_profile = db::measured_boot::profile::new(&mut txn, req.name, &vals)
         .await
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
@@ -153,7 +153,7 @@ pub async fn handle_show_measurement_system_profile(
     let system_profile = match req.selector {
         // Show a system profile with the given profile ID.
         Some(show_measurement_system_profile_request::Selector::ProfileId(profile_uuid)) => {
-            db::measured_boot::profile::load_from_id_with_txn(&mut txn, profile_uuid)
+            db::measured_boot::profile::load_from_id(&mut txn, profile_uuid)
                 .await
                 .map_err(|e| Status::internal(format!("{e}")))?
         }

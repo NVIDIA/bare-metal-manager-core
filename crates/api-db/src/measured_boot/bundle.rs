@@ -30,11 +30,10 @@ use sqlx::{PgConnection, PgTransaction};
 
 use crate::measured_boot::interface::bundle::{
     delete_bundle_for_id, delete_bundle_values_for_id, get_machines_for_bundle_id,
-    get_measurement_bundle_by_id, get_measurement_bundle_for_name,
-    get_measurement_bundle_records_for_profile_id, get_measurement_bundle_records_with_txn,
-    get_measurement_bundle_values_for_bundle_id, insert_measurement_bundle_record,
-    insert_measurement_bundle_value_records, rename_bundle_for_bundle_id,
-    rename_bundle_for_bundle_name, update_state_for_bundle_id,
+    get_measurement_bundle_by_id, get_measurement_bundle_for_name, get_measurement_bundle_records,
+    get_measurement_bundle_records_for_profile_id, get_measurement_bundle_values_for_bundle_id,
+    insert_measurement_bundle_record, insert_measurement_bundle_value_records,
+    rename_bundle_for_bundle_id, rename_bundle_for_bundle_name, update_state_for_bundle_id,
 };
 use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::common::{
@@ -44,7 +43,7 @@ use crate::measured_boot::interface::report::match_latest_reports;
 use crate::measured_boot::machine::bundle_state_to_machine_state;
 use crate::{DatabaseError, DatabaseResult};
 
-pub async fn new_with_txn(
+pub async fn new(
     txn: &mut PgTransaction<'_>,
     profile_id: MeasurementSystemProfileId,
     name: Option<String>,
@@ -83,9 +82,9 @@ pub async fn new_with_txn(
                         bundle_name.clone(),
                         db_err
                     )),
-                    _ => DatabaseError::new("MeasurementBundle.new_with_txn db_err", sqlx_err),
+                    _ => DatabaseError::new("MeasurementBundle.new db_err", sqlx_err),
                 },
-                None => DatabaseError::new("MeasurementBundle.new_with_txn sqlx_err", sqlx_err),
+                None => DatabaseError::new("MeasurementBundle.new sqlx_err", sqlx_err),
             }
         })?;
 
@@ -113,9 +112,9 @@ pub fn from_info_and_values(
     })
 }
 
-/// from_id_with_txn returns a fully populated instance of
+/// from_id returns a fully populated instance of
 /// MeasurementBundle for the provided `bundle_id`.
-pub async fn from_id_with_txn(
+pub async fn from_id(
     txn: &mut PgConnection,
     bundle_id: MeasurementBundleId,
 ) -> DatabaseResult<MeasurementBundle> {
@@ -131,9 +130,9 @@ pub async fn from_id_with_txn(
     }
 }
 
-/// from_name_with_txn returns a fully populated instance of
+/// from_name returns a fully populated instance of
 /// MeasurementBundle for the provided `bundle_name`.
-pub async fn from_name_with_txn(
+pub async fn from_name(
     txn: &mut PgConnection,
     bundle_name: String,
 ) -> DatabaseResult<MeasurementBundle> {
@@ -152,8 +151,6 @@ pub async fn from_name_with_txn(
 /// set_state_for_id sets the bundle state for
 /// the given bundle ID.
 pub async fn set_state_for_id(
-    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
-    // which must happen in a transaction.
     txn: &mut PgTransaction<'_>,
     bundle_id: MeasurementBundleId,
     state: MeasurementBundleState,
@@ -169,7 +166,7 @@ pub async fn set_state_for_id(
 /// models from records in the database.
 pub async fn get_all(txn: &mut PgConnection) -> DatabaseResult<Vec<MeasurementBundle>> {
     let mut res: Vec<MeasurementBundle> = Vec::new();
-    let mut bundle_records = get_measurement_bundle_records_with_txn(txn).await?;
+    let mut bundle_records = get_measurement_bundle_records(txn).await?;
     for bundle_record in bundle_records.drain(..) {
         let values =
             get_measurement_bundle_values_for_bundle_id(txn, bundle_record.bundle_id).await?;
@@ -238,7 +235,7 @@ pub async fn match_from_values(
             return Ok(None);
         }
     };
-    Ok(Some(from_id_with_txn(txn, bundle_id).await?))
+    Ok(Some(from_id(txn, bundle_id).await?))
 }
 
 /// delete deletes this bundle.
@@ -247,10 +244,10 @@ pub async fn delete(
     txn: &mut PgConnection,
     purge_journals: bool,
 ) -> DatabaseResult<MeasurementBundle> {
-    delete_for_id_with_txn(txn, measurement_bundle.bundle_id, purge_journals).await
+    delete_for_id(txn, measurement_bundle.bundle_id, purge_journals).await
 }
 
-pub async fn delete_for_id_with_txn(
+pub async fn delete_for_id(
     txn: &mut PgConnection,
     bundle_id: MeasurementBundleId,
     purge_journals: bool,
@@ -330,7 +327,7 @@ pub async fn delete_for_name(
         )));
     }
     let bundle = delete(
-        &from_name_with_txn(txn, bundle_name.clone()).await?,
+        &from_name(txn, bundle_name.clone()).await?,
         txn,
         purge_journals,
     )
@@ -340,8 +337,6 @@ pub async fn delete_for_name(
 
 async fn update_journal(
     measurement_bundle: &MeasurementBundle,
-    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
-    // which must happen in a transaction.
     txn: &mut PgTransaction<'_>,
 ) -> DatabaseResult<Vec<MeasurementJournal>> {
     let machine_state = bundle_state_to_machine_state(&measurement_bundle.state);
@@ -349,14 +344,11 @@ async fn update_journal(
     let reports = match_latest_reports(txn, &measurement_bundle.pcr_values()).await?;
     let mut updates: Vec<MeasurementJournal> = Vec::new();
     for report in reports.iter() {
-        let machine =
-            crate::measured_boot::machine::from_id_with_txn(txn, report.machine_id).await?;
+        let machine = crate::measured_boot::machine::from_id(txn, report.machine_id).await?;
         let discovery_attributes = crate::measured_boot::machine::discovery_attributes(&machine)?;
-        let profile = crate::measured_boot::profile::match_from_attrs_or_new_with_txn(
-            txn,
-            &discovery_attributes,
-        )
-        .await?;
+        let profile =
+            crate::measured_boot::profile::match_from_attrs_or_new(txn, &discovery_attributes)
+                .await?;
 
         // Don't update journal entries for profiles
         // that aren't mine, since, in theory, two
@@ -366,7 +358,7 @@ async fn update_journal(
             continue;
         }
         updates.push(
-            crate::measured_boot::journal::new_with_txn(
+            crate::measured_boot::journal::new(
                 txn,
                 report.machine_id,
                 report.report_id,
@@ -513,7 +505,7 @@ fn pcr_values_to_string(pcr_values: &[PcrRegisterValue]) -> String {
         .join(",")
 }
 
-pub async fn find_closest_match_with_txn(
+pub async fn find_closest_match(
     txn: &mut PgConnection,
     profile_id: MeasurementSystemProfileId,
     values: &[PcrRegisterValue],
@@ -524,7 +516,7 @@ pub async fn find_closest_match_with_txn(
             return Ok(None);
         }
     };
-    Ok(Some(from_id_with_txn(txn, bundle_id).await?))
+    Ok(Some(from_id(txn, bundle_id).await?))
 }
 
 async fn find_closest_bundle(
