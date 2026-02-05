@@ -18,10 +18,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use prometheus::{GaugeVec, Opts, Registry};
+use tokio_util::sync::CancellationToken;
 
 use crate::HealthError;
-use crate::api_client::ApiClientWrapper;
-use crate::config::{Configurable, CollectorConfig};
+use crate::api_client::{BmcEndpoint, EndpointMetadata};
+use crate::collector::Collector;
+use crate::config::NmxtCollectorConfig;
 
 /// default NMX-T port
 const NMXT_PORT: u16 = 9352;
@@ -134,25 +136,28 @@ async fn scrape_switch_nmxt_metrics(
     Ok(parse_prometheus_metrics(&body))
 }
 
-use crate::sharding::ShardManager;
-
+/// NMX-T collector for a single switch/endpoint
 pub struct NmxtCollector {
-    api_client: Arc<ApiClientWrapper>,
+    endpoint: Arc<BmcEndpoint>,
     http_client: reqwest::Client,
-    config: CollectorConfig,
-    shard_manager: ShardManager,
+    scrape_interval: Duration,
+    switch_id: String,
     effective_ber_gauge: GaugeVec,
     symbol_error_gauge: GaugeVec,
     link_down_gauge: GaugeVec,
 }
 
-impl Collector {
-    pub fn new(
-        api_client: Arc<ApiClientWrapper>,
-        config: CollectorConfig,
-        shard_manager: ShardManager,
+impl NmxtCollector {
+    pub fn start(
+        endpoint: Arc<BmcEndpoint>,
+        config: &NmxtCollectorConfig,
         registry: &Registry,
-    ) -> Result<Self, HealthError> {
+    ) -> Result<Collector, HealthError> {
+        let switch_id = match &endpoint.metadata {
+            Some(EndpointMetadata::Switch(s)) => s.serial.clone(),
+            _ => endpoint.addr.mac.clone(),
+        };
+
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(60))
             .build()
@@ -187,117 +192,87 @@ impl Collector {
         )?;
         registry.register(Box::new(link_down_gauge.clone()))?;
 
-        Ok(Self {
-            api_client,
+        let collector = Self {
+            endpoint,
             http_client,
-            config,
-            shard_manager,
+            scrape_interval: config.scrape_interval,
+            switch_id,
             effective_ber_gauge,
             symbol_error_gauge,
             link_down_gauge,
-        })
+        };
+
+        let cancel_token = CancellationToken::new();
+        let cancel_token_clone = cancel_token.clone();
+
+        let handle = tokio::spawn(async move {
+            collector.run_loop(cancel_token_clone).await;
+        });
+
+        Ok(Collector::new(handle, cancel_token))
     }
 
-    /// Scrapes nmxt metrics from switches assigned to this shard.
-    pub async fn scrape_iteration(&self) -> Result<(), HealthError> {
-        let endpoints = self.api_client.fetch_switch_endpoints().await?;
-        let total_count = endpoints.len();
-
-        // Filter to only endpoints assigned to this shard
-        let sharded_endpoints: Vec<_> = endpoints
-            .into_iter()
-            .filter(|ep| self.shard_manager.should_monitor_key(ep.addr.hash_key()))
-            .collect();
-
-        if sharded_endpoints.is_empty() {
-            tracing::debug!("No switch endpoints assigned to this shard");
-            return Ok(());
-        }
-
-        tracing::info!(
-            total = total_count,
-            sharded = sharded_endpoints.len(),
-            "Scraping switch NMX-T metrics"
-        );
-
-        for endpoint in &sharded_endpoints {
-            let switch_ip = endpoint.addr.ip.to_string();
-            let switch_id = &endpoint.addr.serial;
-
-            match scrape_switch_nmxt_metrics(&self.http_client, &switch_ip).await {
-                Ok(metrics) => {
-                    for sample in metrics {
-                        let port_num = sample
-                            .labels
-                            .get("Port_Number")
-                            .cloned()
-                            .unwrap_or_default();
-
-                        let node_guid = sample.labels.get("Node_GUID").cloned().unwrap_or_default();
-
-                        let labels = [switch_id.as_str(), &switch_ip, &node_guid, &port_num];
-
-                        match sample.name.as_str() {
-                            "Effective_BER" => {
-                                self.effective_ber_gauge
-                                    .with_label_values(&labels)
-                                    .set(sample.value);
-                            }
-                            "Symbol_Errors" => {
-                                self.symbol_error_gauge
-                                    .with_label_values(&labels)
-                                    .set(sample.value);
-                            }
-                            "Link_Down" => {
-                                self.link_down_gauge
-                                    .with_label_values(&labels)
-                                    .set(sample.value);
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        switch_id = switch_id,
-                        switch_ip = switch_ip,
-                        error = ?e,
-                        "Failed to scrape switch NMX-T metrics"
+    async fn run_loop(self, cancel_token: CancellationToken) {
+        loop {
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    tracing::info!(
+                        switch_id = %self.switch_id,
+                        "NmxtCollector cancelled"
                     );
+                    break;
                 }
+                _ = async {
+                    if let Err(e) = self.scrape_iteration().await {
+                        tracing::warn!(
+                            switch_id = %self.switch_id,
+                            error = ?e,
+                            "NMX-T scrape iteration failed"
+                        );
+                    }
+                    tokio::time::sleep(self.scrape_interval).await;
+                } => {}
+            }
+        }
+    }
+
+    async fn scrape_iteration(&self) -> Result<(), HealthError> {
+        let switch_ip = self.endpoint.addr.ip.to_string();
+
+        let metrics = scrape_switch_nmxt_metrics(&self.http_client, &switch_ip).await?;
+
+        for sample in metrics {
+            let port_num = sample
+                .labels
+                .get("Port_Number")
+                .cloned()
+                .unwrap_or_default();
+
+            let node_guid = sample.labels.get("Node_GUID").cloned().unwrap_or_default();
+
+            let labels = [self.switch_id.as_str(), &switch_ip, &node_guid, &port_num];
+
+            match sample.name.as_str() {
+                "Effective_BER" => {
+                    self.effective_ber_gauge
+                        .with_label_values(&labels)
+                        .set(sample.value);
+                }
+                "Symbol_Errors" => {
+                    self.symbol_error_gauge
+                        .with_label_values(&labels)
+                        .set(sample.value);
+                }
+                "Link_Down" => {
+                    self.link_down_gauge
+                        .with_label_values(&labels)
+                        .set(sample.value);
+                }
+                _ => {}
             }
         }
 
         Ok(())
-    }
-    pub fn scrape_interval(&self) -> Duration {
-        self.config.scrape_interval
-    }
-}
-
-/// run the nmxt collector loop
-pub async fn run_nmxt_collector(
-    api_client: Arc<ApiClientWrapper>,
-    config: Configurable<CollectorConfig>,
-    shard_manager: ShardManager,
-    registry: &Registry,
-) -> Result<(), HealthError> {
-    let config = match config {
-        Configurable::Enabled(cfg) => cfg,
-        Configurable::Disabled => {
-            tracing::info!("Nmxt collector is disabled");
-            return Ok(());
-        }
-    };
-
-    let collector = Collector::new(api_client, config, shard_manager, registry)?;
-
-    loop {
-        if let Err(e) = collector.scrape_iteration().await {
-            tracing::error!(error = ?e, "Nmxt scrape iteration failed");
-        }
-
-        tokio::time::sleep(collector.scrape_interval()).await;
     }
 }
 

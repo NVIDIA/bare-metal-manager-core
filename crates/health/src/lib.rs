@@ -113,6 +113,7 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
             source_cfg.client_cert.clone(),
             source_cfg.client_key.clone(),
             &source_cfg.api_url,
+            config.collectors.nmxt.is_enabled(),
         ));
         sources.push(api_client as Arc<dyn EndpointSource>);
     }
@@ -125,6 +126,7 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
             sink_cfg.client_cert.clone(),
             sink_cfg.client_key.clone(),
             &sink_cfg.api_url,
+            false, // health sink doesn't need nmxt endpoints
         ));
         sinks.push(api_client as Arc<dyn HealthReportSink>);
     }
@@ -210,7 +212,8 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
         let endpoint_source = endpoint_source.clone();
         let report_sink = report_sink.clone();
 
-        let mut ctx = DiscoveryLoopContext::new(limiter, metrics_manager, config.clone())?;
+        let mut ctx =
+            DiscoveryLoopContext::new(limiter, metrics_manager, config.clone())?;
 
         async move {
             loop {
@@ -244,39 +247,6 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
         }
     });
 
-    // spawn nmxt collector
-    let join_nmxt_collector: Option<tokio::task::JoinHandle<Result<(), HealthError>>> =
-        if config_arc.collectors.nmxt.is_enabled() {
-            if let Configurable::Enabled(ref api_cfg) = config_arc.endpoint_sources.carbide_api {
-                let api_client = Arc::new(ApiClientWrapper::new(
-                    api_cfg.root_ca.clone(),
-                    api_cfg.client_cert.clone(),
-                    api_cfg.client_key.clone(),
-                    &api_cfg.api_url,
-                ));
-                let nmxt_config = config_arc.collectors.nmxt.clone();
-                let nmxt_registry = registry.clone();
-                let shard_manager = ShardManager::new(config_arc.shard, config_arc.shards_count);
-
-                Some(tokio::spawn(async move {
-                    nmxt_collector::run_nmxt_collector(
-                        api_client,
-                        nmxt_config,
-                        shard_manager,
-                        &nmxt_registry,
-                    )
-                    .await
-                }))
-            } else {
-                tracing::warn!(
-                    "NMX-T collector is enabled but Carbide API is not configured, skipping"
-                );
-                None
-            }
-        } else {
-            None
-        };
-
     tokio::select! {
         res = join_listener => {
             match res {
@@ -301,24 +271,6 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
                 }
                 Err(e) => {
                     tracing::error!(error=?e, "Discovery loop join error");
-                }
-            }
-        }
-        res = async {
-            match join_nmxt_collector {
-                Some(handle) => handle.await,
-                None => std::future::pending().await,
-            }
-        } => {
-            match res {
-                Ok(Ok(_)) => {
-                    tracing::info!("NMX-T collector shutdown");
-                }
-                Ok(Err(e)) => {
-                    tracing::error!(error=?e, "NMX-T collector failed");
-                }
-                Err(e) => {
-                    tracing::error!(error=?e, "NMX-t collector join error");
                 }
             }
         }
