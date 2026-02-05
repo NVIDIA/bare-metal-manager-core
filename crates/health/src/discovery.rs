@@ -145,7 +145,7 @@ pub async fn run_discovery_iteration(
     for endpoint in &sharded_endpoints {
         let key = endpoint.addr.hash_key().to_string();
         if !ctx.endpoint_monitors.contains_key(&key) {
-            let endpoint_arc = Arc::new((*endpoint).clone());
+            let endpoint_arc = (*endpoint).clone();
             let collector_registry = Arc::new(ctx.metrics_manager.create_collector_registry(
                 format!("health_monitor_collector_{}", endpoint.addr.hash_key()),
                 metrics_prefix,

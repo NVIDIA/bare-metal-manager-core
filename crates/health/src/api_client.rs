@@ -77,7 +77,7 @@ impl From<BmcCredentials> for nv_redfish_bmc_http::BmcCredentials {
 }
 
 pub trait EndpointSource: Send + Sync {
-    fn fetch_bmc_hosts<'a>(&'a self) -> BoxFuture<'a, Result<Vec<BmcEndpoint>, HealthError>>;
+    fn fetch_bmc_hosts<'a>(&'a self) -> BoxFuture<'a, Result<Vec<Arc<BmcEndpoint>>, HealthError>>;
 }
 
 pub trait HealthReportSink: Send + Sync {
@@ -136,7 +136,7 @@ impl ApiClientWrapper {
         Self { client }
     }
 
-    pub async fn fetch_bmc_hosts(&self) -> Result<Vec<BmcEndpoint>, HealthError> {
+    pub async fn fetch_bmc_hosts(&self) -> Result<Vec<Arc<BmcEndpoint>>, HealthError> {
         let machine_ids = self
             .client
             .find_machine_ids(MachineSearchConfig {
@@ -167,7 +167,7 @@ impl ApiClientWrapper {
 
             for machine in machines.machines {
                 if let Some(endpoint) = self.extract_bmc_endpoint(&machine).await {
-                    endpoints.push(endpoint);
+                    endpoints.push(Arc::new(endpoint));
                 }
             }
         }
@@ -243,7 +243,7 @@ impl ApiClientWrapper {
 }
 
 impl EndpointSource for ApiClientWrapper {
-    fn fetch_bmc_hosts<'a>(&'a self) -> BoxFuture<'a, Result<Vec<BmcEndpoint>, HealthError>> {
+    fn fetch_bmc_hosts<'a>(&'a self) -> BoxFuture<'a, Result<Vec<Arc<BmcEndpoint>>, HealthError>> {
         Box::pin(self.fetch_bmc_hosts())
     }
 }
@@ -279,12 +279,14 @@ impl HealthReportSink for ConsleHealthSink {
 }
 
 pub struct StaticEndpointSource {
-    endpoints: Vec<BmcEndpoint>,
+    endpoints: Vec<Arc<BmcEndpoint>>,
 }
 
 impl StaticEndpointSource {
     pub fn new(endpoints: Vec<BmcEndpoint>) -> Self {
-        Self { endpoints }
+        Self {
+            endpoints: endpoints.into_iter().map(Arc::new).collect(),
+        }
     }
 
     pub fn from_config(configs: &[StaticBmcEndpoint]) -> Self {
@@ -299,7 +301,7 @@ impl StaticEndpointSource {
                     }
                 };
 
-                Some(BmcEndpoint {
+                Some(Arc::new(BmcEndpoint {
                     addr: BmcAddr {
                         ip,
                         port: cfg.port,
@@ -310,7 +312,7 @@ impl StaticEndpointSource {
                         password: cfg.password.clone(),
                     },
                     machine: None,
-                })
+                }))
             })
             .collect();
 
@@ -319,7 +321,7 @@ impl StaticEndpointSource {
 }
 
 impl EndpointSource for StaticEndpointSource {
-    fn fetch_bmc_hosts<'a>(&'a self) -> BoxFuture<'a, Result<Vec<BmcEndpoint>, HealthError>> {
+    fn fetch_bmc_hosts<'a>(&'a self) -> BoxFuture<'a, Result<Vec<Arc<BmcEndpoint>>, HealthError>> {
         Box::pin(async move { Ok(self.endpoints.clone()) })
     }
 }
@@ -339,7 +341,7 @@ impl CompositeEndpointSource {
 }
 
 impl EndpointSource for CompositeEndpointSource {
-    fn fetch_bmc_hosts<'a>(&'a self) -> BoxFuture<'a, Result<Vec<BmcEndpoint>, HealthError>> {
+    fn fetch_bmc_hosts<'a>(&'a self) -> BoxFuture<'a, Result<Vec<Arc<BmcEndpoint>>, HealthError>> {
         Box::pin(async move {
             let mut all = Vec::new();
 
@@ -350,5 +352,69 @@ impl EndpointSource for CompositeEndpointSource {
 
             Ok(all)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_test_endpoint(mac: &str) -> BmcEndpoint {
+        BmcEndpoint {
+            addr: BmcAddr {
+                ip: "10.0.0.1".parse().unwrap(),
+                port: Some(443),
+                mac: mac.to_string(),
+            },
+            credentials: BmcCredentials {
+                username: "admin".to_string(),
+                password: "password".to_string(),
+            },
+            machine: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_static_endpoint_source_shares_arc_data() {
+        let endpoints = vec![
+            make_test_endpoint("00:11:22:33:44:55"),
+            make_test_endpoint("aa:bb:cc:dd:ee:ff"),
+        ];
+        let source = StaticEndpointSource::new(endpoints);
+
+        let first = source.fetch_bmc_hosts().await.unwrap();
+        let second = source.fetch_bmc_hosts().await.unwrap();
+
+        // Verify we get the same number of endpoints.
+        assert_eq!(first.len(), 2);
+        assert_eq!(second.len(), 2);
+
+        // Verify the Arcs point to the same underlying data,
+        // since we're not cloning anymore.
+        assert!(Arc::ptr_eq(&first[0], &second[0]));
+        assert!(Arc::ptr_eq(&first[1], &second[1]));
+    }
+
+    #[tokio::test]
+    async fn test_composite_endpoint_source_preserves_arc_sharing() {
+        let endpoints1 = vec![make_test_endpoint("00:11:22:33:44:55")];
+        let endpoints2 = vec![make_test_endpoint("aa:bb:cc:dd:ee:ff")];
+
+        let source1 = Arc::new(StaticEndpointSource::new(endpoints1));
+        let source2 = Arc::new(StaticEndpointSource::new(endpoints2));
+
+        let composite = CompositeEndpointSource::new(vec![source1.clone(), source2.clone()]);
+
+        let composite_result = composite.fetch_bmc_hosts().await.unwrap();
+        let source1_result = source1.fetch_bmc_hosts().await.unwrap();
+        let source2_result = source2.fetch_bmc_hosts().await.unwrap();
+
+        // Verify composite returns endpoints from both sources.
+        assert_eq!(composite_result.len(), 2);
+
+        // Verify the Arcs point to the same data as the original sources,
+        // since we're not cloning anymore.
+        assert!(Arc::ptr_eq(&composite_result[0], &source1_result[0]));
+        assert!(Arc::ptr_eq(&composite_result[1], &source2_result[0]));
     }
 }
