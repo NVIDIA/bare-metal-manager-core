@@ -89,6 +89,10 @@ impl EthernetInterfaceBuilder {
         self.apply_patch(json!({ "InterfaceEnabled": v }))
     }
 
+    pub fn description(self, v: &str) -> Self {
+        self.add_str_field("Description", v)
+    }
+
     pub fn build(self) -> EthernetInterface {
         EthernetInterface {
             id: self.id,

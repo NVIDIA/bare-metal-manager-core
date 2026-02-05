@@ -99,7 +99,9 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
 pub struct SingleSystemConfig {
     pub id: Cow<'static, str>,
     pub eth_interfaces: Vec<redfish::ethernet_interface::EthernetInterface>,
-    pub serial_number: String,
+    pub serial_number: Cow<'static, str>,
+    pub manufacturer: Option<Cow<'static, str>>,
+    pub model: Option<Cow<'static, str>>,
     pub boot_order_mode: BootOrderMode,
     pub power_control: Option<Arc<dyn PowerControl>>,
     pub chassis: Vec<Cow<'static, str>>,
@@ -201,8 +203,9 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
         .bios(&redfish::bios::resource(&system_id))
         .link_chassis(&system_state.config.chassis);
 
-    if let Some(state) = system_state
-        .config
+    let config = &system_state.config;
+
+    if let Some(state) = config
         .power_control
         .as_ref()
         .map(|control| control.get_power_state())
@@ -211,17 +214,29 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
     }
 
     if let Some(boot_order) = system_state.boot_order_override() {
-        b = b.boot_order(&boot_order)
+        b = b.boot_order(&boot_order.iter().map(String::as_str).collect::<Vec<_>>());
+    } else {
+        b = b.boot_order(
+            &config
+                .boot_options
+                .iter()
+                .map(|v| v.id.as_ref())
+                .collect::<Vec<_>>(),
+        );
     }
 
-    let pcie_devices = system_state
-        .config
+    let pcie_devices = config
         .chassis
         .iter()
         .flat_map(|chassis_id| state.chassis_state.find(chassis_id))
         .flat_map(|chassis| chassis.pcie_devices_resources().into_iter())
         .collect::<Vec<_>>();
-    b.pcie_devices(&pcie_devices).build().into_ok_response()
+
+    b.maybe_with(SystemBuilder::manufacturer, &config.manufacturer)
+        .maybe_with(SystemBuilder::model, &config.model)
+        .pcie_devices(&pcie_devices)
+        .build()
+        .into_ok_response()
 }
 
 async fn get_ethernet_interface(
@@ -485,15 +500,35 @@ pub struct SystemBuilder {
 }
 
 impl SystemBuilder {
+    pub fn maybe_with<T, V>(self, f: fn(Self, &V) -> Self, v: &Option<T>) -> Self
+    where
+        T: AsRef<V>,
+        V: ?Sized,
+    {
+        if let Some(v) = v {
+            f(self, v.as_ref())
+        } else {
+            self
+        }
+    }
+
     pub fn serial_number(self, v: &str) -> Self {
         self.add_str_field("SerialNumber", v)
+    }
+
+    pub fn manufacturer(self, v: &str) -> Self {
+        self.add_str_field("Manufacturer", v)
+    }
+
+    pub fn model(self, v: &str) -> Self {
+        self.add_str_field("Model", v)
     }
 
     pub fn ethernet_interfaces(self, v: redfish::Collection<'_>) -> Self {
         self.apply_patch(v.nav_property("EthernetInterfaces"))
     }
 
-    pub fn boot_order(self, boot_order: &[String]) -> Self {
+    pub fn boot_order(self, boot_order: &[&str]) -> Self {
         self.apply_patch(json!({"Boot": {"BootOrder": boot_order}}))
     }
 
