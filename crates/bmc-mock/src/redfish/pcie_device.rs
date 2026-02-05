@@ -20,8 +20,8 @@ use std::borrow::Cow;
 use serde_json::json;
 
 use crate::json::{JsonExt, JsonPatch};
-use crate::redfish;
 use crate::redfish::Builder;
+use crate::{hw, redfish};
 
 const PCIE_DEVICE_TYPE: &str = "#PCIeDevice.v1_5_0.PCIeDevice";
 
@@ -51,6 +51,16 @@ pub fn builder(resource: &redfish::Resource) -> PcieDeviceBuilder {
         value: resource.json_patch(),
         mat_dpu: false,
     }
+}
+
+pub fn builder_from_nic(resource: &redfish::Resource, nic: &hw::nic::Nic) -> PcieDeviceBuilder {
+    let b = builder(resource).serial_number(&nic.serial_number);
+    let b = if nic.is_mat_dpu { b.mat_dpu() } else { b };
+    b.maybe_with(PcieDeviceBuilder::description, &nic.description)
+        .maybe_with(PcieDeviceBuilder::manufacturer, &nic.manufacturer)
+        .maybe_with(PcieDeviceBuilder::model, &nic.model)
+        .maybe_with(PcieDeviceBuilder::part_number, &nic.part_number)
+        .maybe_with(PcieDeviceBuilder::firmware_version, &nic.firmware_version)
 }
 
 pub struct PCIeDevice {
@@ -86,12 +96,12 @@ impl PcieDeviceBuilder {
         self.add_str_field("Description", value)
     }
 
-    pub fn firmware_version(self, value: &str) -> Self {
-        self.add_str_field("FirmwareVersion", value)
-    }
-
     pub fn manufacturer(self, value: &str) -> Self {
         self.add_str_field("Manufacturer", value)
+    }
+
+    pub fn model(self, value: &str) -> Self {
+        self.add_str_field("Model", value)
     }
 
     pub fn part_number(self, value: &str) -> Self {
@@ -100,6 +110,10 @@ impl PcieDeviceBuilder {
 
     pub fn serial_number(self, value: &str) -> Self {
         self.add_str_field("SerialNumber", value)
+    }
+
+    pub fn firmware_version(self, value: &str) -> Self {
+        self.add_str_field("FirmwareVersion", value)
     }
 
     pub fn mat_dpu(mut self) -> Self {

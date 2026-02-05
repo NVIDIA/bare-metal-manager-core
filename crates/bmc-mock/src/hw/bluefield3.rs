@@ -1,13 +1,18 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::borrow::Cow;
@@ -16,13 +21,22 @@ use std::sync::Arc;
 use mac_address::MacAddress;
 use serde_json::json;
 
-use crate::{PowerControl, redfish};
+use crate::{PowerControl, hw, redfish};
 
 pub struct Bluefield3<'a> {
     pub product_serial_number: Cow<'a, str>,
+    pub host_mac_address: MacAddress,
     pub bmc_mac_address: MacAddress,
     pub oob_mac_address: Option<MacAddress>,
     pub nic_mode: bool,
+    pub firmware_versions: FirmwareVersions,
+}
+
+pub struct FirmwareVersions {
+    pub bmc: String,
+    pub uefi: String,
+    pub dpu_nic: String,
+    pub erot: String,
 }
 
 impl Bluefield3<'_> {
@@ -144,6 +158,52 @@ impl Bluefield3<'_> {
                 .build(),
             ],
             firmware_version: "BF-23.10-4",
+        }
+    }
+
+    pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
+        let base_mac = self.host_mac_address.to_string().replace(':', "");
+        let sys_image = format!(
+            "{}:{}00:00{}:{}",
+            &base_mac[0..4],
+            &base_mac[4..6],
+            &base_mac[6..8],
+            &base_mac[8..12]
+        );
+        let fw = &self.firmware_versions;
+        let fw_inv_builder = |id: &str| {
+            redfish::software_inventory::builder(
+                &redfish::software_inventory::firmware_inventory_resource(id),
+            )
+        };
+        redfish::update_service::UpdateServiceConfig {
+            firmware_inventory: vec![
+                fw_inv_builder("DPU_SYS_IMAGE").version(&sys_image),
+                fw_inv_builder("BMC_Firmware").version(&fw.bmc),
+                fw_inv_builder("Bluefield_FW_ERoT").version(&fw.erot),
+                fw_inv_builder("DPU_UEFI").version(&fw.uefi),
+                fw_inv_builder("DPU_NIC").version(&fw.dpu_nic),
+            ]
+            .into_iter()
+            .map(|b| b.build())
+            .collect(),
+        }
+    }
+
+    pub fn host_nic(&self) -> hw::nic::Nic {
+        hw::nic::Nic {
+            mac_address: self.host_mac_address,
+            // This how it represented on host with number of trailing
+            // whitespaces.
+            serial_number: format!("{}                 ", self.product_serial_number),
+            manufacturer: Some("Mellanox Technologies".into()),
+            model: Some("BlueField-3 SmartNIC Main Card".into()),
+            description: Some(
+                "MT43244 BlueField-3 integrated ConnectX-7 network controller".into(),
+            ),
+            part_number: Some(self.part_number().into()),
+            firmware_version: Some(self.firmware_versions.dpu_nic.clone().into()),
+            is_mat_dpu: true,
         }
     }
 

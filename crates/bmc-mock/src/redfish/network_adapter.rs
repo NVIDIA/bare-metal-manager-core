@@ -20,8 +20,8 @@ use std::borrow::Cow;
 use serde_json::json;
 
 use crate::json::{JsonExt, JsonPatch};
-use crate::redfish;
 use crate::redfish::Builder;
+use crate::{hw, redfish};
 
 const NETWORK_ADAPTER_TYPE: &str = "#NetworkAdapter.v1_7_0.NetworkAdapter";
 const NETWORK_ADAPTER_NAME: &str = "Network Adapter";
@@ -72,6 +72,14 @@ pub fn builder(resource: &redfish::Resource) -> NetworkAdapterBuilder {
     }
 }
 
+pub fn builder_from_nic(resource: &redfish::Resource, nic: &hw::nic::Nic) -> NetworkAdapterBuilder {
+    let b = builder(resource).serial_number(&nic.serial_number);
+    b.maybe_with(NetworkAdapterBuilder::description, &nic.description)
+        .maybe_with(NetworkAdapterBuilder::manufacturer, &nic.manufacturer)
+        .maybe_with(NetworkAdapterBuilder::model, &nic.model)
+        .maybe_with(NetworkAdapterBuilder::part_number, &nic.part_number)
+}
+
 pub struct NetworkAdapterBuilder {
     id: Cow<'static, str>,
     value: serde_json::Value,
@@ -107,6 +115,10 @@ impl NetworkAdapterBuilder {
 
     pub fn sku(self, value: &str) -> Self {
         self.add_str_field("SKU", value)
+    }
+
+    pub fn description(self, value: &str) -> Self {
+        self.add_str_field("Description", value)
     }
 
     pub fn network_device_functions(

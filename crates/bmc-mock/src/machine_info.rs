@@ -20,7 +20,6 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 use crate::redfish::update_service::UpdateServiceConfig;
 use crate::{hw, redfish};
@@ -41,6 +40,33 @@ pub struct HostMachineInfo {
     pub serial: String,
     pub dpus: Vec<DpuMachineInfo>,
     pub non_dpu_mac_address: Option<MacAddress>,
+}
+
+impl HostMachineInfo {
+    fn dell_poweredge_r750(&self) -> hw::dell_poweredge_r750::DellPowerEdgeR750<'_> {
+        let nics = if self.dpus.is_empty() {
+            self.non_dpu_mac_address
+                .iter()
+                .enumerate()
+                .map(|(index, mac_address)| (index + 1, hw::nic::Nic::rooftop(*mac_address)))
+                .collect()
+        } else {
+            self.dpus
+                .iter()
+                .enumerate()
+                .map(|(index, dpu)| (index + 1, dpu.bluefield3().host_nic()))
+                .collect()
+        };
+        hw::dell_poweredge_r750::DellPowerEdgeR750 {
+            bmc_mac_address: self.bmc_mac_address,
+            product_serial_number: Cow::Borrowed(&self.serial),
+            nics,
+            embedded_nic: hw::dell_poweredge_r750::EmbeddedNic {
+                port_1: next_mac(),
+                port_2: next_mac(),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,10 +110,17 @@ impl DpuMachineInfo {
 
     fn bluefield3(&self) -> hw::bluefield3::Bluefield3<'_> {
         hw::bluefield3::Bluefield3 {
+            host_mac_address: self.host_mac_address,
             bmc_mac_address: self.bmc_mac_address,
             oob_mac_address: Some(self.oob_mac_address),
             nic_mode: self.nic_mode,
             product_serial_number: Cow::Borrowed(&self.serial),
+            firmware_versions: hw::bluefield3::FirmwareVersions {
+                bmc: self.firmware_versions.bmc.clone().unwrap_or_default(),
+                uefi: self.firmware_versions.uefi.clone().unwrap_or_default(),
+                erot: self.firmware_versions.cec.clone().unwrap_or_default(),
+                dpu_nic: self.firmware_versions.nic.clone().unwrap_or_default(),
+            },
         }
     }
 }
@@ -133,20 +166,10 @@ impl MachineInfo {
     pub fn manager_config(&self) -> redfish::manager::Config {
         match self {
             MachineInfo::Dpu(dpu) => dpu.bluefield3().manager_config(),
-            MachineInfo::Host(host) => redfish::manager::Config {
-                id: "iDRAC.Embedded.1",
-                eth_interfaces: vec![
-                    redfish::ethernet_interface::builder(
-                        &redfish::ethernet_interface::manager_resource("iDRAC.Embedded.1", "NIC.1"),
-                    )
-                    .mac_address(host.bmc_mac_address)
-                    .interface_enabled(true)
-                    .build(),
-                ],
-                firmware_version: "6.00.30.00",
-            },
+            MachineInfo::Host(host) => host.dell_poweredge_r750().manager_config(),
         }
     }
+
     pub fn bmc_vendor(&self) -> redfish::oem::BmcVendor {
         match self {
             MachineInfo::Host(_) => redfish::oem::BmcVendor::Dell,
@@ -159,143 +182,22 @@ impl MachineInfo {
         power_control: Arc<dyn crate::PowerControl>,
     ) -> redfish::computer_system::SystemConfig {
         match self {
-            MachineInfo::Host(_) => {
-                let power_control = Some(power_control.clone());
-                let serial_number = self.product_serial().clone().into();
-                let system_id = "System.Embedded.1";
-                let eth_interfaces = self
-                    .dhcp_mac_addresses()
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, mac)| {
-                        let eth_id = format!("NIC.Slot.{}", index + 1);
-                        let resource =
-                            redfish::ethernet_interface::system_resource(system_id, &eth_id);
-                        redfish::ethernet_interface::builder(&resource)
-                            .mac_address(mac)
-                            .interface_enabled(true)
-                            .build()
-                    })
-                    .collect();
-                let boot_opt_builder = |id: &str| {
-                    redfish::boot_option::builder(&redfish::boot_option::resource(system_id, id))
-                        .boot_option_reference(id)
-                };
-                redfish::computer_system::SystemConfig {
-                    systems: vec![redfish::computer_system::SingleSystemConfig {
-                        id: Cow::Borrowed(system_id),
-                        manufacturer: None,
-                        model: None,
-                        eth_interfaces,
-                        serial_number,
-                        boot_order_mode: redfish::computer_system::BootOrderMode::DellOem,
-                        power_control,
-                        chassis: vec!["System.Embedded.1".into()],
-                        boot_options: vec![
-                            boot_opt_builder("Boot0000")
-                                .display_name("HTTP Device 1: NIC in Slot 5 Port 1")
-                                .build(),
-                            boot_opt_builder("Boot0001")
-                                .display_name("Unavailable: ubuntu")
-                                .build(),
-                            boot_opt_builder("Boot0002")
-                                .display_name(
-                                    "PCIe SSD in Slot 2 in Bay 1: EFI Fixed Disk Boot Device 1",
-                                )
-                                .build(),
-                            boot_opt_builder("Boot0003")
-                                .display_name("Unavailable: Linux Default")
-                                .build(),
-                            boot_opt_builder("Boot0004")
-                                .display_name("Unavailable: ubuntu")
-                                .build(),
-                        ],
-                        bios_mode: redfish::computer_system::BiosMode::DellOem,
-                        base_bios: redfish::bios::builder(&redfish::bios::resource(system_id))
-                            .attributes(json!({
-                                "BootSeqRetry": "Disabled",
-                                "SetBootOrderEn": "NIC.HttpDevice.1-1,Disk.Bay.2:Enclosure.Internal.0-1",
-                                "InBandManageabilityInterface": "Enabled",
-                                "UefiVariableAccess": "Standard",
-                                "SerialComm": "OnConRedir",
-                                "SerialPortAddress": "Com1",
-                                "FailSafeBaud": "115200",
-                                "ConTermType": "Vt100Vt220",
-                                "RedirAfterBoot": "Enabled",
-                                "SriovGlobalEnable": "Enabled",
-                                "TpmSecurity": "On",
-                                "Tpm2Algorithm": "SHA256",
-                                "Tpm2Hierarchy": "Enabled",
-                                "HttpDev1EnDis": "Enabled",
-                                "PxeDev1EnDis": "Disabled",
-                                "HttpDev1Interface": "NIC.Slot.5-1",
-                            }))
-                            .build(),
-                    }],
-                }
-            }
+            MachineInfo::Host(host) => host.dell_poweredge_r750().system_config(power_control),
             MachineInfo::Dpu(dpu) => dpu.bluefield3().system_config(power_control),
         }
     }
 
     pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         match self {
-            Self::Host(h) => dell_chassis_config(h),
+            Self::Host(h) => h.dell_poweredge_r750().chassis_config(),
             Self::Dpu(dpu) => dpu.bluefield3().chassis_config(),
         }
     }
 
     pub fn update_service_config(&self) -> UpdateServiceConfig {
-        let fw_inv_builder = |id: &str| {
-            redfish::software_inventory::builder(
-                &redfish::software_inventory::firmware_inventory_resource(id),
-            )
-        };
         match self {
-            Self::Host(_) => UpdateServiceConfig {
-                firmware_inventory: vec![],
-            },
-            Self::Dpu(dpu) => {
-                let base_mac = dpu.host_mac_address.to_string().replace(':', "");
-                let sys_image = format!(
-                    "{}:{}00:00{}:{}",
-                    &base_mac[0..4],
-                    &base_mac[4..6],
-                    &base_mac[6..8],
-                    &base_mac[8..12]
-                );
-                UpdateServiceConfig {
-                    firmware_inventory: vec![
-                        Some(fw_inv_builder("DPU_SYS_IMAGE").version(&sys_image).build()),
-                        dpu.firmware_versions
-                            .bmc
-                            .as_ref()
-                            .map(|v| fw_inv_builder("BMC_Firmware").version(v).build()),
-                        dpu.firmware_versions
-                            .cec
-                            .as_ref()
-                            .map(|v| fw_inv_builder("Bluefield_FW_ERoT").version(v).build()),
-                        dpu.firmware_versions
-                            .uefi
-                            .as_ref()
-                            .map(|v| fw_inv_builder("DPU_UEFI").version(v).build()),
-                        dpu.firmware_versions
-                            .nic
-                            .as_ref()
-                            .map(|v| fw_inv_builder("DPU_NIC").version(v).build()),
-                    ]
-                    .into_iter()
-                    .flatten()
-                    .collect(),
-                }
-            }
-        }
-    }
-
-    pub fn chassis_serial(&self) -> Option<String> {
-        match self {
-            Self::Host(h) => Some(h.serial.clone()),
-            Self::Dpu(_) => None,
+            Self::Host(h) => h.dell_poweredge_r750().update_service_config(),
+            Self::Dpu(dpu) => dpu.bluefield3().update_service_config(),
         }
     }
 
@@ -348,110 +250,4 @@ fn next_mac() -> MacAddress {
     let mac_bytes = <[u8; 6]>::try_from(bytes).unwrap();
 
     MacAddress::from(mac_bytes)
-}
-
-fn dell_chassis_config(h: &HostMachineInfo) -> redfish::chassis::ChassisConfig {
-    let chassis_id = "System.Embedded.1";
-    let net_adapter_builder = |id: &str| {
-        redfish::network_adapter::builder(&redfish::network_adapter::chassis_resource(
-            chassis_id, id,
-        ))
-    };
-    let pcie_device_builder = |id: &str| {
-        redfish::pcie_device::builder(&redfish::pcie_device::chassis_resource(chassis_id, id))
-    };
-    let mut network_adapters = vec![
-        net_adapter_builder("NIC.Embedded.1")
-            .manufacturer("Broadcom Inc. and subsidiaries")
-            .build(),
-        net_adapter_builder("NIC.Integrated.1")
-            .manufacturer("Broadcom Inc. and subsidiaries")
-            .build(),
-    ];
-    let mut pcie_devices = Vec::new();
-    for (index, dpu) in h.dpus.iter().enumerate() {
-        let network_adapter_id = format!("NIC.Slot.{}", index + 1);
-        let function_id = format!("NIC.Slot.{}-1", index + 1);
-        let func_resource = &redfish::network_device_function::chassis_resource(
-            chassis_id,
-            &network_adapter_id,
-            &function_id,
-        );
-        let function = redfish::network_device_function::builder(func_resource)
-            .ethernet(serde_json::json!({
-                "MACAddress": &dpu.host_mac_address,
-            }))
-            .oem(redfish::oem::dell::network_device_function::dpu_dell_nic_info(&function_id, dpu))
-            .build();
-
-        network_adapters.push(
-            net_adapter_builder(&network_adapter_id)
-                .manufacturer("Mellanox Technologies")
-                .model("BlueField-2 SmartNIC Main Card")
-                .part_number("MBF2H5")
-                .serial_number(&dpu.serial)
-                .network_device_functions(
-                    &redfish::network_device_function::chassis_collection(
-                        chassis_id,
-                        &network_adapter_id,
-                    ),
-                    vec![function],
-                )
-                .status(redfish::resource::Status::Ok)
-                .build(),
-        );
-        let pcie_device_id = format!("mat_dpu_{}", index + 1);
-
-        // Set the BF3 Part Number based on whether the DPU is supposed to be in NIC mode or not
-        // Use a BF3 SuperNIC OPN if the DPU is supposed to be in NIC mode. Otherwise, use
-        // a BF3 DPU OPN. Site explorer assumes that BF3 SuperNICs must be in NIC mode and that
-        // BF3 DPUs must be in DPU mode. It will not ingest a host if any of the BF3 DPUs in the host
-        // are in NIC mode or if any of the BF3 SuperNICs in the host are in DPU mode.
-        // OPNs taken from: https://docs.nvidia.com/networking/display/bf3dpu
-        let part_number = match dpu.nic_mode {
-            true => "900-9D3B4-00CC-EA0",
-            false => "900-9D3B6-00CV-AA0",
-        };
-
-        pcie_devices.push(
-            pcie_device_builder(&pcie_device_id)
-                .mat_dpu()
-                .description("MT43244 BlueField-3 integrated ConnectX-7 network controller")
-                .firmware_version("32.41.1000")
-                .manufacturer("Mellanox Technologies")
-                .part_number(part_number)
-                .serial_number(&dpu.serial)
-                .status(redfish::resource::Status::Ok)
-                .build(),
-        )
-    }
-
-    if h.dpus.is_empty()
-        && let Some(mac) = h.non_dpu_mac_address
-    {
-        let network_adapter_id = "NIC.Slot.1";
-        let serial = mac.to_string().replace(':', "");
-        // Build a non-DPU NetworkAdapter
-        let resource = redfish::network_adapter::chassis_resource(chassis_id, network_adapter_id);
-        network_adapters.push(
-            redfish::network_adapter::builder(&resource)
-                .manufacturer("Rooftop Technologies")
-                .model("Rooftop 10 Kilobit Ethernet Adapter")
-                .part_number("31337")
-                .serial_number(&serial)
-                .status(redfish::resource::Status::Ok)
-                .build(),
-        );
-    }
-    redfish::chassis::ChassisConfig {
-        chassis: vec![redfish::chassis::SingleChassisConfig {
-            id: Cow::Borrowed(chassis_id),
-            manufacturer: None,
-            part_number: None,
-            model: None,
-            serial_number: Some(h.serial.clone().into()),
-            network_adapters: Some(network_adapters),
-            pcie_devices: Some(pcie_devices),
-        }],
-    }
 }

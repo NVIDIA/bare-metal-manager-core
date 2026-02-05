@@ -28,7 +28,7 @@ use rand::Rng;
 use rand::distr::StandardUniform;
 use serde_json::json;
 
-use crate::bmc_state::{BmcState, JobState};
+use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch, json_patch};
 use crate::{http, redfish};
 
@@ -104,6 +104,12 @@ async fn patch_managers_oem_dell_attributes(
     };
     state.update_attrs(attrs);
     json!({}).into_ok_response()
+}
+
+#[derive(Debug, Clone)]
+pub enum JobState {
+    Scheduled,
+    Completed,
 }
 
 async fn get_dell_job(State(state): State<BmcState>, Path(job_id): Path<String>) -> Response {
