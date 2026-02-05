@@ -378,6 +378,26 @@ impl IbFabricMonitor {
             }
 
             for (fabric, guid, pkey) in report.unexpected_guid_pkeys {
+                // Only unbind pkeys that are within this Carbide's managed range.
+                // Pkeys outside the configured range should be left alone.
+                // Note: We only enforce expected pkeys for GUIDs configured on the instance.
+                // Unconfigured GUIDs with out-of-range pkeys will be ignored.
+                let managed_pkey = self
+                    .fabrics
+                    .get(&fabric)
+                    .map(|f| is_pkey_in_managed_range(pkey, f))
+                    .unwrap_or(false);
+
+                if !managed_pkey {
+                    tracing::debug!(
+                        %fabric,
+                        %guid,
+                        %pkey,
+                        "Skipping unbind for pkey outside managed range"
+                    );
+                    continue;
+                }
+
                 let conn = self.fabric_manager.new_client(&fabric).await?;
                 let status = match conn.unbind_ib_ports(pkey.into(), vec![guid.clone()]).await {
                     Ok(()) => {
@@ -1000,6 +1020,17 @@ fn parse_num(input: &str) -> Option<u64> {
     }
 }
 
+/// Checks if a pkey is within the managed pkey ranges for a fabric.
+/// Returns true if the pkey falls within any of the configured ranges.
+fn is_pkey_in_managed_range(pkey: PartitionKey, fabric_definition: &IbFabricDefinition) -> bool {
+    let pkey_value = u16::from(pkey) as u64;
+    fabric_definition
+        .pkeys
+        .iter()
+        .filter_map(|r| Some(parse_num(&r.start)?..parse_num(&r.end)?))
+        .any(|range| range.contains(&pkey_value))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1055,6 +1086,96 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert_eq!(result[0], "abc");
         assert_eq!(result[1], "def");
+    }
+
+    // ============================================================
+    // Unit Tests for is_pkey_in_managed_range
+    // ============================================================
+
+    fn make_fabric_definition(ranges: Vec<(&str, &str)>) -> IbFabricDefinition {
+        use model::resource_pool::define::Range;
+        IbFabricDefinition {
+            endpoints: vec![],
+            pkeys: ranges
+                .into_iter()
+                .map(|(start, end)| Range {
+                    start: start.to_string(),
+                    end: end.to_string(),
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn test_pkey_in_range_decimal() {
+        let fabric = make_fabric_definition(vec![("256", "2303")]);
+        // 0x100 = 256, should be in range
+        let pkey = PartitionKey::try_from(256u16).unwrap();
+        assert!(is_pkey_in_managed_range(pkey, &fabric));
+
+        // 0x8FE = 2302, should be in range (end is exclusive)
+        let pkey = PartitionKey::try_from(2302u16).unwrap();
+        assert!(is_pkey_in_managed_range(pkey, &fabric));
+
+        // 0x500 = 1280, should be in range
+        let pkey = PartitionKey::try_from(1280u16).unwrap();
+        assert!(is_pkey_in_managed_range(pkey, &fabric));
+    }
+
+    #[test]
+    fn test_pkey_outside_range() {
+        let fabric = make_fabric_definition(vec![("256", "2303")]);
+
+        // 0x5000 = 20480, should be OUTSIDE range
+        let pkey = PartitionKey::try_from(0x5000u16).unwrap();
+        assert!(!is_pkey_in_managed_range(pkey, &fabric));
+
+        // 255 is just below range
+        let pkey = PartitionKey::try_from(255u16).unwrap();
+        assert!(!is_pkey_in_managed_range(pkey, &fabric));
+
+        // 2303 is the exclusive end, should be OUTSIDE range
+        let pkey = PartitionKey::try_from(2303u16).unwrap();
+        assert!(!is_pkey_in_managed_range(pkey, &fabric));
+    }
+
+    #[test]
+    fn test_pkey_in_range_hex() {
+        let fabric = make_fabric_definition(vec![("0x100", "0x8FF")]);
+
+        // 0x100 = 256, should be in range
+        let pkey = PartitionKey::try_from(0x100u16).unwrap();
+        assert!(is_pkey_in_managed_range(pkey, &fabric));
+
+        // 0x8FE = 2302, should be in range (end is exclusive)
+        let pkey = PartitionKey::try_from(0x8FEu16).unwrap();
+        assert!(is_pkey_in_managed_range(pkey, &fabric));
+    }
+
+    #[test]
+    fn test_pkey_multiple_ranges() {
+        let fabric = make_fabric_definition(vec![("100", "200"), ("500", "600")]);
+
+        // In first range
+        let pkey = PartitionKey::try_from(150u16).unwrap();
+        assert!(is_pkey_in_managed_range(pkey, &fabric));
+
+        // In second range
+        let pkey = PartitionKey::try_from(550u16).unwrap();
+        assert!(is_pkey_in_managed_range(pkey, &fabric));
+
+        // Between ranges (not managed)
+        let pkey = PartitionKey::try_from(300u16).unwrap();
+        assert!(!is_pkey_in_managed_range(pkey, &fabric));
+    }
+
+    #[test]
+    fn test_pkey_empty_ranges() {
+        let fabric = make_fabric_definition(vec![]);
+
+        // No ranges configured, nothing is managed
+        let pkey = PartitionKey::try_from(256u16).unwrap();
+        assert!(!is_pkey_in_managed_range(pkey, &fabric));
     }
 
     // ============================================================
