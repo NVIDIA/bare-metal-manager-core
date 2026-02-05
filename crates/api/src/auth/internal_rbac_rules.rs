@@ -213,6 +213,7 @@ impl InternalRBACRules {
         x.perm("TriggerDpuReprovisioning", vec![ForgeAdminCLI]);
         x.perm("TriggerHostReprovisioning", vec![ForgeAdminCLI, Rla]);
         x.perm("ListDpuWaitingForReprovisioning", vec![ForgeAdminCLI]);
+        x.perm("MarkManualFirmwareUpgradeComplete", vec![ForgeAdminCLI]);
         x.perm(
             "ListHostsWaitingForReprovisioning",
             vec![ForgeAdminCLI, Rla],

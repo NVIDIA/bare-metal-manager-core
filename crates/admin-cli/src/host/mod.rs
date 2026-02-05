@@ -50,6 +50,9 @@ impl Dispatch for Cmd {
                     .await
                 }
                 args::HostReprovision::List => cmds::list_hosts_pending(&ctx.api_client).await,
+                args::HostReprovision::MarkManualUpgradeComplete(data) => {
+                    cmds::mark_manual_firmware_upgrade_complete(data.id, &ctx.api_client).await
+                }
             },
         }
     }

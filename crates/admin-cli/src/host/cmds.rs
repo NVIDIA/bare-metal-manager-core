@@ -113,6 +113,20 @@ pub fn generate_uefi_password() -> CarbideCliResult<()> {
     Ok(())
 }
 
+pub async fn mark_manual_firmware_upgrade_complete(
+    machine_id: MachineId,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    api_client
+        .0
+        .mark_manual_firmware_upgrade_complete(machine_id)
+        .await?;
+
+    println!("Marked manual firmware upgrade as complete for machine {machine_id}",);
+
+    Ok(())
+}
+
 fn print_pending_hosts(hosts: ::rpc::forge::HostReprovisioningListResponse) {
     let mut table = Table::new();
 

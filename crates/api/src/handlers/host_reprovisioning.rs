@@ -125,3 +125,19 @@ pub(crate) async fn list_hosts_waiting_for_reprovisioning(
 
     Ok(Response::new(rpc::HostReprovisioningListResponse { hosts }))
 }
+
+pub async fn mark_manual_firmware_upgrade_complete(
+    api: &Api,
+    request: Request<MachineId>,
+) -> Result<Response<()>, Status> {
+    log_request_data(&request);
+    let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
+
+    let mut txn = api.txn_begin().await?;
+
+    db::host_machine_update::set_manual_firmware_upgrade_completed(&mut txn, &machine_id).await?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(()))
+}
