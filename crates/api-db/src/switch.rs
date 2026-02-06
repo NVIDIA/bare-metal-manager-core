@@ -250,15 +250,15 @@ pub async fn update(switch: &Switch, txn: &mut PgConnection) -> Result<Switch, D
 use mac_address::MacAddress;
 
 #[derive(Debug, sqlx::FromRow)]
-pub struct SwitchEndpointRow {
+pub struct SwitchBmcInfoRow {
     pub serial_number: String,
     pub bmc_mac_address: MacAddress,
     pub ip_address: IpAddr,
 }
 
-pub async fn list_switch_addresses(
+pub async fn list_switch_bmc_info(
     txn: &mut PgConnection,
-) -> DatabaseResult<Vec<SwitchEndpointRow>> {
+) -> DatabaseResult<Vec<SwitchBmcInfoRow>> {
     let sql = r#"
         SELECT 
             es.serial_number,
@@ -274,5 +274,5 @@ pub async fn list_switch_addresses(
     sqlx::query_as(sql)
         .fetch_all(txn)
         .await
-        .map_err(|err| DatabaseError::new("find_switch_addresses", err))
+        .map_err(|err| DatabaseError::new("list_switch_bmc_info", err))
 }

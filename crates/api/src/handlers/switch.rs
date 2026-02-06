@@ -61,25 +61,26 @@ pub async fn find_switch(
         .map_err(|e| Status::internal(format!("Failed to find switch: {}", e)))?
     };
 
-    // if include_addresses, attempt to get IP address and BMC MAC address for each switch
-    let address_map: std::collections::HashMap<String, (String, String)> =
-        if query.include_addresses.unwrap_or(false) {
-            let endpoints = db_switch::list_switch_addresses(&mut txn)
-                .await
-                .map_err(|e| Status::internal(format!("Failed to get switch addresses: {}", e)))?;
+    let bmc_info_map: std::collections::HashMap<String, rpc::BmcInfo> = {
+        let rows = db_switch::list_switch_bmc_info(&mut txn)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to get switch BMC info: {}", e)))?;
 
-            endpoints
-                .into_iter()
-                .map(|ep| {
-                    (
-                        ep.serial_number,
-                        (ep.ip_address.to_string(), ep.bmc_mac_address.to_string()),
-                    )
-                })
-                .collect()
-        } else {
-            std::collections::HashMap::new()
-        };
+        rows.into_iter()
+            .map(|row| {
+                (
+                    row.serial_number,
+                    rpc::BmcInfo {
+                        ip: Some(row.ip_address.to_string()),
+                        mac: Some(row.bmc_mac_address.to_string()),
+                        version: None,
+                        firmware_version: None,
+                        port: None,
+                    },
+                )
+            })
+            .collect()
+    };
 
     txn.commit()
         .await
@@ -89,14 +90,10 @@ pub async fn find_switch(
         .into_iter()
         .map(|s| {
             let serial = s.config.name.clone();
-            let (ip_address, bmc_mac_address) = address_map
-                .get(&serial)
-                .map(|(ip, mac)| (Some(ip.clone()), Some(mac.clone())))
-                .unwrap_or((None, None));
+            let bmc_info = bmc_info_map.get(&serial).cloned();
 
             rpc::Switch::try_from(s).map(|mut rpc_switch| {
-                rpc_switch.ip_address = ip_address;
-                rpc_switch.bmc_mac_address = bmc_mac_address;
+                rpc_switch.bmc_info = bmc_info;
                 rpc_switch
             })
         })
