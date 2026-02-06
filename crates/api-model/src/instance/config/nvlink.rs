@@ -31,10 +31,25 @@ impl InstanceNvLinkConfig {
         Ok(())
     }
 
-    pub fn verify_update_allowed_to(
-        &self,
-        _new_config: &Self,
-    ) -> Result<(), ConfigValidationError> {
+    pub fn verify_update_allowed_to(&self, new_config: &Self) -> Result<(), ConfigValidationError> {
+        // If the new config specifies a logical partition ID, it must be the same as the current config if the current config specifies a logical partition ID.
+        for gpu in new_config.gpu_configs.iter() {
+            let current_partition_id = self
+                .gpu_configs
+                .iter()
+                .find(|g| g.device_instance == gpu.device_instance)
+                .and_then(|g| g.logical_partition_id);
+
+            if gpu.logical_partition_id.is_some()
+                && current_partition_id.is_some()
+                && gpu.logical_partition_id != current_partition_id
+            {
+                return Err(ConfigValidationError::InvalidValue(format!(
+                    "GPU {} is already part of a logical partition. Please remove it from the logical partition before adding it to a new one.",
+                    gpu.device_instance
+                )));
+            }
+        }
         Ok(())
     }
 
