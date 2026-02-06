@@ -345,13 +345,27 @@ pub async fn run_metrics_server(
         tokio::spawn(async move {
             let service = service_fn(move |req| {
                 let metrics_manager = metrics_manager.clone();
-                async move { serve_metrics(req, metrics_manager) }
+                async move { serve_request(req, metrics_manager) }
             });
 
             if let Err(e) = http1::Builder::new().serve_connection(io, service).await {
                 tracing::error!(error=?e, "metrics server connection error");
             }
         });
+    }
+}
+
+fn serve_request(
+    req: Request<Incoming>,
+    metrics_manager: Arc<MetricsManager>,
+) -> Result<Response<String>, hyper::Error> {
+    match req.uri().path() {
+        "/livez" => Ok(Response::builder()
+            .status(http::StatusCode::OK)
+            .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+            .body("ok".to_string())
+            .expect("BUG: Response::builder error")),
+        _ => serve_metrics(req, metrics_manager),
     }
 }
 
