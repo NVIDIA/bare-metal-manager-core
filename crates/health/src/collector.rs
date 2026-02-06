@@ -69,13 +69,6 @@ pub struct Collector {
 }
 
 impl Collector {
-    pub fn new(handle: JoinHandle<()>, cancel_token: CancellationToken) -> Self {
-        Self {
-            handle,
-            cancel_token,
-        }
-    }
-
     pub fn start<C: PeriodicCollector<BmcClient>>(
         endpoint: Arc<BmcEndpoint>,
         limiter: Arc<dyn RateLimiter>,

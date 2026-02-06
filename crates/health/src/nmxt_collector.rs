@@ -10,20 +10,22 @@
  * its affiliates is strictly prohibited.
  */
 
-//! This module collects metrics from NMX-T telemetry endpoints on NVLink switches if the service is enabled
-//! Currently scraping for Effective BER, Symbol Errors and Link Down counter
+//! This module collects metrics from NMX-T telemetry endpoints on NVLink switches if the service is enabled.
+//! Scrapes HTTP on 9352 (default for NMX-T) - NOT A Redfish collector!
+//! Currently scraping for Effective BER, Symbol Errors and Link Down counter.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use prometheus::{GaugeVec, Opts, Registry};
-use tokio_util::sync::CancellationToken;
+use nv_redfish_core::Bmc;
+use prometheus::{GaugeVec, Opts};
 
 use crate::HealthError;
 use crate::api_client::{BmcEndpoint, EndpointMetadata};
-use crate::collector::Collector;
-use crate::config::NmxtCollectorConfig;
+use crate::collector::{IterationResult, PeriodicCollector};
+use crate::config::NmxtCollectorConfig as NmxtCollectorOptions;
+use crate::metrics::CollectorRegistry;
 
 /// default NMX-T port
 const NMXT_PORT: u16 = 9352;
@@ -136,23 +138,29 @@ async fn scrape_switch_nmxt_metrics(
     Ok(parse_prometheus_metrics(&body))
 }
 
+pub struct NmxtCollectorConfig {
+    pub nmxt_config: NmxtCollectorOptions,
+    pub collector_registry: Arc<CollectorRegistry>,
+}
+
 /// NMX-T collector for a single switch/endpoint
 pub struct NmxtCollector {
     endpoint: Arc<BmcEndpoint>,
     http_client: reqwest::Client,
-    scrape_interval: Duration,
     switch_id: String,
     effective_ber_gauge: GaugeVec,
     symbol_error_gauge: GaugeVec,
     link_down_gauge: GaugeVec,
 }
 
-impl NmxtCollector {
-    pub fn start(
+impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
+    type Config = NmxtCollectorConfig;
+
+    fn new_runner(
+        _bmc: Arc<B>,
         endpoint: Arc<BmcEndpoint>,
-        config: &NmxtCollectorConfig,
-        registry: &Registry,
-    ) -> Result<Collector, HealthError> {
+        config: Self::Config,
+    ) -> Result<Self, HealthError> {
         let switch_id = match &endpoint.metadata {
             Some(EndpointMetadata::Switch(s)) => s.serial.clone(),
             _ => endpoint.addr.mac.clone(),
@@ -164,6 +172,8 @@ impl NmxtCollector {
             .map_err(|e| {
                 HealthError::GenericError(format!("Failed to create HTTP client: {}", e))
             })?;
+
+        let registry = config.collector_registry.registry();
 
         let effective_ber_gauge = GaugeVec::new(
             Opts::new(
@@ -192,50 +202,30 @@ impl NmxtCollector {
         )?;
         registry.register(Box::new(link_down_gauge.clone()))?;
 
-        let collector = Self {
+        Ok(Self {
             endpoint,
             http_client,
-            scrape_interval: config.scrape_interval,
             switch_id,
             effective_ber_gauge,
             symbol_error_gauge,
             link_down_gauge,
-        };
-
-        let cancel_token = CancellationToken::new();
-        let cancel_token_clone = cancel_token.clone();
-
-        let handle = tokio::spawn(async move {
-            collector.run_loop(cancel_token_clone).await;
-        });
-
-        Ok(Collector::new(handle, cancel_token))
+        })
     }
 
-    async fn run_loop(self, cancel_token: CancellationToken) {
-        loop {
-            tokio::select! {
-                _ = cancel_token.cancelled() => {
-                    tracing::info!(
-                        switch_id = %self.switch_id,
-                        "NmxtCollector cancelled"
-                    );
-                    break;
-                }
-                _ = async {
-                    if let Err(e) = self.scrape_iteration().await {
-                        tracing::warn!(
-                            switch_id = %self.switch_id,
-                            error = ?e,
-                            "NMX-T scrape iteration failed"
-                        );
-                    }
-                    tokio::time::sleep(self.scrape_interval).await;
-                } => {}
-            }
-        }
+    async fn run_iteration(&mut self) -> Result<IterationResult, HealthError> {
+        self.scrape_iteration().await?;
+        Ok(IterationResult {
+            refresh_triggered: true,
+            entity_count: None,
+        })
     }
 
+    fn collector_type(&self) -> &'static str {
+        "nmxt"
+    }
+}
+
+impl NmxtCollector {
     async fn scrape_iteration(&self) -> Result<(), HealthError> {
         let switch_ip = self.endpoint.addr.ip.to_string();
 

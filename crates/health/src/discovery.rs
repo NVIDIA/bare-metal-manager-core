@@ -39,7 +39,7 @@ use crate::limiter::RateLimiter;
 use crate::logs_collector::{self, LogsCollector, LogsCollectorConfig};
 use crate::metrics::MetricsManager;
 use crate::monitor::{HealthMonitor, HealthMonitorConfig};
-use crate::nmxt_collector::NmxtCollector;
+use crate::nmxt_collector::{NmxtCollector, NmxtCollectorConfig};
 use crate::sharding::ShardManager;
 
 pub(crate) type BmcClient = HttpBmc<ReqwestClient>;
@@ -300,8 +300,22 @@ pub async fn run_discovery_iteration(
                 && matches!(endpoint.metadata, Some(EndpointMetadata::Switch(_)))
                 && !ctx.nmxt_collectors.contains_key(&key)
             {
-                let registry = ctx.metrics_manager.global_registry();
-                match NmxtCollector::start(endpoint_arc, nmxt_cfg, registry) {
+                let collector_registry = Arc::new(ctx.metrics_manager.create_collector_registry(
+                    format!("nmxt_collector_{}", endpoint.addr.hash_key()),
+                    metrics_prefix,
+                )?);
+                match Collector::start::<NmxtCollector>(
+                    endpoint_arc,
+                    ctx.limiter.clone(),
+                    nmxt_cfg.scrape_interval,
+                    NmxtCollectorConfig {
+                        nmxt_config: nmxt_cfg.clone(),
+                        collector_registry: collector_registry.clone(),
+                    },
+                    collector_registry,
+                    ctx.client.clone(),
+                    &ctx.config,
+                ) {
                     Ok(handle) => {
                         ctx.nmxt_collectors.insert(key.clone(), handle);
                         tracing::info!(
