@@ -223,14 +223,11 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                 "Status",
             ]);
             for dev in redfish.get_drives_metrics().await? {
-                let mut status = ResourceStatus {
+                let status = dev.status.unwrap_or(ResourceStatus {
                     health: Some(libredfish::model::ResourceHealth::Ok),
                     health_rollup: Some(libredfish::model::ResourceHealth::Ok),
                     state: Some(libredfish::model::ResourceState::Unknown),
-                };
-                if let Some(x) = dev.status {
-                    status = x;
-                }
+                });
                 let mut predictlife = 100;
                 if let Some(ref _pred_fail) = dev.failure_predicted
                     && *_pred_fail

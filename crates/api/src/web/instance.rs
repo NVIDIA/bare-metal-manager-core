@@ -141,10 +141,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
         }
     };
 
-    let mut instances: Vec<InstanceDisplay> = Vec::new();
-    for rp in out.instances.into_iter() {
-        instances.push(rp.into());
-    }
+    let instances: Vec<InstanceDisplay> = out.instances.into_iter().map(Into::into).collect();
     let tmpl = InstanceShow { instances };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
