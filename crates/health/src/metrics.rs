@@ -365,14 +365,11 @@ fn serve_request(
             .header(CONTENT_TYPE, "text/plain; charset=utf-8")
             .body("ok".to_string())
             .expect("BUG: Response::builder error")),
-        _ => serve_metrics(req, metrics_manager),
+        _ => serve_metrics(metrics_manager),
     }
 }
 
-fn serve_metrics(
-    _req: Request<Incoming>,
-    metrics_manager: Arc<MetricsManager>,
-) -> Result<Response<String>, hyper::Error> {
+fn serve_metrics(metrics_manager: Arc<MetricsManager>) -> Result<Response<String>, hyper::Error> {
     let encoder = TextEncoder::new();
     let body = match metrics_manager.export_all() {
         Ok(body) => body,
