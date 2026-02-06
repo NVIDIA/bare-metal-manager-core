@@ -19,6 +19,7 @@ use axum::routing::{get, post};
 
 use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch};
+use crate::redfish::Builder;
 use crate::{http, redfish};
 
 pub fn resource<'a>() -> redfish::Resource<'a> {
@@ -115,17 +116,20 @@ pub struct UpdateServiceBuilder {
     value: serde_json::Value,
 }
 
-impl UpdateServiceBuilder {
-    pub fn build(self) -> serde_json::Value {
-        self.value
-    }
-    pub fn firmware_inventory(self, v: &redfish::Collection<'_>) -> Self {
-        self.apply_patch(v.nav_property("FirmwareInventory"))
-    }
-
+impl Builder for UpdateServiceBuilder {
     fn apply_patch(self, patch: serde_json::Value) -> Self {
         Self {
             value: self.value.patch(patch),
         }
+    }
+}
+
+impl UpdateServiceBuilder {
+    pub fn build(self) -> serde_json::Value {
+        self.value
+    }
+
+    pub fn firmware_inventory(self, v: &redfish::Collection<'_>) -> Self {
+        self.apply_patch(v.nav_property("FirmwareInventory"))
     }
 }

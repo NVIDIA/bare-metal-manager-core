@@ -23,6 +23,7 @@ use serde_json::json;
 
 use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch, json_patch};
+use crate::redfish::Builder;
 use crate::{MockPowerState, POWER_CYCLE_DELAY, PowerControl, SetSystemPowerError, http, redfish};
 
 pub fn collection() -> redfish::Collection<'static> {
@@ -499,19 +500,15 @@ pub struct SystemBuilder {
     value: serde_json::Value,
 }
 
-impl SystemBuilder {
-    pub fn maybe_with<T, V>(self, f: fn(Self, &V) -> Self, v: &Option<T>) -> Self
-    where
-        T: AsRef<V>,
-        V: ?Sized,
-    {
-        if let Some(v) = v {
-            f(self, v.as_ref())
-        } else {
-            self
+impl Builder for SystemBuilder {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
         }
     }
+}
 
+impl SystemBuilder {
     pub fn serial_number(self, v: &str) -> Self {
         self.add_str_field("SerialNumber", v)
     }
@@ -570,15 +567,5 @@ impl SystemBuilder {
 
     pub fn build(self) -> serde_json::Value {
         self.value
-    }
-
-    fn add_str_field(self, name: &str, value: &str) -> Self {
-        self.apply_patch(json!({ name: value }))
-    }
-
-    fn apply_patch(self, patch: serde_json::Value) -> Self {
-        Self {
-            value: self.value.patch(patch),
-        }
     }
 }

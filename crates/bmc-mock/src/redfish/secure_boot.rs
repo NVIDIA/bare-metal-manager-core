@@ -16,6 +16,7 @@ use serde_json::json;
 
 use crate::json::{JsonExt, JsonPatch};
 use crate::redfish;
+use crate::redfish::Builder;
 
 pub fn resource<'a>(system_id: &'a str) -> redfish::Resource<'a> {
     let odata_id = format!(
@@ -40,6 +41,14 @@ pub struct SecureBootBuilder {
     value: serde_json::Value,
 }
 
+impl Builder for SecureBootBuilder {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
+        }
+    }
+}
+
 impl SecureBootBuilder {
     pub fn secure_boot_enable(self, v: bool) -> Self {
         self.apply_patch(json!({"SecureBootEnable": v}))
@@ -55,15 +64,5 @@ impl SecureBootBuilder {
 
     pub fn build(self) -> serde_json::Value {
         self.value
-    }
-
-    fn add_str_field(self, name: &str, value: &str) -> Self {
-        self.apply_patch(json!({ name: value }))
-    }
-
-    fn apply_patch(self, patch: serde_json::Value) -> Self {
-        Self {
-            value: self.value.patch(patch),
-        }
     }
 }

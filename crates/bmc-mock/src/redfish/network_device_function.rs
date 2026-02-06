@@ -16,6 +16,7 @@ use serde_json::json;
 
 use crate::json::{JsonExt, JsonPatch};
 use crate::redfish;
+use crate::redfish::Builder;
 
 pub fn chassis_collection(
     chassis_id: &str,
@@ -73,6 +74,15 @@ pub struct NetworkDeviceFunctionBuilder {
     value: serde_json::Value,
 }
 
+impl Builder for NetworkDeviceFunctionBuilder {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
+            id: self.id,
+        }
+    }
+}
+
 impl NetworkDeviceFunctionBuilder {
     pub fn ethernet(self, v: serde_json::Value) -> Self {
         self.apply_patch(json!({ "Ethernet": v }))
@@ -86,13 +96,6 @@ impl NetworkDeviceFunctionBuilder {
         NetworkDeviceFunction {
             id: self.id,
             value: self.value,
-        }
-    }
-
-    fn apply_patch(self, patch: serde_json::Value) -> Self {
-        Self {
-            value: self.value.patch(patch),
-            id: self.id,
         }
     }
 }

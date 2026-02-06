@@ -12,10 +12,9 @@
 
 use std::borrow::Cow;
 
-use serde_json::json;
-
 use crate::json::{JsonExt, JsonPatch};
 use crate::redfish;
+use crate::redfish::Builder;
 
 pub fn collection(system_id: &str) -> redfish::Collection<'static> {
     let odata_id = format!(
@@ -62,6 +61,15 @@ pub struct BootOptionBuilder {
     value: serde_json::Value,
 }
 
+impl Builder for BootOptionBuilder {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
+            id: self.id,
+        }
+    }
+}
+
 impl BootOptionBuilder {
     pub fn display_name(self, value: &str) -> Self {
         self.add_str_field("DisplayName", value)
@@ -79,17 +87,6 @@ impl BootOptionBuilder {
         BootOption {
             id: self.id,
             value: self.value,
-        }
-    }
-
-    fn add_str_field(self, name: &str, value: &str) -> Self {
-        self.apply_patch(json!({ name: value }))
-    }
-
-    fn apply_patch(self, patch: serde_json::Value) -> Self {
-        Self {
-            value: self.value.patch(patch),
-            id: self.id,
         }
     }
 }

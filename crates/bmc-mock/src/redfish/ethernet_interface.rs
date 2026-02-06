@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -17,6 +17,7 @@ use serde_json::json;
 
 use crate::json::{JsonExt, JsonPatch};
 use crate::redfish;
+use crate::redfish::Builder;
 
 pub fn manager_collection(manager_id: &str) -> redfish::Collection<'static> {
     let odata_id = format!("/redfish/v1/Managers/{manager_id}/EthernetInterfaces");
@@ -80,6 +81,15 @@ pub struct EthernetInterfaceBuilder {
     value: serde_json::Value,
 }
 
+impl Builder for EthernetInterfaceBuilder {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
+            id: self.id,
+        }
+    }
+}
+
 impl EthernetInterfaceBuilder {
     pub fn mac_address(self, addr: MacAddress) -> Self {
         self.add_str_field("MACAddress", &addr.to_string())
@@ -97,17 +107,6 @@ impl EthernetInterfaceBuilder {
         EthernetInterface {
             id: self.id,
             value: self.value,
-        }
-    }
-
-    fn add_str_field(self, name: &str, value: &str) -> Self {
-        self.apply_patch(json!({ name: value }))
-    }
-
-    fn apply_patch(self, patch: serde_json::Value) -> Self {
-        Self {
-            value: self.value.patch(patch),
-            id: self.id,
         }
     }
 }

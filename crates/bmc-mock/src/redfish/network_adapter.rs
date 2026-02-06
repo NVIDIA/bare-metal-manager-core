@@ -16,6 +16,7 @@ use serde_json::json;
 
 use crate::json::{JsonExt, JsonPatch};
 use crate::redfish;
+use crate::redfish::Builder;
 
 const NETWORK_ADAPTER_TYPE: &str = "#NetworkAdapter.v1_7_0.NetworkAdapter";
 const NETWORK_ADAPTER_NAME: &str = "Network Adapter";
@@ -72,6 +73,16 @@ pub struct NetworkAdapterBuilder {
     functions: Vec<redfish::network_device_function::NetworkDeviceFunction>,
 }
 
+impl Builder for NetworkAdapterBuilder {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
+            id: self.id,
+            functions: self.functions,
+        }
+    }
+}
+
 impl NetworkAdapterBuilder {
     pub fn manufacturer(self, value: &str) -> Self {
         self.add_str_field("Manufacturer", value)
@@ -113,18 +124,6 @@ impl NetworkAdapterBuilder {
         NetworkAdapter {
             id: self.id,
             value: self.value,
-            functions: self.functions,
-        }
-    }
-
-    fn add_str_field(self, name: &str, value: &str) -> Self {
-        self.apply_patch(json!({ name: value }))
-    }
-
-    fn apply_patch(self, patch: serde_json::Value) -> Self {
-        Self {
-            value: self.value.patch(patch),
-            id: self.id,
             functions: self.functions,
         }
     }

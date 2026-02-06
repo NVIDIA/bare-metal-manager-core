@@ -23,6 +23,7 @@ use serde_json::json;
 
 use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch};
+use crate::redfish::Builder;
 use crate::{http, redfish};
 
 pub fn collection() -> redfish::Collection<'static> {
@@ -58,6 +59,15 @@ pub fn builder(resource: &redfish::Resource<'_>) -> ManagerBuilder {
 pub struct ManagerBuilder {
     reset_target: String,
     value: serde_json::Value,
+}
+
+impl Builder for ManagerBuilder {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
+            reset_target: self.reset_target,
+        }
+    }
 }
 
 impl ManagerBuilder {
@@ -104,23 +114,12 @@ impl ManagerBuilder {
         self.add_str_field("DateTime", &current_time)
     }
 
-    pub fn build(self) -> serde_json::Value {
-        self.value
-    }
-
-    fn add_str_field(self, name: &str, value: &str) -> Self {
-        self.apply_patch(json!({ name: value }))
-    }
-
     pub fn status(self, status: redfish::resource::Status) -> Self {
         self.apply_patch(json!({"Status": status.into_json()}))
     }
 
-    fn apply_patch(self, patch: serde_json::Value) -> Self {
-        Self {
-            value: self.value.patch(patch),
-            reset_target: self.reset_target,
-        }
+    pub fn build(self) -> serde_json::Value {
+        self.value
     }
 }
 
