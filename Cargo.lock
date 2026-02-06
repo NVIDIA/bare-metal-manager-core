@@ -1734,6 +1734,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbide-dsx-exchange-consumer"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "carbide-health-report",
+ "carbide-rpc",
+ "carbide-tls",
+ "carbide-uuid",
+ "carbide-version",
+ "chrono",
+ "figment",
+ "humantime-serde",
+ "logfmt",
+ "metrics-endpoint",
+ "moka",
+ "mqttea",
+ "opentelemetry",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tonic 0.14.2",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "carbide-health"
 version = "0.0.1"
 dependencies = [
@@ -5845,6 +5873,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "moka"
+version = "0.12.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4ac832c50ced444ef6be0767a008b02c106a909ba79d1d830501e94b96f6b7e"
+dependencies = [
+ "async-lock",
+ "crossbeam-channel",
+ "crossbeam-epoch",
+ "crossbeam-utils",
+ "equivalent",
+ "event-listener 5.4.1",
+ "futures-util",
+ "parking_lot",
+ "portable-atomic",
+ "smallvec",
+ "tagptr",
+ "uuid",
+]
+
+[[package]]
 name = "mqttea"
 version = "0.1.0"
 dependencies = [
@@ -9219,6 +9267,12 @@ dependencies = [
  "quote",
  "syn 2.0.108",
 ]
+
+[[package]]
+name = "tagptr"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 
 [[package]]
 name = "tap"

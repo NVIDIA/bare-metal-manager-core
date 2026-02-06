@@ -13,6 +13,7 @@ resources:
   - api
   - dhcp
   - dns
+  - dsx-exchange-consumer
   - hardware-health
   - pxe
   - ssh-console-rs

@@ -485,6 +485,27 @@ impl Forge for Api {
         crate::handlers::health::remove_health_report_override(self, request).await
     }
 
+    async fn list_rack_health_report_overrides(
+        &self,
+        request: Request<rpc::ListRackHealthReportOverridesRequest>,
+    ) -> Result<Response<rpc::ListHealthReportOverrideResponse>, Status> {
+        crate::handlers::rack::list_rack_health_report_overrides(self, request).await
+    }
+
+    async fn insert_rack_health_report_override(
+        &self,
+        request: Request<rpc::InsertRackHealthReportOverrideRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::rack::insert_rack_health_report_override(self, request).await
+    }
+
+    async fn remove_rack_health_report_override(
+        &self,
+        request: Request<rpc::RemoveRackHealthReportOverrideRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::rack::remove_rack_health_report_override(self, request).await
+    }
+
     async fn get_all_domain_metadata(
         &self,
         request: Request<DomainMetadataRequest>,

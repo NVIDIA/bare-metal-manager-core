@@ -624,6 +624,10 @@ impl HealthAlertClassification {
     pub fn hardware() -> Self {
         Self("Hardware".to_string())
     }
+
+    pub fn sensor_critical() -> Self {
+        Self("SensorCritical".to_string())
+    }
 }
 
 /// A health report could not be converted from an external format
