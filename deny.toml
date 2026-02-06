@@ -96,7 +96,6 @@ allow = [
   "CC0-1.0",
   "CDLA-Permissive-2.0",
   "ISC",
-  "LicenseRef-NvidiaProprietary",
   "MIT",
   "MPL-2.0",
   "NCSA",
@@ -120,20 +119,6 @@ exceptions = [
 # Some crates don't have (easily) machine readable licensing information,
 # adding a clarification entry for it allows you to manually specify the
 # licensing information
-[[licenses.clarify]] #TODO: this stanza should be removed and we should update libnvmesh to have a license in its Cargo.toml
-# The package spec the clarification applies to
-crate = "libnvmesh"
-# The SPDX expression for the license requirements of the crate
-expression = "LicenseRef-NvidiaProprietary"
-# One or more files in the crate's source used as the "source of truth" for
-# the license expression. If the contents match, the clarification will be used
-# when running the license check, otherwise the clarification will be ignored
-# and the crate will be checked normally, which may produce warnings or errors
-# depending on the rest of your configuration
-license-files = [
-  # Each entry is a crate relative path, and the (opaque) hash of its contents
-  #{ path = "LICENSE", hash = 0xbd0eed23 }
-]
 [[licenses.clarify]] # TODO: we should open a PR against the upstream lib to figure out why this is necessary, it's clearly marked on the GH page for the repo.
 crate = "async-ssh2-tokio"
 expression = "Apache-2.0"
@@ -185,7 +170,7 @@ allow = [
 ]
 # List of crates to deny
 deny = [
-  { crate = "openssl-sys", reason = "for the love of all that is holy please stop depending on native libs being installed" },
+  { crate = "openssl-sys", reason = "OpenSSL requires native libraries installed on target system which usually never works" },
   #"ansi_term@0.11.0",
   #{ crate = "ansi_term@0.11.0", reason = "you can specify a reason it is banned" },
   # Wrapper crates can optionally be specified to allow the crate when it
@@ -244,9 +229,6 @@ unknown-git = "warn"
 # if not specified. If it is specified but empty, no registries are allowed.
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # List of URLs for allowed Git repositories
-allow-git = [
-  "https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git",
-]
 
 [sources.allow-org]
 # github.com organizations to allow git sources for

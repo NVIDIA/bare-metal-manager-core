@@ -4,7 +4,7 @@ members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
-license = "LicenseRef-NvidiaProprietary"
+license = "Apache-2.0"
 license-file = "LICENSE"
 authors = ["NVIDIA Carbide Engineering <carbide-dev@exchange.nvidia.com>"]
 
