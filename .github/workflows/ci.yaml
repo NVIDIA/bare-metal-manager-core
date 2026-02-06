@@ -577,6 +577,48 @@ jobs:
     secrets: inherit
 
   # ============================================================================
+  # BUILD STAGE - Ranger Images (Rack Validation OS)
+  # ============================================================================
+
+  build-ranger-image-x86-host:
+    needs:
+      - prepare
+      - build-boot-artifacts-x86
+    # Run only if boot artifacts succeeded; skip if cancelled
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-boot-artifacts-x86.result == 'success' }}
+    uses: ./.github/workflows/build-boot-artifacts.yml
+    with:
+      arch: x86_64
+      build_type: ephemeral
+      cargo_make_task: create-ranger-image-x86-host-ci
+      version: ${{ needs.prepare.outputs.version }}
+      runner: linux-amd64-cpu8
+      use_container: false
+      sa_enablement: false
+      inject_extras: false
+      extras_container: ''
+    secrets: inherit
+
+  build-ranger-image-arm-host:
+    needs:
+      - prepare
+      - build-boot-artifacts-bfb
+    # Run only if boot artifacts succeeded; skip if cancelled
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-boot-artifacts-bfb.result == 'success' }}
+    uses: ./.github/workflows/build-boot-artifacts.yml
+    with:
+      arch: aarch64
+      build_type: ephemeral
+      cargo_make_task: create-ranger-image-arm-host-ci
+      version: ${{ needs.prepare.outputs.version }}
+      runner: linux-arm64-cpu8
+      use_container: false
+      sa_enablement: false
+      inject_extras: false
+      extras_container: ''
+    secrets: inherit
+
+  # ============================================================================
   # BUILD STAGE - Release Artifacts
   # ============================================================================
 
@@ -925,6 +967,8 @@ jobs:
       - build-boot-artifacts-bfb
       - build-boot-artifacts-ephemeral-image-x86-host
       - build-boot-artifacts-ephemeral-image-arm-host
+      - build-ranger-image-x86-host
+      - build-ranger-image-arm-host
       - build-forge-cli-x86_64
       - build-forge-cli-aarch64
       - merge-manifests-forge-cli

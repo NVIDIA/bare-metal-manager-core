@@ -2129,6 +2129,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbide-ranger"
+version = "0.0.1"
+dependencies = [
+ "carbide-version",
+ "clap",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "carbide-rpc"
 version = "0.0.0"
 dependencies = [

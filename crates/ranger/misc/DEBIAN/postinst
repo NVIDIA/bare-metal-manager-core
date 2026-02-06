@@ -1,0 +1,22 @@
+#!/bin/bash
+
+set -e
+
+# Create ranger directory if it doesn't exist
+mkdir -p /opt/ranger
+
+# Create default environment file if it doesn't exist
+if [ ! -f /opt/ranger/ranger-agent.env ]; then
+    cat > /opt/ranger/ranger-agent.env << 'EOF'
+# Ranger Agent Configuration
+# RANGER_API_URI=https://carbide-api:8443
+# RANGER_MACHINE_ID=
+EOF
+fi
+
+systemctl daemon-reload
+
+# Enable the service, will be started on a real system boot
+systemctl enable ranger-agent.service || true
+
+echo "Ranger agent installed successfully"

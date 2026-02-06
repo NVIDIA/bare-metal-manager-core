@@ -1,0 +1,94 @@
+#!/bin/bash
+
+set -o pipefail
+
+PCR=16
+OUTCONSOLE=""
+TMPFILE="/tmp/newrootfs"
+ROOTFS_INFO_FILE="/run/nextroot/rootfs_info.txt"
+
+send_msg() {
+	for dest in ${OUTCONSOLE}
+	do
+		echo $1 >${dest} 2>/dev/null
+	done
+}
+
+# Default image will be ranger, from the nginx container
+# TBD: likely will be replaced with ranger - using same loading mechanism as scout
+if [ "$(grep -c 'newrootfs=' /proc/cmdline)" -eq 1 ]
+then
+    newrootfsurl=$(cat /proc/cmdline | sed -e 's/.*newrootfs=//' -e 's/ .*//')
+else
+    arch=$(uname -m)
+    newrootfsurl="http://carbide-static-pxe.forge/public/blobs/internal/${arch}/ranger.cpio.zst"
+fi
+
+# Respect the console info from the kernel command line
+for opt in $(cat /proc/cmdline)
+do
+	if [ "$(echo ${opt} | grep -c '^console=')" -eq 1 ]
+	then
+		dest=$(echo "${opt}" | sed -e 's/console=//' -e 's/,.*//')
+		if [ "$(echo ${dest} | grep -c '^/dev/')" -eq 1 ]
+		then
+			OUTCONSOLE="${OUTCONSOLE} ${dest}"
+		else
+			OUTCONSOLE="${OUTCONSOLE} /dev/${dest}"
+		fi
+	fi
+done
+send_msg "RANGER-LOADER: Starting V1.0"
+
+# We will use "none" as a filename to stay in this image for debugging
+if [ "${newrootfsurl}" != "none" ]
+then
+    # To allow things such as sudo to work once we've switched images, we need to
+    # make sure that the new root is mounted with suid enabled.
+    mkdir -p /nextroot /run/nextroot
+    mount -o bind,suid /nextroot /run/nextroot
+    cd /run/nextroot
+
+    DONE=0
+    send_msg "RANGER-LOADER: Downloading ${newrootfsurl}"
+    while (( ${DONE} != 1 ))
+    do
+      # We store the HTTP HEAD info for the script which will check for updates later.
+      curl -sSf --head ${newrootfsurl} 2> ./curl.err | sed 's/\r//g' > ${ROOTFS_INFO_FILE}
+      if (( $? == 0 ))
+      then
+        curl -sSf -o - ${newrootfsurl} 2> ./curl.err | tee ${TMPFILE} | zstd -d 2> ./zstd.err | cpio -i 2> ./cpio.err
+        if (( $? == 0 ))
+        then
+          if [ -e "/sys/class/tpm/tpm0/pcr-sha256/${PCR}" ]
+          then
+            send_msg "RANGER-LOADER: Measuring to PCR sha256/${PCR}"
+            tpm2_pcrextend "${PCR}:sha256=$(sha256sum ${TMPFILE} | awk '{print $1}')"
+          elif [ -e "/sys/class/tpm/tpm0/pcr-sha384/${PCR}" ]
+          then
+            send_msg "RANGER-LOADER: Measuring to PCR sha384/${PCR}"
+            tpm2_pcrextend "${PCR}:sha384=$(sha384sum ${TMPFILE} | awk '{print $1}')"
+          else
+            send_msg "RANGER-LOADER: Unable to find PCR ${PCR}, is TPM installed and configured correctly?"
+          fi
+          DONE=1
+        else
+          send_msg "RANGER-LOADER: Download failed:"
+          send_msg "RANGER-LOADER: curl error: $(<./curl.err)"
+          send_msg "RANGER-LOADER: zstd error: $(<./zstd.err)"
+          send_msg "RANGER-LOADER: cpio error: $(<./cpio.err)"
+	  sleep 1
+        fi
+      else
+          send_msg "RANGER-LOADER: Failed to gather root filesystem information:"
+          send_msg "RANGER-LOADER: curl error: $(<./curl.err)"
+	  sleep 1
+      fi
+    done
+    
+    send_msg "RANGER-LOADER: Cleaning up & switching"
+    rm -f ${TMPFILE}
+    # We need this so that subsequent reboots don't call soft-reboot and put us in a loop
+    echo "export SYSTEMCTL_SKIP_AUTO_SOFT_REBOOT=1" >>/run/nextroot/etc/environment
+    systemctl soft-reboot
+fi

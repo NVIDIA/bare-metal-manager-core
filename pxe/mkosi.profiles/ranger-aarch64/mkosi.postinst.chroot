@@ -1,0 +1,95 @@
+#!/bin/bash
+
+if [ "$1" != "final" ]; then
+  exit 0
+fi
+
+set -Eeux
+
+# ============================================================================
+# SCOUT AGENT INSTALLATION (TLS PROVISIONING)
+# TBD: likely will be replaced with ranger - Scout is currently used for TLS
+# certificate provisioning and secure communication with Carbide API
+# ============================================================================
+if [ -f /build-output/forge-scout.deb ]; then
+    dpkg -i /build-output/forge-scout.deb
+    echo "Scout agent installed (for TLS provisioning)"
+    # Copy TLS root CA to ranger directory
+    cp /opt/forge/forge_root.pem /opt/ranger/ 2>/dev/null || true
+else
+    echo "WARNING: forge-scout.deb not found in /build-output"
+    echo "TLS provisioning may not work correctly"
+fi
+
+# ============================================================================
+# RANGER AGENT INSTALLATION
+# ============================================================================
+# Install the ranger agent from the deb package
+if [ -f /build-output/ranger-agent.deb ]; then
+    dpkg -i /build-output/ranger-agent.deb
+    echo "Ranger agent installed from deb package"
+else
+    echo "WARNING: ranger-agent.deb not found in /build-output"
+fi
+
+# ============================================================================
+# CREATE STAGING DIRECTORIES
+# ============================================================================
+mkdir -p /var/run/ranger/staging
+mkdir -p /opt/ranger
+
+# ============================================================================
+# RANGER AGENT PRE-START SCRIPT
+# TBD: likely will be replaced with ranger - currently uses Scout for TLS setup
+# ============================================================================
+cat > /opt/ranger/ranger-agent-pre.sh << 'EOF'
+#!/bin/bash
+# Pre-start script for ranger agent
+# Waits for network and performs any necessary setup
+
+# Wait for network to be ready
+for i in {1..30}; do
+    if ip route | grep -q default; then
+        break
+    fi
+    sleep 1
+done
+
+# Create staging directory for downloads
+mkdir -p /var/run/ranger/staging
+chmod 755 /var/run/ranger/staging
+
+# TBD: likely will be replaced with ranger - Scout handles TLS cert provisioning
+# For now, we rely on Scout's TLS bootstrapping mechanism
+if [ -x /opt/forge/forge-scout ]; then
+    echo "Scout available for TLS provisioning"
+fi
+
+exit 0
+EOF
+chmod +x /opt/ranger/ranger-agent-pre.sh
+
+# ============================================================================
+# ENABLE SERVICES
+# ============================================================================
+# TBD: likely will be replaced with ranger - Scout service provides TLS bootstrap
+systemctl enable forge-scout || true
+systemctl enable ranger-agent || true
+systemctl enable ssh
+
+# ============================================================================
+# SSH CONFIGURATION
+# ============================================================================
+# Generate SSH host keys if they don't exist (they will be regenerated on first boot)
+ssh-keygen -A 2>/dev/null || true
+
+# ============================================================================
+# BASIC VERIFICATION
+# ============================================================================
+# Ensure SSH server is properly configured
+if [ ! -f /etc/ssh/sshd_config ]; then
+    echo "ERROR: SSH server configuration missing"
+    exit 1
+fi
+
+echo "Ranger image build completed successfully"

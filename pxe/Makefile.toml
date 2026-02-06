@@ -333,6 +333,8 @@ args = [
   "mkosi.profiles/scout-oss-aarch64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
+# SCOUT PACKAGE COPY TASKS
+
 [tasks.copy-forge-scout-x86_64]
 category = "Copy Forge Scout locally"
 script = '''
@@ -352,6 +354,52 @@ script = '''
   mkosi.profiles/${PROFILE}/mkosi.extra/build-output/forge-scout.deb
 '''
 dependencies = ["mkdir-static"]
+
+# RANGER PACKAGE COPY TASKS
+
+[tasks.copy-ranger-agent-x86_64]
+category = "Ranger Image"
+script = '''
+  PROFILE="ranger-x86_64"
+  mkdir -p mkosi.profiles/${PROFILE}/mkosi.extra/build-output
+  cp ${REPO_ROOT}/target/debs/ranger-agent_${PKG_VERSION}_amd64.deb \
+  mkosi.profiles/${PROFILE}/mkosi.extra/build-output/ranger-agent.deb
+'''
+dependencies = ["mkdir-static"]
+
+[tasks.copy-ranger-agent-aarch64]
+category = "Ranger Image"
+script = '''
+  PROFILE="ranger-aarch64"
+  mkdir -p mkosi.profiles/${PROFILE}/mkosi.extra/build-output
+  cp ${REPO_ROOT}/target/debs/ranger-agent_${PKG_VERSION}_arm64.deb \
+  mkosi.profiles/${PROFILE}/mkosi.extra/build-output/ranger-agent.deb
+'''
+dependencies = ["mkdir-static"]
+
+# TBD: likely will be replaced with ranger - Scout is used for TLS provisioning
+[tasks.copy-forge-scout-to-ranger-x86_64]
+category = "Ranger Image"
+script = '''
+  PROFILE="ranger-x86_64"
+  mkdir -p mkosi.profiles/${PROFILE}/mkosi.extra/build-output
+  cp ${REPO_ROOT}/target/debs/forge-scout_${PKG_VERSION}_amd64.deb \
+  mkosi.profiles/${PROFILE}/mkosi.extra/build-output/forge-scout.deb
+'''
+dependencies = ["mkdir-static"]
+
+# TBD: likely will be replaced with ranger - Scout is used for TLS provisioning
+[tasks.copy-forge-scout-to-ranger-aarch64]
+category = "Ranger Image"
+script = '''
+  PROFILE="ranger-aarch64"
+  mkdir -p mkosi.profiles/${PROFILE}/mkosi.extra/build-output
+  cp ${REPO_ROOT}/target/debs/forge-scout_${PKG_VERSION}_arm64.deb \
+  mkosi.profiles/${PROFILE}/mkosi.extra/build-output/forge-scout.deb
+'''
+dependencies = ["mkdir-static"]
+
+# ---
 
 [tasks.mkosi-clean-qcow-imager]
 category = "Ephemeral Image"
@@ -1275,6 +1323,138 @@ args = [
   "${CI_PROJECT_DIR}/pxe",
 ]
 
+# RANGER OS IMAGE TASKS
+
+[tasks.mkosi-build-ranger-x86_64]
+category = "Ranger Image"
+script = '''
+  PROFILE="ranger-x86_64"
+  export PATH=${PATH}:/sbin
+  ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} build
+'''
+
+[tasks.mkosi-build-ranger-aarch64]
+category = "Ranger Image"
+script = '''
+  PROFILE="ranger-aarch64"
+  export PATH=${PATH}:/sbin
+  ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} build
+'''
+
+[tasks.mkosi-clean-ranger-x86_64]
+category = "Ranger Image"
+command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
+args = [
+  "--profile",
+  "ranger-x86_64",
+  "--output-dir=${MKOSI_BUILD_TMP}",
+  "clean",
+]
+
+[tasks.mkosi-clean-ranger-aarch64]
+category = "Ranger Image"
+command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
+args = [
+  "--profile",
+  "ranger-aarch64",
+  "--output-dir=${MKOSI_BUILD_TMP}",
+  "clean",
+]
+
+[tasks.mkosi-copy-ranger-to-webroot-x86_64]
+category = "Ranger Image"
+command = "cp"
+args = [
+  "${MKOSI_BUILD_TMP}/ranger.cpio.zst",
+  "static/blobs/internal/x86_64/ranger.cpio.zst",
+]
+dependencies = ["mkdir-static"]
+
+[tasks.mkosi-copy-ranger-to-webroot-aarch64]
+category = "Ranger Image"
+command = "cp"
+args = [
+  "${MKOSI_BUILD_TMP}/ranger.cpio.zst",
+  "static/blobs/internal/aarch64/ranger.cpio.zst",
+]
+dependencies = ["mkdir-static"]
+
+[tasks.create-ranger-image-x86-host-ci]
+category = "Ranger Image"
+dependencies = [
+  "mkosi-remove-zypper-from-debian-tools",
+  "mkosi-generate-build-tmpdir",
+  { name = "package-ranger-x86_64-release-local", path = "${REPO_ROOT}" },
+  { name = "package-scout-x86_64-release-local", path = "${REPO_ROOT}" },  # TBD: likely will be replaced with ranger
+  "copy-ranger-agent-x86_64",
+  "copy-forge-scout-to-ranger-x86_64",  # TBD: likely will be replaced with ranger
+  "stage-ranger-loader-rclocal",
+  "mkosi-build-ranger-x86_64",
+  "mkosi-build-ranger-loader-x86_64",
+  "mkosi-copy-ranger-to-webroot-x86_64",
+  "mkosi-copy-ranger-loader-to-webroot-x86_64",
+  "mkosi-clean-ranger-x86_64",
+  "mkosi-clean-ranger-loader-x86_64",
+]
+
+[tasks.create-ranger-image-x86-host]
+category = "Ranger Image"
+dependencies = [
+  "mkosi-remove-zypper-from-debian-tools",
+  "mkdir-static",
+  "mkosi-generate-build-tmpdir",
+  { name = "package-ranger-x86_64-release-local", path = "${REPO_ROOT}" },
+  { name = "package-scout-x86_64-release-local", path = "${REPO_ROOT}" },  # TBD: likely will be replaced with ranger
+  "copy-ranger-agent-x86_64",
+  "copy-forge-scout-to-ranger-x86_64",  # TBD: likely will be replaced with ranger
+  "stage-ranger-loader-rclocal",
+  "mkosi-build-ranger-x86_64",
+  "mkosi-build-ranger-loader-x86_64",
+  "mkosi-copy-ranger-to-webroot-x86_64",
+  "mkosi-copy-ranger-loader-to-webroot-x86_64",
+  "mkosi-clean-ranger-x86_64",
+  "mkosi-clean-ranger-loader-x86_64",
+]
+
+[tasks.create-ranger-image-arm-host-ci]
+category = "Ranger Image"
+dependencies = [
+  "mkosi-remove-zypper-from-debian-tools",
+  "mkosi-generate-build-tmpdir",
+  { name = "package-ranger-aarch64-release-local", path = "${REPO_ROOT}" },
+  { name = "package-scout-aarch64-release-local", path = "${REPO_ROOT}" },  # TBD: likely will be replaced with ranger
+  "copy-ranger-agent-aarch64",
+  "copy-forge-scout-to-ranger-aarch64",  # TBD: likely will be replaced with ranger
+  "stage-ranger-loader-rclocal",
+  "mkosi-build-ranger-aarch64",
+  "mkosi-build-ranger-loader-aarch64",
+  "mkosi-copy-ranger-to-webroot-aarch64",
+  "mkosi-copy-ranger-loader-to-webroot-aarch64",
+  "mkosi-clean-ranger-aarch64",
+  "mkosi-clean-ranger-loader-aarch64",
+]
+
+[tasks.create-ranger-image-arm-host]
+category = "Ranger Image"
+dependencies = [
+  "mkosi-remove-zypper-from-debian-tools",
+  "mkdir-static",
+  "mkosi-generate-build-tmpdir",
+  { name = "package-ranger-aarch64-release-cross", path = "${REPO_ROOT}" },
+  { name = "package-scout-aarch64-release-cross", path = "${REPO_ROOT}" },  # TBD: likely will be replaced with ranger
+  "copy-ranger-agent-aarch64",
+  "copy-forge-scout-to-ranger-aarch64",  # TBD: likely will be replaced with ranger
+  "stage-ranger-loader-rclocal",
+  "mkosi-build-ranger-aarch64",
+  "mkosi-build-ranger-loader-aarch64",
+  "mkosi-copy-ranger-to-webroot-aarch64",
+  "mkosi-copy-ranger-loader-to-webroot-aarch64",
+  "mkosi-clean-ranger-aarch64",
+  "mkosi-clean-ranger-loader-aarch64",
+]
+
+# iPXE AND BFB TASKS (continued)
+
 [tasks.replace-bfpxe-script]
 category = "iPXE Kernel"
 description = "Switch bfpxe script from BFB to custom one"
@@ -1297,3 +1477,69 @@ args = [
   "static/blobs/internal/aarch64/secure-boot-pk.pem",
 ]
 dependencies = ["bfb-rebuild-rootfs"]
+
+# ============================================================================
+# RANGER LOADER TASKS
+# ============================================================================
+
+[tasks.stage-ranger-loader-rclocal]
+category = "Ranger Image"
+description = "Copies the rc.local script to the ranger loader profile directories"
+script = '''
+  cp ${REPO_ROOT}/pxe/common_files/ranger-loader-rclocal ${REPO_ROOT}/pxe/mkosi.profiles/ranger-loader-aarch64/mkosi.extra/etc/rc.local
+  cp ${REPO_ROOT}/pxe/common_files/ranger-loader-rclocal ${REPO_ROOT}/pxe/mkosi.profiles/ranger-loader-x86_64/mkosi.extra/etc/rc.local
+'''
+
+[tasks.mkosi-build-ranger-loader-x86_64]
+category = "Ranger Image"
+command = "/bin/bash"
+args = [
+  "-c",
+  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile ranger-loader-x86_64 --output-dir=${MKOSI_BUILD_TMP} build",
+]
+
+[tasks.mkosi-build-ranger-loader-aarch64]
+category = "Ranger Image"
+command = "/bin/bash"
+args = [
+  "-c",
+  "export PATH=${PATH}:/sbin && ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile ranger-loader-aarch64 --output-dir=${MKOSI_BUILD_TMP} build",
+]
+
+[tasks.mkosi-clean-ranger-loader-x86_64]
+category = "Ranger Image"
+command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
+args = [
+  "--profile",
+  "ranger-loader-x86_64",
+  "--output-dir=${MKOSI_BUILD_TMP}",
+  "clean",
+]
+
+[tasks.mkosi-clean-ranger-loader-aarch64]
+category = "Ranger Image"
+command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
+args = [
+  "--profile",
+  "ranger-loader-aarch64",
+  "--output-dir=${MKOSI_BUILD_TMP}",
+  "clean",
+]
+
+[tasks.mkosi-copy-ranger-loader-to-webroot-x86_64]
+category = "Ranger Image"
+command = "cp"
+args = [
+  "${MKOSI_BUILD_TMP}/ranger-loader.efi",
+  "static/blobs/internal/x86_64/ranger.efi",
+]
+dependencies = ["mkdir-static"]
+
+[tasks.mkosi-copy-ranger-loader-to-webroot-aarch64]
+category = "Ranger Image"
+command = "cp"
+args = [
+  "${MKOSI_BUILD_TMP}/ranger-loader.efi",
+  "static/blobs/internal/aarch64/ranger.efi",
+]
+dependencies = ["mkdir-static"]
