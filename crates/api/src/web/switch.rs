@@ -65,7 +65,6 @@ async fn fetch_switches(api: &Api) -> Result<Vec<SwitchRecord>, (http::StatusCod
         .find_switches(tonic::Request::new(rpc::forge::SwitchQuery {
             name: None,
             switch_id: None,
-            include_addresses: None,
         }))
         .await
     {

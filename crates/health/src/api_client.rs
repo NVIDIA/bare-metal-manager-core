@@ -203,7 +203,6 @@ impl ApiClientWrapper {
             let switch_request = rpc::forge::SwitchQuery {
                 name: None,
                 switch_id: None,
-                include_addresses: Some(true),
             };
 
             match self.client.find_switches(switch_request).await {
@@ -212,14 +211,15 @@ impl ApiClientWrapper {
                         .switches
                         .into_iter()
                         .filter_map(|s| {
-                            let ip = s.ip_address.as_ref()?.parse().ok()?;
-                            let mac = s.bmc_mac_address?;
+                            let bmc = s.bmc_info?;
+                            let ip = bmc.ip.as_ref()?.parse().ok()?;
+                            let mac = bmc.mac?;
                             let serial = s.config?.name;
 
                             Some(BmcEndpoint {
                                 addr: BmcAddr {
                                     ip,
-                                    port: None,
+                                    port: bmc.port.map(|p| p as u16),
                                     mac,
                                 },
                                 credentials: BmcCredentials {
