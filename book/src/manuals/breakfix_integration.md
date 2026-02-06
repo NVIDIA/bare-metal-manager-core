@@ -137,7 +137,7 @@ enabled = true
 # Auto-repair setting is in carbide-api-site-config.toml
 
 # Manually trigger repair using health override
-forge-admin-cli machine health-override add <machine-id> --template RequestRepair \
+carbide-admin-cli machine health-override add <machine-id> --template RequestRepair \
   --message "Manual repair trigger for tenant-reported issue"
 
 # To enable auto-repair site-wide, update carbide-api-site-config.toml:
@@ -163,15 +163,15 @@ forge-admin-cli machine health-override add <machine-id> --template RequestRepai
 **Troubleshooting:**
 ```bash
 # Check machine status and health overrides
-forge-admin-cli machine show <machine-id>
-forge-admin-cli machine health-override show <machine-id>
+carbide-admin-cli machine show <machine-id>
+carbide-admin-cli machine health-override show <machine-id>
 
 # Check repair system status (requires monitoring tools)
 # - Check repair tenant instances
 # - Verify repair system connectivity
 
 # Manually assign repair override if needed
-forge-admin-cli machine health-override add <machine-id> --template RequestRepair \
+carbide-admin-cli machine health-override add <machine-id> --template RequestRepair \
   --message "Manual assignment for repair system"
 ```
 
@@ -197,15 +197,15 @@ forge-admin-cli machine health-override add <machine-id> --template RequestRepai
 **Detection and Response:**
 ```bash
 # Check machine status and current health overrides
-forge-admin-cli machine show <machine-id>
-forge-admin-cli machine health-override show <machine-id>
+carbide-admin-cli machine show <machine-id>
+carbide-admin-cli machine health-override show <machine-id>
 
 # Check repair work status (requires access to repair system logs)
 # - Review repair tenant instance logs
 # - Check repair system monitoring
 
 # If issue persists, escalate to manual intervention
-forge-admin-cli machine health-override add <machine-id> --template OutForRepair \
+carbide-admin-cli machine health-override add <machine-id> --template OutForRepair \
   --message "Repair unsuccessful, requires manual investigation"
 ```
 
@@ -231,10 +231,10 @@ forge-admin-cli machine health-override add <machine-id> --template OutForRepair
 **Verification Steps:**
 ```bash
 # Confirm machine is healthy and available
-forge-admin-cli machine show <machine-id>
+carbide-admin-cli machine show <machine-id>
 
 # Check that health overrides are cleared
-forge-admin-cli machine health-override show <machine-id>
+carbide-admin-cli machine health-override show <machine-id>
 
 # Verify machine status (should show as available)
 # Machine should appear in normal allocation pool
@@ -269,8 +269,8 @@ forge-admin-cli machine health-override show <machine-id>
 **Detection:**
 ```bash
 # Check machine status after repair tenant release
-forge-admin-cli machine show <machine-id>
-forge-admin-cli machine health-override show <machine-id>
+carbide-admin-cli machine show <machine-id>
+carbide-admin-cli machine health-override show <machine-id>
 
 # Look for:
 # - repair-request override: REMOVED
@@ -281,10 +281,10 @@ forge-admin-cli machine health-override show <machine-id>
 **Resolution:**
 ```bash
 # If repair was actually successful, manually clear the issue
-forge-admin-cli machine health-override remove <machine-id> tenant-reported-issue
+carbide-admin-cli machine health-override remove <machine-id> tenant-reported-issue
 
 # If repair was incomplete, escalate properly
-forge-admin-cli machine health-override add <machine-id> --template OutForRepair \
+carbide-admin-cli machine health-override add <machine-id> --template OutForRepair \
   --message "Repair incomplete - requires manual investigation"
 ```
 
@@ -313,14 +313,14 @@ forge-admin-cli machine health-override add <machine-id> --template OutForRepair
 # enabled = true|false
 
 # Check current runtime configuration
-forge-admin-cli version --show-runtime-config
+carbide-admin-cli version --show-runtime-config
 ```
 
 **Monitor Issue Reporting:**
 ```bash
 # Check machine status and health overrides
-forge-admin-cli machine show <machine-id>
-forge-admin-cli machine health-override show <machine-id>
+carbide-admin-cli machine show <machine-id>
+carbide-admin-cli machine health-override show <machine-id>
 
 # Monitor machine through repair cycle (requires external monitoring)
 ```
@@ -328,15 +328,15 @@ forge-admin-cli machine health-override show <machine-id>
 **Manual Intervention:**
 ```bash
 # Remove specific health overrides
-forge-admin-cli machine health-override remove <machine-id> repair-request
-forge-admin-cli machine health-override remove <machine-id> tenant-reported-issue
+carbide-admin-cli machine health-override remove <machine-id> repair-request
+carbide-admin-cli machine health-override remove <machine-id> tenant-reported-issue
 
 # Apply manual repair override
-forge-admin-cli machine health-override add <machine-id> --template RequestRepair \
+carbide-admin-cli machine health-override add <machine-id> --template RequestRepair \
   --message "Manual repair assignment"
 
 # Escalate to operations team
-forge-admin-cli machine health-override add <machine-id> --template OutForRepair \
+carbide-admin-cli machine health-override add <machine-id> --template OutForRepair \
   --message "Automated repair failed, requires manual investigation"
 ```
 

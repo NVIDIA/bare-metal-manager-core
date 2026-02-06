@@ -27,11 +27,13 @@ use rustc_lint_defs::{Lint, LintPass, LintVec};
 use rustc_middle::hir::nested_filter;
 use rustc_middle::hir::place::{Place as HirPlace, PlaceBase};
 use rustc_middle::mir::{Location, ProjectionElem};
-use rustc_middle::ty::{Adt, Ty as MiddleTy, TyCtxt, TypeckResults, UpvarId, UpvarPath};
+use rustc_middle::ty::{
+    Adt, ParamEnv, Ty as MiddleTy, TyCtxt, TypeckResults, UpvarId, UpvarPath,
+};
 use rustc_middle::{bug, mir};
-use rustc_mir_dataflow::Analysis;
 use rustc_mir_dataflow::impls::{MaybeInitializedPlaces, MaybeUninitializedPlaces};
 use rustc_mir_dataflow::move_paths::{LookupResult, MoveData};
+use rustc_mir_dataflow::Analysis;
 use rustc_span::def_id::DefId;
 use rustc_span::{Span, Symbol};
 use rustc_type_ir::inherent::SliceLike;
@@ -119,11 +121,12 @@ pub struct TxnHeldAcrossAwait {
 impl Default for TxnHeldAcrossAwait {
     fn default() -> Self {
         let txn_symbol_paths = vec![
-            "sqlx_core::transaction::Transaction".to_string(),
-            "sqlx_postgres::PgTransaction".to_string(),
-            "db::Transaction".to_string(),
-            "sqlx_postgres::connection::PgConnection".to_string(),
-            "sqlx_core::pool::connection::PoolConnection".to_string(),
+            "sqlx_core::transaction::Transaction",
+            "sqlx_postgres::PgTransaction",
+            "db::Transaction",
+            "db::db_read::DbReader",
+            "sqlx_postgres::connection::PgConnection",
+            "sqlx_core::pool::connection::PoolConnection",
         ]
         .into_iter()
         .map(|txn| {
@@ -178,10 +181,11 @@ impl TxnHeldAcrossAwait {
         };
         // Get the user-visible function that desugared into this coroutine
         let outer_fn = tcx.parent_hir_node(tcx.local_def_id_to_hir_id(closure.def_id));
+        let param_env = self.param_env_for_owner(tcx, outer_fn, closure.def_id);
 
         // Get any txns passed as input parameters (which are sometimes not included in coroutine
         // variants)
-        let borrowed_txn_input_params = self.find_txn_input_params(tcx, outer_fn);
+        let borrowed_txn_input_params = self.find_txn_input_params(tcx, param_env, outer_fn);
 
         // Get the HIR (high-level representation) body for this coroutine's owner (the function
         // itself)
@@ -208,7 +212,7 @@ impl TxnHeldAcrossAwait {
             // First check the fields in this coroutine variant:
             for field in &coroutine.variant_fields[variant] {
                 let ty_cause = &coroutine.field_tys[field.clone()];
-                if self.is_sqlx_transaction_ty(tcx, &ty_cause.ty) {
+                if self.is_sqlx_transaction_ty(tcx, param_env, &ty_cause.ty) {
                     txn_local_spans.push(ty_cause.source_info.span)
                 }
             }
@@ -257,6 +261,7 @@ impl TxnHeldAcrossAwait {
                     hir_body,
                     typeck_results,
                     tcx,
+                    param_env,
                 ) {
                     continue;
                 }
@@ -289,6 +294,8 @@ impl TxnHeldAcrossAwait {
         let Some(coroutine) = tcx.mir_coroutine_witnesses(closure.def_id) else {
             return;
         };
+        let outer_fn = tcx.parent_hir_node(tcx.local_def_id_to_hir_id(closure.def_id));
+        let param_env = self.param_env_for_owner(tcx, outer_fn, closure.def_id);
 
         // Gather typeck results, needed to get type info for locals
         let typeck_results = tcx.typeck_body(closure.body);
@@ -307,7 +314,7 @@ impl TxnHeldAcrossAwait {
             .iter()
             .enumerate()
             .filter_map(|(capture_idx, place)| {
-                if !self.is_sqlx_transaction_ty(tcx, &place.place.base_ty) {
+                if !self.is_sqlx_transaction_ty(tcx, param_env, &place.place.base_ty) {
                     return None;
                 }
 
@@ -382,6 +389,7 @@ impl TxnHeldAcrossAwait {
                     tcx.hir_body(closure.body),
                     typeck_results,
                     tcx,
+                    param_env,
                 ) {
                     continue;
                 }
@@ -419,18 +427,56 @@ impl TxnHeldAcrossAwait {
     }
 
     /// Check if the given rustc_middle::Ty (ie. output from typeck) resolves to a sqlx::Transaction
-    pub fn is_sqlx_transaction_ty(&self, tcx: TyCtxt<'_>, ty: &MiddleTy) -> bool {
-        let def_id = match ty.peel_refs().kind() {
-            Adt(adt, _) => adt.did(),
-            _ => {
+    pub fn is_sqlx_transaction_ty<'tcx>(
+        &self,
+        tcx: TyCtxt<'tcx>,
+        param_env: ParamEnv<'tcx>,
+        ty: &MiddleTy<'tcx>,
+    ) -> bool {
+        let peeled_ty = ty.peel_refs();
+        let def_id = match peeled_ty.kind() {
+            Adt(adt, _) => Some(adt.did()),
+            rustc_middle::ty::Dynamic(predicates, _) => predicates.principal_def_id(),
+            _ => None,
+        };
+
+        if let Some(def_id) = def_id {
+            if self.is_sqlx_transaction(tcx, def_id) {
+                return true;
+            }
+        }
+
+        // Fall back to checking trait bounds (ie. DbReader) when the type itself isn't an ADT we recognize.
+        self.ty_has_txn_bound(tcx, param_env, *ty)
+            || self.ty_has_txn_bound(tcx, param_env, peeled_ty)
+    }
+
+    fn ty_has_txn_bound<'tcx>(
+        &self,
+        tcx: TyCtxt<'tcx>,
+        param_env: ParamEnv<'tcx>,
+        ty: MiddleTy<'tcx>,
+    ) -> bool {
+        param_env.caller_bounds().iter().any(|predicate| {
+            let Some(trait_pred) = predicate.as_trait_clause() else {
+                return false;
+            };
+            if !self.is_sqlx_transaction(tcx, trait_pred.def_id()) {
                 return false;
             }
-        };
-        self.is_sqlx_transaction(tcx, def_id)
+
+            let self_ty = trait_pred.skip_binder().trait_ref.self_ty().peel_refs();
+            self_ty == ty.peel_refs()
+        })
     }
 
     /// Given a function Node, get any input parameters of type sqlx::Transaction
-    fn find_txn_input_params<'tcx>(&self, tcx: TyCtxt<'tcx>, fn_node: Node) -> Vec<Param<'tcx>> {
+    fn find_txn_input_params<'tcx>(
+        &self,
+        tcx: TyCtxt<'tcx>,
+        param_env: ParamEnv<'tcx>,
+        fn_node: Node,
+    ) -> Vec<Param<'tcx>> {
         if let Node::Item(Item {
             kind:
                 ItemKind::Fn {
@@ -446,32 +492,15 @@ impl TxnHeldAcrossAwait {
         }) = fn_node
         {
             let body = tcx.hir_body(*fn_body_id);
+            let typeck_results = tcx.typeck_body(*fn_body_id);
             sig.decl
                 .inputs
                 .iter()
-                .enumerate()
-                .filter_map(|(param_index, ty)| {
-                    if let rustc_hir::TyKind::Ref(
-                        _,
-                        rustc_hir::MutTy {
-                            ty:
-                                rustc_hir::Ty {
-                                    kind: rustc_hir::TyKind::Path(qpath),
-                                    ..
-                                },
-                            ..
-                        },
-                    ) = &ty.kind
-                    {
-                        let hir::QPath::Resolved(_, path) = qpath else {
-                            return None;
-                        };
-                        let def_id = path.res.opt_def_id()?;
-                        if self.is_sqlx_transaction(tcx, def_id.into()) {
-                            Some(body.params[param_index])
-                        } else {
-                            None
-                        }
+                .zip(body.params.iter())
+                .filter_map(|(_decl, param)| {
+                    let ty = typeck_results.node_type_opt(param.pat.hir_id)?;
+                    if self.is_sqlx_transaction_ty(tcx, param_env, &ty) {
+                        Some(*param)
                     } else {
                         None
                     }
@@ -479,6 +508,22 @@ impl TxnHeldAcrossAwait {
                 .collect()
         } else {
             vec![]
+        }
+    }
+
+    /// The closure coroutine's def_id does not always carry all the trait bounds from the user
+    /// facing function. Grab the parent's param_env when we can so trait-based detection (DbReader)
+    /// works.
+    fn param_env_for_owner<'tcx>(
+        &self,
+        tcx: TyCtxt<'tcx>,
+        owner: Node<'tcx>,
+        fallback: rustc_hir::def_id::LocalDefId,
+    ) -> ParamEnv<'tcx> {
+        match owner {
+            Node::Item(item) => tcx.param_env(item.owner_id.def_id),
+            Node::ImplItem(item) => tcx.param_env(item.owner_id.def_id),
+            _ => tcx.param_env(fallback),
         }
     }
 
@@ -510,7 +555,8 @@ impl TxnHeldAcrossAwait {
         txn_local_hir_id: HirId,
         awaited: &Expr<'tcx>,
         tcx: TyCtxt<'tcx>,
-        typeck_results: &TypeckResults,
+        typeck_results: &TypeckResults<'tcx>,
+        param_env: ParamEnv<'tcx>,
     ) -> bool {
         let args = match awaited.peel_borrows().kind {
             // e.g. `db::machine::get(db)`
@@ -527,7 +573,7 @@ impl TxnHeldAcrossAwait {
                     }
                 }
                 if let Some(ty) = typeck_results.expr_ty_opt(recv)
-                    && self.is_sqlx_transaction_ty(tcx, &ty)
+                    && self.is_sqlx_transaction_ty(tcx, param_env, &ty)
                 {
                     return true;
                 }
@@ -737,8 +783,9 @@ impl<'tcx> DbAwaitFinder<'tcx> {
         lint: &TxnHeldAcrossAwait,
         params: DbAwaitSearchParams,
         body: &'tcx Body,
-        typeck_results: &'tcx TypeckResults,
+        typeck_results: &'tcx TypeckResults<'tcx>,
         tcx: TyCtxt<'tcx>,
+        param_env: ParamEnv<'tcx>,
     ) -> bool {
         let mut finder = Self {
             tcx,
@@ -776,7 +823,13 @@ impl<'tcx> DbAwaitFinder<'tcx> {
             return false;
         };
 
-        lint.is_passing_txn(txn_local_hir_id, await_expr, tcx, typeck_results)
+        lint.is_passing_txn(
+            txn_local_hir_id,
+            await_expr,
+            tcx,
+            typeck_results,
+            param_env,
+        )
     }
 
     fn awaited_expr(&self) -> Option<&'tcx Expr<'tcx>> {
