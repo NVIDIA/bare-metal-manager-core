@@ -1,15 +1,15 @@
 name: Publish Github Pages Documentation
 
 on:
-  # Force trigger on a non-protected branch. Useful for testing.
-  # push:
-  #   branches:
-  #     - feat/publish-gh-pages
-  #   paths:
-  #     - 'book/**'
-  #     - '.github/workflows/docs.yml'
+  # main: always build and deploy
+  # pull-request/*: only build if book/ changes
+  push:
+    branches:
+      - main
+      - pull-request/[0-9]+
 
-   # Allow manual trigger. It will only works on default branches.
+
+  # Allow manual trigger
   workflow_dispatch:
     inputs:
       build_container:
@@ -109,6 +109,8 @@ jobs:
   # Before deploying, make sure the branch is allowed in gh-pages protection rules
   # https://github.com/NVIDIA/carbide-core-snapshot/settings/environments
   deploy:
+    # Only deploy on push to main (pull-request/* branches only run build to test compilation)
+    if: github.ref == 'refs/heads/main'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
