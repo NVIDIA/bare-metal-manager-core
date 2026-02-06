@@ -68,7 +68,7 @@ pub(crate) async fn find_by_ids(
     let segments = api
         .with_txn(|txn| {
             db::network_segment::find_by(
-                txn,
+                txn.as_mut(),
                 ObjectColumnFilter::List(network_segment::IdColumn, &network_segments_ids),
                 NetworkSegmentSearchConfig {
                     include_history,
@@ -255,7 +255,7 @@ pub(crate) async fn save(
     if allocate_svi_ip {
         db::network_segment::allocate_svi_ip(&network_segment, txn).await?;
         let network_segments = db::network_segment::find_by(
-            txn,
+            txn.as_mut(),
             ObjectColumnFilter::One(network_segment::IdColumn, &network_segment.id),
             NetworkSegmentSearchConfig::default(),
         )

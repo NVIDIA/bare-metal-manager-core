@@ -80,7 +80,7 @@ async fn create_machines(
 pub async fn get_all_snapshots(test_env: &TestEnv) -> HashMap<MachineId, ManagedHostStateSnapshot> {
     let mut txn = test_env.pool.begin().await.unwrap();
     let machine_ids = db::machine::find_machine_ids(
-        &mut txn,
+        txn.as_mut(),
         MachineSearchConfig {
             include_predicted_host: true,
             ..Default::default()

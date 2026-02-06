@@ -21,13 +21,17 @@ use model::network_prefix::NetworkPrefix;
 use model::network_segment::NetworkSegment;
 use sqlx::PgConnection;
 
+use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
 #[async_trait::async_trait]
-pub trait UsedIpResolver {
+pub trait UsedIpResolver<DB>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     // used_ips is expected to return used (or allocated)
     // IPs as reported by whoever implements this trait.
-    async fn used_ips(&self, txn: &mut PgConnection) -> Result<Vec<IpAddr>, DatabaseError>;
+    async fn used_ips(&self, txn: &mut DB) -> Result<Vec<IpAddr>, DatabaseError>;
 
     // Method to get used/allocated IPs for implementor.
     // Since the allocated IPs may actually be allocated
@@ -36,7 +40,7 @@ pub trait UsedIpResolver {
     // type supports this, since `inet` supports the
     // ability to set a prefix length (with /32 being the
     // implied default).
-    async fn used_prefixes(&self, txn: &mut PgConnection) -> Result<Vec<IpNetwork>, DatabaseError>;
+    async fn used_prefixes(&self, txn: &mut DB) -> Result<Vec<IpNetwork>, DatabaseError>;
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -104,16 +108,19 @@ pub struct IpAllocator {
 }
 
 impl IpAllocator {
-    pub async fn new(
-        txn: &mut PgConnection,
+    pub async fn new<DB>(
+        db: &mut DB,
         segment: &NetworkSegment,
-        used_ip_resolver: Box<dyn UsedIpResolver + Send>,
+        used_ip_resolver: Box<dyn UsedIpResolver<DB> + Send>,
         address_strategy: AddressSelectionStrategy,
         prefix_length: u8,
-    ) -> DatabaseResult<Self> {
+    ) -> DatabaseResult<Self>
+    where
+        for<'db> &'db mut DB: DbReader<'db>,
+    {
         match address_strategy {
             AddressSelectionStrategy::Automatic => {
-                let used_ips = used_ip_resolver.used_prefixes(&mut *txn).await?;
+                let used_ips = used_ip_resolver.used_prefixes(db).await?;
 
                 Ok(IpAllocator {
                     prefixes: segment

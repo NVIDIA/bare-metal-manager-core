@@ -22,6 +22,7 @@ use model::site_explorer::{
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
 
+use crate::db_read::DbReader;
 use crate::{BIND_LIMIT, DatabaseError};
 
 #[derive(Debug)]
@@ -127,14 +128,14 @@ pub async fn find_ips(
 }
 
 pub async fn find_by_ips(
-    txn: &mut PgConnection,
+    db: impl DbReader<'_>,
     ips: Vec<IpAddr>,
 ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
     let query = "SELECT * FROM explored_endpoints WHERE address=ANY($1)";
 
     sqlx::query_as::<_, DbExploredEndpoint>(query)
         .bind(ips)
-        .fetch_all(txn)
+        .fetch_all(db)
         .await
         .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
         .map_err(|e| DatabaseError::new("explored_endpoints::find_by_ips", e))

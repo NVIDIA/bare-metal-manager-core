@@ -134,7 +134,7 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
 
     let mut txn = env.pool.begin().await?;
     let db_segment = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(db::network_segment::IdColumn, &segment.id.unwrap()),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
@@ -298,7 +298,7 @@ async fn test_network_segment_max_history_length(
 
     let mut txn = env.pool.begin().await.unwrap();
     let mut version = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
@@ -323,7 +323,7 @@ async fn test_network_segment_max_history_length(
             .unwrap()
         );
         version = db::network_segment::find_by(
-            &mut txn,
+            txn.as_mut(),
             ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
             network_segment::NetworkSegmentSearchConfig::default(),
         )
@@ -484,7 +484,7 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
     let search_cfg = NetworkSegmentSearchConfig::default();
     let mut txn = db_pool.begin().await?;
     let num_before = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::<db::network_segment::IdColumn>::All,
         search_cfg,
     )
@@ -494,7 +494,7 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
     crate::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
     let mut txn = db_pool.begin().await?;
     let num_after = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::<db::network_segment::IdColumn>::All,
         search_cfg,
     )
@@ -885,7 +885,7 @@ async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     let mut txn = env.pool.begin().await?;
     let segments = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(VpcColumn, &vpc_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
@@ -910,7 +910,7 @@ async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     // Already created segments must have SVI allocated.
     let mut txn = env.pool.begin().await?;
     let segments = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(VpcColumn, &vpc_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
@@ -938,7 +938,7 @@ async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     let mut txn = env.pool.begin().await?;
     let segments = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(VpcColumn, &vpc_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
@@ -993,7 +993,7 @@ async fn test_update_svi_ip_post_instance_allocation(
 
     let mut txn = env.pool.begin().await?;
     let segments = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
@@ -1032,7 +1032,7 @@ async fn test_update_svi_ip_post_instance_allocation(
     // At this moment, the third IP is taken from the tenant subnet for the instance.
     let mut txn = env.pool.begin().await?;
     let mut segment = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
@@ -1048,7 +1048,7 @@ async fn test_update_svi_ip_post_instance_allocation(
 
     let mut txn = env.pool.begin().await?;
     let mut segment = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )

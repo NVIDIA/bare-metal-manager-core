@@ -29,6 +29,7 @@ use model::network_segment::{
 };
 use sqlx::{PgConnection, PgTransaction};
 
+use crate::db_read::DbReader;
 use crate::instance_address::UsedOverlayNetworkIpResolver;
 use crate::ip_allocator::{IpAllocator, UsedIpResolver};
 use crate::machine_interface::UsedAdminNetworkIpResolver;
@@ -281,11 +282,14 @@ pub async fn find_ids(
     Ok(ids)
 }
 
-pub async fn find_by<'a, C: ColumnInfo<'a, TableType = NetworkSegment>>(
-    txn: &mut PgConnection,
+pub async fn find_by<'a, C: ColumnInfo<'a, TableType = NetworkSegment>, DB>(
+    conn: &mut DB,
     filter: ObjectColumnFilter<'a, C>,
     search_config: NetworkSegmentSearchConfig,
-) -> Result<Vec<NetworkSegment>, DatabaseError> {
+) -> Result<Vec<NetworkSegment>, DatabaseError>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     let mut query = FilterableQueryBuilder::new(if search_config.include_history {
         NETWORK_SEGMENT_SNAPSHOT_WITH_HISTORY_QUERY.deref()
     } else {
@@ -295,12 +299,12 @@ pub async fn find_by<'a, C: ColumnInfo<'a, TableType = NetworkSegment>>(
 
     let mut all_records = query
         .build_query_as()
-        .fetch_all(&mut *txn)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| DatabaseError::query(query.sql(), e))?;
 
     if search_config.include_num_free_ips {
-        update_num_free_ips_into_prefix_list(txn, &mut all_records).await?;
+        update_num_free_ips_into_prefix_list(conn, &mut all_records).await?;
     }
     Ok(all_records)
 }
@@ -364,10 +368,13 @@ pub async fn batch_find_ids_by_machine_ids(
     Ok(result)
 }
 
-async fn update_num_free_ips_into_prefix_list(
-    txn: &mut PgConnection,
+async fn update_num_free_ips_into_prefix_list<DB>(
+    conn: &mut DB,
     all_records: &mut [NetworkSegment],
-) -> Result<(), DatabaseError> {
+) -> Result<(), DatabaseError>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     for record in all_records.iter_mut().filter(|s| !s.prefixes.is_empty()) {
         let mut busy_ips = vec![];
         for prefix in &record.prefixes {
@@ -375,7 +382,7 @@ async fn update_num_free_ips_into_prefix_list(
                 busy_ips.push(svi_ip);
             }
         }
-        let dhcp_handler: Box<dyn UsedIpResolver + Send> = if record.segment_type.is_tenant() {
+        let dhcp_handler: Box<dyn UsedIpResolver<DB> + Send> = if record.segment_type.is_tenant() {
             // Note on UsedOverlayNetworkIpResolver:
             // In this case, the IpAllocator isn't being used to iterate to get
             // the next available prefix_length allocation -- it's actually just
@@ -408,7 +415,7 @@ async fn update_num_free_ips_into_prefix_list(
         };
 
         let mut allocated_addresses = IpAllocator::new(
-            txn,
+            &mut *conn,
             record,
             dhcp_handler,
             AddressSelectionStrategy::Automatic,
@@ -589,12 +596,15 @@ pub async fn admin(txn: &mut PgConnection) -> Result<NetworkSegment, DatabaseErr
 
 /// Are queried segment in ready state?
 /// Returns true if all segments are in Ready state, else false
-pub async fn are_network_segments_ready(
-    txn: &mut PgConnection,
+pub async fn are_network_segments_ready<DB>(
+    conn: &mut DB,
     segment_ids: &[NetworkSegmentId],
-) -> Result<bool, DatabaseError> {
+) -> Result<bool, DatabaseError>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     let segments = find_by(
-        txn,
+        conn,
         ObjectColumnFilter::List(IdColumn, segment_ids),
         NetworkSegmentSearchConfig::default(),
     )

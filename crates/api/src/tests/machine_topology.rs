@@ -58,7 +58,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let mut txn = env.pool.begin().await?;
     let segment = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
         model::network_segment::NetworkSegmentSearchConfig::default(),
     )
@@ -210,7 +210,7 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
 
     let mut txn = env.pool.begin().await?;
     let segment = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
         model::network_segment::NetworkSegmentSearchConfig::default(),
     )

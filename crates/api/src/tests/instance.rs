@@ -1720,8 +1720,11 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         segment_id: segment_id_1,
         busy_ips: vec![],
     };
-    let used_ips = allocated_ip_resolver.used_ips(&mut txn).await.unwrap();
-    let used_prefixes = allocated_ip_resolver.used_prefixes(&mut txn).await.unwrap();
+    let used_ips = allocated_ip_resolver.used_ips(txn.as_mut()).await.unwrap();
+    let used_prefixes = allocated_ip_resolver
+        .used_prefixes(txn.as_mut())
+        .await
+        .unwrap();
     assert_eq!(1, used_ips.len());
     assert_eq!(1, used_prefixes.len());
     assert_eq!("192.0.4.3", used_ips[0].to_string());
@@ -1732,8 +1735,11 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         segment_id: segment_id_2,
         busy_ips: vec![],
     };
-    let used_ips = allocated_ip_resolver.used_ips(&mut txn).await.unwrap();
-    let used_prefixes = allocated_ip_resolver.used_prefixes(&mut txn).await.unwrap();
+    let used_ips = allocated_ip_resolver.used_ips(txn.as_mut()).await.unwrap();
+    let used_prefixes = allocated_ip_resolver
+        .used_prefixes(txn.as_mut())
+        .await
+        .unwrap();
     assert_eq!(1, used_ips.len());
     assert_eq!(1, used_prefixes.len());
     assert_eq!("192.1.4.3", used_ips[0].to_string());
@@ -2296,7 +2302,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
 
     let mut txn = env.db_txn().await;
     let network_segment = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(
             IdColumn,
             &config.network.interfaces[0].network_segment_id.unwrap(),
@@ -2421,7 +2427,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .unwrap();
 
     let ns = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(db::network_segment::IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
     )
@@ -2462,7 +2468,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
 
     let mut txn = env.db_txn().await;
     let mut ns = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(
             IdColumn,
             &fetched_instance.config.network.interfaces[0]
@@ -2533,7 +2539,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     // Address is freed during delete
     let mut txn = env.db_txn().await;
     let network_segments = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::List(IdColumn, &segment_ids),
         NetworkSegmentSearchConfig::default(),
     )
@@ -2613,7 +2619,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .unwrap();
 
     let ns1 = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
     )
@@ -2642,7 +2648,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .unwrap();
 
     let ns2 = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
     )
@@ -2670,7 +2676,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .unwrap();
 
     let ns3 = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
     )
@@ -2705,7 +2711,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .unwrap();
 
     let ns4 = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
     )
@@ -4311,7 +4317,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
 
     for iface in config.network.interfaces {
         let network_segment = db::network_segment::find_by(
-            &mut txn,
+            txn.as_mut(),
             ObjectColumnFilter::One(IdColumn, &iface.network_segment_id.unwrap()),
             NetworkSegmentSearchConfig::default(),
         )

@@ -27,7 +27,7 @@ async fn prevent_duplicate_mac_addresses(
     let mut txn = env.pool.begin().await?;
 
     let network_segment = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
         model::network_segment::NetworkSegmentSearchConfig::default(),
     )

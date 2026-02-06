@@ -147,7 +147,7 @@ impl MachineUpdateManager {
         txn: &mut PgConnection,
     ) -> CarbideResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
         let machine_ids = db::machine::find_machine_ids(
-            txn,
+            &mut *txn,
             MachineSearchConfig {
                 include_predicted_host: true,
                 ..Default::default()

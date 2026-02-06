@@ -63,7 +63,7 @@ pub mod tests {
         let mut txn = env.pool.begin().await?;
 
         let segment = db::network_segment::find_by(
-            &mut txn,
+            txn.as_mut(),
             ObjectColumnFilter::One(db::network_segment::IdColumn, &env.admin_segment.unwrap()),
             network_segment::NetworkSegmentSearchConfig::default(),
         )
@@ -114,7 +114,7 @@ pub mod tests {
         let mut txn = env.pool.begin().await?;
 
         let segment = db::network_segment::find_by(
-            &mut txn,
+            txn.as_mut(),
             ObjectColumnFilter::One(db::network_segment::IdColumn, &env.admin_segment.unwrap()),
             network_segment::NetworkSegmentSearchConfig::default(),
         )
@@ -257,7 +257,7 @@ pub mod tests {
 
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await?;
 
-        let ek_cert_status = ek_cert_verification_status::get_by_machine_id(&mut txn, host_id)
+        let ek_cert_status = ek_cert_verification_status::get_by_machine_id(txn.as_mut(), host_id)
             .await
             .expect("Failed: could not make a look up for EkCertVerificationStatus in DB")
             .expect("Failed: could not find EkCertVerificationStatus for given machine in DB");
@@ -291,7 +291,7 @@ pub mod tests {
 
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await?;
 
-        let ek_cert_status = ek_cert_verification_status::get_by_machine_id(&mut txn, host_id)
+        let ek_cert_status = ek_cert_verification_status::get_by_machine_id(txn.as_mut(), host_id)
             .await
             .expect("Failed: could not make a look up for EkCertVerificationStatus in DB")
             .expect("Failed: could not find EkCertVerificationStatus for given machine in DB");
@@ -1177,7 +1177,7 @@ pub mod tests {
         let mut txn = env.pool.begin().await?;
 
         let segment = db::network_segment::find_by(
-            &mut txn,
+            txn.as_mut(),
             ObjectColumnFilter::One(db::network_segment::IdColumn, &env.admin_segment.unwrap()),
             network_segment::NetworkSegmentSearchConfig::default(),
         )

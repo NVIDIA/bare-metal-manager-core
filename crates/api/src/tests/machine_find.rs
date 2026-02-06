@@ -286,7 +286,7 @@ async fn test_find_machine_ids(pool: sqlx::PgPool) {
     .unwrap();
     let mut txn = env.pool.begin().await.unwrap();
 
-    let machine_ids = db::machine::find_machine_ids(&mut txn, config)
+    let machine_ids = db::machine::find_machine_ids(txn.as_mut(), config)
         .await
         .unwrap();
 
@@ -328,7 +328,7 @@ async fn test_find_machine_ids(pool: sqlx::PgPool) {
     };
 
     // Try to find machines for the instance type.
-    let machine_ids = db::machine::find_machine_ids(&mut txn, config)
+    let machine_ids = db::machine::find_machine_ids(txn.as_mut(), config)
         .await
         .unwrap();
 
@@ -353,7 +353,7 @@ async fn test_find_dpu_machine_ids(pool: sqlx::PgPool) {
     .unwrap();
     let mut txn = env.pool.begin().await.unwrap();
 
-    let machine_ids = db::machine::find_machine_ids(&mut txn, config)
+    let machine_ids = db::machine::find_machine_ids(txn.as_mut(), config)
         .await
         .unwrap();
 
@@ -378,7 +378,7 @@ async fn test_find_predicted_host_machine_ids(pool: sqlx::PgPool) {
     .unwrap();
     let mut txn = env.pool.begin().await.unwrap();
 
-    let machine_ids = db::machine::find_machine_ids(&mut txn, config)
+    let machine_ids = db::machine::find_machine_ids(txn.as_mut(), config)
         .await
         .unwrap();
 
@@ -396,7 +396,7 @@ async fn test_find_host_machine_ids_when_predicted(pool: sqlx::PgPool) {
     let _dpu_machine_id = create_dpu_machine(&env, &host_config).await;
     let mut txn = env.pool.begin().await.unwrap();
 
-    let machine_ids = db::machine::find_machine_ids(&mut txn, config)
+    let machine_ids = db::machine::find_machine_ids(txn.as_mut(), config)
         .await
         .unwrap();
 
@@ -413,7 +413,7 @@ async fn test_find_host_machine_ids(pool: sqlx::PgPool) {
     let mut txn = env.pool.begin().await.unwrap();
 
     tracing::info!("finding machine ids");
-    let machine_ids = db::machine::find_machine_ids(&mut txn, config)
+    let machine_ids = db::machine::find_machine_ids(txn.as_mut(), config)
         .await
         .unwrap();
     assert_eq!(machine_ids.len(), 1);
@@ -440,7 +440,7 @@ async fn test_find_mixed_host_machine_ids(pool: sqlx::PgPool) {
     let mut txn = env.pool.begin().await.unwrap();
 
     tracing::info!("finding machine ids");
-    let machine_ids = db::machine::find_machine_ids(&mut txn, config)
+    let machine_ids = db::machine::find_machine_ids(txn.as_mut(), config)
         .await
         .unwrap();
     assert_eq!(machine_ids.len(), 2);

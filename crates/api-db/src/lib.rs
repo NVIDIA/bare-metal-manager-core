@@ -12,10 +12,12 @@
 
 // Allow txn_without_commit in tests
 #![cfg_attr(test, allow(txn_without_commit))]
+#![allow(unknown_lints)]
 
 pub mod attestation;
 pub mod bmc_metadata;
 pub mod carbide_version;
+pub mod db_read;
 pub mod desired_firmware;
 pub mod dhcp_entry;
 pub mod dhcp_record;
@@ -565,6 +567,7 @@ impl From<::measured_boot::Error> for DatabaseError {
     }
 }
 
+#[derive(Debug)]
 pub struct Transaction<'a> {
     inner: sqlx::PgTransaction<'a>,
 }

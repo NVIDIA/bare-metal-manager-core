@@ -8653,7 +8653,7 @@ pub async fn find_explored_refreshed_endpoint(
         .ip_addr()
         .map_err(StateHandlerError::GenericError)?;
 
-    let endpoint = db::explored_endpoints::find_by_ips(txn, vec![addr]).await?;
+    let endpoint = db::explored_endpoints::find_by_ips(&mut *txn, vec![addr]).await?;
     let endpoint = endpoint
         .into_iter()
         .next()

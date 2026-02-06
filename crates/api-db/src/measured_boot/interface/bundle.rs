@@ -25,6 +25,7 @@ use measured_boot::records::{
 use sqlx::PgConnection;
 
 use crate::DatabaseError;
+use crate::db_read::DbReader;
 use crate::measured_boot::interface::common;
 
 /// insert_measurement_bundle_record is a very basic insert of a
@@ -184,7 +185,7 @@ pub async fn update_state_for_bundle_id(
 /// for the given `bundle_id`, if it exists. This leverages the generic
 /// get_object_for_id function since its a simple/common pattern.
 pub async fn get_measurement_bundle_by_id(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     bundle_id: MeasurementBundleId,
 ) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
     common::get_object_for_id(txn, bundle_id)

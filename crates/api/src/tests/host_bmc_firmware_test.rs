@@ -515,7 +515,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // "Site explorer" pass
     let endpoints =
-        db::explored_endpoints::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()])
+        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
             .await
             .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();
@@ -636,7 +636,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // "Site explorer" pass to indicate that we're at the desired version
     let endpoints =
-        db::explored_endpoints::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()])
+        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
             .await?;
     let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
@@ -1404,7 +1404,7 @@ async fn test_instance_upgrading_actual_part_2(
 
     // "Site explorer" pass
     let endpoints =
-        db::explored_endpoints::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()])
+        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
             .await
             .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();
@@ -1573,7 +1573,7 @@ async fn test_instance_upgrading_actual_part_2(
 
     // "Site explorer" pass to indicate that we're at the desired version
     let endpoints =
-        db::explored_endpoints::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()])
+        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
             .await
             .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();
@@ -2561,7 +2561,7 @@ async fn test_manual_firmware_upgrade_workflow(pool: sqlx::PgPool) -> CarbideRes
 
     // "Site explorer" pass
     let endpoints =
-        db::explored_endpoints::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()])
+        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
             .await
             .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();

@@ -23,6 +23,7 @@ use measured_boot::journal::MeasurementJournal;
 use measured_boot::records::{MeasurementJournalRecord, MeasurementMachineState};
 use sqlx::PgConnection;
 
+use crate::db_read::DbReader;
 use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::journal::{
     delete_journal_where_id, get_measurement_journal_record_by_id,
@@ -190,7 +191,7 @@ async fn get_measurement_journals(
 /// get_latest_journal_for_id returns the latest journal record for the
 /// provided machine ID.
 pub async fn get_latest_journal_for_id(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     machine_id: MachineId,
 ) -> DatabaseResult<Option<MeasurementJournal>> {
     let query = "select distinct on (machine_id) * from measurement_journal where machine_id = $1 order by machine_id,ts desc";

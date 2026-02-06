@@ -362,7 +362,7 @@ pub async fn update_virtualization(
 
     // Update SVI IP for stretchable segments.
     let network_segments = crate::network_segment::find_by(
-        txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(network_segment::VpcColumn, &vpc.id),
         model::network_segment::NetworkSegmentSearchConfig::default(),
     )

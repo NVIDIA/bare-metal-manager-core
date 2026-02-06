@@ -69,7 +69,7 @@ pub(crate) async fn find_explored_endpoints_by_ids(
     }
 
     let result = api
-        .with_txn(|txn| db::explored_endpoints::find_by_ips(txn, ips).boxed())
+        .with_txn(|txn| db::explored_endpoints::find_by_ips(txn.as_mut(), ips).boxed())
         .await?
         .map(|ep| ::rpc::site_explorer::ExploredEndpointList {
             endpoints: ep

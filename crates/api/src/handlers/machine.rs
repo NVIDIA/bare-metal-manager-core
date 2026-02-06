@@ -41,7 +41,7 @@ pub(crate) async fn find_machine_ids(
     let search_config = request.into_inner().try_into()?;
 
     let machine_ids = api
-        .with_txn(|txn| db::machine::find_machine_ids(txn, search_config).boxed())
+        .with_txn(|txn| db::machine::find_machine_ids(txn.as_mut(), search_config).boxed())
         .await??;
 
     Ok(Response::new(::rpc::common::MachineIdList {

@@ -52,6 +52,7 @@ use uuid::Uuid;
 
 use super::{DatabaseError, ObjectFilter, Transaction, queries};
 use crate::DatabaseResult;
+use crate::db_read::DbReader;
 
 #[derive(Serialize)]
 struct ReprovisionRequestRestart {
@@ -1635,7 +1636,7 @@ pub async fn set_dpu_agent_upgrade_requested(
 }
 
 pub async fn find_machine_ids(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     search_config: MachineSearchConfig,
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let mut qb = sqlx::QueryBuilder::new("SELECT id FROM machines");

@@ -1496,7 +1496,7 @@ impl NvlPartitionMonitor {
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> CarbideResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
         let mnvvl_machine_ids = find_machine_ids(
-            txn,
+            txn.as_mut(),
             MachineSearchConfig {
                 mnnvl_only: true,
                 include_predicted_host: true,

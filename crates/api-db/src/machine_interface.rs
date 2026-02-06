@@ -33,6 +33,7 @@ use model::predicted_machine_interface::PredictedMachineInterface;
 use sqlx::{FromRow, PgConnection, PgTransaction};
 
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
+use crate::db_read::DbReader;
 use crate::ip_allocator::{IpAllocator, UsedIpResolver, next_machine_interface_v4_ip};
 use crate::{DatabaseError, DatabaseResult, Transaction, network_segment as db_network_segment};
 
@@ -465,10 +466,11 @@ pub async fn allocate_svi_ip(
     txn: &mut PgTransaction<'_>,
     segment: &NetworkSegment,
 ) -> DatabaseResult<(NetworkPrefixId, IpAddr)> {
-    let dhcp_handler: Box<dyn UsedIpResolver + Send> = Box::new(UsedAdminNetworkIpResolver {
-        segment_id: segment.id,
-        busy_ips: vec![],
-    });
+    let dhcp_handler: Box<dyn UsedIpResolver<PgConnection> + Send> =
+        Box::new(UsedAdminNetworkIpResolver {
+            segment_id: segment.id,
+            busy_ips: vec![],
+        });
 
     // If either requested addresses are auto-generated, we lock the entire table
     let query = "LOCK TABLE machine_interfaces_lock IN ACCESS EXCLUSIVE MODE";
@@ -478,7 +480,7 @@ pub async fn allocate_svi_ip(
         .map_err(|e| DatabaseError::query(query, e))?;
 
     let mut addresses_allocator = IpAllocator::new(
-        txn,
+        txn.as_mut(),
         segment,
         dhcp_handler,
         AddressSelectionStrategy::Automatic,
@@ -838,7 +840,10 @@ pub async fn delete_by_ip(txn: &mut PgConnection, ip: IpAddr) -> Result<Option<(
 }
 
 #[async_trait::async_trait]
-impl UsedIpResolver for UsedAdminNetworkIpResolver {
+impl<DB> UsedIpResolver<DB> for UsedAdminNetworkIpResolver
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     // DEPRECATED
     // With the introduction of `used_prefixes()` this is no
     // longer an accurate approach for finding all allocated
@@ -854,7 +859,7 @@ impl UsedIpResolver for UsedAdminNetworkIpResolver {
     // target the `address` column of the `machine_interface_addresses`
     // table, in which a single /32 is stored (although, as an
     // `inet`, it could techincally also have a prefix length).
-    async fn used_ips(&self, txn: &mut PgConnection) -> Result<Vec<IpAddr>, DatabaseError> {
+    async fn used_ips(&self, txn: &mut DB) -> Result<Vec<IpAddr>, DatabaseError> {
         // IpAddrContainer is a small private struct used
         // for binding the result of the subsequent SQL
         // query, so we can implement FromRow and return
@@ -897,7 +902,7 @@ WHERE network_segments.id = $1::uuid";
     // saying its not implemented for machine_interfaces, BUT,
     // it keeps it cleaner knowing the IpAllocator works via
     // calling used_prefixes() regardless of who is using it.
-    async fn used_prefixes(&self, txn: &mut PgConnection) -> Result<Vec<IpNetwork>, DatabaseError> {
+    async fn used_prefixes(&self, txn: &mut DB) -> Result<Vec<IpNetwork>, DatabaseError> {
         let used_ips = self.used_ips(txn).await?;
         let mut ip_networks: Vec<IpNetwork> = Vec::new();
         for used_ip in used_ips {

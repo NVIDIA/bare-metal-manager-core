@@ -122,9 +122,9 @@ impl Default for TxnHeldAcrossAwait {
                 .collect::<Vec<_>>()
         })
         .collect();
-        let txn_self_methods = vec!["deref_mut".to_string(), "as_pgconn".to_string()]
+        let txn_self_methods = vec!["deref_mut", "as_pgconn", "as_mut"]
             .into_iter()
-            .map(|s| Symbol::intern(&s))
+            .map(|s| Symbol::intern(s))
             .collect();
 
         Self {
