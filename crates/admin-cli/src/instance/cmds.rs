@@ -26,7 +26,7 @@ use rpc::forge::{Vpc, VpcsByIdsRequest};
 
 use super::args::{
     AllocateInstance, GlobalOptions, RebootInstance, ReleaseInstance, ShowInstance, UpdateIbConfig,
-    UpdateInstanceOS,
+    UpdateInstanceOS, UpdateNvLinkConfig,
 };
 use crate::cfg::cli_options::SortField;
 use crate::rpc::ApiClient;
@@ -868,4 +868,40 @@ async fn get_vpc_for_interface_network_segment(
     } else {
         Ok(None)
     }
+}
+
+pub async fn update_nvlink_config(
+    api_client: &ApiClient,
+    update_request: UpdateNvLinkConfig,
+    opts: &GlobalOptions<'_>,
+) -> CarbideCliResult<()> {
+    if opts.cloud_unsafe_op.is_none() {
+        return Err(CarbideCliError::GenericError(
+            "Operation not allowed due to potential inconsistencies with cloud database."
+                .to_owned(),
+        ));
+    }
+
+    match api_client
+        .update_instance_config_with(
+            update_request.instance,
+            |config| {
+                config.nvlink = Some(update_request.config.clone());
+            },
+            |_metadata| {},
+            opts.cloud_unsafe_op.clone(),
+        )
+        .await
+    {
+        Ok(i) => {
+            tracing::info!(
+                "update-nvlink-config was successful. Updated instance: {:?}",
+                i
+            );
+        }
+        Err(e) => {
+            tracing::info!("update-nvlink-config failed with {} ", e);
+        }
+    };
+    Ok(())
 }
