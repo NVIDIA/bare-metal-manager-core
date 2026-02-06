@@ -25,6 +25,7 @@ mod bug;
 mod combined_server;
 mod combined_service;
 mod http;
+mod hw;
 mod json;
 mod machine_info;
 mod middleware_router;

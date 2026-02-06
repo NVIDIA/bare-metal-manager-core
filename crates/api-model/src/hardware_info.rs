@@ -1065,6 +1065,31 @@ impl From<NvLinkGpu> for rpc::forge::NvLinkGpu {
     }
 }
 
+impl TryFrom<rpc::forge::MachineNvLinkInfo> for MachineNvLinkInfo {
+    type Error = rpc::errors::RpcDataConversionError;
+
+    fn try_from(value: rpc::forge::MachineNvLinkInfo) -> Result<Self, Self::Error> {
+        Ok(MachineNvLinkInfo {
+            domain_uuid: value.domain_uuid.ok_or(
+                rpc::errors::RpcDataConversionError::MissingArgument("domain_uuid"),
+            )?,
+            gpus: value.gpus.into_iter().map(NvLinkGpu::from).collect(),
+        })
+    }
+}
+
+impl From<rpc::forge::NvLinkGpu> for NvLinkGpu {
+    fn from(value: rpc::forge::NvLinkGpu) -> Self {
+        NvLinkGpu {
+            nmx_m_id: value.nmx_m_id,
+            tray_index: value.tray_index,
+            slot_id: value.slot_id,
+            device_id: value.device_id,
+            guid: value.guid,
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct NvLinkGpu {
     pub nmx_m_id: String,

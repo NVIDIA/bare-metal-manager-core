@@ -566,7 +566,7 @@ async fn test_update_instance_with_nvl_config(pool: sqlx::PgPool) {
                 gpu.platform_info.as_ref().map(|platform_info| {
                     rpc::forge::InstanceNvLinkGpuConfig {
                         device_instance: platform_info.module_id,
-                        logical_partition_id: Some(logical_partition_id),
+                        logical_partition_id: None,
                     }
                 })
             })
@@ -585,6 +585,51 @@ async fn test_update_instance_with_nvl_config(pool: sqlx::PgPool) {
     assert_eq!(instance, check_instance);
 
     env.run_nvl_partition_monitor_iteration().await;
+
+    let new_nvl_config = rpc::forge::InstanceNvLinkConfig {
+        gpu_configs: gpus
+            .iter()
+            .filter_map(|gpu| {
+                gpu.platform_info.as_ref().map(|platform_info| {
+                    rpc::forge::InstanceNvLinkGpuConfig {
+                        device_instance: platform_info.module_id,
+                        logical_partition_id: Some(logical_partition_id),
+                    }
+                })
+            })
+            .collect(),
+    };
+
+    // Update the instance with the new NVL config
+    let mut new_config = instance.config().inner().clone();
+    new_config.nvlink = Some(new_nvl_config.clone());
+    let instance = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                instance_id: instance.id().into(),
+                if_version_match: None,
+                config: Some(new_config.clone()),
+                metadata: Some(instance.metadata().clone()),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    let instance_status = instance.status.as_ref().unwrap();
+    assert_eq!(instance_status.configs_synced(), rpc::SyncState::Pending);
+    assert_eq!(
+        instance_status.tenant.as_ref().unwrap().state(),
+        rpc::TenantState::Configuring
+    );
+
+    env.run_nvl_partition_monitor_iteration().await;
+    env.run_nvl_partition_monitor_iteration().await;
+
+    let instance = env.one_instance(instance.id.unwrap()).await;
+    let instance_status = instance.status();
+    let _nvl_status = instance_status.inner().nvlink.as_ref().unwrap();
+    assert_eq!(_nvl_status.configs_synced(), rpc::SyncState::Synced);
 
     // test getting all ids
     let request_all = tonic::Request::new(rpc::forge::NvLinkPartitionSearchFilter {
@@ -769,4 +814,131 @@ async fn test_instance_delete_with_nvl_config(pool: sqlx::PgPool) {
         .map(|response| response.into_inner())
         .unwrap();
     assert_eq!(ids_all.partition_ids.len(), 0);
+}
+
+#[crate::sqlx_test]
+async fn test_update_instance_with_nvl_config_new_logical_partition(pool: sqlx::PgPool) {
+    let mut config = common::api_fixtures::get_config();
+    if let Some(nvlink_config) = config.nvlink_config.as_mut() {
+        nvlink_config.enabled = true;
+    }
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    let NvlLogicalPartitionFixture {
+        id: logical_partition_id1,
+        logical_partition: _logical_partition1,
+    } = create_nvl_logical_partition(&env, "test_partition1".to_string()).await;
+    let NvlLogicalPartitionFixture {
+        id: logical_partition_id2,
+        logical_partition: _logical_partition2,
+    } = create_nvl_logical_partition(&env, "test_partition2".to_string()).await;
+
+    let request_logical_ids =
+        tonic::Request::new(rpc::forge::NvLinkLogicalPartitionSearchFilter { name: None });
+
+    let logical_ids_list = env
+        .api
+        .find_nv_link_logical_partition_ids(request_logical_ids)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(logical_ids_list.partition_ids.len(), 2);
+
+    let mh = create_managed_host_with_hardware_info_template(
+        &env,
+        HardwareInfoTemplate::Custom(
+            crate::tests::common::api_fixtures::host::GB200_COMPUTE_TRAY_1_INFO_JSON,
+        ),
+    )
+    .await;
+    let machine = mh.host().rpc_machine().await;
+
+    assert_eq!(&machine.state, "Ready");
+    let discovery_info = machine.discovery_info.as_ref().unwrap();
+
+    assert_eq!(discovery_info.gpus.len(), 4);
+
+    let gpus: Vec<Gpu> = discovery_info.gpus.to_vec();
+
+    println!("{gpus:?}");
+
+    let nvl_config = rpc::forge::InstanceNvLinkConfig {
+        gpu_configs: gpus
+            .iter()
+            .filter_map(|gpu| {
+                gpu.platform_info.as_ref().map(|platform_info| {
+                    rpc::forge::InstanceNvLinkGpuConfig {
+                        device_instance: platform_info.module_id,
+                        logical_partition_id: Some(logical_partition_id1),
+                    }
+                })
+            })
+            .collect(),
+    };
+
+    let (tinstance, instance) =
+        create_instance_with_nvlink_config(&env, &mh, nvl_config.clone(), segment_id).await;
+
+    let machine = mh.host().rpc_machine().await;
+    assert_eq!(&machine.state, "Assigned/Ready");
+
+    let check_instance = tinstance.rpc_instance().await;
+    assert_eq!(instance.machine_id(), mh.id);
+    assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
+    assert_eq!(instance, check_instance);
+
+    env.run_nvl_partition_monitor_iteration().await;
+
+    // test getting all ids
+    let request_all = tonic::Request::new(rpc::forge::NvLinkPartitionSearchFilter {
+        name: None,
+        tenant_organization_id: None,
+    });
+
+    let ids_all = env
+        .api
+        .find_nv_link_partition_ids(request_all)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(ids_all.partition_ids.len(), 1);
+
+    let new_nvl_config = rpc::forge::InstanceNvLinkConfig {
+        gpu_configs: gpus
+            .iter()
+            .filter_map(|gpu| {
+                gpu.platform_info.as_ref().map(|platform_info| {
+                    rpc::forge::InstanceNvLinkGpuConfig {
+                        device_instance: platform_info.module_id,
+                        logical_partition_id: Some(logical_partition_id2),
+                    }
+                })
+            })
+            .collect(),
+    };
+
+    let mut new_config = instance.config().inner().clone();
+    new_config.nvlink = Some(new_nvl_config.clone());
+
+    // This should fail.
+    let err = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                instance_id: instance.id().into(),
+                if_version_match: None,
+                config: Some(new_config.clone()),
+                metadata: Some(instance.metadata().clone()),
+            },
+        ))
+        .await
+        .expect_err("This should fail");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
 }

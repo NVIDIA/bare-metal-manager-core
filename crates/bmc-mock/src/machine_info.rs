@@ -22,8 +22,8 @@ use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::redfish;
 use crate::redfish::update_service::UpdateServiceConfig;
+use crate::{hw, redfish};
 static NEXT_MAC_ADDRESS: AtomicU32 = AtomicU32::new(1);
 
 /// Represents static information we know ahead of time about a host or DPU (independent of any
@@ -81,6 +81,15 @@ impl DpuMachineInfo {
             serial: format!("MT{}", oob_mac_address.to_string().replace(':', "")),
         }
     }
+
+    fn bluefield3(&self) -> hw::bluefield3::Bluefield3<'_> {
+        hw::bluefield3::Bluefield3 {
+            bmc_mac_address: self.bmc_mac_address,
+            oob_mac_address: Some(self.oob_mac_address),
+            nic_mode: self.nic_mode,
+            product_serial_number: Cow::Borrowed(&self.serial),
+        }
+    }
 }
 
 impl HostMachineInfo {
@@ -123,18 +132,7 @@ impl MachineInfo {
 
     pub fn manager_config(&self) -> redfish::manager::Config {
         match self {
-            MachineInfo::Dpu(dpu) => redfish::manager::Config {
-                id: "Bluefield_BMC",
-                eth_interfaces: vec![
-                    redfish::ethernet_interface::builder(
-                        &redfish::ethernet_interface::manager_resource("Bluefield_BMC", "eth0"),
-                    )
-                    .mac_address(dpu.bmc_mac_address)
-                    .interface_enabled(true)
-                    .build(),
-                ],
-                firmware_version: "BF-23.10-4",
-            },
+            MachineInfo::Dpu(dpu) => dpu.bluefield3().manager_config(),
             MachineInfo::Host(host) => redfish::manager::Config {
                 id: "iDRAC.Embedded.1",
                 eth_interfaces: vec![
@@ -163,14 +161,14 @@ impl MachineInfo {
         match self {
             MachineInfo::Host(_) => {
                 let power_control = Some(power_control.clone());
-                let serial_number = self.product_serial().clone();
+                let serial_number = self.product_serial().clone().into();
                 let system_id = "System.Embedded.1";
                 let eth_interfaces = self
                     .dhcp_mac_addresses()
                     .into_iter()
                     .enumerate()
                     .map(|(index, mac)| {
-                        let eth_id = Cow::Owned(format!("NIC.Slot.{}", index + 1));
+                        let eth_id = format!("NIC.Slot.{}", index + 1);
                         let resource =
                             redfish::ethernet_interface::system_resource(system_id, &eth_id);
                         redfish::ethernet_interface::builder(&resource)
@@ -186,6 +184,8 @@ impl MachineInfo {
                 redfish::computer_system::SystemConfig {
                     systems: vec![redfish::computer_system::SingleSystemConfig {
                         id: Cow::Borrowed(system_id),
+                        manufacturer: None,
+                        model: None,
                         eth_interfaces,
                         serial_number,
                         boot_order_mode: redfish::computer_system::BootOrderMode::DellOem,
@@ -234,126 +234,14 @@ impl MachineInfo {
                     }],
                 }
             }
-            MachineInfo::Dpu(dpu) => {
-                let system_id = "Bluefield";
-                let boot_opt_builder = |id: &str| {
-                    redfish::boot_option::builder(&redfish::boot_option::resource(system_id, id))
-                        .boot_option_reference(id)
-                };
-                let mocked_mac_no_colons = dpu
-                    .oob_mac_address
-                    .to_string()
-                    .replace(':', "")
-                    .to_ascii_uppercase();
-                let nic_mode = if dpu.nic_mode { "NicMode" } else { "DpuMode" };
-                redfish::computer_system::SystemConfig {
-                    systems: vec![redfish::computer_system::SingleSystemConfig {
-                        id: Cow::Borrowed("Bluefield"),
-                        eth_interfaces: vec![
-                            redfish::ethernet_interface::builder(
-                                &redfish::ethernet_interface::system_resource("Bluefield", "eth0"),
-                            )
-                            .mac_address(dpu.host_mac_address)
-                            .interface_enabled(true)
-                            .build(),
-                            redfish::ethernet_interface::builder(
-                                &redfish::ethernet_interface::system_resource("Bluefield", "oob0"),
-                            )
-                            .mac_address(dpu.oob_mac_address)
-                            .interface_enabled(true)
-                            .build(),
-                        ],
-                        chassis: vec!["Bluefield_BMC".into()],
-                        serial_number: self.product_serial().clone(),
-                        boot_order_mode: redfish::computer_system::BootOrderMode::Generic,
-                        power_control: Some(power_control),
-                        boot_options: vec![
-                            boot_opt_builder("Boot0040")
-                                .display_name("ubuntu0")
-                                .uefi_device_path("HD(1,GPT,2FAFB38D-05F6-DF41-AE01-F9991E2CC0F0,0x800,0x19000)/\\EFI\\ubuntu\\shimaa64.efi")
-                                .build(),
-                            boot_opt_builder("Boot0000")
-                                .display_name("NET-NIC_P0-IPV4")
-                                .uefi_device_path(&format!("PciRoot(0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)/MAC({mocked_mac_no_colons},0x1)/IPv4(0.0.0.0,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)"))
-                                .build(),
-                            boot_opt_builder("Boot0001").display_name("NET-NIC_P0-IPV6")
-                                .uefi_device_path(&format!("PciRoot(0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)/MAC({mocked_mac_no_colons},0x1)/IPv6(0000:0000:0000:0000:0000:0000:0000:0000,0x0,Static,0000:0000:0000:0000:0000:0000:0000:0000,0x40,0000:0000:0000:0000:0000:0000:0000:0000)"))
-                                .build()
-                        ],
-                        bios_mode: redfish::computer_system::BiosMode::Generic,
-                        base_bios: redfish::bios::builder(&redfish::bios::resource(system_id))
-                            .attributes(json!({
-                                "NicMode": nic_mode,
-                                "HostPrivilegeLevel": "Unavailable",
-                                "InternalCPUModel": "Unavailable",
-                            }))
-                            .build(),
-                    }],
-                }
-            }
+            MachineInfo::Dpu(dpu) => dpu.bluefield3().system_config(power_control),
         }
     }
 
     pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         match self {
             Self::Host(h) => dell_chassis_config(h),
-            Self::Dpu(_) => {
-                let bmc_chassis_id = "Bluefield_BMC";
-                let cpu0_chassis_id = "CPU_0";
-                let card1_chassis_id = "Card1";
-                let network_adapter_id = "NvidiaNetworkAdapter";
-
-                let nvidia_network_adapter = |chassis_id: &str| {
-                    redfish::network_adapter::builder(&redfish::network_adapter::chassis_resource(
-                        chassis_id,
-                        network_adapter_id,
-                    ))
-                    .manufacturer("Nvidia")
-                    .network_device_functions(
-                        &redfish::network_device_function::chassis_collection(
-                            chassis_id,
-                            network_adapter_id,
-                        ),
-                        vec![],
-                    )
-                    .build()
-                };
-
-                redfish::chassis::ChassisConfig {
-                    chassis: vec![
-                        redfish::chassis::SingleChassisConfig {
-                            id: Cow::Borrowed(bmc_chassis_id),
-                            serial_number: None,
-                            network_adapters: Some(vec![nvidia_network_adapter(bmc_chassis_id)]),
-                            pcie_devices: Some(vec![]),
-                        },
-                        redfish::chassis::SingleChassisConfig {
-                            id: Cow::Borrowed("Bluefield_DPU_IRoT"),
-                            serial_number: None,
-                            network_adapters: None,
-                            pcie_devices: None,
-                        },
-                        redfish::chassis::SingleChassisConfig {
-                            id: Cow::Borrowed("Bluefield_ERoT"),
-                            serial_number: None,
-                            network_adapters: None,
-                            pcie_devices: None,
-                        },
-                        redfish::chassis::SingleChassisConfig {
-                            id: Cow::Borrowed(cpu0_chassis_id),
-                            serial_number: None,
-                            network_adapters: Some(vec![nvidia_network_adapter(cpu0_chassis_id)]),
-                            pcie_devices: Some(vec![]),
-                        },
-                        redfish::chassis::SingleChassisConfig {
-                            id: Cow::Borrowed(card1_chassis_id),
-                            serial_number: None,
-                            network_adapters: Some(vec![nvidia_network_adapter(cpu0_chassis_id)]),
-                            pcie_devices: Some(vec![]),
-                        },
-                    ],
-                }
-            }
+            Self::Dpu(dpu) => dpu.bluefield3().chassis_config(),
         }
     }
 
@@ -558,7 +446,10 @@ fn dell_chassis_config(h: &HostMachineInfo) -> redfish::chassis::ChassisConfig {
     redfish::chassis::ChassisConfig {
         chassis: vec![redfish::chassis::SingleChassisConfig {
             id: Cow::Borrowed(chassis_id),
-            serial_number: Some(h.serial.clone()),
+            manufacturer: None,
+            part_number: None,
+            model: None,
+            serial_number: Some(h.serial.clone().into()),
             network_adapters: Some(network_adapters),
             pcie_devices: Some(pcie_devices),
         }],

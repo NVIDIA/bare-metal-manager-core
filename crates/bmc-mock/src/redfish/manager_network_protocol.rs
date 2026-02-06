@@ -20,6 +20,7 @@ use serde_json::json;
 
 use crate::json::{JsonExt, JsonPatch};
 use crate::redfish;
+use crate::redfish::Builder;
 
 pub fn manager_resource<'a>(manager_id: &'a str) -> redfish::Resource<'a> {
     let odata_id = format!("/redfish/v1/Managers/{manager_id}/NetworkProtocol");
@@ -42,6 +43,14 @@ pub struct ManagerNetworkProtocolBuilder {
     value: serde_json::Value,
 }
 
+impl Builder for ManagerNetworkProtocolBuilder {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
+        }
+    }
+}
+
 impl ManagerNetworkProtocolBuilder {
     pub fn ipmi_enabled(self, value: bool) -> Self {
         self.apply_patch(json!({"IPMI": { "ProtocolEnabled": value }}))
@@ -49,11 +58,5 @@ impl ManagerNetworkProtocolBuilder {
 
     pub fn build(self) -> serde_json::Value {
         self.value
-    }
-
-    fn apply_patch(self, patch: serde_json::Value) -> Self {
-        Self {
-            value: self.value.patch(patch),
-        }
     }
 }

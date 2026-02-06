@@ -21,6 +21,7 @@ use serde_json::json;
 
 use crate::json::{JsonExt, JsonPatch};
 use crate::redfish;
+use crate::redfish::Builder;
 
 const PCIE_DEVICE_TYPE: &str = "#PCIeDevice.v1_5_0.PCIeDevice";
 
@@ -70,6 +71,16 @@ pub struct PcieDeviceBuilder {
     mat_dpu: bool,
 }
 
+impl Builder for PcieDeviceBuilder {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
+            id: self.id,
+            mat_dpu: self.mat_dpu,
+        }
+    }
+}
+
 impl PcieDeviceBuilder {
     pub fn description(self, value: &str) -> Self {
         self.add_str_field("Description", value)
@@ -96,29 +107,17 @@ impl PcieDeviceBuilder {
         self
     }
 
-    pub fn build(self) -> PCIeDevice {
-        PCIeDevice {
-            id: self.id,
-            value: self.value,
-            is_mat_dpu: self.mat_dpu,
-        }
-    }
-
     pub fn status(self, status: redfish::resource::Status) -> Self {
         self.apply_patch(json!({
             "Status": status.into_json()
         }))
     }
 
-    fn add_str_field(self, name: &str, value: &str) -> Self {
-        self.apply_patch(json!({ name: value }))
-    }
-
-    fn apply_patch(self, patch: serde_json::Value) -> Self {
-        Self {
-            value: self.value.patch(patch),
+    pub fn build(self) -> PCIeDevice {
+        PCIeDevice {
             id: self.id,
-            mat_dpu: self.mat_dpu,
+            value: self.value,
+            is_mat_dpu: self.mat_dpu,
         }
     }
 }

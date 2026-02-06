@@ -27,6 +27,7 @@ use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use futures_util::FutureExt;
 use itertools::Itertools;
 use libredfish::SystemPowerControl;
+use model::hardware_info::MachineNvLinkInfo;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot};
 use model::metadata::Metadata;
@@ -763,4 +764,27 @@ pub async fn get_machine_position_info(
     };
 
     Ok(Response::new(ret))
+}
+
+pub(crate) async fn update_machine_nv_link_info(
+    api: &Api,
+    request: Request<rpc::UpdateMachineNvLinkInfoRequest>,
+) -> std::result::Result<tonic::Response<()>, tonic::Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+    let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
+
+    let nvlink_info = request.nvlink_info.ok_or_else(|| {
+        CarbideError::from(RpcDataConversionError::MissingArgument("nvlink_info"))
+    })?;
+
+    let nvlink_info = MachineNvLinkInfo::try_from(nvlink_info).map_err(CarbideError::from)?;
+
+    let mut txn = api.txn_begin().await?;
+
+    db::machine::update_nvlink_info(&mut txn, &machine_id, nvlink_info).await?;
+
+    txn.commit().await?;
+
+    Ok(tonic::Response::new(()))
 }

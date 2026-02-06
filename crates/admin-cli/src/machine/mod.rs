@@ -95,6 +95,15 @@ impl Dispatch for Cmd {
                 },
             },
             Cmd::Positions(args) => cmds::positions(args, &ctx.api_client).await?,
+            Cmd::NvlinkInfo(cmd) => match cmd {
+                args::NvlinkInfoCommand::Show(args) => {
+                    cmds::handle_nvlink_info_show(args, &ctx.api_client).await?
+                }
+                args::NvlinkInfoCommand::Populate(args) => {
+                    cmds::handle_nvlink_info_populate(args, ctx.config.format, &ctx.api_client)
+                        .await?
+                }
+            },
         }
         Ok(())
     }

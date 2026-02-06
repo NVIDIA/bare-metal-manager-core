@@ -22,6 +22,7 @@ use serde_json::json;
 
 use crate::json::{JsonExt, JsonPatch};
 use crate::redfish;
+use crate::redfish::Builder;
 
 pub fn manager_collection(manager_id: &str) -> redfish::Collection<'static> {
     let odata_id = format!("/redfish/v1/Managers/{manager_id}/EthernetInterfaces");
@@ -85,6 +86,15 @@ pub struct EthernetInterfaceBuilder {
     value: serde_json::Value,
 }
 
+impl Builder for EthernetInterfaceBuilder {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
+            id: self.id,
+        }
+    }
+}
+
 impl EthernetInterfaceBuilder {
     pub fn mac_address(self, addr: MacAddress) -> Self {
         self.add_str_field("MACAddress", &addr.to_string())
@@ -94,21 +104,14 @@ impl EthernetInterfaceBuilder {
         self.apply_patch(json!({ "InterfaceEnabled": v }))
     }
 
+    pub fn description(self, v: &str) -> Self {
+        self.add_str_field("Description", v)
+    }
+
     pub fn build(self) -> EthernetInterface {
         EthernetInterface {
             id: self.id,
             value: self.value,
-        }
-    }
-
-    fn add_str_field(self, name: &str, value: &str) -> Self {
-        self.apply_patch(json!({ name: value }))
-    }
-
-    fn apply_patch(self, patch: serde_json::Value) -> Self {
-        Self {
-            value: self.value.patch(patch),
-            id: self.id,
         }
     }
 }

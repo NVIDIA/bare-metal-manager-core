@@ -40,3 +40,27 @@ pub mod expander_router;
 
 pub use collection::Collection;
 pub use resource::Resource;
+
+trait Builder {
+    fn maybe_with<T, V>(self, f: fn(Self, &V) -> Self, v: &Option<T>) -> Self
+    where
+        T: AsRef<V>,
+        V: ?Sized,
+        Self: Sized,
+    {
+        if let Some(v) = v {
+            f(self, v.as_ref())
+        } else {
+            self
+        }
+    }
+
+    fn add_str_field(self, name: &str, value: &str) -> Self
+    where
+        Self: Sized,
+    {
+        self.apply_patch(serde_json::json!({ name: value }))
+    }
+
+    fn apply_patch(self, patch: serde_json::Value) -> Self;
+}

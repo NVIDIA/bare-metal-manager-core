@@ -985,6 +985,13 @@ impl Forge for Api {
         crate::handlers::machine::update_machine_metadata(self, request).await
     }
 
+    async fn update_machine_nv_link_info(
+        &self,
+        request: Request<rpc::UpdateMachineNvLinkInfoRequest>,
+    ) -> std::result::Result<Response<()>, Status> {
+        crate::handlers::machine::update_machine_nv_link_info(self, request).await
+    }
+
     async fn set_maintenance(
         &self,
         request: Request<rpc::MaintenanceRequest>,

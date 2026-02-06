@@ -21,11 +21,11 @@ use axum::Router;
 use axum::extract::State;
 use axum::response::Response;
 use axum::routing::get;
-use serde_json::json;
 
 use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch};
 use crate::redfish;
+use crate::redfish::Builder;
 
 pub fn resource<'a>() -> redfish::Resource<'a> {
     redfish::Resource {
@@ -62,6 +62,14 @@ pub struct ServiceRootBuilder {
     value: serde_json::Value,
 }
 
+impl Builder for ServiceRootBuilder {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
+        }
+    }
+}
+
 impl ServiceRootBuilder {
     pub fn build(self) -> serde_json::Value {
         self.value
@@ -89,15 +97,5 @@ impl ServiceRootBuilder {
 
     pub fn update_service(self, v: &redfish::Resource<'_>) -> Self {
         self.apply_patch(v.nav_property("UpdateService"))
-    }
-
-    fn add_str_field(self, name: &str, value: &str) -> Self {
-        self.apply_patch(json!({ name: value }))
-    }
-
-    fn apply_patch(self, patch: serde_json::Value) -> Self {
-        Self {
-            value: self.value.patch(patch),
-        }
     }
 }
