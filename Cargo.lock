@@ -1322,6 +1322,7 @@ dependencies = [
  "futures",
  "futures-util",
  "hex",
+ "hkdf",
  "hostname 0.3.1",
  "http",
  "http-body-util",

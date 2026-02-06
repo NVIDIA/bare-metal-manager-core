@@ -21,7 +21,7 @@ use model::resource_pool::common::IbPools;
 use sqlx::PgPool;
 
 use crate::cfg::file::CarbideConfig;
-use crate::dpa::DpaInfo;
+use crate::dpa::handler::DpaInfo;
 use crate::ib::IBFabricManager;
 use crate::ipmitool::IPMITool;
 use crate::rack::rms_client::RmsApi;

@@ -240,63 +240,81 @@ pub(crate) async fn process_scout_req(
         return Ok((Action::Noop, None));
     }
 
-    let pair: Vec<KeyValuePair> = dpa_snapshots
-        .iter()
-        .filter_map(|sn| {
-            let cstate = sn.controller_state.value.clone();
-            let dev_name = &sn.pci_name;
+    let mut pair: Vec<KeyValuePair> = Vec::new();
 
-            let dpa_cmd = match cstate {
-                DpaInterfaceControllerState::Provisioning
-                | DpaInterfaceControllerState::Ready
-                | DpaInterfaceControllerState::WaitingForSetVNI
-                | DpaInterfaceControllerState::Assigned
-                | DpaInterfaceControllerState::WaitingForResetVNI => return None,
+    for sn in &dpa_snapshots {
+        let cstate = sn.controller_state.value.clone();
+        let dev_name = &sn.pci_name;
 
-                DpaInterfaceControllerState::Unlocking => {
-                    tracing::info!("Unlocking DPA {:#?}", dev_name);
-                    DpaCommand {
-                        op: OpCode::Unlock {
-                            key: "12345678".to_string(), // XXX TODO: get actual key
-                        },
-                    }
-                }
+        let dpa_cmd = match cstate {
+            DpaInterfaceControllerState::Provisioning
+            | DpaInterfaceControllerState::Ready
+            | DpaInterfaceControllerState::WaitingForSetVNI
+            | DpaInterfaceControllerState::Assigned
+            | DpaInterfaceControllerState::WaitingForResetVNI => continue,
 
-                DpaInterfaceControllerState::ApplyProfile => {
-                    let profstr = api.runtime_config.get_dpa_profile("Bluefield3".to_string());
-                    tracing::info!("Applying profile for DPA {:#?}", dev_name);
-                    DpaCommand {
-                        op: OpCode::ApplyProfile {
-                            profile_str: profstr,
-                        },
-                    }
-                }
+            DpaInterfaceControllerState::Unlocking => {
+                let key = crate::dpa::lockdown::build_supernic_lockdown_key(
+                    txn,
+                    sn.id,
+                    &*api.credential_provider,
+                )
+                .await
+                .map_err(|e| {
+                    CarbideError::GenericErrorFromReport(eyre!(
+                        "failed to build unlock key for DPA {dev_name}: {e}"
+                    ))
+                })?;
 
-                DpaInterfaceControllerState::Locking => {
-                    tracing::info!("Locking DPA {:#?}", dev_name);
-                    DpaCommand {
-                        op: OpCode::Lock {
-                            key: "12345678".to_string(), // XXX TODO: get actual key
-                        },
-                    }
-                }
-            };
-
-            match serde_json::to_string(&dpa_cmd) {
-                Ok(cmdstr) => Some(KeyValuePair {
-                    key: dev_name.clone(),
-                    value: cmdstr,
-                }),
-                Err(e) => {
-                    tracing::info!(
-                        "process_scout_req Error encoding DpaCommand {e} for dpa: {:#?}",
-                        sn
-                    );
-                    None
+                tracing::info!("Unlocking DPA {:#?}", dev_name);
+                DpaCommand {
+                    op: OpCode::Unlock { key },
                 }
             }
-        })
-        .collect();
+
+            DpaInterfaceControllerState::ApplyProfile => {
+                let profstr = api.runtime_config.get_dpa_profile("Bluefield3".to_string());
+                tracing::info!("Applying profile for DPA {:#?}", dev_name);
+                DpaCommand {
+                    op: OpCode::ApplyProfile {
+                        profile_str: profstr,
+                    },
+                }
+            }
+
+            DpaInterfaceControllerState::Locking => {
+                let key = crate::dpa::lockdown::build_supernic_lockdown_key(
+                    txn,
+                    sn.id,
+                    &*api.credential_provider,
+                )
+                .await
+                .map_err(|e| {
+                    CarbideError::GenericErrorFromReport(eyre!(
+                        "failed to build lock key for DPA {dev_name}: {e}"
+                    ))
+                })?;
+
+                tracing::info!("Locking DPA {:#?}", dev_name);
+                DpaCommand {
+                    op: OpCode::Lock { key },
+                }
+            }
+        };
+
+        match serde_json::to_string(&dpa_cmd) {
+            Ok(cmdstr) => pair.push(KeyValuePair {
+                key: dev_name.clone(),
+                value: cmdstr,
+            }),
+            Err(e) => {
+                tracing::info!(
+                    "process_scout_req Error encoding DpaCommand {e} for dpa: {:#?}",
+                    sn
+                );
+            }
+        }
+    }
 
     let facr = ForgeAgentControlExtraInfo { pair };
 

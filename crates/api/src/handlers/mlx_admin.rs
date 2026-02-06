@@ -479,8 +479,7 @@ async fn handle_lockdown_lock(
         )));
     }
 
-    let key = get_device_lockdown_key(&device_id)
-        .map_err(|e| Status::internal(format!("failed to get lockdown key: {e}")))?;
+    let key = get_device_lockdown_key(api, machine_id, &device_id).await?;
 
     let request = ScoutStreamScoutBoundMessage::new_flow(
         scout_stream_scout_bound_message::Payload::MlxDeviceLockdownLockRequest(
@@ -543,8 +542,7 @@ async fn handle_lockdown_unlock(
         )));
     }
 
-    let key = get_device_lockdown_key(&device_id)
-        .map_err(|e| Status::internal(format!("failed to get lockdown key: {e}")))?;
+    let key = get_device_lockdown_key(api, machine_id, &device_id).await?;
 
     let request = ScoutStreamScoutBoundMessage::new_flow(
         scout_stream_scout_bound_message::Payload::MlxDeviceLockdownUnlockRequest(
@@ -1167,10 +1165,42 @@ async fn handle_config_compare(
     }
 }
 
-// TODO(chet): XXXXXX need to make this real, but
-// for now, including for initial PoC, just leave it
-// like this. There's some work to do but I don't
-// want to block everything else on it.
-fn get_device_lockdown_key(_device_id: &str) -> Result<String, String> {
-    Ok("12345678".to_string())
+// get_device_lockdown_key looks up the DPA interface for the given
+// machine + PCI device, then derives the lockdown key via HKDF.
+//
+async fn get_device_lockdown_key(
+    api: &Api,
+    machine_id: MachineId,
+    device_id: &str,
+) -> Result<String, Status> {
+    let mut txn = api.txn_begin().await?;
+
+    // Note that, while all of the code up to this point, including the CLI,
+    // and mlxconfig-* crates, refer to it as the "device_id", internally we
+    // refer to as the "pci_name".
+    //
+    // In other words, device_id == pci_name.
+    let dpa_interface =
+        db::dpa_interface::get_for_pci_name(&mut txn, &machine_id, device_id)
+            .await
+            .map_err(|e| {
+                Status::not_found(format!(
+                    "failed to find DPA interface for device (machine_id={machine_id}, device_id={device_id}): {e}"
+                ))
+            })?;
+
+    let lockdown_key = crate::dpa::lockdown::build_supernic_lockdown_key(
+        &mut txn,
+        dpa_interface.id,
+        &*api.credential_provider,
+    )
+    .await
+    .map_err(|e| {
+        Status::internal(format!(
+            "failed to derive lockdown key (machine_id={machine_id}, device_id={device_id}): {e}"
+        ))
+    })?;
+
+    txn.rollback().await?;
+    Ok(lockdown_key)
 }
