@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 //!
 //! Machine - represents a database-backed Machine object
@@ -52,6 +57,7 @@ use uuid::Uuid;
 
 use super::{DatabaseError, ObjectFilter, Transaction, queries};
 use crate::DatabaseResult;
+use crate::db_read::DbReader;
 
 #[derive(Serialize)]
 struct ReprovisionRequestRestart {
@@ -1635,7 +1641,7 @@ pub async fn set_dpu_agent_upgrade_requested(
 }
 
 pub async fn find_machine_ids(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     search_config: MachineSearchConfig,
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let mut qb = sqlx::QueryBuilder::new("SELECT id FROM machines");
@@ -1818,7 +1824,7 @@ pub async fn allocate_loopback_ip(
     common_pools: &CommonPools,
     txn: &mut PgConnection,
     owner_id: &str,
-) -> Result<Ipv4Addr, DatabaseError> {
+) -> Result<IpAddr, DatabaseError> {
     match crate::resource_pool::allocate(
         &common_pools.ethernet.pool_loopback_ip,
         txn,
@@ -1848,7 +1854,7 @@ pub async fn allocate_vpc_dpu_loopback(
     common_pools: &CommonPools,
     txn: &mut PgConnection,
     owner_id: &str,
-) -> Result<Ipv4Addr, DatabaseError> {
+) -> Result<IpAddr, DatabaseError> {
     match crate::resource_pool::allocate(
         &common_pools.ethernet.pool_vpc_dpu_loopback_ip,
         txn,
@@ -1882,7 +1888,7 @@ pub async fn allocate_secondary_vtep_ip(
     common_pools: &CommonPools,
     txn: &mut PgConnection,
     owner_id: &str,
-) -> Result<Ipv4Addr, DatabaseError> {
+) -> Result<IpAddr, DatabaseError> {
     match crate::resource_pool::allocate(
         &common_pools.ethernet.pool_secondary_vtep_ip,
         txn,

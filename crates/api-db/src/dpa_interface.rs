@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::collections::HashSet;
@@ -152,6 +157,40 @@ pub async fn find_by_ip(
     };
 
     Ok(results)
+}
+
+// get_for_pci_name gets the DpaInterface for a specific device
+// on a machine, based on its PCI name, which may be either the PCIe
+// address or /dev/mst address.
+//
+// Returns exactly one DpaInterface, or an error if none or multiple
+// are found, because multiple would not make sense.
+pub async fn get_for_pci_name(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    pci_name: &str,
+) -> Result<DpaInterface, DatabaseError> {
+    let query = "SELECT row_to_json(m.*) from (select * from dpa_interfaces WHERE deleted is NULL AND machine_id = $1 AND pci_name = $2) m";
+
+    let results: Vec<DpaInterface> = sqlx::query_as(query)
+        .bind(machine_id)
+        .bind(pci_name)
+        .fetch_all(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    match results.len() {
+        0 => Err(DatabaseError::NotFoundError {
+            kind: "dpa_interface",
+            id: format!("machine_id={machine_id}, pci_name={pci_name}"),
+        }),
+        1 => Ok(results.into_iter().next().unwrap()),
+        n => Err(DatabaseError::Internal {
+            message: format!(
+                "expected 1 dpa_interface for machine_id={machine_id}, pci_name={pci_name}, found {n}"
+            ),
+        }),
+    }
 }
 
 // Find a DPA Interface given its mac address. When we receive messages from the MQTT broker,

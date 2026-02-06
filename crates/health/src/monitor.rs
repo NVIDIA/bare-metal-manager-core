@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::collections::HashSet;
@@ -35,6 +40,7 @@ pub struct HealthMonitorConfig {
     pub state_refresh_interval: Duration,
     pub sensor_fetch_concurrency: usize,
     pub collector_registry: Arc<CollectorRegistry>,
+    pub include_sensor_thresholds: bool,
 }
 
 /// Health monitor for a single BMC endpoint
@@ -45,6 +51,7 @@ pub struct HealthMonitor<B: Bmc> {
     report_sink: Option<Arc<dyn HealthReportSink>>,
     state_refresh_interval: Duration,
     sensor_fetch_concurrency: usize,
+    include_sensor_thresholds: bool,
     metrics: Arc<GaugeMetrics>,
 }
 
@@ -83,6 +90,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for HealthMonitor<B> {
             report_sink: config.report_sink,
             state_refresh_interval: config.state_refresh_interval,
             sensor_fetch_concurrency: config.sensor_fetch_concurrency,
+            include_sensor_thresholds: config.include_sensor_thresholds,
             metrics,
         })
     }
@@ -858,6 +866,34 @@ impl<B: Bmc + 'static> HealthMonitor<B> {
         let attributes: Vec<_> =
             std::iter::once(("sensor_name".to_string(), sensor.base.id.clone()))
                 .chain(entity.base_attributes())
+                .chain(
+                    sensor
+                        .thresholds
+                        .as_ref()
+                        .filter(|_| self.include_sensor_thresholds)
+                        .map(|t| {
+                            [
+                                (
+                                    "upper_critical_threshold".to_string(),
+                                    t.upper_critical
+                                        .as_ref()
+                                        .and_then(|th| th.reading.flatten())
+                                        .unwrap_or_default()
+                                        .to_string(),
+                                ),
+                                (
+                                    "lower_critical_threshold".to_string(),
+                                    t.lower_critical
+                                        .as_ref()
+                                        .and_then(|th| th.reading.flatten())
+                                        .unwrap_or_default()
+                                        .to_string(),
+                                ),
+                            ]
+                        })
+                        .into_iter()
+                        .flatten(),
+                )
                 .chain(
                     sensor
                         .physical_context

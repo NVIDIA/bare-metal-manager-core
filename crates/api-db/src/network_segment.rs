@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -29,6 +34,7 @@ use model::network_segment::{
 };
 use sqlx::{PgConnection, PgTransaction};
 
+use crate::db_read::DbReader;
 use crate::instance_address::UsedOverlayNetworkIpResolver;
 use crate::ip_allocator::{IpAllocator, UsedIpResolver};
 use crate::machine_interface::UsedAdminNetworkIpResolver;
@@ -281,11 +287,14 @@ pub async fn find_ids(
     Ok(ids)
 }
 
-pub async fn find_by<'a, C: ColumnInfo<'a, TableType = NetworkSegment>>(
-    txn: &mut PgConnection,
+pub async fn find_by<'a, C: ColumnInfo<'a, TableType = NetworkSegment>, DB>(
+    conn: &mut DB,
     filter: ObjectColumnFilter<'a, C>,
     search_config: NetworkSegmentSearchConfig,
-) -> Result<Vec<NetworkSegment>, DatabaseError> {
+) -> Result<Vec<NetworkSegment>, DatabaseError>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     let mut query = FilterableQueryBuilder::new(if search_config.include_history {
         NETWORK_SEGMENT_SNAPSHOT_WITH_HISTORY_QUERY.deref()
     } else {
@@ -295,12 +304,12 @@ pub async fn find_by<'a, C: ColumnInfo<'a, TableType = NetworkSegment>>(
 
     let mut all_records = query
         .build_query_as()
-        .fetch_all(&mut *txn)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| DatabaseError::query(query.sql(), e))?;
 
     if search_config.include_num_free_ips {
-        update_num_free_ips_into_prefix_list(txn, &mut all_records).await?;
+        update_num_free_ips_into_prefix_list(conn, &mut all_records).await?;
     }
     Ok(all_records)
 }
@@ -364,10 +373,13 @@ pub async fn batch_find_ids_by_machine_ids(
     Ok(result)
 }
 
-async fn update_num_free_ips_into_prefix_list(
-    txn: &mut PgConnection,
+async fn update_num_free_ips_into_prefix_list<DB>(
+    conn: &mut DB,
     all_records: &mut [NetworkSegment],
-) -> Result<(), DatabaseError> {
+) -> Result<(), DatabaseError>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     for record in all_records.iter_mut().filter(|s| !s.prefixes.is_empty()) {
         let mut busy_ips = vec![];
         for prefix in &record.prefixes {
@@ -375,7 +387,7 @@ async fn update_num_free_ips_into_prefix_list(
                 busy_ips.push(svi_ip);
             }
         }
-        let dhcp_handler: Box<dyn UsedIpResolver + Send> = if record.segment_type.is_tenant() {
+        let dhcp_handler: Box<dyn UsedIpResolver<DB> + Send> = if record.segment_type.is_tenant() {
             // Note on UsedOverlayNetworkIpResolver:
             // In this case, the IpAllocator isn't being used to iterate to get
             // the next available prefix_length allocation -- it's actually just
@@ -408,7 +420,7 @@ async fn update_num_free_ips_into_prefix_list(
         };
 
         let mut allocated_addresses = IpAllocator::new(
-            txn,
+            &mut *conn,
             record,
             dhcp_handler,
             AddressSelectionStrategy::Automatic,
@@ -589,12 +601,15 @@ pub async fn admin(txn: &mut PgConnection) -> Result<NetworkSegment, DatabaseErr
 
 /// Are queried segment in ready state?
 /// Returns true if all segments are in Ready state, else false
-pub async fn are_network_segments_ready(
-    txn: &mut PgConnection,
+pub async fn are_network_segments_ready<DB>(
+    conn: &mut DB,
     segment_ids: &[NetworkSegmentId],
-) -> Result<bool, DatabaseError> {
+) -> Result<bool, DatabaseError>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     let segments = find_by(
-        txn,
+        conn,
         ObjectColumnFilter::List(IdColumn, segment_ids),
         NetworkSegmentSearchConfig::default(),
     )

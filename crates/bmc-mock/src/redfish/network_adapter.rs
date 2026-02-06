@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::borrow::Cow;
@@ -15,7 +20,8 @@ use std::borrow::Cow;
 use serde_json::json;
 
 use crate::json::{JsonExt, JsonPatch};
-use crate::redfish;
+use crate::redfish::Builder;
+use crate::{hw, redfish};
 
 const NETWORK_ADAPTER_TYPE: &str = "#NetworkAdapter.v1_7_0.NetworkAdapter";
 const NETWORK_ADAPTER_NAME: &str = "Network Adapter";
@@ -66,10 +72,28 @@ pub fn builder(resource: &redfish::Resource) -> NetworkAdapterBuilder {
     }
 }
 
+pub fn builder_from_nic(resource: &redfish::Resource, nic: &hw::nic::Nic) -> NetworkAdapterBuilder {
+    let b = builder(resource).serial_number(&nic.serial_number);
+    b.maybe_with(NetworkAdapterBuilder::description, &nic.description)
+        .maybe_with(NetworkAdapterBuilder::manufacturer, &nic.manufacturer)
+        .maybe_with(NetworkAdapterBuilder::model, &nic.model)
+        .maybe_with(NetworkAdapterBuilder::part_number, &nic.part_number)
+}
+
 pub struct NetworkAdapterBuilder {
     id: Cow<'static, str>,
     value: serde_json::Value,
     functions: Vec<redfish::network_device_function::NetworkDeviceFunction>,
+}
+
+impl Builder for NetworkAdapterBuilder {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
+            id: self.id,
+            functions: self.functions,
+        }
+    }
 }
 
 impl NetworkAdapterBuilder {
@@ -93,6 +117,10 @@ impl NetworkAdapterBuilder {
         self.add_str_field("SKU", value)
     }
 
+    pub fn description(self, value: &str) -> Self {
+        self.add_str_field("Description", value)
+    }
+
     pub fn network_device_functions(
         self,
         collection: &redfish::Collection<'_>,
@@ -113,18 +141,6 @@ impl NetworkAdapterBuilder {
         NetworkAdapter {
             id: self.id,
             value: self.value,
-            functions: self.functions,
-        }
-    }
-
-    fn add_str_field(self, name: &str, value: &str) -> Self {
-        self.apply_patch(json!({ name: value }))
-    }
-
-    fn apply_patch(self, patch: serde_json::Value) -> Self {
-        Self {
-            value: self.value.patch(patch),
-            id: self.id,
             functions: self.functions,
         }
     }

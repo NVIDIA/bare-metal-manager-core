@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::fmt::Debug;
@@ -198,10 +203,6 @@ pub struct HealthCollectorConfig {
     #[serde(with = "humantime_serde")]
     pub rediscover_interval: Duration,
 
-    /// Interval between health checks for each endpoint.
-    #[serde(with = "humantime_serde")]
-    pub monitor_check_interval: Duration,
-
     /// Interval between entity state refresh.
     #[serde(with = "humantime_serde")]
     pub state_refresh_interval: Duration,
@@ -212,16 +213,19 @@ pub struct HealthCollectorConfig {
 
     /// Number of concurrent sensor fetches.
     pub sensor_fetch_concurrency: usize,
+
+    /// Include sensor thresholds in the metrics attributes.
+    pub include_sensor_thresholds: bool,
 }
 
 impl Default for HealthCollectorConfig {
     fn default() -> Self {
         Self {
             rediscover_interval: Duration::from_secs(300),
-            monitor_check_interval: Duration::from_secs(60),
             state_refresh_interval: Duration::from_secs(9000),
             sensor_fetch_interval: Duration::from_secs(60),
             sensor_fetch_concurrency: 10,
+            include_sensor_thresholds: true,
         }
     }
 }
@@ -491,8 +495,8 @@ enabled = false
 rediscover_interval = "1m"
 sensor_fetch_interval = "30s"
 state_refresh_interval = "10m"
-monitor_check_interval = "30s"
 sensor_fetch_concurrency = 5
+include_sensor_thresholds = false
 
 [metrics]
 endpoint = "127.0.0.1:9009"
@@ -535,6 +539,7 @@ cache_size = 50
         if let Configurable::Enabled(ref health) = config.collectors.health {
             assert_eq!(health.rediscover_interval, Duration::from_secs(60));
             assert_eq!(health.sensor_fetch_interval, Duration::from_secs(30));
+            assert!(!health.include_sensor_thresholds);
         } else {
             panic!("health empty")
         }

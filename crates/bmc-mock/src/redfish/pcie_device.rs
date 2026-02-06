@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::borrow::Cow;
@@ -15,7 +20,8 @@ use std::borrow::Cow;
 use serde_json::json;
 
 use crate::json::{JsonExt, JsonPatch};
-use crate::redfish;
+use crate::redfish::Builder;
+use crate::{hw, redfish};
 
 const PCIE_DEVICE_TYPE: &str = "#PCIeDevice.v1_5_0.PCIeDevice";
 
@@ -47,6 +53,16 @@ pub fn builder(resource: &redfish::Resource) -> PcieDeviceBuilder {
     }
 }
 
+pub fn builder_from_nic(resource: &redfish::Resource, nic: &hw::nic::Nic) -> PcieDeviceBuilder {
+    let b = builder(resource).serial_number(&nic.serial_number);
+    let b = if nic.is_mat_dpu { b.mat_dpu() } else { b };
+    b.maybe_with(PcieDeviceBuilder::description, &nic.description)
+        .maybe_with(PcieDeviceBuilder::manufacturer, &nic.manufacturer)
+        .maybe_with(PcieDeviceBuilder::model, &nic.model)
+        .maybe_with(PcieDeviceBuilder::part_number, &nic.part_number)
+        .maybe_with(PcieDeviceBuilder::firmware_version, &nic.firmware_version)
+}
+
 pub struct PCIeDevice {
     pub id: Cow<'static, str>,
     pub is_mat_dpu: bool,
@@ -65,17 +81,27 @@ pub struct PcieDeviceBuilder {
     mat_dpu: bool,
 }
 
+impl Builder for PcieDeviceBuilder {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
+            id: self.id,
+            mat_dpu: self.mat_dpu,
+        }
+    }
+}
+
 impl PcieDeviceBuilder {
     pub fn description(self, value: &str) -> Self {
         self.add_str_field("Description", value)
     }
 
-    pub fn firmware_version(self, value: &str) -> Self {
-        self.add_str_field("FirmwareVersion", value)
-    }
-
     pub fn manufacturer(self, value: &str) -> Self {
         self.add_str_field("Manufacturer", value)
+    }
+
+    pub fn model(self, value: &str) -> Self {
+        self.add_str_field("Model", value)
     }
 
     pub fn part_number(self, value: &str) -> Self {
@@ -86,17 +112,13 @@ impl PcieDeviceBuilder {
         self.add_str_field("SerialNumber", value)
     }
 
+    pub fn firmware_version(self, value: &str) -> Self {
+        self.add_str_field("FirmwareVersion", value)
+    }
+
     pub fn mat_dpu(mut self) -> Self {
         self.mat_dpu = true;
         self
-    }
-
-    pub fn build(self) -> PCIeDevice {
-        PCIeDevice {
-            id: self.id,
-            value: self.value,
-            is_mat_dpu: self.mat_dpu,
-        }
     }
 
     pub fn status(self, status: redfish::resource::Status) -> Self {
@@ -105,15 +127,11 @@ impl PcieDeviceBuilder {
         }))
     }
 
-    fn add_str_field(self, name: &str, value: &str) -> Self {
-        self.apply_patch(json!({ name: value }))
-    }
-
-    fn apply_patch(self, patch: serde_json::Value) -> Self {
-        Self {
-            value: self.value.patch(patch),
+    pub fn build(self) -> PCIeDevice {
+        PCIeDevice {
             id: self.id,
-            mat_dpu: self.mat_dpu,
+            value: self.value,
+            is_mat_dpu: self.mat_dpu,
         }
     }
 }

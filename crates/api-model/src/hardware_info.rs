@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 //! Describes hardware that is discovered by Forge
@@ -1051,6 +1056,31 @@ impl From<MachineNvLinkInfo> for rpc::forge::MachineNvLinkInfo {
 impl From<NvLinkGpu> for rpc::forge::NvLinkGpu {
     fn from(value: NvLinkGpu) -> Self {
         rpc::forge::NvLinkGpu {
+            nmx_m_id: value.nmx_m_id,
+            tray_index: value.tray_index,
+            slot_id: value.slot_id,
+            device_id: value.device_id,
+            guid: value.guid,
+        }
+    }
+}
+
+impl TryFrom<rpc::forge::MachineNvLinkInfo> for MachineNvLinkInfo {
+    type Error = rpc::errors::RpcDataConversionError;
+
+    fn try_from(value: rpc::forge::MachineNvLinkInfo) -> Result<Self, Self::Error> {
+        Ok(MachineNvLinkInfo {
+            domain_uuid: value.domain_uuid.ok_or(
+                rpc::errors::RpcDataConversionError::MissingArgument("domain_uuid"),
+            )?,
+            gpus: value.gpus.into_iter().map(NvLinkGpu::from).collect(),
+        })
+    }
+}
+
+impl From<rpc::forge::NvLinkGpu> for NvLinkGpu {
+    fn from(value: rpc::forge::NvLinkGpu) -> Self {
+        NvLinkGpu {
             nmx_m_id: value.nmx_m_id,
             tray_index: value.tray_index,
             slot_id: value.slot_id,

@@ -1,0 +1,20 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: carbide-dsx-exchange-consumer-certificate
+  namespace: default
+spec:
+  duration: 720h0m0s
+  renewBefore: 360h0m0s
+  dnsNames:
+    - carbide-dsx-exchange-consumer.default.svc.cluster.local
+  uris:
+    - spiffe://forge.local/default/sa/carbide-dsx-exchange-consumer
+  privateKey:
+    algorithm: ECDSA
+    size: 384
+  issuerRef:
+    kind: ClusterIssuer
+    name: vault-forge-issuer
+    group: cert-manager.io
+  secretName: carbide-dsx-exchange-consumer-certificate

@@ -227,7 +227,7 @@ Define your command enum and argument structs:
 ```rust
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-License-Identifier: Apache-2.0
  * ..etc etc.
  */
 
@@ -253,7 +253,7 @@ Implement your command handlers:
 ```rust
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-License-Identifier: Apache-2.0
  * ..etc etc.
  */
 
@@ -279,7 +279,7 @@ Wire up the dispatch:
 ```rust
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-License-Identifier: Apache-2.0
  * ..etc etc.
  */
 
@@ -349,7 +349,7 @@ who happen to look at your specific `tests.rs`.
 ```rust
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-License-Identifier: Apache-2.0
  * ..etc etc.
  */
 

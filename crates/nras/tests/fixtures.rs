@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 pub const GOOD_VERIFIER_RESPONSE: &str = r#"[["JWT","eyJraWQiOiJudi1lYXQta2lkLWRldi0yMDI1MTEyMDE0MjYxNTUyMC1mZjE0NmE4YS1jN2M1LTQ4YzItOTI1NC1lN2Q0ZWM5ODIzMGEiLCJhbGciOiJFUzM4NCJ9.eyJzdWIiOiJOVklESUEtUExBVEZPUk0tQVRURVNUQVRJT04iLCJ4LW52aWRpYS12ZXIiOiIzLjAiLCJuYmYiOjE3NjM2Njk0MzcsImlzcyI6Imh0dHBzOi8vbnJhcy5hdHRlc3RhdGlvbi1kZXYubnZpZGlhLmNvbSIsIngtbnZpZGlhLW92ZXJhbGwtYXR0LXJlc3VsdCI6dHJ1ZSwic3VibW9kcyI6eyJHUFUtMCI6WyJESUdFU1QiLFsiU0hBLTI1NiIsIjQ3YzIwMWU3ZDE1MjA4ODE5ZWExYzZmNDk0MTMzNWUzMWU4OTRkYTQ1YWNmOTdmYjhlMzdiZTlhY2Q0MGE3NTAiXV19LCJlYXRfbm9uY2UiOiJkNDJhMDU5NGM1Y2Q1NzQzZWUwOGZlNWVjM2NmODg0YjFmYWM0ZjEwNjg3OWNkYTk4YjdkMWM1MTY1MmIwNGI3IiwiZXhwIjoxNzYzNjczMDM3LCJpYXQiOjE3NjM2Njk0MzcsImp0aSI6IjFjNGViYjI2LTMwNjEtNDA4NC04NGQ2LWM2YjMyYTJmMmNhYiJ9.UfIKi8Kzlrl326Jn_U6-v9J5zoT_IoRUSAV9wKUZVnoyRD_fuCWSzM4_TSPdhaGk8Y0GHdVXIXtoaBk8StMUsxxEb2S170F5obW2JzHzDPqJLgn5Y5iDMUJPjfXuPFmi"],{"GPU-0":"eyJraWQiOiJudi1lYXQta2lkLWRldi0yMDI1MTEyMDE0MjYxNTUyMC1mZjE0NmE4YS1jN2M1LTQ4YzItOTI1NC1lN2Q0ZWM5ODIzMGEiLCJhbGciOiJFUzM4NCJ9.eyJ4LW52aWRpYS1ncHUtYXR0ZXN0YXRpb24tcmVwb3J0LW5vbmNlLW1hdGNoIjp0cnVlLCJ4LW52aWRpYS1jZXJ0LXN0YXR1cyI6InZhbGlkIiwic3ViIjoiTlZJRElBLUdQVS1BVFRFU1RBVElPTiIsIngtbnZpZGlhLWNlcnQtb2NzcC1zdGF0dXMiOiJnb29kIiwiaXNzIjoiaHR0cHM6Ly9ucmFzLmF0dGVzdGF0aW9uLWRldi5udmlkaWEuY29tIiwieC1udmlkaWEtZ3B1LWF0dGVzdGF0aW9uLXJlcG9ydC1wYXJzZWQiOnRydWUsImVhdF9ub25jZSI6ImQ0MmEwNTk0YzVjZDU3NDNlZTA4ZmU1ZWMzY2Y4ODRiMWZhYzRmMTA2ODc5Y2RhOThiN2QxYzUxNjUyYjA0YjciLCJuYmYiOjE3NjM2Njk0MzcsImh3bW9kZWwiOiJCTEFDS1dFTEwiLCJ4LW52aWRpYS1ncHUtYXR0ZXN0YXRpb24tcmVwb3J0LWNlcnQtY2hhaW4tZndpZC1tYXRjaCI6dHJ1ZSwieC1udmlkaWEtZ3B1LXZiaW9zLXJpbS1mZXRjaGVkIjp0cnVlLCJtZWFzcmVzIjoiY29tcGFyaXNvbi1zdWNjZXNzZnVsIiwiZXhwIjoxNzYzNjczMDM3LCJ4LW52aWRpYS1ncHUtZHJpdmVyLXJpbS12ZXJzaW9uLW1hdGNoIjp0cnVlLCJpYXQiOjE3NjM2Njk0MzcsInVlaWQiOiIweDEyMzQ1Njc4OTBBQkNERUYiLCJ4LW52aWRpYS1ncHUtdmJpb3MtdmVyc2lvbiI6Ijk2LjAwLjlGLjAwLjAxIiwianRpIjoiZmQ5M2M4ODctODcwMS00YjdiLTlkM2ItZDQ3NzQwOWZiMGE4IiwieC1udmlkaWEtZ3B1LXZiaW9zLXJpbS1tZWFzdXJlbWVudHMtYXZhaWxhYmxlIjp0cnVlfQ.O6_TAIHirb0LqgIuRGZ-gB3RqztpfqE3pZ2kXqqgctt-jug3PcAToxRaKOK-cx3Rnm6OpH8rNMBino2gEmW55LOJOMWzB_GzmsHMtyk2Ux3sD-Tmcsx147fXf3YvJWWf"}]"#;

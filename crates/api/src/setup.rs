@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::collections::{HashMap, HashSet};
@@ -40,7 +45,7 @@ use tracing_log::AsLog as _;
 use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
 use crate::cfg::file::{CarbideConfig, ListenMode};
-use crate::dpa::DpaInfo;
+use crate::dpa::handler::{DpaInfo, start_dpa_handler};
 use crate::dynamic_settings::DynamicSettings;
 use crate::errors::CarbideError;
 use crate::firmware_downloader::FirmwareDownloader;
@@ -83,7 +88,7 @@ use crate::state_controller::spdm::io::SpdmStateControllerIO;
 use crate::state_controller::state_change_emitter::StateChangeEmitterBuilder;
 use crate::state_controller::switch::handler::SwitchStateHandler;
 use crate::state_controller::switch::io::SwitchStateControllerIO;
-use crate::{attestation, db_init, dpa, ethernet_virtualization, listener};
+use crate::{attestation, db_init, ethernet_virtualization, listener};
 
 const API_URL_KEY: &str = "api_url";
 const PXE_URL_KEY: &str = "pxe_url";
@@ -556,7 +561,7 @@ pub async fn initialize_and_start_controllers(
     let mut dpa_info: Option<Arc<DpaInfo>> = None;
 
     if carbide_config.is_dpa_enabled() {
-        let mqtt_client = Some(dpa::start_dpa_handler(api_service.clone()).await?);
+        let mqtt_client = Some(start_dpa_handler(api_service.clone()).await?);
         let subnet_ip = carbide_config.get_dpa_subnet_ip()?;
 
         let subnet_mask = carbide_config.get_dpa_subnet_mask()?;

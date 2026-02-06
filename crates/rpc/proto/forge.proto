@@ -133,6 +133,12 @@ service Forge {
   rpc InsertHealthReportOverride(InsertHealthReportOverrideRequest) returns (google.protobuf.Empty);
   // Removes a health report override
   rpc RemoveHealthReportOverride(RemoveHealthReportOverrideRequest) returns (google.protobuf.Empty);
+  // Lists all overrides that have been placed on a Rack health status (stub - implementation TBD)
+  rpc ListRackHealthReportOverrides(ListRackHealthReportOverridesRequest) returns (ListHealthReportOverrideResponse);
+  // Adds a new health report override for a Rack (stub - implementation TBD)
+  rpc InsertRackHealthReportOverride(InsertRackHealthReportOverrideRequest) returns (google.protobuf.Empty);
+  // Removes a health report override for a Rack (stub - implementation TBD)
+  rpc RemoveRackHealthReportOverride(RemoveRackHealthReportOverrideRequest) returns (google.protobuf.Empty);
   rpc DpuAgentUpgradeCheck(DpuAgentUpgradeCheckRequest) returns (DpuAgentUpgradeCheckResponse);
   rpc DpuAgentUpgradePolicyAction(DpuAgentUpgradePolicyRequest) returns (DpuAgentUpgradePolicyResponse);
   // Looks up a DNS record for DNS names assigned by Forge
@@ -266,6 +272,9 @@ service Forge {
   // Update the Metadata of a Machine
   rpc UpdateMachineMetadata(MachineMetadataUpdateRequest) returns (google.protobuf.Empty);
 
+  // Update the NVLink Info of a Machine
+  rpc UpdateMachineNvLinkInfo(UpdateMachineNvLinkInfoRequest) returns (google.protobuf.Empty);
+
   // Maintenance mode operations: enable, disable
   rpc SetMaintenance(MaintenanceRequest) returns (google.protobuf.Empty);
 
@@ -281,6 +290,9 @@ service Forge {
   rpc TriggerHostReprovisioning(HostReprovisioningRequest) returns (google.protobuf.Empty);
   // List hosts waiting for reprovisioning
   rpc ListHostsWaitingForReprovisioning(HostReprovisioningListRequest) returns (HostReprovisioningListResponse);
+  // TODO: Remove when manual upgrade feature is removed
+  // Mark host as having completed manual firmware upgrade
+  rpc MarkManualFirmwareUpgradeComplete(common.MachineId) returns (google.protobuf.Empty);
 
   rpc GetDpuInfoList(GetDpuInfoListRequest) returns (GetDpuInfoListResponse);
 
@@ -3838,6 +3850,25 @@ message InsertHealthReportOverrideRequest {
   HealthReportOverride override = 2;
 }
 
+// Request to insert a health report override for a Rack.
+// Same as InsertHealthReportOverrideRequest but with rack_id instead of machine_id.
+message InsertRackHealthReportOverrideRequest {
+  common.RackId rack_id = 1;
+  HealthReportOverride override = 2;
+}
+
+// Request to remove a health report override for a Rack.
+// Same as RemoveHealthReportOverrideRequest but with rack_id instead of machine_id.
+message RemoveRackHealthReportOverrideRequest {
+  common.RackId rack_id = 1;
+  string source = 2;
+}
+
+// Request to list health report overrides for a Rack.
+message ListRackHealthReportOverridesRequest {
+  optional common.RackId rack_id = 1;
+}
+
 message ListHealthReportOverrideResponse {
   repeated HealthReportOverride overrides = 1;
 }
@@ -5640,6 +5671,11 @@ message RackManagerForgeResponse {
 message MachineNVLinkInfo {
   common.NVLinkDomainId domain_uuid = 1;
   repeated NVLinkGpu gpus = 2;
+}
+
+message UpdateMachineNvLinkInfoRequest {
+  common.MachineId machine_id = 1;
+  MachineNVLinkInfo nvlink_info = 2;
 }
 
 message NVLinkGpu {

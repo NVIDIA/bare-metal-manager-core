@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::collections::HashMap;
@@ -515,7 +520,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // "Site explorer" pass
     let endpoints =
-        db::explored_endpoints::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()])
+        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
             .await
             .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();
@@ -546,7 +551,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     else {
         panic!("Not in HostReprovision");
     };
-    let HostReprovisionState::CheckingFirmwareRepeat = reprovision_state else {
+    let HostReprovisionState::CheckingFirmwareRepeatV2 { .. } = reprovision_state else {
         panic!("Not in reset {reprovision_state:?}");
     };
     txn.commit().await.unwrap();
@@ -571,17 +576,30 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     else {
         panic!("Not in HostReprovision");
     };
-    let HostReprovisionState::WaitingForFirmwareUpgrade { firmware_type, .. } = reprovision_state
+    let HostReprovisionState::WaitingForFirmwareUpgrade {
+        firmware_type,
+        firmware_number,
+        ..
+    } = reprovision_state
     else {
         panic!("Not in WaitingForFirmwareUpgrade");
     };
     assert_eq!(firmware_type, &FirmwareComponentType::Bmc);
+    assert_eq!(firmware_number, &Some(0));
     txn.commit().await.unwrap();
 
     // Another state machine pass
+    // WaitingForFirmwareUpgrade -> CheckingFirmware (firmware_number: 1)
     env.run_machine_state_controller_iteration().await;
+
+    // Another state machine pass
+    // CheckingFirmware -> WaitingForUpload (firmware_number: 1)
+    env.run_machine_state_controller_iteration().await;
+
     // Wait a bit for upload to complete
     sleep(Duration::from_millis(6000)).await;
+
+    // WaitingForUpload -> WaitingForFirmwareUpgrade
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
@@ -623,7 +641,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // "Site explorer" pass to indicate that we're at the desired version
     let endpoints =
-        db::explored_endpoints::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()])
+        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
             .await?;
     let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
@@ -674,9 +692,9 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     else {
         panic!("Not in HostReprovision");
     };
-    if reprovision_state != &HostReprovisionState::CheckingFirmwareRepeat {
+    let HostReprovisionState::CheckingFirmwareRepeatV2 { .. } = reprovision_state else {
         panic!("Not in checking");
-    }
+    };
     txn.commit().await.unwrap();
 
     // Another state machine pass
@@ -1285,7 +1303,7 @@ async fn test_instance_upgrading_actual_part_2(
     let InstanceState::HostReprovision { reprovision_state } = instance_state else {
         panic!("Unexpected state {:?}", host.state)
     };
-    let HostReprovisionState::CheckingFirmware = reprovision_state else {
+    let HostReprovisionState::CheckingFirmwareV2 { .. } = reprovision_state else {
         panic!("Unexpected state {:?}", host.state)
     };
     assert!(host.host_reprovision_requested.is_some());
@@ -1391,7 +1409,7 @@ async fn test_instance_upgrading_actual_part_2(
 
     // "Site explorer" pass
     let endpoints =
-        db::explored_endpoints::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()])
+        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
             .await
             .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();
@@ -1437,7 +1455,7 @@ async fn test_instance_upgrading_actual_part_2(
     let InstanceState::HostReprovision { reprovision_state } = instance_state else {
         panic!("Unexpected state {:?}", host.state)
     };
-    let HostReprovisionState::CheckingFirmwareRepeat = reprovision_state else {
+    let HostReprovisionState::CheckingFirmwareRepeatV2 { .. } = reprovision_state else {
         panic!("Not in reset {reprovision_state:?}");
     };
 
@@ -1461,7 +1479,7 @@ async fn test_instance_upgrading_actual_part_2(
     sleep(Duration::from_millis(6000)).await;
     env.run_machine_state_controller_iteration().await;
 
-    // It should have "started" a BMC upgrade now
+    // It should have "started" a BMC upgrade now (first file out of 2)
     let mut txn = env.pool.begin().await.unwrap();
     let host = mh.host().db_machine(&mut txn).await;
 
@@ -1472,11 +1490,16 @@ async fn test_instance_upgrading_actual_part_2(
     let InstanceState::HostReprovision { reprovision_state } = instance_state else {
         panic!("Unexpected state {:?}", host.state)
     };
-    let HostReprovisionState::WaitingForFirmwareUpgrade { firmware_type, .. } = reprovision_state
+    let HostReprovisionState::WaitingForFirmwareUpgrade {
+        firmware_type,
+        firmware_number,
+        ..
+    } = reprovision_state
     else {
         panic!("Not in WaitingForFirmwareUpgrade");
     };
     assert_eq!(firmware_type, FirmwareComponentType::Bmc);
+    assert_eq!(firmware_number, Some(0));
     // Check that the TenantState is what we expect based on the instance/machine state.
     let instance = tinstance.db_instance(&mut txn).await;
 
@@ -1494,11 +1517,7 @@ async fn test_instance_upgrading_actual_part_2(
     txn.commit().await.unwrap();
 
     // Another state machine pass
-    env.run_machine_state_controller_iteration().await;
-    sleep(Duration::from_millis(6000)).await;
-    // Another state machine pass
-    env.run_machine_state_controller_iteration().await;
-    // Another state machine pass
+    // WaitingForFirmwareUpgrade -> CheckingFirmware (firmware_number: 1)
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await.unwrap();
     let host = mh.host().db_machine(&mut txn).await;
@@ -1508,9 +1527,40 @@ async fn test_instance_upgrading_actual_part_2(
     let InstanceState::HostReprovision { reprovision_state } = instance_state else {
         panic!("Unexpected state {:?}", host.state)
     };
-    let HostReprovisionState::ResetForNewFirmware { .. } = reprovision_state else {
+    let HostReprovisionState::CheckingFirmwareV2 {
+        firmware_number, ..
+    } = reprovision_state
+    else {
+        panic!("Not in CheckingFirmware: {reprovision_state:?}");
+    };
+    assert_eq!(firmware_number, Some(1));
+
+    // Another state machine pass
+    // CheckingFirmware -> WaitingForUpload (firmware_number: 1)
+    env.run_machine_state_controller_iteration().await;
+    sleep(Duration::from_millis(6000)).await;
+    // Another state machine pass
+    // WaitingForUpload -> WaitingForFirmwareUpgrade
+    env.run_machine_state_controller_iteration().await;
+    // Another state machine pass
+    // WaitingForFirmwareUpgrade -> ResetForNewFirmware
+    env.run_machine_state_controller_iteration().await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    let ManagedHostState::Assigned { instance_state } = host.state.clone().value else {
+        panic!("Unexpected state {:?}", host.state);
+    };
+    let InstanceState::HostReprovision { reprovision_state } = instance_state else {
+        panic!("Unexpected state {:?}", host.state)
+    };
+    let HostReprovisionState::ResetForNewFirmware {
+        firmware_number, ..
+    } = reprovision_state
+    else {
         panic!("Not in reset {reprovision_state:?}");
     };
+
+    assert_eq!(firmware_number, Some(1));
 
     // Check that the TenantState is what we expect based on the instance/machine state.
     let instance = tinstance.db_instance(&mut txn).await;
@@ -1528,7 +1578,7 @@ async fn test_instance_upgrading_actual_part_2(
 
     // "Site explorer" pass to indicate that we're at the desired version
     let endpoints =
-        db::explored_endpoints::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()])
+        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
             .await
             .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();
@@ -1596,9 +1646,9 @@ async fn test_instance_upgrading_actual_part_2(
     let InstanceState::HostReprovision { reprovision_state } = instance_state else {
         panic!("Unexpected state {:?}", host.state)
     };
-    if reprovision_state != HostReprovisionState::CheckingFirmwareRepeat {
+    let HostReprovisionState::CheckingFirmwareRepeatV2 { .. } = reprovision_state else {
         panic!("Not in checking");
-    }
+    };
 
     // Check that the TenantState is what we expect based on the instance/machine state.
     let instance = tinstance.db_instance(&mut txn).await;
@@ -1811,7 +1861,7 @@ async fn test_script_upgrade(pool: sqlx::PgPool) -> CarbideResult<()> {
     else {
         panic!("Not in HostReprovision");
     };
-    let HostReprovisionState::CheckingFirmwareRepeat = reprovision_state else {
+    let HostReprovisionState::CheckingFirmwareRepeatV2 { .. } = reprovision_state else {
         panic!("Not in CheckingFirmwareRepeat");
     };
     txn.commit().await.unwrap();
@@ -1915,7 +1965,7 @@ async fn test_script_upgrade_failure(pool: sqlx::PgPool) -> CarbideResult<()> {
             panic!("Not in HostReprovision");
         };
         assert_eq!(*retry_count, retry_i);
-        let HostReprovisionState::CheckingFirmware = reprovision_state else {
+        let HostReprovisionState::CheckingFirmwareV2 { .. } = reprovision_state else {
             panic!("Not in CheckingFirmware");
         };
         txn.commit().await.unwrap();
@@ -2492,7 +2542,7 @@ async fn test_manual_firmware_upgrade_workflow(pool: sqlx::PgPool) -> CarbideRes
         matches!(
             host.current_state(),
             ManagedHostState::HostReprovision {
-                reprovision_state: HostReprovisionState::CheckingFirmwareRepeat,
+                reprovision_state: HostReprovisionState::CheckingFirmwareRepeatV2 { .. },
                 ..
             }
         ),
@@ -2516,7 +2566,7 @@ async fn test_manual_firmware_upgrade_workflow(pool: sqlx::PgPool) -> CarbideRes
 
     // "Site explorer" pass
     let endpoints =
-        db::explored_endpoints::find_by_ips(&mut txn, vec![host.bmc_info.ip_addr().unwrap()])
+        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
             .await
             .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();

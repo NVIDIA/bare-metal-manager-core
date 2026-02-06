@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 /*!
@@ -28,6 +33,7 @@ use rpc::protos::measured_boot::CandidateMachineSummaryPb;
 use serde::Serialize;
 use sqlx::{FromRow, PgConnection};
 
+use crate::db_read::DbReader;
 use crate::measured_boot::interface::bundle::get_measurement_bundle_by_id;
 use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::machine::{
@@ -138,22 +144,25 @@ pub fn bundle_state_to_machine_state(
 /// machine ID by checking its most recent bundle (or lack thereof), and
 /// using that result to give it a corresponding MeasurementMachineState.
 pub async fn get_measurement_machine_state(
-    txn: &mut PgConnection,
+    db_reader: impl DbReader<'_>,
     machine_id: MachineId,
 ) -> Result<MeasurementMachineState, DatabaseError> {
-    get_candidate_machine_state(txn, machine_id).await
+    get_candidate_machine_state(db_reader, machine_id).await
 }
 
 /// get_measurement_bundle_state returns the state of the current bundle
 /// associated with the machine, if one exists.
-pub async fn get_measurement_bundle_state(
-    txn: &mut PgConnection,
+pub async fn get_measurement_bundle_state<DB>(
+    db_reader: &mut DB,
     machine_id: &MachineId,
-) -> eyre::Result<Option<MeasurementBundleState>> {
-    let result = get_latest_journal_for_id(&mut *txn, *machine_id).await?;
+) -> eyre::Result<Option<MeasurementBundleState>>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
+    let result = get_latest_journal_for_id(&mut *db_reader, *machine_id).await?;
     if let Some(journal_record) = result
         && let Some(bundle_id) = journal_record.bundle_id
-        && let Some(bundle) = get_measurement_bundle_by_id(txn, bundle_id).await?
+        && let Some(bundle) = get_measurement_bundle_by_id(db_reader, bundle_id).await?
     {
         return Ok(Some(bundle.state));
     }
@@ -181,7 +190,7 @@ async fn get_candidate_machines(txn: &mut PgConnection) -> DatabaseResult<Vec<Ca
             ))),
         }?;
 
-        let journal = get_latest_journal_for_id(txn, record.machine_id).await?;
+        let journal = get_latest_journal_for_id(&mut *txn, record.machine_id).await?;
         let state = machine_state_from_journal(&journal);
 
         res.push(CandidateMachine {

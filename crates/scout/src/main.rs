@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::fs::File;
@@ -476,7 +481,7 @@ async fn handle_mlxreport_action(
             Ok(d) => d,
             Err(s) => {
                 tracing::error!(
-                    "handle_mlxreport_actioni Error from discover_device::from_str {s} for dev: {:#?}",
+                    "handle_mlxreport_action Error from discover_device::from_str {s} for dev: {:#?}",
                     dev_pci_name
                 );
                 continue;
@@ -490,7 +495,7 @@ async fn handle_mlxreport_action(
             Ok(dpc) => dpc,
             Err(e) => {
                 tracing::error!(
-                    "handle_mlxreport_actioni Error decodeing DpaCommand {e} for dev: {:#?}",
+                    "handle_mlxreport_action Error decodeing DpaCommand {e} for dev: {:#?}",
                     dev_pci_name
                 );
                 continue;
@@ -499,28 +504,23 @@ async fn handle_mlxreport_action(
 
         match dpa_cmd.op {
             OpCode::Noop => (),
-            OpCode::Lock { key } => {
-                // XXX TODO XXX
-                // Call lock_card with the proper key
-                // XXX TODO XXX
-                match mlx_device::lock_device(&dev_pci_name, &key) {
-                    Ok(()) => {
-                        let obs = MlxObservation {
-                            device_info: Some(dev.into()),
-                            lock_status: Some(LockStatus::Locked.into()),
-                            profile_name: None,
-                            profile_synced: None,
-                        };
-                        report.observations.push(obs);
-                    }
-                    Err(e) => {
-                        tracing::info!(
-                            "handle_mlxreport_actioni Error from lock_device: {e} for dev: {:#?}",
-                            dev_pci_name
-                        );
-                    }
+            OpCode::Lock { key } => match mlx_device::lock_device(&dev_pci_name, &key) {
+                Ok(()) => {
+                    let obs = MlxObservation {
+                        device_info: Some(dev.into()),
+                        lock_status: Some(LockStatus::Locked.into()),
+                        profile_name: None,
+                        profile_synced: None,
+                    };
+                    report.observations.push(obs);
                 }
-            }
+                Err(e) => {
+                    tracing::info!(
+                        "handle_mlxreport_action Error from lock_device: {e} for dev: {:#?}",
+                        dev_pci_name
+                    );
+                }
+            },
             OpCode::ApplyProfile { profile_str } => {
                 // XXX TODO XXX
                 // Call appropriate mlx routine to apply profile and handle errors
@@ -533,28 +533,23 @@ async fn handle_mlxreport_action(
                 };
                 report.observations.push(obs);
             }
-            OpCode::Unlock { key } => {
-                // XXX TODO XXX
-                // Call unlock_card with the proper key
-                // XXX TODO XXX
-                match mlx_device::unlock_device(&dev_pci_name, &key) {
-                    Ok(()) => {
-                        let obs = MlxObservation {
-                            device_info: Some(dev.into()),
-                            lock_status: Some(LockStatus::Unlocked.into()),
-                            profile_name: None,
-                            profile_synced: None,
-                        };
-                        report.observations.push(obs);
-                    }
-                    Err(e) => {
-                        tracing::info!(
-                            "handle_mlxreport_actioni Error from unlock_device: {e} for dev: {:#?}",
-                            dev_pci_name
-                        );
-                    }
+            OpCode::Unlock { key } => match mlx_device::unlock_device(&dev_pci_name, &key) {
+                Ok(()) => {
+                    let obs = MlxObservation {
+                        device_info: Some(dev.into()),
+                        lock_status: Some(LockStatus::Unlocked.into()),
+                        profile_name: None,
+                        profile_synced: None,
+                    };
+                    report.observations.push(obs);
                 }
-            }
+                Err(e) => {
+                    tracing::info!(
+                        "handle_mlxreport_action Error from unlock_device: {e} for dev: {:#?}",
+                        dev_pci_name
+                    );
+                }
+            },
         };
     }
 

@@ -1,13 +1,18 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::borrow::Cow;
@@ -23,6 +28,7 @@ use serde_json::json;
 
 use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch, json_patch};
+use crate::redfish::Builder;
 use crate::{MockPowerState, POWER_CYCLE_DELAY, PowerControl, SetSystemPowerError, http, redfish};
 
 pub fn collection() -> redfish::Collection<'static> {
@@ -99,7 +105,9 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
 pub struct SingleSystemConfig {
     pub id: Cow<'static, str>,
     pub eth_interfaces: Vec<redfish::ethernet_interface::EthernetInterface>,
-    pub serial_number: String,
+    pub serial_number: Cow<'static, str>,
+    pub manufacturer: Option<Cow<'static, str>>,
+    pub model: Option<Cow<'static, str>>,
     pub boot_order_mode: BootOrderMode,
     pub power_control: Option<Arc<dyn PowerControl>>,
     pub chassis: Vec<Cow<'static, str>>,
@@ -201,8 +209,9 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
         .bios(&redfish::bios::resource(&system_id))
         .link_chassis(&system_state.config.chassis);
 
-    if let Some(state) = system_state
-        .config
+    let config = &system_state.config;
+
+    if let Some(state) = config
         .power_control
         .as_ref()
         .map(|control| control.get_power_state())
@@ -211,17 +220,29 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
     }
 
     if let Some(boot_order) = system_state.boot_order_override() {
-        b = b.boot_order(&boot_order)
+        b = b.boot_order(&boot_order.iter().map(String::as_str).collect::<Vec<_>>());
+    } else {
+        b = b.boot_order(
+            &config
+                .boot_options
+                .iter()
+                .map(|v| v.id.as_ref())
+                .collect::<Vec<_>>(),
+        );
     }
 
-    let pcie_devices = system_state
-        .config
+    let pcie_devices = config
         .chassis
         .iter()
         .flat_map(|chassis_id| state.chassis_state.find(chassis_id))
         .flat_map(|chassis| chassis.pcie_devices_resources().into_iter())
         .collect::<Vec<_>>();
-    b.pcie_devices(&pcie_devices).build().into_ok_response()
+
+    b.maybe_with(SystemBuilder::manufacturer, &config.manufacturer)
+        .maybe_with(SystemBuilder::model, &config.model)
+        .pcie_devices(&pcie_devices)
+        .build()
+        .into_ok_response()
 }
 
 async fn get_ethernet_interface(
@@ -484,16 +505,32 @@ pub struct SystemBuilder {
     value: serde_json::Value,
 }
 
+impl Builder for SystemBuilder {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
+        }
+    }
+}
+
 impl SystemBuilder {
     pub fn serial_number(self, v: &str) -> Self {
         self.add_str_field("SerialNumber", v)
+    }
+
+    pub fn manufacturer(self, v: &str) -> Self {
+        self.add_str_field("Manufacturer", v)
+    }
+
+    pub fn model(self, v: &str) -> Self {
+        self.add_str_field("Model", v)
     }
 
     pub fn ethernet_interfaces(self, v: redfish::Collection<'_>) -> Self {
         self.apply_patch(v.nav_property("EthernetInterfaces"))
     }
 
-    pub fn boot_order(self, boot_order: &[String]) -> Self {
+    pub fn boot_order(self, boot_order: &[&str]) -> Self {
         self.apply_patch(json!({"Boot": {"BootOrder": boot_order}}))
     }
 
@@ -535,15 +572,5 @@ impl SystemBuilder {
 
     pub fn build(self) -> serde_json::Value {
         self.value
-    }
-
-    fn add_str_field(self, name: &str, value: &str) -> Self {
-        self.apply_patch(json!({ name: value }))
-    }
-
-    fn apply_patch(self, patch: serde_json::Value) -> Self {
-        Self {
-            value: self.value.patch(patch),
-        }
     }
 }

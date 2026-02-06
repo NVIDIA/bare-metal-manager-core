@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use ::rpc::protos::mlx_device as mlx_device_pb;
@@ -235,63 +240,81 @@ pub(crate) async fn process_scout_req(
         return Ok((Action::Noop, None));
     }
 
-    let pair: Vec<KeyValuePair> = dpa_snapshots
-        .iter()
-        .filter_map(|sn| {
-            let cstate = sn.controller_state.value.clone();
-            let dev_name = &sn.pci_name;
+    let mut pair: Vec<KeyValuePair> = Vec::new();
 
-            let dpa_cmd = match cstate {
-                DpaInterfaceControllerState::Provisioning
-                | DpaInterfaceControllerState::Ready
-                | DpaInterfaceControllerState::WaitingForSetVNI
-                | DpaInterfaceControllerState::Assigned
-                | DpaInterfaceControllerState::WaitingForResetVNI => return None,
+    for sn in &dpa_snapshots {
+        let cstate = sn.controller_state.value.clone();
+        let dev_name = &sn.pci_name;
 
-                DpaInterfaceControllerState::Unlocking => {
-                    tracing::info!("Unlocking DPA {:#?}", dev_name);
-                    DpaCommand {
-                        op: OpCode::Unlock {
-                            key: "12345678".to_string(), // XXX TODO: get actual key
-                        },
-                    }
-                }
+        let dpa_cmd = match cstate {
+            DpaInterfaceControllerState::Provisioning
+            | DpaInterfaceControllerState::Ready
+            | DpaInterfaceControllerState::WaitingForSetVNI
+            | DpaInterfaceControllerState::Assigned
+            | DpaInterfaceControllerState::WaitingForResetVNI => continue,
 
-                DpaInterfaceControllerState::ApplyProfile => {
-                    let profstr = api.runtime_config.get_dpa_profile("Bluefield3".to_string());
-                    tracing::info!("Applying profile for DPA {:#?}", dev_name);
-                    DpaCommand {
-                        op: OpCode::ApplyProfile {
-                            profile_str: profstr,
-                        },
-                    }
-                }
+            DpaInterfaceControllerState::Unlocking => {
+                let key = crate::dpa::lockdown::build_supernic_lockdown_key(
+                    txn,
+                    sn.id,
+                    &*api.credential_provider,
+                )
+                .await
+                .map_err(|e| {
+                    CarbideError::GenericErrorFromReport(eyre!(
+                        "failed to build unlock key for DPA {dev_name}: {e}"
+                    ))
+                })?;
 
-                DpaInterfaceControllerState::Locking => {
-                    tracing::info!("Locking DPA {:#?}", dev_name);
-                    DpaCommand {
-                        op: OpCode::Lock {
-                            key: "12345678".to_string(), // XXX TODO: get actual key
-                        },
-                    }
-                }
-            };
-
-            match serde_json::to_string(&dpa_cmd) {
-                Ok(cmdstr) => Some(KeyValuePair {
-                    key: dev_name.clone(),
-                    value: cmdstr,
-                }),
-                Err(e) => {
-                    tracing::info!(
-                        "process_scout_req Error encoding DpaCommand {e} for dpa: {:#?}",
-                        sn
-                    );
-                    None
+                tracing::info!("Unlocking DPA {:#?}", dev_name);
+                DpaCommand {
+                    op: OpCode::Unlock { key },
                 }
             }
-        })
-        .collect();
+
+            DpaInterfaceControllerState::ApplyProfile => {
+                let profstr = api.runtime_config.get_dpa_profile("Bluefield3".to_string());
+                tracing::info!("Applying profile for DPA {:#?}", dev_name);
+                DpaCommand {
+                    op: OpCode::ApplyProfile {
+                        profile_str: profstr,
+                    },
+                }
+            }
+
+            DpaInterfaceControllerState::Locking => {
+                let key = crate::dpa::lockdown::build_supernic_lockdown_key(
+                    txn,
+                    sn.id,
+                    &*api.credential_provider,
+                )
+                .await
+                .map_err(|e| {
+                    CarbideError::GenericErrorFromReport(eyre!(
+                        "failed to build lock key for DPA {dev_name}: {e}"
+                    ))
+                })?;
+
+                tracing::info!("Locking DPA {:#?}", dev_name);
+                DpaCommand {
+                    op: OpCode::Lock { key },
+                }
+            }
+        };
+
+        match serde_json::to_string(&dpa_cmd) {
+            Ok(cmdstr) => pair.push(KeyValuePair {
+                key: dev_name.clone(),
+                value: cmdstr,
+            }),
+            Err(e) => {
+                tracing::info!(
+                    "process_scout_req Error encoding DpaCommand {e} for dpa: {:#?}",
+                    sn
+                );
+            }
+        }
+    }
 
     let facr = ForgeAgentControlExtraInfo { pair };
 

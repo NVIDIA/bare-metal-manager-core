@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::borrow::Cow;
@@ -21,6 +26,7 @@ use serde_json::json;
 
 use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch};
+use crate::redfish::Builder;
 use crate::{http, redfish};
 
 pub fn resource<'a>(chassis_id: &'a str) -> redfish::Resource<'a> {
@@ -88,7 +94,10 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
 
 pub struct SingleChassisConfig {
     pub id: Cow<'static, str>,
-    pub serial_number: Option<String>,
+    pub serial_number: Option<Cow<'static, str>>,
+    pub manufacturer: Option<Cow<'static, str>>,
+    pub model: Option<Cow<'static, str>>,
+    pub part_number: Option<Cow<'static, str>>,
     pub network_adapters: Option<Vec<redfish::network_adapter::NetworkAdapter>>,
     pub pcie_devices: Option<Vec<redfish::pcie_device::PCIeDevice>>,
 }
@@ -165,23 +174,24 @@ async fn get_chassis(State(state): State<BmcState>, Path(chassis_id): Path<Strin
     let Some(chassis_state) = state.chassis_state.find(&chassis_id) else {
         return http::not_found();
     };
+    let config = &chassis_state.config;
     let b = builder(&resource(&chassis_id));
-    let b = if chassis_state.config.pcie_devices.is_some() {
+    let b = if config.pcie_devices.is_some() {
         b.pcie_devices(redfish::pcie_device::chassis_collection(&chassis_id))
     } else {
         b
     };
-    let b = if chassis_state.config.network_adapters.is_some() {
+    let b = if config.network_adapters.is_some() {
         b.network_adapters(redfish::network_adapter::chassis_collection(&chassis_id))
     } else {
         b
     };
-    let b = if let Some(serial) = &chassis_state.config.serial_number {
-        b.serial_number(serial)
-    } else {
-        b
-    };
-    b.build().into_ok_response()
+    b.maybe_with(ChassisBuilder::serial_number, &config.serial_number)
+        .maybe_with(ChassisBuilder::manufacturer, &config.manufacturer)
+        .maybe_with(ChassisBuilder::part_number, &config.part_number)
+        .maybe_with(ChassisBuilder::model, &config.model)
+        .build()
+        .into_ok_response()
 }
 
 async fn get_chassis_network_adapters(
@@ -311,9 +321,29 @@ pub struct ChassisBuilder {
     value: serde_json::Value,
 }
 
+impl Builder for ChassisBuilder {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
+        }
+    }
+}
+
 impl ChassisBuilder {
     pub fn serial_number(self, v: &str) -> Self {
         self.add_str_field("SerialNumber", v)
+    }
+
+    pub fn manufacturer(self, v: &str) -> Self {
+        self.add_str_field("Manufacturer", v)
+    }
+
+    pub fn part_number(self, v: &str) -> Self {
+        self.add_str_field("PartNumber", v)
+    }
+
+    pub fn model(self, v: &str) -> Self {
+        self.add_str_field("Model", v)
     }
 
     pub fn network_adapters(self, v: redfish::Collection<'_>) -> Self {
@@ -326,15 +356,5 @@ impl ChassisBuilder {
 
     pub fn build(self) -> serde_json::Value {
         self.value
-    }
-
-    fn add_str_field(self, name: &str, value: &str) -> Self {
-        self.apply_patch(json!({ name: value }))
-    }
-
-    fn apply_patch(self, patch: serde_json::Value) -> Self {
-        Self {
-            value: self.value.patch(patch),
-        }
     }
 }

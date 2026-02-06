@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 /*!
@@ -20,6 +25,7 @@ use measured_boot::records::{MeasurementJournalRecord, MeasurementMachineState};
 use sqlx::PgConnection;
 
 use crate::DatabaseError;
+use crate::db_read::DbReader;
 use crate::measured_boot::interface::common;
 use crate::measured_boot::machine::CandidateMachineRecord;
 
@@ -27,21 +33,19 @@ use crate::measured_boot::machine::CandidateMachineRecord;
 /// machine ID by checking its most recent bundle (or lack thereof), and
 /// using that result to give it a corresponding MeasurementMachineState.
 pub async fn get_candidate_machine_state(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     machine_id: MachineId,
 ) -> Result<MeasurementMachineState, DatabaseError> {
-    Ok(
-        match get_latest_journal_for_id(&mut *txn, machine_id).await? {
-            Some(record) => record.state,
-            None => MeasurementMachineState::Discovered,
-        },
-    )
+    Ok(match get_latest_journal_for_id(txn, machine_id).await? {
+        Some(record) => record.state,
+        None => MeasurementMachineState::Discovered,
+    })
 }
 
 /// get_latest_journal_for_id returns the latest journal record for the
 /// provided machine ID.
 pub async fn get_latest_journal_for_id(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     machine_id: MachineId,
 ) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
     let query = "select distinct on (machine_id) * from measurement_journal where machine_id = $1 order by machine_id,ts desc";

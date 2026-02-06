@@ -1,13 +1,18 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 // The intent of the tests.rs file is to test the integrity of the
@@ -148,5 +153,34 @@ fn parse_reprovision_list() {
 #[test]
 fn parse_reprovision_set_missing_id_fails() {
     let result = Cmd::try_parse_from(["host", "reprovision", "set"]);
+    assert!(result.is_err(), "should fail without --id");
+}
+
+// parse_reprovision_mark_manual_upgrade_complete ensures
+// mark-manual-upgrade-complete parses with required --id.
+#[test]
+fn parse_reprovision_mark_manual_upgrade_complete() {
+    let cmd = Cmd::try_parse_from([
+        "host",
+        "reprovision",
+        "mark-manual-upgrade-complete",
+        "--id",
+        TEST_MACHINE_ID,
+    ])
+    .expect("should parse mark-manual-upgrade-complete");
+
+    match cmd {
+        Cmd::Reprovision(HostReprovision::MarkManualUpgradeComplete(args)) => {
+            assert_eq!(args.id.to_string(), TEST_MACHINE_ID);
+        }
+        _ => panic!("expected Reprovision MarkManualUpgradeComplete variant"),
+    }
+}
+
+// parse_reprovision_mark_manual_upgrade_complete_missing_id_fails
+// ensures mark-manual-upgrade-complete requires --id.
+#[test]
+fn parse_reprovision_mark_manual_upgrade_complete_missing_id_fails() {
+    let result = Cmd::try_parse_from(["host", "reprovision", "mark-manual-upgrade-complete"]);
     assert!(result.is_err(), "should fail without --id");
 }

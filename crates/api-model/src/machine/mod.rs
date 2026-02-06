@@ -1,18 +1,23 @@
-use std::cmp::Ordering;
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::ops::Deref;
 
 use ::rpc::errors::RpcDataConversionError;
@@ -782,7 +787,7 @@ impl Machine {
         self.state.version
     }
 
-    pub fn loopback_ip(&self) -> Option<Ipv4Addr> {
+    pub fn loopback_ip(&self) -> Option<IpAddr> {
         self.network_config.loopback_ip
     }
 
@@ -1395,8 +1400,18 @@ pub enum NetworkConfigUpdateState {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum HostReprovisionState {
+    // deprecated, kept for backwards compatibility with existing database entries: FORGE-7975
     CheckingFirmware,
+    // deprecated, kept for backwards compatibility with existing database entries: FORGE-7975
     CheckingFirmwareRepeat,
+    CheckingFirmwareV2 {
+        firmware_type: Option<FirmwareComponentType>,
+        firmware_number: Option<u32>,
+    },
+    CheckingFirmwareRepeatV2 {
+        firmware_type: Option<FirmwareComponentType>,
+        firmware_number: Option<u32>,
+    },
     InitialReset {
         phase: InitialResetPhase,
         last_time: DateTime<Utc>,
@@ -1422,6 +1437,7 @@ pub enum HostReprovisionState {
     ResetForNewFirmware {
         final_version: String,
         firmware_type: FirmwareComponentType,
+        firmware_number: Option<u32>,
         power_drains_needed: Option<u32>,
         delay_until: Option<i64>,
         last_power_drain_operation: Option<PowerDrainState>,
@@ -1429,6 +1445,7 @@ pub enum HostReprovisionState {
     NewFirmwareReportedWait {
         final_version: String,
         firmware_type: FirmwareComponentType,
+        firmware_number: Option<u32>,
         previous_reset_time: Option<i64>,
     },
     FailedFirmwareUpgrade {

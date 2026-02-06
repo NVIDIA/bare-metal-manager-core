@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 use std::net::IpAddr;
 
@@ -286,7 +291,7 @@ async fn test_find_machine_ids(pool: sqlx::PgPool) {
     .unwrap();
     let mut txn = env.pool.begin().await.unwrap();
 
-    let machine_ids = db::machine::find_machine_ids(&mut txn, config)
+    let machine_ids = db::machine::find_machine_ids(txn.as_mut(), config)
         .await
         .unwrap();
 
@@ -328,7 +333,7 @@ async fn test_find_machine_ids(pool: sqlx::PgPool) {
     };
 
     // Try to find machines for the instance type.
-    let machine_ids = db::machine::find_machine_ids(&mut txn, config)
+    let machine_ids = db::machine::find_machine_ids(txn.as_mut(), config)
         .await
         .unwrap();
 
@@ -353,7 +358,7 @@ async fn test_find_dpu_machine_ids(pool: sqlx::PgPool) {
     .unwrap();
     let mut txn = env.pool.begin().await.unwrap();
 
-    let machine_ids = db::machine::find_machine_ids(&mut txn, config)
+    let machine_ids = db::machine::find_machine_ids(txn.as_mut(), config)
         .await
         .unwrap();
 
@@ -378,7 +383,7 @@ async fn test_find_predicted_host_machine_ids(pool: sqlx::PgPool) {
     .unwrap();
     let mut txn = env.pool.begin().await.unwrap();
 
-    let machine_ids = db::machine::find_machine_ids(&mut txn, config)
+    let machine_ids = db::machine::find_machine_ids(txn.as_mut(), config)
         .await
         .unwrap();
 
@@ -396,7 +401,7 @@ async fn test_find_host_machine_ids_when_predicted(pool: sqlx::PgPool) {
     let _dpu_machine_id = create_dpu_machine(&env, &host_config).await;
     let mut txn = env.pool.begin().await.unwrap();
 
-    let machine_ids = db::machine::find_machine_ids(&mut txn, config)
+    let machine_ids = db::machine::find_machine_ids(txn.as_mut(), config)
         .await
         .unwrap();
 
@@ -413,7 +418,7 @@ async fn test_find_host_machine_ids(pool: sqlx::PgPool) {
     let mut txn = env.pool.begin().await.unwrap();
 
     tracing::info!("finding machine ids");
-    let machine_ids = db::machine::find_machine_ids(&mut txn, config)
+    let machine_ids = db::machine::find_machine_ids(txn.as_mut(), config)
         .await
         .unwrap();
     assert_eq!(machine_ids.len(), 1);
@@ -440,7 +445,7 @@ async fn test_find_mixed_host_machine_ids(pool: sqlx::PgPool) {
     let mut txn = env.pool.begin().await.unwrap();
 
     tracing::info!("finding machine ids");
-    let machine_ids = db::machine::find_machine_ids(&mut txn, config)
+    let machine_ids = db::machine::find_machine_ids(txn.as_mut(), config)
         .await
         .unwrap();
     assert_eq!(machine_ids.len(), 2);

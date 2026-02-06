@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::collections::HashMap;
@@ -345,7 +350,7 @@ pub async fn run_metrics_server(
         tokio::spawn(async move {
             let service = service_fn(move |req| {
                 let metrics_manager = metrics_manager.clone();
-                async move { serve_metrics(req, metrics_manager) }
+                async move { serve_request(req, metrics_manager) }
             });
 
             if let Err(e) = http1::Builder::new().serve_connection(io, service).await {
@@ -355,10 +360,21 @@ pub async fn run_metrics_server(
     }
 }
 
-fn serve_metrics(
-    _req: Request<Incoming>,
+fn serve_request(
+    req: Request<Incoming>,
     metrics_manager: Arc<MetricsManager>,
 ) -> Result<Response<String>, hyper::Error> {
+    match req.uri().path() {
+        "/livez" => Ok(Response::builder()
+            .status(http::StatusCode::OK)
+            .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+            .body("ok".to_string())
+            .expect("BUG: Response::builder error")),
+        _ => serve_metrics(metrics_manager),
+    }
+}
+
+fn serve_metrics(metrics_manager: Arc<MetricsManager>) -> Result<Response<String>, hyper::Error> {
     let encoder = TextEncoder::new();
     let body = match metrics_manager.export_all() {
         Ok(body) => body,

@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 pub mod metrics;
@@ -482,6 +487,27 @@ impl Forge for Api {
         request: Request<rpc::RemoveHealthReportOverrideRequest>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::health::remove_health_report_override(self, request).await
+    }
+
+    async fn list_rack_health_report_overrides(
+        &self,
+        request: Request<rpc::ListRackHealthReportOverridesRequest>,
+    ) -> Result<Response<rpc::ListHealthReportOverrideResponse>, Status> {
+        crate::handlers::rack::list_rack_health_report_overrides(self, request).await
+    }
+
+    async fn insert_rack_health_report_override(
+        &self,
+        request: Request<rpc::InsertRackHealthReportOverrideRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::rack::insert_rack_health_report_override(self, request).await
+    }
+
+    async fn remove_rack_health_report_override(
+        &self,
+        request: Request<rpc::RemoveRackHealthReportOverrideRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::rack::remove_rack_health_report_override(self, request).await
     }
 
     async fn get_all_domain_metadata(
@@ -984,6 +1010,13 @@ impl Forge for Api {
         crate::handlers::machine::update_machine_metadata(self, request).await
     }
 
+    async fn update_machine_nv_link_info(
+        &self,
+        request: Request<rpc::UpdateMachineNvLinkInfoRequest>,
+    ) -> std::result::Result<Response<()>, Status> {
+        crate::handlers::machine::update_machine_nv_link_info(self, request).await
+    }
+
     async fn set_maintenance(
         &self,
         request: Request<rpc::MaintenanceRequest>,
@@ -1067,6 +1100,14 @@ impl Forge for Api {
         request: Request<rpc::HostReprovisioningRequest>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::host_reprovisioning::trigger_host_reprovisioning(self, request).await
+    }
+
+    async fn mark_manual_firmware_upgrade_complete(
+        &self,
+        request: Request<MachineId>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::host_reprovisioning::mark_manual_firmware_upgrade_complete(self, request)
+            .await
     }
 
     async fn list_hosts_waiting_for_reprovisioning(
