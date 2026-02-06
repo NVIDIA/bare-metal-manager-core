@@ -465,7 +465,9 @@ async fn same_as_previous_one(
     values: &[PcrRegisterValue],
 ) -> DatabaseResult<SameOrNot> {
     let latest_journal =
-        match crate::measured_boot::journal::get_latest_journal_for_id(txn, machine_id).await? {
+        match crate::measured_boot::journal::get_latest_journal_for_id(&mut *txn, machine_id)
+            .await?
+        {
             Some(journal) => journal,
             None => return Ok(SameOrNot::Different),
         };

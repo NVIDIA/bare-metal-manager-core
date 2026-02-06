@@ -123,7 +123,7 @@ pub async fn from_id(
     txn: &mut PgConnection,
     bundle_id: MeasurementBundleId,
 ) -> DatabaseResult<MeasurementBundle> {
-    match get_measurement_bundle_by_id(txn, bundle_id).await? {
+    match get_measurement_bundle_by_id(&mut *txn, bundle_id).await? {
         Some(info) => {
             let values = get_measurement_bundle_values_for_bundle_id(txn, info.bundle_id).await?;
             Ok(from_info_and_values(info, values)?)

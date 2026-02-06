@@ -105,7 +105,7 @@ pub async fn get_updated_machines(
     host_health_config: HostHealthConfig,
 ) -> Result<Vec<DpuMachineUpdate>, DatabaseError> {
     let machine_ids = crate::machine::find_machine_ids(
-        txn,
+        &mut *txn,
         MachineSearchConfig {
             include_predicted_host: true,
             ..Default::default()

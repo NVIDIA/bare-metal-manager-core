@@ -19,6 +19,7 @@ use carbide_uuid::machine::MachineId;
 use model::attestation::EkCertVerificationStatus;
 use sqlx::PgConnection;
 
+use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
 pub async fn get_by_ek_sha256(
@@ -59,7 +60,7 @@ pub async fn get_by_issuer(
 }
 
 pub async fn get_by_machine_id(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     machine_id: MachineId,
 ) -> DatabaseResult<Option<EkCertVerificationStatus>> {
     let query = "SELECT * FROM ek_cert_verification_status WHERE machine_id = ($1)";

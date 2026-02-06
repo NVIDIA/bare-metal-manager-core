@@ -4585,7 +4585,7 @@ async fn test_get_machine_position_info(
 
     // Get the existing explored endpoint (created by create_managed_host) and update it with position info
     let mut txn = env.pool.begin().await?;
-    let existing = db::explored_endpoints::find_by_ips(&mut txn, vec![bmc_ip])
+    let existing = db::explored_endpoints::find_by_ips(txn.as_mut(), vec![bmc_ip])
         .await?
         .pop()
         .unwrap();

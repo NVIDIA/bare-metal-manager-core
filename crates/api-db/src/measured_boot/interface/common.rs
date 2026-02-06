@@ -31,6 +31,7 @@ use measured_boot::pcr::PcrRegisterValue;
 use sqlx::postgres::PgRow;
 use sqlx::{Encode, PgConnection, PgTransaction, Postgres};
 
+use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
 // DISCOVERY_PROFILE_ATTRS are the attributes we pull
@@ -84,7 +85,7 @@ pub fn generate_name() -> DatabaseResult<String> {
 /// the DbPrimaryUuid and DbTable traits (which are traits defined in this
 /// crate) to build the query.
 pub async fn get_object_for_id<T, R>(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     id: T,
 ) -> Result<Option<R>, DatabaseError>
 where
@@ -104,7 +105,7 @@ where
 /// the DbPrimaryUuid and DbTable traits (which are traits defined in this
 /// crate) to build the query.
 pub async fn get_object_for_unique_column<T, R>(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     col_name: &str,
     value: T,
 ) -> Result<Option<R>, DatabaseError>

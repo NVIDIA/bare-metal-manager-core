@@ -19,6 +19,7 @@
 
 use carbide_uuid::machine::MachineId;
 use db::attestation::ek_cert_verification_status;
+use db::db_read::DbReader;
 use db::measured_boot::machine::{get_measurement_bundle_state, get_measurement_machine_state};
 use eyre::eyre;
 use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
@@ -103,16 +104,19 @@ pub enum MeasuringOutcome {
     Unsuccessful((FailureDetails, MachineId)),
 }
 
-async fn get_measuring_prerequisites(
+async fn get_measuring_prerequisites<DB>(
     machine_id: &MachineId,
-    txn: &mut PgConnection,
-) -> Result<(MeasurementMachineState, EkCertVerificationStatus), StateHandlerError> {
-    let machine_state = get_measurement_machine_state(txn, *machine_id)
+    db_reader: &mut DB,
+) -> Result<(MeasurementMachineState, EkCertVerificationStatus), StateHandlerError>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
+    let machine_state = get_measurement_machine_state(&mut *db_reader, *machine_id)
         .await
         .map_err(StateHandlerError::DBError)?;
 
     let ek_cert_verification_status =
-        ek_cert_verification_status::get_by_machine_id(txn, *machine_id)
+        ek_cert_verification_status::get_by_machine_id(&mut *db_reader, *machine_id)
             .await
             .map_err(|e| {
                 StateHandlerError::GenericError(eyre!(

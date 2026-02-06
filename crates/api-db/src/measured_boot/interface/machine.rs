@@ -25,6 +25,7 @@ use measured_boot::records::{MeasurementJournalRecord, MeasurementMachineState};
 use sqlx::PgConnection;
 
 use crate::DatabaseError;
+use crate::db_read::DbReader;
 use crate::measured_boot::interface::common;
 use crate::measured_boot::machine::CandidateMachineRecord;
 
@@ -32,21 +33,19 @@ use crate::measured_boot::machine::CandidateMachineRecord;
 /// machine ID by checking its most recent bundle (or lack thereof), and
 /// using that result to give it a corresponding MeasurementMachineState.
 pub async fn get_candidate_machine_state(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     machine_id: MachineId,
 ) -> Result<MeasurementMachineState, DatabaseError> {
-    Ok(
-        match get_latest_journal_for_id(&mut *txn, machine_id).await? {
-            Some(record) => record.state,
-            None => MeasurementMachineState::Discovered,
-        },
-    )
+    Ok(match get_latest_journal_for_id(txn, machine_id).await? {
+        Some(record) => record.state,
+        None => MeasurementMachineState::Discovered,
+    })
 }
 
 /// get_latest_journal_for_id returns the latest journal record for the
 /// provided machine ID.
 pub async fn get_latest_journal_for_id(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     machine_id: MachineId,
 ) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
     let query = "select distinct on (machine_id) * from measurement_journal where machine_id = $1 order by machine_id,ts desc";

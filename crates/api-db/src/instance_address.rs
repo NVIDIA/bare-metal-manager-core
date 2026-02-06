@@ -37,6 +37,7 @@ use model::network_segment::{
 use sqlx::{FromRow, PgConnection, PgTransaction, query_as};
 
 use super::{ObjectColumnFilter, network_segment};
+use crate::db_read::DbReader;
 use crate::ip_allocator::{IpAllocator, UsedIpResolver};
 use crate::{DatabaseError, DatabaseResult, Transaction};
 
@@ -297,7 +298,7 @@ pub async fn allocate(
                 .copied()
                 .collect::<Vec<IpAddr>>();
 
-            let dhcp_handler: Box<dyn UsedIpResolver + Send> =
+            let dhcp_handler: Box<dyn UsedIpResolver<PgConnection> + Send> =
                 Box::new(UsedOverlayNetworkIpResolver {
                     segment_id: segment.id,
                     busy_ips,
@@ -308,7 +309,7 @@ pub async fn allocate(
             // a /32). For now, hard-code 32 as the length -- the plan is to
             // update the InstanceInterfaceConfig to request the prefix_length.
             let ip_allocator = IpAllocator::new(
-                &mut inner_txn,
+                inner_txn.as_pgconn(),
                 segment,
                 dhcp_handler,
                 AddressSelectionStrategy::Automatic,
@@ -348,7 +349,10 @@ pub struct UsedOverlayNetworkIpResolver {
 }
 
 #[async_trait::async_trait]
-impl UsedIpResolver for UsedOverlayNetworkIpResolver {
+impl<DB> UsedIpResolver<DB> for UsedOverlayNetworkIpResolver
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     // DEPRECATED
     // With the introduction of `used_prefixes()` this is no
     // longer an accurate approach for finding all allocated
@@ -362,7 +366,7 @@ impl UsedIpResolver for UsedOverlayNetworkIpResolver {
     // target the `address` column of the `instance_addresses`
     // table, in which a single /32 is stored (although, as an
     // `inet`, it could techincally also have a prefix length).
-    async fn used_ips(&self, txn: &mut PgConnection) -> Result<Vec<IpAddr>, DatabaseError> {
+    async fn used_ips(&self, txn: &mut DB) -> Result<Vec<IpAddr>, DatabaseError> {
         // IpAddrContainer is a small private struct used
         // for binding the result of the subsequent SQL
         // query, so we can implement FromRow and return
@@ -399,7 +403,7 @@ WHERE network_segments.id = $1::uuid";
     // or a /30 (for FNN prefix allocations), where the `address`
     // column would contain the host IP allocated from the
     // /30 prefix.
-    async fn used_prefixes(&self, txn: &mut PgConnection) -> Result<Vec<IpNetwork>, DatabaseError> {
+    async fn used_prefixes(&self, txn: &mut DB) -> Result<Vec<IpNetwork>, DatabaseError> {
         // IpNetworkContainer is a small private struct used
         // for binding the result of the subsequent SQL
         // query, so we can implement FromRow and return
@@ -548,10 +552,11 @@ pub async fn allocate_svi_ip(
     txn: &mut PgTransaction<'_>,
     segment: &NetworkSegment,
 ) -> DatabaseResult<(NetworkPrefixId, IpAddr)> {
-    let dhcp_handler: Box<dyn UsedIpResolver + Send> = Box::new(UsedOverlayNetworkIpResolver {
-        segment_id: segment.id,
-        busy_ips: vec![],
-    });
+    let dhcp_handler: Box<dyn UsedIpResolver<PgConnection> + Send> =
+        Box::new(UsedOverlayNetworkIpResolver {
+            segment_id: segment.id,
+            busy_ips: vec![],
+        });
 
     // If either requested addresses are auto-generated, we lock the entire table
     let query = "LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE";
@@ -561,7 +566,7 @@ pub async fn allocate_svi_ip(
         .map_err(|e| DatabaseError::query(query, e))?;
 
     let mut addresses_allocator = IpAllocator::new(
-        txn,
+        txn.as_mut(),
         segment,
         dhcp_handler,
         AddressSelectionStrategy::Automatic,

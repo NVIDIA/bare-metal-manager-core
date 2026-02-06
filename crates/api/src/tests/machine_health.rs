@@ -586,7 +586,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
 
     let mut txn = env.pool.begin().await?;
     let machine_ids = db::machine::find_machine_ids(
-        &mut txn,
+        txn.as_mut(),
         model::machine::machine_search_config::MachineSearchConfig::default(),
     )
     .await?;
@@ -631,7 +631,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
 
     let mut txn = env.pool.begin().await?;
     let machine_ids = db::machine::find_machine_ids(
-        &mut txn,
+        txn.as_mut(),
         model::machine::machine_search_config::MachineSearchConfig::default(),
     )
     .await?;
