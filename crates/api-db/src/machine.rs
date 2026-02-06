@@ -541,17 +541,18 @@ pub async fn update_reboot_time(
     Ok(())
 }
 
-pub async fn update_reboot_requested_time(
+pub async fn update_reboot_requested_explicit_time(
     machine_id: &MachineId,
     txn: &mut PgConnection,
     mode: MachineLastRebootRequestedMode,
+    time: DateTime<Utc>,
 ) -> Result<(), DatabaseError> {
     let mut restart_verified = None;
     if matches!(mode, MachineLastRebootRequestedMode::Reboot) {
         restart_verified = Some(false);
     }
     let data = MachineLastRebootRequested {
-        time: chrono::Utc::now(),
+        time,
         mode,
         restart_verified,
         verification_attempts: Some(0),
@@ -565,6 +566,14 @@ pub async fn update_reboot_requested_time(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
+}
+
+pub async fn update_reboot_requested_time(
+    machine_id: &MachineId,
+    txn: &mut PgConnection,
+    mode: MachineLastRebootRequestedMode,
+) -> Result<(), DatabaseError> {
+    update_reboot_requested_explicit_time(machine_id, txn, mode, Utc::now()).await
 }
 
 pub async fn update_restart_verification_status(
@@ -1350,20 +1359,28 @@ pub async fn trigger_dpu_reprovisioning_request(
     Ok(())
 }
 
-// Update reprovision start time.
+// Update reprovision start time to the current time
 pub async fn update_dpu_reprovision_start_time(
     machine_id: &MachineId,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
-    let current_time = chrono::Utc::now();
+    update_dpu_reprovision_explicit_start_time(machine_id, chrono::Utc::now(), txn).await
+}
+
+// Update reprovision start time to a specific start time
+pub async fn update_dpu_reprovision_explicit_start_time(
+    machine_id: &MachineId,
+    time: DateTime<Utc>,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
     let query = r#"UPDATE machines
                         SET reprovisioning_requested=
-                                    jsonb_set(reprovisioning_requested,
+                                    jsonb_set(host_reprovisioning_requested,
                                                 '{started_at}', $2, true)
                        WHERE id=$1 RETURNING id"#;
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine_id)
-        .bind(sqlx::types::Json(current_time))
+        .bind(sqlx::types::Json(time))
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -1371,11 +1388,19 @@ pub async fn update_dpu_reprovision_start_time(
     Ok(())
 }
 
+// Update reprovision start time to the current time
 pub async fn update_host_reprovision_start_time(
     machine_id: &MachineId,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
-    let current_time = chrono::Utc::now();
+    update_host_reprovision_explicit_start_time(machine_id, chrono::Utc::now(), txn).await
+}
+
+pub async fn update_host_reprovision_explicit_start_time(
+    machine_id: &MachineId,
+    time: DateTime<Utc>,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
     let query = r#"UPDATE machines
                         SET host_reprovisioning_requested=
                                     jsonb_set(host_reprovisioning_requested,
@@ -1383,7 +1408,7 @@ pub async fn update_host_reprovision_start_time(
                        WHERE id=$1 RETURNING id"#;
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine_id)
-        .bind(sqlx::types::Json(current_time))
+        .bind(sqlx::types::Json(time))
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;

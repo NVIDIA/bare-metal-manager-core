@@ -209,7 +209,6 @@ pub(crate) async fn set_primary_dpu(
 
 /// Maintenance mode: Put a machine into maintenance mode or take it out.
 /// Switching a host into maintenance mode prevents an instance being assigned to it.
-#[allow(txn_held_across_await)]
 pub(crate) async fn set_maintenance(
     api: &Api,
     request: Request<rpc::MaintenanceRequest>,
@@ -227,6 +226,7 @@ pub(crate) async fn set_maintenance(
         ));
     }
     let dpu_machines = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine_id).await?;
+    txn.commit().await?;
 
     // We set status on both host and dpu machine to make them easier to query from DB
     match req.operation() {
@@ -298,8 +298,6 @@ pub(crate) async fn set_maintenance(
             };
         }
     };
-
-    txn.commit().await?;
 
     Ok(Response::new(()))
 }

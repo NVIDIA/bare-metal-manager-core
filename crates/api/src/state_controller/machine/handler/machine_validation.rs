@@ -14,17 +14,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-use db::{self};
 use libredfish::SystemPowerControl;
 use model::machine::{
     FailureCause, MachineState, MachineValidatingState, ManagedHostState, ManagedHostStateSnapshot,
     ValidationState,
 };
 use model::machine_validation::{MachineValidationState, MachineValidationStatus};
-use sqlx::PgConnection;
 
 use super::{HostHandlerParams, is_machine_validation_requested, machine_validation_completed};
+use crate::state_controller::common_services::CommonStateHandlerServices;
+use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::handler::{
     handler_host_power_control, rebooted, trigger_reboot_if_needed,
@@ -34,7 +33,7 @@ use crate::state_controller::state_handler::{
 };
 
 pub(crate) async fn handle_machine_validation_state(
-    txn: &mut PgConnection,
+    pending_db_writes: &DbWriteBatch,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     machine_validation: &MachineValidatingState,
     host_handler_params: &HostHandlerParams,
@@ -47,12 +46,14 @@ pub(crate) async fn handle_machine_validation_state(
                 mh_snapshot,
                 ctx.services,
                 SystemPowerControl::ForceRestart,
-                txn,
+                pending_db_writes,
             )
             .await?;
-            let machine_validation = db::machine_validation::find_by_id(txn, validation_id)
-                .await
-                .map_err(|err| StateHandlerError::GenericError(err.into()))?;
+            let machine_validation =
+                db::machine_validation::find_by_id(&mut ctx.services.db_reader, validation_id)
+                    .await
+                    .map_err(|err| StateHandlerError::GenericError(err.into()))?;
+
             let next_state = ManagedHostState::Validation {
                 validation_state: ValidationState::MachineValidation {
                     machine_validation: MachineValidatingState::MachineValidating {
@@ -88,26 +89,30 @@ pub(crate) async fn handle_machine_validation_state(
                     None,
                     &host_handler_params.reachability_params,
                     ctx.services,
-                    txn,
+                    pending_db_writes,
                 )
                 .await?;
                 return Ok(StateHandlerOutcome::wait(status.status));
             }
             if !host_handler_params.machine_validation_config.enabled {
                 tracing::info!("Skipping Machine Validation");
-                let _ = db::machine_validation::mark_machine_validation_complete(
-                    txn,
-                    &mh_snapshot.host_snapshot.id,
-                    id,
+                let machine_id = mh_snapshot.host_snapshot.id;
+                let machine_validation_id = *id;
+                let mut txn = ctx.services.db_pool.begin().await?;
+                db::machine_validation::mark_machine_validation_complete(
+                    txn.as_mut(),
+                    &machine_id,
+                    &machine_validation_id,
                     MachineValidationStatus {
                         state: MachineValidationState::Skipped,
                         ..MachineValidationStatus::default()
                     },
                 )
-                .await;
-                let machine_validation = db::machine_validation::find_by_id(txn, id)
+                .await?;
+                let machine_validation = db::machine_validation::find_by_id(txn.as_mut(), id)
                     .await
                     .map_err(|err| StateHandlerError::GenericError(err.into()))?;
+
                 *ctx.metrics
                     .last_machine_validation_list
                     .entry((
@@ -115,17 +120,17 @@ pub(crate) async fn handle_machine_validation_state(
                         machine_validation.context.unwrap_or_default(),
                     ))
                     .or_default() = 0_i32;
-                return Ok(StateHandlerOutcome::transition(
-                    ManagedHostState::HostInit {
-                        machine_state: MachineState::Discovered {
-                            // Since we're skipping machine validation, we don't need to
-                            // wait on *another* reboot. We already waited for the prior
-                            // reboot to complete above, so tell the Discovered state to
-                            // skip it.
-                            skip_reboot_wait: true,
-                        },
+
+                return Ok(StateHandlerOutcome::transition(ManagedHostState::HostInit {
+                    machine_state: MachineState::Discovered {
+                        // Since we're skipping machine validation, we don't need to
+                        // wait on *another* reboot. We already waited for the prior
+                        // reboot to complete above, so tell the Discovered state to
+                        // skip it.
+                        skip_reboot_wait: true,
                     },
-                ));
+                })
+                .with_txn(txn));
             }
             // Host validation completed
             if machine_validation_completed(&mh_snapshot.host_snapshot) {
@@ -134,9 +139,10 @@ pub(crate) async fn handle_machine_validation_state(
                         "{} machine validation completed",
                         mh_snapshot.host_snapshot.id
                     );
-                    let machine_validation = db::machine_validation::find_by_id(txn, id)
-                        .await
-                        .map_err(|err| StateHandlerError::GenericError(err.into()))?;
+                    let machine_validation =
+                        db::machine_validation::find_by_id(&mut ctx.services.db_reader, id)
+                            .await
+                            .map_err(|err| StateHandlerError::GenericError(err.into()))?;
                     let status = machine_validation.status.clone().unwrap_or_default();
                     *ctx.metrics
                         .last_machine_validation_list
@@ -149,7 +155,7 @@ pub(crate) async fn handle_machine_validation_state(
                         mh_snapshot,
                         ctx.services,
                         SystemPowerControl::ForceRestart,
-                        txn,
+                        pending_db_writes,
                     )
                     .await?;
                     return Ok(StateHandlerOutcome::transition(
@@ -173,22 +179,20 @@ pub(crate) async fn handle_machine_validation_state(
     }
 }
 
-#[allow(txn_held_across_await)]
 pub(crate) async fn handle_machine_validation_requested(
-    txn: &mut PgConnection,
+    services: &CommonStateHandlerServices,
     mh_snapshot: &ManagedHostStateSnapshot,
     clear_failure_details: bool,
 ) -> Result<Option<StateHandlerOutcome<ManagedHostState>>, StateHandlerError> {
     if is_machine_validation_requested(mh_snapshot).await {
+        let mut txn = services.db_pool.begin().await?;
         if clear_failure_details {
             // Clear the error so that state machine doesnt get into loop
-            db::machine::clear_failure_details(&mh_snapshot.host_snapshot.id, txn)
-                .await
-                .map_err(StateHandlerError::from)?;
+            db::machine::clear_failure_details(&mh_snapshot.host_snapshot.id, txn.as_mut()).await?;
         }
         let machine_validation =
             match db::machine_validation::find_active_machine_validation_by_machine_id(
-                txn,
+                txn.as_mut(),
                 &mh_snapshot.host_snapshot.id,
             )
             .await
@@ -200,15 +204,14 @@ pub(crate) async fn handle_machine_validation_requested(
                         "find_active_machine_validation_by_machine_id"
                     );
                     db::machine::set_machine_validation_request(
-                        txn,
+                        txn.as_mut(),
                         &mh_snapshot.host_snapshot.id,
                         true,
                     )
-                    .await
-                    .map_err(StateHandlerError::from)?;
+                    .await?;
                     // Health Alert ?
                     // Rare screnario, if something googfed up in DB
-                    return Ok(Some(StateHandlerOutcome::do_nothing()));
+                    return Ok(Some(StateHandlerOutcome::do_nothing().with_txn(txn)));
                 }
             };
 
@@ -219,7 +222,9 @@ pub(crate) async fn handle_machine_validation_requested(
                 },
             },
         };
-        return Ok(Some(StateHandlerOutcome::transition(next_state)));
+        return Ok(Some(
+            StateHandlerOutcome::transition(next_state).with_txn(txn),
+        ));
     }
     Ok(None)
 }

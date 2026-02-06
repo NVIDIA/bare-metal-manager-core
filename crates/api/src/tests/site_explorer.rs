@@ -1435,7 +1435,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     // Now update expected_machine entry with fallback_dpu_serial
     let mut txn = env.pool.begin().await?;
     let mut host1_expected_machine =
-        db::expected_machine::find_by_bmc_mac_address(&mut txn, HOST1_MAC.parse().unwrap())
+        db::expected_machine::find_by_bmc_mac_address(txn.as_mut(), HOST1_MAC.parse().unwrap())
             .await?
             .expect("Expected machine not found");
     db::expected_machine::update(

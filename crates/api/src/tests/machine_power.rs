@@ -146,12 +146,10 @@ async fn test_power_manager_state_machine_desired_on_machine_off(
     txn.commit().await?;
 
     // Create redfish client
-    let mut txn = env.pool.begin().await?;
     let sim = env
         .redfish_sim
-        .create_client_from_machine(&mh_snapshot.host_snapshot, &mut txn)
+        .create_client_from_machine(&mh_snapshot.host_snapshot, &env.pool)
         .await?;
-    txn.commit().await?;
 
     // Set power state Off.
     sim.power(libredfish::SystemPowerControl::ForceOff).await?;
@@ -216,12 +214,10 @@ async fn test_power_manager_state_machine_desired_on_machine_off_counter(
     txn.commit().await?;
 
     // Create redfish client
-    let mut txn = env.pool.begin().await?;
     let sim = env
         .redfish_sim
-        .create_client_from_machine(&mh_snapshot.host_snapshot, &mut txn)
+        .create_client_from_machine(&mh_snapshot.host_snapshot, &env.pool)
         .await?;
-    txn.commit().await?;
 
     // Set power state Off.
     sim.power(libredfish::SystemPowerControl::ForceOff).await?;

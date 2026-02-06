@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
+use chrono::Utc;
 use forge_secrets::SecretsError;
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
@@ -29,10 +30,12 @@ use libredfish::model::BootProgress;
 use libredfish::{Endpoint, PowerState, Redfish, RedfishError, SystemPowerControl};
 use mac_address::MacAddress;
 use model::machine::Machine;
-use sqlx::{PgConnection, PgPool};
+use sqlx::PgPool;
 use utils::HostPortPair;
 
 use crate::ipmitool::IPMITool;
+use crate::state_controller::db_write_batch::DbWriteBatch;
+use crate::state_controller::machine::write_ops::MachineWriteOp;
 use crate::{CarbideError, CarbideResult};
 
 #[derive(thiserror::Error, Debug)]
@@ -95,11 +98,10 @@ pub trait RedfishClientPool: Send + Sync + 'static {
 
     // MARK: - Default (helper) methods
 
-    #[allow(txn_held_across_await)]
     async fn create_client_from_machine(
         &self,
         target: &Machine,
-        txn: &mut PgConnection,
+        pool: &PgPool,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         let Some(addr) = target.bmc_addr() else {
             return Err(RedfishClientCreationError::MissingBmcEndpoint(format!(
@@ -109,7 +111,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         };
         let ip = addr.ip();
         let port = addr.port();
-        let auth_key = db::machine_interface::find_by_ip(txn, ip)
+        let auth_key = db::machine_interface::find_by_ip(pool, ip)
             .await?
             .ok_or_else(|| {
                 RedfishClientCreationError::MissingArgument(format!(
@@ -418,7 +420,7 @@ pub fn host_power_control(
     machine: &Machine,
     action: SystemPowerControl,
     ipmi_tool: Arc<dyn IPMITool>,
-    txn: &mut PgConnection,
+    write_batch: &DbWriteBatch,
 ) -> impl Future<Output = CarbideResult<()>> {
     let trigger_location = std::panic::Location::caller();
     host_power_control_with_location(
@@ -426,7 +428,7 @@ pub fn host_power_control(
         machine,
         action,
         ipmi_tool,
-        txn,
+        write_batch,
         trigger_location,
     )
 }
@@ -434,13 +436,12 @@ pub fn host_power_control(
 /// redfish utility functions
 ///
 /// host_power_control allows control over the power of the host
-#[allow(txn_held_across_await)]
 pub async fn host_power_control_with_location(
     redfish_client: &dyn Redfish,
     machine: &Machine,
     action: SystemPowerControl,
     ipmi_tool: Arc<dyn IPMITool>,
-    txn: &mut PgConnection,
+    write_batch: &DbWriteBatch,
     trigger_location: &std::panic::Location<'_>,
 ) -> CarbideResult<()> {
     let action = if action == SystemPowerControl::ACPowercycle
@@ -458,7 +459,12 @@ pub async fn host_power_control_with_location(
         trigger_location = %trigger_location,
         "Host Power Control"
     );
-    db::machine::update_reboot_requested_time(&machine.id, txn, action.into()).await?;
+    write_batch.push(MachineWriteOp::UpdateRebootRequestedTime {
+        machine_id: machine.id,
+        mode: action.into(),
+        time: Utc::now(),
+    });
+
     match machine.bmc_vendor() {
         bmc_vendor::BMCVendor::Lenovo => {
             // Lenovos prepend the users OS to the boot order once it is installed and this cleans up the mess

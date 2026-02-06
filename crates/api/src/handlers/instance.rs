@@ -1482,7 +1482,7 @@ pub async fn force_delete_instance(
             .new_config
             .interfaces
             .iter()
-            .flat_map(|x| x.ip_addrs.values().collect_vec())
+            .flat_map(|x| x.ip_addrs.values().copied().collect_vec())
             .collect_vec();
 
         addresses.extend(
@@ -1546,7 +1546,7 @@ pub async fn force_delete_instance(
 
     crate::state_controller::machine::handler::release_vpc_dpu_loopback(
         &snapshot,
-        &Some(api.common_pools.clone()),
+        Some(api.common_pools.as_ref()),
         &mut txn,
     )
     .await

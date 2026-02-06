@@ -28,7 +28,7 @@ use crate::{DatabaseError, DatabaseResult};
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "expected_machines_bmc_mac_address_key";
 
 pub async fn find_by_bmc_mac_address(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     bmc_mac_address: MacAddress,
 ) -> Result<Option<ExpectedMachine>, DatabaseError> {
     let sql = "SELECT * FROM expected_machines WHERE bmc_mac_address=$1";

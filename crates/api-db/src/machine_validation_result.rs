@@ -29,7 +29,7 @@ pub async fn find_by_machine_id(
     if include_history {
         // Fetch all validation_id from machine_validation table
         let machine_validation = crate::machine_validation::find_by(
-            txn,
+            &mut *txn,
             ObjectFilter::List(&[machine_id.to_string()]),
             "machine_id",
         )

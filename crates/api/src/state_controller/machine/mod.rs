@@ -34,6 +34,7 @@ pub mod context;
 pub mod handler;
 pub mod io;
 pub mod metrics;
+pub mod write_ops;
 
 /// Fields of span that should be logged for each message.
 pub fn extra_logfmt_logging_fields() -> Vec<String> {

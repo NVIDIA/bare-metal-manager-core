@@ -22,6 +22,7 @@
 // It's too cumbersome for tests to adhere to these, which are less important in testing anyway.
 #![cfg_attr(test, allow(txn_held_across_await))]
 #![cfg_attr(test, allow(txn_without_commit))]
+#![allow(unknown_lints)]
 
 // NOTE on pub vs non-pub mods:
 //

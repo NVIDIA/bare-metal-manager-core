@@ -25,10 +25,11 @@ use sqlx::PgConnection;
 use uuid::Uuid;
 
 use super::ObjectFilter;
+use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
 pub async fn find_by(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     filter: ObjectFilter<'_, String>,
     column: &str,
 ) -> Result<Vec<MachineValidation>, DatabaseError> {
@@ -219,7 +220,7 @@ pub async fn find(
 }
 
 pub async fn find_by_machine_id(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     machine_id: &MachineId,
 ) -> DatabaseResult<Vec<MachineValidation>> {
     find_by(
@@ -231,7 +232,7 @@ pub async fn find_by_machine_id(
 }
 
 pub async fn find_active_machine_validation_by_machine_id(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     machine_id: &MachineId,
 ) -> DatabaseResult<MachineValidation> {
     let ret = find_by_machine_id(txn, machine_id).await?;
@@ -246,7 +247,7 @@ pub async fn find_active_machine_validation_by_machine_id(
 }
 
 pub async fn find_by_id(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     validation_id: &Uuid,
 ) -> DatabaseResult<MachineValidation> {
     let machine_validation =
