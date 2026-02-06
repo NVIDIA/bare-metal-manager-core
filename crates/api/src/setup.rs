@@ -321,8 +321,8 @@ pub async fn start_api(
 
     let ib_fabric_manager: Arc<dyn IBFabricManager> = Arc::new(ib_fabric_manager_impl);
 
-    let site_fabric_prefixes = ethernet_virtualization::SiteFabricPrefixList::from_ipv4_slice(
-        carbide_config.site_fabric_prefixes.as_slice(),
+    let site_fabric_prefixes = ethernet_virtualization::SiteFabricPrefixList::from_ipnetwork_vec(
+        carbide_config.site_fabric_prefixes.clone(),
     );
 
     let eth_data = ethernet_virtualization::EthVirtData {
