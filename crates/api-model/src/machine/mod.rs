@@ -17,7 +17,7 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::ops::Deref;
 
 use ::rpc::errors::RpcDataConversionError;
@@ -787,7 +787,7 @@ impl Machine {
         self.state.version
     }
 
-    pub fn loopback_ip(&self) -> Option<Ipv4Addr> {
+    pub fn loopback_ip(&self) -> Option<IpAddr> {
         self.network_config.loopback_ip
     }
 
