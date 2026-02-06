@@ -1640,11 +1640,7 @@ message Switch {
 
   string controller_state = 5;
 
-  // IP address of the switch
-  optional string ip_address = 6;
-
-  // BMC MAC address for the switch 
-  optional string bmc_mac_address = 7;
+  BmcInfo bmc_info = 6;
 }
 
 message SwitchList {
@@ -1689,7 +1685,6 @@ message SwitchStateHistoryRecords {
 message SwitchQuery {
   optional string name = 1;
   common.SwitchId switch_id = 2;
-  optional bool include_addresses = 3; // include switch IP and MAC addresses in response
 }
 
 message ExpectedSwitch {
