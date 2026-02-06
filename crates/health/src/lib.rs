@@ -32,8 +32,8 @@ pub mod limiter;
 pub mod logs_collector;
 pub mod metrics;
 pub mod monitor;
-pub mod sharding;
 pub mod nmxt_collector;
+pub mod sharding;
 
 pub use config::Config;
 pub use discovery::{DiscoveryIterationStats, DiscoveryLoopContext};
@@ -126,7 +126,7 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
             sink_cfg.client_cert.clone(),
             sink_cfg.client_key.clone(),
             &sink_cfg.api_url,
-            false, // health sink doesn't need nmxt endpoints
+            false,
         ));
         sinks.push(api_client as Arc<dyn HealthReportSink>);
     }
@@ -212,8 +212,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
         let endpoint_source = endpoint_source.clone();
         let report_sink = report_sink.clone();
 
-        let mut ctx =
-            DiscoveryLoopContext::new(limiter, metrics_manager, config.clone())?;
+        let mut ctx = DiscoveryLoopContext::new(limiter, metrics_manager, config.clone())?;
 
         async move {
             loop {
