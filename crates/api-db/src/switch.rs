@@ -256,9 +256,7 @@ pub struct SwitchBmcInfoRow {
     pub ip_address: IpAddr,
 }
 
-pub async fn list_switch_bmc_info(
-    txn: &mut PgConnection,
-) -> DatabaseResult<Vec<SwitchBmcInfoRow>> {
+pub async fn list_switch_bmc_info(txn: &mut PgConnection) -> DatabaseResult<Vec<SwitchBmcInfoRow>> {
     let sql = r#"
         SELECT 
             es.serial_number,
