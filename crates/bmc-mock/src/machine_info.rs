@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use crate::redfish::update_service::UpdateServiceConfig;
 use crate::{hw, redfish};
 static NEXT_MAC_ADDRESS: AtomicU32 = AtomicU32::new(1);
+use crate::HostHardwareType;
 
 /// Represents static information we know ahead of time about a host or DPU (independent of any
 /// state we get from carbide like IP addresses or machine ID's.) Intended to be immutable and
@@ -36,37 +37,11 @@ pub enum MachineInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostMachineInfo {
+    pub hw_type: HostHardwareType,
     pub bmc_mac_address: MacAddress,
     pub serial: String,
     pub dpus: Vec<DpuMachineInfo>,
     pub non_dpu_mac_address: Option<MacAddress>,
-}
-
-impl HostMachineInfo {
-    fn dell_poweredge_r750(&self) -> hw::dell_poweredge_r750::DellPowerEdgeR750<'_> {
-        let nics = if self.dpus.is_empty() {
-            self.non_dpu_mac_address
-                .iter()
-                .enumerate()
-                .map(|(index, mac_address)| (index + 1, hw::nic::Nic::rooftop(*mac_address)))
-                .collect()
-        } else {
-            self.dpus
-                .iter()
-                .enumerate()
-                .map(|(index, dpu)| (index + 1, dpu.bluefield3().host_nic()))
-                .collect()
-        };
-        hw::dell_poweredge_r750::DellPowerEdgeR750 {
-            bmc_mac_address: self.bmc_mac_address,
-            product_serial_number: Cow::Borrowed(&self.serial),
-            nics,
-            embedded_nic: hw::dell_poweredge_r750::EmbeddedNic {
-                port_1: next_mac(),
-                port_2: next_mac(),
-            },
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,9 +101,10 @@ impl DpuMachineInfo {
 }
 
 impl HostMachineInfo {
-    pub fn new(dpus: Vec<DpuMachineInfo>) -> Self {
+    pub fn new(hw_type: HostHardwareType, dpus: Vec<DpuMachineInfo>) -> Self {
         let bmc_mac_address = next_mac();
         Self {
+            hw_type,
             bmc_mac_address,
             serial: bmc_mac_address.to_string().replace(':', ""),
             non_dpu_mac_address: if dpus.is_empty() {
@@ -137,6 +113,14 @@ impl HostMachineInfo {
                 None
             },
             dpus,
+        }
+    }
+
+    pub fn oem_state(&self) -> redfish::oem::State {
+        match self.hw_type {
+            HostHardwareType::DellPowerEdgeR750 => {
+                redfish::oem::State::DellIdrac(redfish::oem::dell::idrac::IdracState::default())
+            }
         }
     }
 
@@ -149,30 +133,90 @@ impl HostMachineInfo {
             .map(|d| d.host_mac_address)
             .or(self.non_dpu_mac_address)
     }
+
+    pub fn bmc_vendor(&self) -> redfish::oem::BmcVendor {
+        match self.hw_type {
+            HostHardwareType::DellPowerEdgeR750 => redfish::oem::BmcVendor::Dell,
+        }
+    }
+
+    pub fn manager_config(&self) -> redfish::manager::Config {
+        match self.hw_type {
+            HostHardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().manager_config(),
+        }
+    }
+
+    pub fn system_config(
+        &self,
+        power_control: Arc<dyn crate::PowerControl>,
+    ) -> redfish::computer_system::Config {
+        match self.hw_type {
+            HostHardwareType::DellPowerEdgeR750 => {
+                self.dell_poweredge_r750().system_config(power_control)
+            }
+        }
+    }
+
+    pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
+        match self.hw_type {
+            HostHardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().chassis_config(),
+        }
+    }
+
+    pub fn update_service_config(&self) -> UpdateServiceConfig {
+        match self.hw_type {
+            HostHardwareType::DellPowerEdgeR750 => {
+                self.dell_poweredge_r750().update_service_config()
+            }
+        }
+    }
+
+    fn dell_poweredge_r750(&self) -> hw::dell_poweredge_r750::DellPowerEdgeR750<'_> {
+        let nics = if self.dpus.is_empty() {
+            self.non_dpu_mac_address
+                .iter()
+                .enumerate()
+                .map(|(index, mac_address)| (index + 1, hw::nic::Nic::rooftop(*mac_address)))
+                .collect()
+        } else {
+            self.dpus
+                .iter()
+                .enumerate()
+                .map(|(index, dpu)| (index + 1, dpu.bluefield3().host_nic()))
+                .collect()
+        };
+        hw::dell_poweredge_r750::DellPowerEdgeR750 {
+            bmc_mac_address: self.bmc_mac_address,
+            product_serial_number: Cow::Borrowed(&self.serial),
+            nics,
+            embedded_nic: hw::dell_poweredge_r750::EmbeddedNic {
+                port_1: next_mac(),
+                port_2: next_mac(),
+            },
+        }
+    }
 }
 
 impl MachineInfo {
     pub fn oem_state(&self) -> redfish::oem::State {
         match self {
+            MachineInfo::Host(host) => host.oem_state(),
             MachineInfo::Dpu(dpu) => redfish::oem::State::NvidiaBluefield(
                 redfish::oem::nvidia::bluefield::BluefieldState::new(dpu.nic_mode),
             ),
-            MachineInfo::Host(_) => {
-                redfish::oem::State::DellIdrac(redfish::oem::dell::idrac::IdracState::default())
-            }
         }
     }
 
     pub fn manager_config(&self) -> redfish::manager::Config {
         match self {
+            MachineInfo::Host(host) => host.manager_config(),
             MachineInfo::Dpu(dpu) => dpu.bluefield3().manager_config(),
-            MachineInfo::Host(host) => host.dell_poweredge_r750().manager_config(),
         }
     }
 
     pub fn bmc_vendor(&self) -> redfish::oem::BmcVendor {
         match self {
-            MachineInfo::Host(_) => redfish::oem::BmcVendor::Dell,
+            MachineInfo::Host(h) => h.bmc_vendor(),
             MachineInfo::Dpu(_) => redfish::oem::BmcVendor::Nvidia,
         }
     }
@@ -180,23 +224,23 @@ impl MachineInfo {
     pub fn system_config(
         &self,
         power_control: Arc<dyn crate::PowerControl>,
-    ) -> redfish::computer_system::SystemConfig {
+    ) -> redfish::computer_system::Config {
         match self {
-            MachineInfo::Host(host) => host.dell_poweredge_r750().system_config(power_control),
+            MachineInfo::Host(host) => host.system_config(power_control),
             MachineInfo::Dpu(dpu) => dpu.bluefield3().system_config(power_control),
         }
     }
 
     pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         match self {
-            Self::Host(h) => h.dell_poweredge_r750().chassis_config(),
+            Self::Host(h) => h.chassis_config(),
             Self::Dpu(dpu) => dpu.bluefield3().chassis_config(),
         }
     }
 
     pub fn update_service_config(&self) -> UpdateServiceConfig {
         match self {
-            Self::Host(h) => h.dell_poweredge_r750().update_service_config(),
+            Self::Host(h) => h.update_service_config(),
             Self::Dpu(dpu) => dpu.bluefield3().update_service_config(),
         }
     }

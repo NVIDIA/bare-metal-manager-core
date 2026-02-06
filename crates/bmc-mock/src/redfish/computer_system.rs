@@ -116,7 +116,7 @@ pub struct SingleSystemConfig {
     pub base_bios: serde_json::Value,
 }
 
-pub struct SystemConfig {
+pub struct Config {
     pub systems: Vec<SingleSystemConfig>,
 }
 
@@ -144,7 +144,7 @@ pub enum BiosMode {
 }
 
 impl SystemState {
-    pub fn from_config(config: SystemConfig) -> Self {
+    pub fn from_config(config: Config) -> Self {
         Self::from_configs(config.systems)
     }
 

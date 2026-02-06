@@ -53,10 +53,7 @@ impl DellPowerEdgeR750<'_> {
         }
     }
 
-    pub fn system_config(
-        &self,
-        pc: Arc<dyn PowerControl>,
-    ) -> redfish::computer_system::SystemConfig {
+    pub fn system_config(&self, pc: Arc<dyn PowerControl>) -> redfish::computer_system::Config {
         let power_control = Some(pc);
         let serial_number = self.product_serial_number.to_string().into();
         let system_id = "System.Embedded.1";
@@ -105,7 +102,7 @@ impl DellPowerEdgeR750<'_> {
             })
             .collect();
 
-        redfish::computer_system::SystemConfig {
+        redfish::computer_system::Config {
             systems: vec![redfish::computer_system::SingleSystemConfig {
                 id: Cow::Borrowed(system_id),
                 manufacturer: Some("Dell Inc.".into()),

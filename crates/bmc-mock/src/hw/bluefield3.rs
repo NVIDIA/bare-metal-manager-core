@@ -83,10 +83,7 @@ impl Bluefield3<'_> {
         }
     }
 
-    pub fn system_config(
-        &self,
-        pc: Arc<dyn PowerControl>,
-    ) -> redfish::computer_system::SystemConfig {
+    pub fn system_config(&self, pc: Arc<dyn PowerControl>) -> redfish::computer_system::Config {
         let system_id = "Bluefield";
         let boot_opt_builder = |id: &str| {
             redfish::boot_option::builder(&redfish::boot_option::resource(system_id, id))
@@ -123,7 +120,7 @@ impl Bluefield3<'_> {
             ]
         })).collect();
 
-        redfish::computer_system::SystemConfig {
+        redfish::computer_system::Config {
             systems: vec![redfish::computer_system::SingleSystemConfig {
                 id: Cow::Borrowed("Bluefield"),
                 manufacturer: Some(Cow::Borrowed("Nvidia")),
