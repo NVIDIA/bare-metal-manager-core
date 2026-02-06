@@ -33,7 +33,6 @@ async fn test_find_switch_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     let find_request = SwitchQuery {
         name: None,
         switch_id: Some(switch_id),
-        include_addresses: None,
     };
 
     let find_response = env
@@ -65,7 +64,6 @@ async fn test_find_switch_not_found(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let find_request = SwitchQuery {
         name: None,
         switch_id: Some(non_existent_id),
-        include_addresses: None,
     };
 
     let find_response = env
@@ -99,7 +97,6 @@ async fn test_find_switch_all(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     let find_request = SwitchQuery {
         name: None,
         switch_id: None,
-        include_addresses: None,
     };
 
     let find_response = env
@@ -155,7 +152,6 @@ async fn test_delete_switch_success(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let find_request = SwitchQuery {
         name: None,
         switch_id: Some(switch_id),
-        include_addresses: None,
     };
 
     let find_result = env
@@ -521,46 +517,16 @@ async fn test_new_switch_fixture(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 }
 
 #[crate::sqlx_test]
-async fn test_find_switch_without_ip_addresses(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let switch_id = new_switch(&env, Some("Test Switch No IP".to_string()), None).await?;
-
-    // Find the switch with include_addresses = false
-    let find_request = SwitchQuery {
-        name: None,
-        switch_id: Some(switch_id),
-        include_addresses: None,
-    };
-
-    let find_response = env
-        .api
-        .find_switches(tonic::Request::new(find_request))
-        .await?;
-
-    let switch_list = find_response.into_inner();
-    assert_eq!(switch_list.switches.len(), 1);
-
-    let found_switch = &switch_list.switches[0];
-    // IP address should be None when include_addresses is false
-    assert!(found_switch.ip_address.is_none());
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_find_switch_with_ip_addresses_no_matching_data(
+async fn test_find_switch_bmc_info_no_matching_data(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let switch_id = new_switch(&env, Some("Test Switch No Match".to_string()), None).await?;
 
-    // ask for data when nothing exists in expected_switch or explored_endpoint
+    // bmc_info should be None when no expected_switch or machine_interface data exists
     let find_request = SwitchQuery {
         name: None,
         switch_id: Some(switch_id),
-        include_addresses: Some(true),
     };
 
     let find_response = env
@@ -572,14 +538,16 @@ async fn test_find_switch_with_ip_addresses_no_matching_data(
     assert_eq!(switch_list.switches.len(), 1);
 
     let found_switch = &switch_list.switches[0];
-    assert!(found_switch.ip_address.is_none());
-    assert!(found_switch.bmc_mac_address.is_none());
+    assert!(
+        found_switch.bmc_info.is_none(),
+        "bmc_info should be None when no expected switch data exists"
+    );
 
     Ok(())
 }
 
 #[crate::sqlx_test]
-async fn test_find_switch_with_include_addresses_matching_data(
+async fn test_find_switch_with_bmc_info(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use std::collections::HashMap;
@@ -595,8 +563,6 @@ async fn test_find_switch_with_include_addresses_matching_data(
 
     let env = create_test_env(pool).await;
 
-    // Positive test
-    // create switch with all fields populated
     let switch_serial = "TestSwitch-001";
     let switch_id = new_switch(&env, Some(switch_serial.to_string()), None).await?;
     let bmc_mac: MacAddress = "AA:BB:CC:DD:EE:FF".parse().unwrap();
@@ -607,10 +573,10 @@ async fn test_find_switch_with_include_addresses_matching_data(
         bmc_mac,
         "admin".to_string(),
         "password".to_string(),
-        switch_serial.to_string(), // serial_number matches switch config.name
+        switch_serial.to_string(),
         Metadata {
             name: "Test Expected Switch".to_string(),
-            description: "Test switch for address lookup".to_string(),
+            description: "Test switch for BMC info lookup".to_string(),
             labels: HashMap::new(),
         },
         None,
@@ -619,7 +585,7 @@ async fn test_find_switch_with_include_addresses_matching_data(
     )
     .await?;
 
-    // create switch BMC interface
+    // create switch BMC interface on the underlay segment
     let underlay_segment_id = env
         .underlay_segment
         .expect("Underlay segment should exist in test env");
@@ -656,7 +622,6 @@ async fn test_find_switch_with_include_addresses_matching_data(
     let find_request = SwitchQuery {
         name: None,
         switch_id: Some(switch_id),
-        include_addresses: Some(true),
     };
 
     let find_response = env
@@ -669,28 +634,21 @@ async fn test_find_switch_with_include_addresses_matching_data(
 
     let found_switch = &switch_list.switches[0];
 
-    // verify IP and BMC MAC address are properly returned
-    assert!(
-        found_switch.ip_address.is_some(),
-        "IP address should be populated when include_addresses=true"
-    );
+    // verify bmc_info is populated with the correct IP and MAC
+    let bmc_info = found_switch
+        .bmc_info
+        .as_ref()
+        .expect("bmc_info should be populated when expected switch data exists");
+
     assert_eq!(
-        found_switch.ip_address.as_ref().unwrap(),
+        bmc_info.ip.as_ref().unwrap(),
         &assigned_ip.to_string(),
-        "IP address should match the assigned address"
-    );
-    assert!(
-        found_switch.bmc_mac_address.is_some(),
-        "BMC MAC address should be populated when include_addresses=true"
+        "bmc_info IP should match the assigned address"
     );
     assert_eq!(
-        found_switch
-            .bmc_mac_address
-            .as_ref()
-            .unwrap()
-            .to_uppercase(),
+        bmc_info.mac.as_ref().unwrap().to_uppercase(),
         bmc_mac.to_string().to_uppercase(),
-        "BMC MAC address should match the expected switch's BMC MAC"
+        "bmc_info MAC should match the expected switch's BMC MAC"
     );
 
     Ok(())
