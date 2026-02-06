@@ -207,7 +207,7 @@ impl ApiClientWrapper {
 
             match self.client.find_switches(switch_request).await {
                 Ok(response) => {
-                    let switch_endpoints: Vec<BmcEndpoint> = response
+                    let switch_endpoints: Vec<Arc<BmcEndpoint>> = response
                         .switches
                         .into_iter()
                         .filter_map(|s| {
@@ -216,7 +216,7 @@ impl ApiClientWrapper {
                             let mac = bmc.mac?;
                             let serial = s.config?.name;
 
-                            Some(BmcEndpoint {
+                            Some(Arc::new(BmcEndpoint {
                                 addr: BmcAddr {
                                     ip,
                                     port: bmc.port.map(|p| p as u16),
@@ -227,7 +227,7 @@ impl ApiClientWrapper {
                                     password: String::new(),
                                 },
                                 metadata: Some(EndpointMetadata::Switch(SwitchData { serial })),
-                            })
+                            }))
                         })
                         .collect();
 
@@ -440,7 +440,7 @@ mod tests {
                 username: "admin".to_string(),
                 password: "password".to_string(),
             },
-            machine: None,
+            metadata: None,
         }
     }
 

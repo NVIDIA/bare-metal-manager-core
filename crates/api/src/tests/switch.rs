@@ -566,7 +566,7 @@ async fn test_find_switch_with_bmc_info(
     let switch_serial = "TestSwitch-001";
     let switch_id = new_switch(&env, Some(switch_serial.to_string()), None).await?;
     let bmc_mac: MacAddress = "AA:BB:CC:DD:EE:FF".parse().unwrap();
-    let mut txn = env.pool.begin().await?;
+    let mut txn = db::Transaction::begin(&env.pool).await?;
 
     db_expected_switch::create(
         &mut txn,
