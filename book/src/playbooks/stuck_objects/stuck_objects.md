@@ -123,16 +123,16 @@ is the main state of an object and `BootingWithDiscoveryImage` is the substate.
 In order to understand why the state of an object doesn't advanced, we first
 need to determine the full state. This can be done using multiple approaches:
 
-### 2.1 Using forge-admin-cli
+### 2.1 Using carbide-admin-cli
 
-You can inspect the detailed state of a objects on Forge sites using `forge-admin-cli`. Refer to [forge-admin-cli](forge_admin_cli.md) instructions
+You can inspect the detailed state of a objects on Forge sites using `carbide-admin-cli`. Refer to [forge-admin-cli](forge_admin_cli.md) instructions
 on how to utilize it.
 
-Using forge-admin-cli, you can inspect the state of an object e.g. with the
+Using carbide-admin-cli, you can inspect the state of an object e.g. with the
 following queries:
 
 ```
-forge-admin-cli managed-host show --all
+carbide-admin-cli managed-host show --all
 +--------------------+-------------------------------------------------------------+------------------------------------+
 | Hostname           | Machine IDs (H/D)                                           | State                              |
 +--------------------+-------------------------------------------------------------+------------------------------------+
@@ -145,13 +145,13 @@ forge-admin-cli managed-host show --all
 ```
 
 ```
-forge-admin-cli managed-host show --host fm100htqrs9la1un8bfscefaciq568m2d23mvr75gjdevagedj7q4h3drr0
+carbide-admin-cli managed-host show --host fm100htqrs9la1un8bfscefaciq568m2d23mvr75gjdevagedj7q4h3drr0
 Hostname    : west-massachusetts
 State       : Assigned/BootingWithDiscoveryImage
 ```
 
 ```
-/opt/carbide/forge-admin-cli -f json machine show --machine  fm100htqrs9la1un8bfscefaciq568m2d23mvr75gjdevagedj7q4h3drr0
+/opt/carbide/carbide-admin-cli -f json machine show --machine  fm100htqrs9la1un8bfscefaciq568m2d23mvr75gjdevagedj7q4h3drr0
 {
   "id": "fm100htqrs9la1un8bfscefaciq568m2d23mvr75gjdevagedj7q4h3drr0",
   "state": "Assigned/BootingWithDiscoveryImage",
@@ -188,7 +188,7 @@ ManagedHost entered a certain state.
 
 For NetworkSegments, you can use the `network-segment` subcommand:
 ```
-/opt/carbide/forge-admin-cli network-segment show --network 5e85002e-54fd-4183-8c4d-0346c3f3e94e
+/opt/carbide/carbide-admin-cli network-segment show --network 5e85002e-54fd-4183-8c4d-0346c3f3e94e
 ID        : 5e85002e-54fd-4183-8c4d-0346c3f3e94e
 DELETED   : Not Deleted
 STATE     : Ready
