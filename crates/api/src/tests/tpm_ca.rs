@@ -82,7 +82,7 @@ pub mod tests {
             &dpu.host_mac_address,
             Some(env.domain.into()),
             true,
-            model::address_selection_strategy::AddressSelectionStrategy::Automatic,
+            model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
         )
         .await
         .unwrap();
@@ -133,7 +133,7 @@ pub mod tests {
             &dpu.host_mac_address,
             Some(env.domain.into()),
             true,
-            model::address_selection_strategy::AddressSelectionStrategy::Automatic,
+            model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
         )
         .await
         .unwrap();
@@ -1196,7 +1196,7 @@ pub mod tests {
             &dpu.host_mac_address,
             Some(env.domain.into()),
             true,
-            model::address_selection_strategy::AddressSelectionStrategy::Automatic,
+            model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
         )
         .await
         .unwrap();

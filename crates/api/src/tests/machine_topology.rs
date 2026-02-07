@@ -77,7 +77,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         &dpu.host_mac_address,
         Some(env.domain.into()),
         true,
-        model::address_selection_strategy::AddressSelectionStrategy::Automatic,
+        model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
     )
     .await
     .unwrap();
@@ -229,7 +229,7 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
         &dpu.host_mac_address,
         Some(env.domain.into()),
         true,
-        model::address_selection_strategy::AddressSelectionStrategy::Automatic,
+        model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
     )
     .await
     .unwrap();

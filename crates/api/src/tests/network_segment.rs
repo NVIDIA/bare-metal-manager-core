@@ -154,7 +154,7 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
         None,
         true,
-        AddressSelectionStrategy::Automatic,
+        AddressSelectionStrategy::NextAvailableIp,
     )
     .await?;
     txn.commit().await.unwrap();

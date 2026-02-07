@@ -423,8 +423,7 @@ where
             &mut *conn,
             record,
             dhcp_handler,
-            AddressSelectionStrategy::Automatic,
-            32,
+            AddressSelectionStrategy::NextAvailableIp,
         )
         .await
         .map_err(|e| {

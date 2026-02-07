@@ -607,7 +607,7 @@ async fn test_find_switch_with_bmc_info(
         &bmc_mac,
         underlay_segment.subdomain_id,
         false,
-        AddressSelectionStrategy::Automatic,
+        AddressSelectionStrategy::NextAvailableIp,
     )
     .await?;
 

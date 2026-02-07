@@ -57,7 +57,7 @@ async fn only_one_primary_interface_per_machine(
         &dpu.oob_mac_address,
         None,
         true,
-        AddressSelectionStrategy::Automatic,
+        AddressSelectionStrategy::NextAvailableIp,
     )
     .await?;
 
@@ -76,7 +76,7 @@ async fn only_one_primary_interface_per_machine(
         &other_dpu.oob_mac_address,
         None,
         true,
-        AddressSelectionStrategy::Automatic,
+        AddressSelectionStrategy::NextAvailableIp,
     )
     .await?;
 
@@ -108,7 +108,7 @@ async fn many_non_primary_interfaces_per_machine(
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
         None,
         true,
-        AddressSelectionStrategy::Automatic,
+        AddressSelectionStrategy::NextAvailableIp,
     )
     .await
     .expect("Unable to create machine interface");
@@ -122,7 +122,7 @@ async fn many_non_primary_interfaces_per_machine(
         MacAddress::from_str("ff:ff:ff:ff:ff:ef").as_ref().unwrap(),
         None,
         false,
-        AddressSelectionStrategy::Automatic,
+        AddressSelectionStrategy::NextAvailableIp,
     )
     .await;
 
@@ -192,7 +192,7 @@ async fn find_all_interfaces_test_cases(
                 .unwrap(),
             Some(domain_id),
             true,
-            AddressSelectionStrategy::Automatic,
+            AddressSelectionStrategy::NextAvailableIp,
         )
         .await?;
         db::dhcp_entry::persist(
@@ -269,7 +269,7 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         &dpu.oob_mac_address,
         Some(domain_id),
         true,
-        AddressSelectionStrategy::Automatic,
+        AddressSelectionStrategy::NextAvailableIp,
     )
     .await?;
 
@@ -348,7 +348,7 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 &MacAddress::from_str(&mac).unwrap(),
                 Some(env.domain.into()),
                 true,
-                AddressSelectionStrategy::Automatic,
+                AddressSelectionStrategy::NextAvailableIp,
             )
             .await
             .unwrap();
@@ -392,7 +392,7 @@ async fn test_find_by_ip_or_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
         Some(env.domain.into()),
         true,
-        AddressSelectionStrategy::Automatic,
+        AddressSelectionStrategy::NextAvailableIp,
     )
     .await
     .unwrap();
@@ -593,7 +593,7 @@ async fn test_hostname_equals_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
         Some(env.domain.into()),
         true,
-        AddressSelectionStrategy::Automatic,
+        AddressSelectionStrategy::NextAvailableIp,
     )
     .await
     .unwrap();
@@ -630,7 +630,7 @@ async fn test_max_one_interface_association(
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
         Some(env.domain.into()),
         true,
-        AddressSelectionStrategy::Automatic,
+        AddressSelectionStrategy::NextAvailableIp,
     )
     .await?;
 
@@ -701,7 +701,7 @@ async fn test_power_shelf_association(
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
         Some(env.domain.into()),
         true,
-        AddressSelectionStrategy::Automatic,
+        AddressSelectionStrategy::NextAvailableIp,
     )
     .await?;
 
@@ -749,7 +749,7 @@ async fn test_switch_association(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
         Some(env.domain.into()),
         true,
-        AddressSelectionStrategy::Automatic,
+        AddressSelectionStrategy::NextAvailableIp,
     )
     .await?;
 

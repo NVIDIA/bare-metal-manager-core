@@ -39,7 +39,7 @@ use sqlx::{FromRow, PgConnection, PgTransaction};
 
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::db_read::DbReader;
-use crate::ip_allocator::{IpAllocator, UsedIpResolver, next_machine_interface_v4_ip};
+use crate::ip_allocator::{IpAllocator, UsedIpResolver};
 use crate::{DatabaseError, DatabaseResult, Transaction, network_segment as db_network_segment};
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
@@ -368,7 +368,7 @@ pub async fn validate_existing_mac_and_create(
                     &mac_address,
                     segment.subdomain_id,
                     true,
-                    AddressSelectionStrategy::Automatic,
+                    AddressSelectionStrategy::NextAvailableIp,
                 )
                 .await?;
                 Ok(v)
@@ -416,7 +416,7 @@ pub async fn create(
     macaddr: &MacAddress,
     domain_id: Option<DomainId>,
     primary_interface: bool,
-    _addresses: AddressSelectionStrategy,
+    address_strategy: AddressSelectionStrategy,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     // We're potentially about to insert a couple rows, so create a savepoint.
     let mut inner_txn = Transaction::begin_inner(txn).await?;
@@ -429,23 +429,63 @@ pub async fn create(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
-    // In the case of machine interfaces, we always use a hard-coded /32 allocation prefix.
-    // In the case of machine interfaces, the IpAllocator is going to remain
-    // a hard-coded /32 allocation prefix.
-    let mut allocated_address = None;
+    // Collect SVI IPs so the allocator knows they're already reserved.
+    //
+    // TODO(chet): This was the previous behavior before the SQL fast
+    // path was introduced (and subsquently reverted after realizing it
+    // got rid of dual-stack logic + didn't support IPv6), BUT, since
+    // all of this information is known within the allocator, maybe
+    // we can skip over well-known reserved IPs there instead of building
+    // up a reserved list here.
+    let mut reserved_ips = vec![];
     for prefix in &segment.prefixes {
-        if let Some(address) = next_machine_interface_v4_ip(&mut inner_txn, prefix).await? {
-            allocated_address = Some(address);
-            break;
+        if let Some(svi_ip) = prefix.svi_ip {
+            reserved_ips.push(svi_ip);
         }
     }
-    let Some(allocated_address) = allocated_address else {
-        return Err(crate::DatabaseError::ResourceExhausted(
-            "No IP addresses left in network segment".to_string(),
-        ));
-    };
 
-    let hostname = address_to_hostname(&allocated_address)?;
+    let dhcp_handler: Box<dyn UsedIpResolver<PgConnection> + Send> =
+        Box::new(UsedAdminNetworkIpResolver {
+            segment_id: segment.id,
+            busy_ips: reserved_ips,
+        });
+
+    // Allocate an address from each prefix in the segment. For dual-stack
+    // segments this means one IPv4 address and one IPv6 address.
+    let allocator = IpAllocator::new(
+        inner_txn.as_pgconn(),
+        segment,
+        dhcp_handler,
+        address_strategy,
+    )
+    .await?;
+
+    let mut allocated_addresses = Vec::new();
+    for (_, maybe_address) in allocator {
+        let address = maybe_address?;
+        allocated_addresses.push(address.ip());
+    }
+    if allocated_addresses.is_empty() {
+        let prefixes: Vec<_> = segment
+            .prefixes
+            .iter()
+            .map(|p| p.prefix.to_string())
+            .collect();
+        return Err(crate::DatabaseError::ResourceExhausted(format!(
+            "No IP addresses left in network segment (prefixes: {})",
+            prefixes.join(", ")
+        )));
+    }
+
+    // Prefer IPv4 for hostname (more human-readable), fall back to
+    // an IPv6-derived hostname otherwise.
+    let hostname_address = allocated_addresses
+        .iter()
+        .find(|a| a.is_ipv4())
+        .or(allocated_addresses.first())
+        .unwrap(); // Safe: allocated_addresses is non-empty.
+    let hostname = address_to_hostname(hostname_address)?;
+
     let interface_id = insert_machine_interface(
         &mut inner_txn,
         &segment.id,
@@ -456,7 +496,9 @@ pub async fn create(
     )
     .await?;
 
-    insert_machine_interface_address(&mut inner_txn, &interface_id, &allocated_address).await?;
+    for address in &allocated_addresses {
+        insert_machine_interface_address(&mut inner_txn, &interface_id, address).await?;
+    }
 
     inner_txn.commit().await?;
 
@@ -488,12 +530,9 @@ pub async fn allocate_svi_ip(
         txn.as_mut(),
         segment,
         dhcp_handler,
-        AddressSelectionStrategy::Automatic,
-        32,
+        AddressSelectionStrategy::NextAvailableIp,
     )
     .await?;
-
-    // Carbide supports only one prefix with Ipv4.
     match addresses_allocator.next() {
         Some((id, Ok(address))) => Ok((id, address.ip())),
         Some((_, Err(err))) => Err(err),
@@ -593,8 +632,20 @@ async fn insert_machine_interface_address(
 /// address_to_hostname converts an IpAddr address to a hostname,
 /// verifying the resulting hostname is actually a valid DNS name
 /// before returning it.
+///
+/// IPv4: replaces dots with dashes, e.g. `192.168.1.2` → `192-168-1-2`
+/// IPv6: expands to full form and replaces colons with dashes,
+///       e.g. `2001:db8::2` → `2001-0db8-0000-0000-0000-0000-0000-0002`
 fn address_to_hostname(address: &IpAddr) -> DatabaseResult<String> {
-    let hostname = address.to_string().replace('.', "-");
+    let hostname = match address {
+        IpAddr::V4(_) => address.to_string().replace('.', "-"),
+        IpAddr::V6(v6) => v6
+            .segments()
+            .iter()
+            .map(|s| format!("{s:04x}"))
+            .collect::<Vec<_>>()
+            .join("-"),
+    };
     match domain::base::Name::<octseq::array::Array<255>>::from_str(hostname.as_str()).is_ok() {
         true => Ok(hostname),
         false => Err(DatabaseError::internal(format!(
@@ -707,7 +758,7 @@ pub async fn move_predicted_machine_interface_to_machine(
                 &predicted_machine_interface.mac_address,
                 network_segment.subdomain_id,
                 false,
-                AddressSelectionStrategy::Automatic,
+                AddressSelectionStrategy::NextAvailableIp,
             )
             .await?;
             machine_interface.id
@@ -911,7 +962,12 @@ WHERE network_segments.id = $1::uuid";
         let used_ips = self.used_ips(txn).await?;
         let mut ip_networks: Vec<IpNetwork> = Vec::new();
         for used_ip in used_ips {
-            let network = IpNetwork::new(used_ip, 32).map_err(|e| {
+            // Use /32 for IPv4 host addresses, /128 for IPv6 host addresses.
+            let prefix_len = match used_ip {
+                IpAddr::V4(_) => 32,
+                IpAddr::V6(_) => 128,
+            };
+            let network = IpNetwork::new(used_ip, prefix_len).map_err(|e| {
                 DatabaseError::new(
                     "machine_interface.used_prefixes",
                     sqlx::Error::Io(std::io::Error::other(e.to_string())),
@@ -927,9 +983,23 @@ WHERE network_segments.id = $1::uuid";
 mod tests {
     use super::*;
     #[test]
-    fn test_address_to_hostname() {
+    fn test_address_to_hostname_v4() {
         let address: IpAddr = "192.168.1.0".parse().unwrap();
         let hostname = address_to_hostname(&address).unwrap();
         assert_eq!("192-168-1-0", hostname);
+    }
+
+    #[test]
+    fn test_address_to_hostname_v6() {
+        let address: IpAddr = "2001:db8:abcd::2".parse().unwrap();
+        let hostname = address_to_hostname(&address).unwrap();
+        assert_eq!("2001-0db8-abcd-0000-0000-0000-0000-0002", hostname);
+    }
+
+    #[test]
+    fn test_address_to_hostname_v6_loopback() {
+        let address: IpAddr = "::1".parse().unwrap();
+        let hostname = address_to_hostname(&address).unwrap();
+        assert_eq!("0000-0000-0000-0000-0000-0000-0000-0001", hostname);
     }
 }

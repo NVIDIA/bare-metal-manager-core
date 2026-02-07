@@ -15,9 +15,17 @@
  * limitations under the License.
  */
 
+#[derive(Clone, Copy)]
 pub enum AddressSelectionStrategy {
+    /// Allocate the next available single IP address.
+    /// Uses /32 for IPv4 prefixes, /128 for IPv6 prefixes.
+    NextAvailableIp,
+
+    /// Alias for `NextAvailableIp`. Kept for backwards compatibility.
     Automatic,
-    // May be implemented in the future:
-    // Empty,
-    // Static(&'a [IpAddr]),
+
+    /// Allocate the next available prefix of the given length.
+    /// For example, `NextAvailablePrefix(30)` allocates a /30 block
+    /// (used by FNN to allocate a 4-address subnet per DPU).
+    NextAvailablePrefix(u8),
 }
