@@ -152,20 +152,44 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
 }
 
 pub struct Config {
+    pub managers: Vec<SingleConfig>,
+}
+
+pub struct SingleConfig {
     pub id: &'static str,
     pub eth_interfaces: Vec<redfish::ethernet_interface::EthernetInterface>,
     pub firmware_version: &'static str,
 }
 
 pub struct ManagerState {
+    managers: Vec<SingleManagerState>,
+}
+
+impl ManagerState {
+    pub fn new(config: &Config) -> Self {
+        Self {
+            managers: config
+                .managers
+                .iter()
+                .map(SingleManagerState::new)
+                .collect(),
+        }
+    }
+
+    pub fn find(&self, manager_id: &str) -> Option<&SingleManagerState> {
+        self.managers.iter().find(|c| c.id == manager_id)
+    }
+}
+
+pub struct SingleManagerState {
     id: &'static str,
     eth_interfaces: Vec<redfish::ethernet_interface::EthernetInterface>,
     firmware_version: String,
     ipmi_enabled: Arc<atomic::AtomicBool>,
 }
 
-impl ManagerState {
-    pub fn new(config: &Config) -> Self {
+impl SingleManagerState {
+    pub fn new(config: &SingleConfig) -> Self {
         Self {
             id: config.id,
             eth_interfaces: config.eth_interfaces.clone(),
@@ -177,17 +201,21 @@ impl ManagerState {
 
 async fn get_manager_collection(State(state): State<BmcState>) -> Response {
     collection()
-        .with_members(std::slice::from_ref(
-            &resource(state.manager.id).entity_ref(),
-        ))
+        .with_members(
+            &state
+                .manager
+                .managers
+                .iter()
+                .map(|manager| resource(manager.id).entity_ref())
+                .collect::<Vec<_>>(),
+        )
         .into_ok_response()
 }
 
 async fn get_manager(State(state): State<BmcState>, Path(manager_id): Path<String>) -> Response {
-    let this = state.manager;
-    if this.id != manager_id {
+    let Some(this) = state.manager.find(&manager_id) else {
         return http::not_found();
-    }
+    };
 
     builder(&resource(&manager_id))
         .manager_type("BMC")
@@ -209,10 +237,10 @@ async fn get_ethernet_interface_collection(
     State(state): State<BmcState>,
     Path(manager_id): Path<String>,
 ) -> Response {
-    let this = state.manager;
-    if this.id != manager_id {
+    let Some(this) = state.manager.find(&manager_id) else {
         return http::not_found();
-    }
+    };
+
     let members = this
         .eth_interfaces
         .iter()
@@ -227,10 +255,9 @@ async fn get_ethernet_interface(
     State(state): State<BmcState>,
     Path((manager_id, eth_id)): Path<(String, String)>,
 ) -> Response {
-    let this = state.manager;
-    if this.id != manager_id {
+    let Some(this) = state.manager.find(&manager_id) else {
         return http::not_found();
-    }
+    };
     this.eth_interfaces
         .iter()
         .find(|eth| eth.id == eth_id)
@@ -242,10 +269,9 @@ async fn get_network_protocol(
     State(state): State<BmcState>,
     Path(manager_id): Path<String>,
 ) -> Response {
-    let this = state.manager;
-    if this.id != manager_id {
+    let Some(this) = state.manager.find(&manager_id) else {
         return http::not_found();
-    }
+    };
     let resource = redfish::manager_network_protocol::manager_resource(&manager_id);
     redfish::manager_network_protocol::builder(&resource)
         .ipmi_enabled(this.ipmi_enabled.load(atomic::Ordering::Relaxed))
@@ -258,10 +284,9 @@ async fn patch_network_protocol(
     Path(manager_id): Path<String>,
     Json(json): Json<serde_json::Value>,
 ) -> Response {
-    let this = state.manager;
-    if this.id != manager_id {
+    let Some(this) = state.manager.find(&manager_id) else {
         return http::not_found();
-    }
+    };
     if let Some(v) = json
         .get("IPMI")
         .and_then(|v| v.get("ProtocolEnabled"))

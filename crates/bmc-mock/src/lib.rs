@@ -39,12 +39,13 @@ pub use mock_machine_router::{
     BmcCommand, SetSystemPowerError, SetSystemPowerResult, machine_router,
 };
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 pub enum HostHardwareType {
     #[serde(rename = "dell_poweredge_r750")]
+    #[default]
     DellPowerEdgeR750,
-    // #[serde(rename = "wiwynn_gb200_nvl")]
-    // WiwynnGB200Nvl,
+    #[serde(rename = "wiwynn_gb200_nvl")]
+    WiwynnGB200Nvl,
 }
 
 #[derive(Debug, Copy, Clone, Default)]

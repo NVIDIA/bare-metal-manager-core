@@ -319,7 +319,7 @@ pub struct PersistedHostMachine {
 impl From<PersistedHostMachine> for HostMachineInfo {
     fn from(value: PersistedHostMachine) -> Self {
         Self {
-            hw_type: value.hw_type.unwrap_or(HostHardwareType::DellPowerEdgeR750),
+            hw_type: value.hw_type.unwrap_or_default(),
             bmc_mac_address: value.bmc_mac_address,
             serial: value.serial,
             dpus: value.dpus.into_iter().map(Into::into).collect(),
@@ -331,6 +331,7 @@ impl From<PersistedHostMachine> for HostMachineInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedDpuMachine {
     pub mat_id: Uuid,
+    pub hw_type: Option<HostHardwareType>,
     pub bmc_mac_address: MacAddress,
     pub host_mac_address: MacAddress,
     pub oob_mac_address: MacAddress,
@@ -346,6 +347,7 @@ pub struct PersistedDpuMachine {
 impl From<PersistedDpuMachine> for DpuMachineInfo {
     fn from(value: PersistedDpuMachine) -> Self {
         Self {
+            hw_type: value.hw_type.unwrap_or_default(),
             bmc_mac_address: value.bmc_mac_address,
             host_mac_address: value.host_mac_address,
             oob_mac_address: value.oob_mac_address,
@@ -381,7 +383,7 @@ fn default_network_status_run_interval() -> Duration {
 }
 
 fn default_host_hardware_type() -> HostHardwareType {
-    HostHardwareType::DellPowerEdgeR750
+    HostHardwareType::default()
 }
 
 fn default_scout_run_interval() -> Duration {

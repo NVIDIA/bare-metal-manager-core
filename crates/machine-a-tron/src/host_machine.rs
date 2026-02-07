@@ -20,8 +20,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use bmc_mock::{
-    BmcCommand, HostHardwareType, HostMachineInfo, MachineInfo, SetSystemPowerResult,
-    SystemPowerControl,
+    BmcCommand, HostMachineInfo, MachineInfo, SetSystemPowerResult, SystemPowerControl,
 };
 use carbide_uuid::machine::MachineId;
 use eyre::Context;
@@ -94,9 +93,7 @@ impl HostMachine {
             })
             .collect::<Vec<_>>();
         let host_info = HostMachineInfo {
-            hw_type: persisted_host_machine
-                .hw_type
-                .unwrap_or(HostHardwareType::DellPowerEdgeR750),
+            hw_type: persisted_host_machine.hw_type.unwrap_or_default(),
             bmc_mac_address: persisted_host_machine.bmc_mac_address,
             serial: persisted_host_machine.serial.clone(),
             dpus: persisted_host_machine
@@ -161,6 +158,7 @@ impl HostMachine {
         let dpu_machines = (1..=config.dpu_per_host_count as u8)
             .map(|index| {
                 DpuMachine::new(
+                    config.hw_type,
                     mat_id,
                     index,
                     app_context.clone(),

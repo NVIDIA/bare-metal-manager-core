@@ -21,8 +21,8 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use bmc_mock::{
-    BmcCommand, HostHardwareType, HostMachineInfo, HostnameQuerying, MachineInfo, MockPowerState,
-    POWER_CYCLE_DELAY, PowerControl, SetSystemPowerError, SetSystemPowerResult, SystemPowerControl,
+    BmcCommand, HostMachineInfo, HostnameQuerying, MachineInfo, MockPowerState, POWER_CYCLE_DELAY,
+    PowerControl, SetSystemPowerError, SetSystemPowerResult, SystemPowerControl,
 };
 use carbide_uuid::machine::MachineId;
 use mac_address::MacAddress;
@@ -209,7 +209,7 @@ impl MachineStateMachine {
                     h.bmc_dhcp_id,
                     h.machine_dhcp_id,
                     MachineInfo::Host(HostMachineInfo {
-                        hw_type: h.hw_type.unwrap_or(HostHardwareType::DellPowerEdgeR750),
+                        hw_type: h.hw_type.unwrap_or_default(),
                         bmc_mac_address: h.bmc_mac_address,
                         serial: h.serial,
                         dpus: h.dpus.into_iter().map(Into::into).collect(),

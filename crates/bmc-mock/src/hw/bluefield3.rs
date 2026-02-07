@@ -28,8 +28,13 @@ pub struct Bluefield3<'a> {
     pub host_mac_address: MacAddress,
     pub bmc_mac_address: MacAddress,
     pub oob_mac_address: Option<MacAddress>,
-    pub nic_mode: bool,
+    pub mode: Mode,
     pub firmware_versions: FirmwareVersions,
+}
+
+pub enum Mode {
+    B3240ColdAisle,              // => P/N 900-9D3B6-00CN-PA0. Installed on WIWYNN GB200s.
+    SuperNIC { nic_mode: bool }, // => P/N 900-9D3B4-00CC-EA0 & 900-9D3B6-00CV-AA0
 }
 
 pub struct FirmwareVersions {
@@ -89,7 +94,11 @@ impl Bluefield3<'_> {
             redfish::boot_option::builder(&redfish::boot_option::resource(system_id, id))
                 .boot_option_reference(id)
         };
-        let nic_mode = if self.nic_mode { "NicMode" } else { "DpuMode" };
+        let nic_mode = if let hw::bluefield3::Mode::SuperNIC { nic_mode: true } = self.mode {
+            "NicMode"
+        } else {
+            "DpuMode"
+        };
         let eth_interfaces =
             self.oob_mac_address
                 .iter()
@@ -125,36 +134,40 @@ impl Bluefield3<'_> {
                 id: Cow::Borrowed("Bluefield"),
                 manufacturer: Some(Cow::Borrowed("Nvidia")),
                 model: Some(Cow::Borrowed("BlueField-3 DPU")),
-                eth_interfaces,
+                eth_interfaces: Some(eth_interfaces),
                 chassis: vec!["Bluefield_BMC".into()],
-                serial_number: self.product_serial_number.to_string().into(),
+                serial_number: Some(self.product_serial_number.to_string().into()),
                 boot_order_mode: redfish::computer_system::BootOrderMode::Generic,
                 power_control: Some(pc),
-                boot_options,
+                boot_options: Some(boot_options),
                 bios_mode: redfish::computer_system::BiosMode::Generic,
-                base_bios: redfish::bios::builder(&redfish::bios::resource(system_id))
-                    .attributes(json!({
-                        "NicMode": nic_mode,
-                        "HostPrivilegeLevel": "Unavailable",
-                        "InternalCPUModel": "Unavailable",
-                    }))
-                    .build(),
+                base_bios: Some(
+                    redfish::bios::builder(&redfish::bios::resource(system_id))
+                        .attributes(json!({
+                            "NicMode": nic_mode,
+                            "HostPrivilegeLevel": "Unavailable",
+                            "InternalCPUModel": "Unavailable",
+                        }))
+                        .build(),
+                ),
             }],
         }
     }
 
     pub fn manager_config(&self) -> redfish::manager::Config {
         redfish::manager::Config {
-            id: "Bluefield_BMC",
-            eth_interfaces: vec![
-                redfish::ethernet_interface::builder(
-                    &redfish::ethernet_interface::manager_resource("Bluefield_BMC", "eth0"),
-                )
-                .mac_address(self.bmc_mac_address)
-                .interface_enabled(true)
-                .build(),
-            ],
-            firmware_version: "BF-23.10-4",
+            managers: vec![redfish::manager::SingleConfig {
+                id: "Bluefield_BMC",
+                eth_interfaces: vec![
+                    redfish::ethernet_interface::builder(
+                        &redfish::ethernet_interface::manager_resource("Bluefield_BMC", "eth0"),
+                    )
+                    .mac_address(self.bmc_mac_address)
+                    .interface_enabled(true)
+                    .build(),
+                ],
+                firmware_version: "BF-23.10-4",
+            }],
         }
     }
 
@@ -205,24 +218,24 @@ impl Bluefield3<'_> {
     }
 
     fn part_number(&self) -> &'static str {
-        // Set the BF3 Part Number based on whether the DPU is supposed to be in NIC mode or not
-        // Use a BF3 SuperNIC OPN if the DPU is supposed to be in NIC mode. Otherwise, use
-        // a BF3 DPU OPN. Site explorer assumes that BF3 SuperNICs must be in NIC mode and that
-        // BF3 DPUs must be in DPU mode. It will not ingest a host if any of the BF3 DPUs in the host
-        // are in NIC mode or if any of the BF3 SuperNICs in the host are in DPU mode.
-        // OPNs taken from: https://docs.nvidia.com/networking/display/bf3dpu
-        match self.nic_mode {
-            true => "900-9D3B4-00CC-EA0",
-            false => "900-9D3B6-00CV-AA0",
+        match self.mode {
+            Mode::B3240ColdAisle => "900-9D3B6-00CN-PA0",
+            // Set the BF3 Part Number based on whether the DPU is supposed to be in NIC mode or not
+            // Use a BF3 SuperNIC OPN if the DPU is supposed to be in NIC mode. Otherwise, use
+            // a BF3 DPU OPN. Site explorer assumes that BF3 SuperNICs must be in NIC mode and that
+            // BF3 DPUs must be in DPU mode. It will not ingest a host if any of the BF3 DPUs in the host
+            // are in NIC mode or if any of the BF3 SuperNICs in the host are in DPU mode.
+            // OPNs taken from: https://docs.nvidia.com/networking/display/bf3dpu
+            Mode::SuperNIC { nic_mode: true } => "900-9D3B4-00CC-EA0",
+            Mode::SuperNIC { nic_mode: false } => "900-9D3B6-00CV-AA0",
         }
     }
 
     fn opn(&self) -> &'static str {
-        // This is wild guess that OPN (Ordering Part Number) is
-        // changing together with NIC-mode.
-        match self.nic_mode {
-            true => "9009D3B400CCEA",
-            false => "9009D3B600CVAA",
+        match self.mode {
+            Mode::B3240ColdAisle => "9009D3B600CNAB",
+            Mode::SuperNIC { nic_mode: true } => "9009D3B400CCEA",
+            Mode::SuperNIC { nic_mode: false } => "9009D3B600CVAA",
         }
     }
 }

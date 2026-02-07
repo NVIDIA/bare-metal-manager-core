@@ -24,6 +24,7 @@ use crate::redfish::Resource;
 pub enum BmcVendor {
     Dell,
     Nvidia,
+    Wiwynn,
 }
 
 impl BmcVendor {
@@ -31,13 +32,16 @@ impl BmcVendor {
         match self {
             BmcVendor::Nvidia => "Nvidia",
             BmcVendor::Dell => "Dell",
+            BmcVendor::Wiwynn => "WIWYNN",
         }
     }
     // This function creates settings of the resource from the resource
     // id. Real identifier is different for different BMC vendors.
     pub fn make_settings_odata_id(&self, resource: &Resource<'_>) -> String {
         match self {
-            BmcVendor::Nvidia | BmcVendor::Dell => format!("{}/Settings", resource.odata_id),
+            BmcVendor::Nvidia | BmcVendor::Dell | BmcVendor::Wiwynn => {
+                format!("{}/Settings", resource.odata_id)
+            }
         }
     }
 }

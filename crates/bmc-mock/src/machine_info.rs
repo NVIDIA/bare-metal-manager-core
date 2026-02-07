@@ -46,6 +46,7 @@ pub struct HostMachineInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DpuMachineInfo {
+    pub hw_type: HostHardwareType,
     pub bmc_mac_address: MacAddress,
     pub host_mac_address: MacAddress,
     pub oob_mac_address: MacAddress,
@@ -64,16 +65,25 @@ pub struct DpuFirmwareVersions {
 
 impl Default for DpuMachineInfo {
     fn default() -> Self {
-        Self::new(false, Default::default())
+        Self::new(
+            HostHardwareType::DellPowerEdgeR750,
+            false,
+            Default::default(),
+        )
     }
 }
 
 impl DpuMachineInfo {
-    pub fn new(nic_mode: bool, firmware_versions: DpuFirmwareVersions) -> Self {
+    pub fn new(
+        hw_type: HostHardwareType,
+        nic_mode: bool,
+        firmware_versions: DpuFirmwareVersions,
+    ) -> Self {
         let bmc_mac_address = next_mac();
         let host_mac_address = next_mac();
         let oob_mac_address = next_mac();
         Self {
+            hw_type,
             bmc_mac_address,
             host_mac_address,
             oob_mac_address,
@@ -84,11 +94,17 @@ impl DpuMachineInfo {
     }
 
     fn bluefield3(&self) -> hw::bluefield3::Bluefield3<'_> {
+        let mode = match self.hw_type {
+            HostHardwareType::DellPowerEdgeR750 => hw::bluefield3::Mode::SuperNIC {
+                nic_mode: self.nic_mode,
+            },
+            HostHardwareType::WiwynnGB200Nvl => hw::bluefield3::Mode::B3240ColdAisle,
+        };
         hw::bluefield3::Bluefield3 {
             host_mac_address: self.host_mac_address,
             bmc_mac_address: self.bmc_mac_address,
             oob_mac_address: Some(self.oob_mac_address),
-            nic_mode: self.nic_mode,
+            mode,
             product_serial_number: Cow::Borrowed(&self.serial),
             firmware_versions: hw::bluefield3::FirmwareVersions {
                 bmc: self.firmware_versions.bmc.clone().unwrap_or_default(),
@@ -116,14 +132,6 @@ impl HostMachineInfo {
         }
     }
 
-    pub fn oem_state(&self) -> redfish::oem::State {
-        match self.hw_type {
-            HostHardwareType::DellPowerEdgeR750 => {
-                redfish::oem::State::DellIdrac(redfish::oem::dell::idrac::IdracState::default())
-            }
-        }
-    }
-
     pub fn primary_dpu(&self) -> Option<&DpuMachineInfo> {
         self.dpus.first()
     }
@@ -134,15 +142,26 @@ impl HostMachineInfo {
             .or(self.non_dpu_mac_address)
     }
 
+    pub fn oem_state(&self) -> redfish::oem::State {
+        match self.hw_type {
+            HostHardwareType::DellPowerEdgeR750 => {
+                redfish::oem::State::DellIdrac(redfish::oem::dell::idrac::IdracState::default())
+            }
+            HostHardwareType::WiwynnGB200Nvl => redfish::oem::State::Other,
+        }
+    }
+
     pub fn bmc_vendor(&self) -> redfish::oem::BmcVendor {
         match self.hw_type {
             HostHardwareType::DellPowerEdgeR750 => redfish::oem::BmcVendor::Dell,
+            HostHardwareType::WiwynnGB200Nvl => redfish::oem::BmcVendor::Wiwynn,
         }
     }
 
     pub fn manager_config(&self) -> redfish::manager::Config {
         match self.hw_type {
             HostHardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().manager_config(),
+            HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().manager_config(),
         }
     }
 
@@ -154,12 +173,16 @@ impl HostMachineInfo {
             HostHardwareType::DellPowerEdgeR750 => {
                 self.dell_poweredge_r750().system_config(power_control)
             }
+            HostHardwareType::WiwynnGB200Nvl => {
+                self.wiwynn_gb200_nvl().system_config(power_control)
+            }
         }
     }
 
     pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         match self.hw_type {
             HostHardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().chassis_config(),
+            HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().chassis_config(),
         }
     }
 
@@ -168,6 +191,7 @@ impl HostMachineInfo {
             HostHardwareType::DellPowerEdgeR750 => {
                 self.dell_poweredge_r750().update_service_config()
             }
+            HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().update_service_config(),
         }
     }
 
@@ -193,6 +217,21 @@ impl HostMachineInfo {
                 port_1: next_mac(),
                 port_2: next_mac(),
             },
+        }
+    }
+
+    fn wiwynn_gb200_nvl(&self) -> hw::wiwynn_gb200_nvl::WiwynnGB200Nvl<'_> {
+        let mut dpus = self.dpus.iter();
+        hw::wiwynn_gb200_nvl::WiwynnGB200Nvl {
+            product_serial_number: Cow::Borrowed(&self.serial),
+            dpu1: dpus
+                .next()
+                .expect("Two DPUs must present for GB200 NVL")
+                .bluefield3(),
+            dpu2: dpus
+                .next()
+                .expect("Two DPUs must present for GB200 NVL")
+                .bluefield3(),
         }
     }
 }

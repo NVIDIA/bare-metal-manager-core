@@ -38,8 +38,11 @@ pub fn resource() -> redfish::Resource<'static> {
 }
 
 pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
-    r.route(&resource().odata_id, get(get_root))
-        .route(&ACCOUNTS_COLLECTION_RESOURCE.odata_id, get(get_accounts))
+    r.route(&resource().odata_id, get(get_root).patch(patch_root))
+        .route(
+            &ACCOUNTS_COLLECTION_RESOURCE.odata_id,
+            get(get_accounts).post(create_account),
+        )
         .route(
             format!("{}/{{account_id}}", ACCOUNTS_COLLECTION_RESOURCE.odata_id).as_str(),
             get(get_account).patch(patch_account),
@@ -68,6 +71,10 @@ pub async fn get_root() -> Response {
         .into_ok_response()
 }
 
+pub async fn patch_root() -> Response {
+    json!({}).into_ok_response()
+}
+
 pub fn account_resource(id: impl Display) -> redfish::Resource<'static> {
     redfish::Resource {
         odata_id: Cow::Owned(format!("{}/{id}", ACCOUNTS_COLLECTION_RESOURCE.odata_id)),
@@ -85,6 +92,10 @@ pub async fn get_accounts() -> Response {
     ACCOUNTS_COLLECTION_RESOURCE
         .with_members(&members)
         .into_ok_response()
+}
+
+pub async fn create_account(Path(_account_id): Path<String>) -> Response {
+    json!({}).into_ok_response()
 }
 
 pub async fn patch_account(Path(_account_id): Path<String>) -> Response {
