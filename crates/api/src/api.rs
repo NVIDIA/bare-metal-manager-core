@@ -2874,64 +2874,58 @@ impl Forge for Api {
             .await
     }
 
-    async fn create_ipxe_os_def(
-        &self,
-        _request: tonic::Request<::rpc::forge::CreateIpxeOsDefRequest>,
-    ) -> Result<tonic::Response<::rpc::forge::IpxeOsDefinition>, Status> {
-        Err(Status::unimplemented(
-            "create_ipxe_os_def not yet implemented",
-        ))
-    }
-
-    async fn get_ipxe_os_def(
-        &self,
-        _request: tonic::Request<::rpc::Uuid>,
-    ) -> Result<tonic::Response<::rpc::forge::IpxeOsDefinition>, Status> {
-        Err(Status::unimplemented("get_ipxe_os_def not yet implemented"))
-    }
-
-    async fn list_ipxe_os_defs(
-        &self,
-        _request: tonic::Request<::rpc::forge::ListIpxeOsDefsRequest>,
-    ) -> Result<tonic::Response<::rpc::forge::ListIpxeOsDefsResponse>, Status> {
-        Err(Status::unimplemented(
-            "list_ipxe_os_defs not yet implemented",
-        ))
-    }
-
-    async fn update_ipxe_os_def(
-        &self,
-        _request: tonic::Request<::rpc::forge::UpdateIpxeOsDefRequest>,
-    ) -> Result<tonic::Response<::rpc::forge::IpxeOsDefinition>, Status> {
-        Err(Status::unimplemented(
-            "update_ipxe_os_def not yet implemented",
-        ))
-    }
-
-    async fn delete_ipxe_os_def(
-        &self,
-        _request: tonic::Request<::rpc::Uuid>,
-    ) -> Result<tonic::Response<()>, Status> {
-        Err(Status::unimplemented(
-            "delete_ipxe_os_def not yet implemented",
-        ))
-    }
-
     async fn get_ipxe_template(
         &self,
-        _request: tonic::Request<::rpc::forge::GetIpxeTemplateRequest>,
+        request: tonic::Request<::rpc::forge::GetIpxeTemplateRequest>,
     ) -> Result<tonic::Response<::rpc::forge::IpxeTemplate>, Status> {
-        Err(Status::unimplemented(
-            "get_ipxe_template not yet implemented",
-        ))
+        use carbide_ipxe_renderer::IpxeOsRenderer;
+        
+        let req = request.into_inner();
+        let renderer = carbide_ipxe_renderer::DefaultIpxeOsRenderer::new();
+        
+        match renderer.get_template(&req.name) {
+            Some(template) => {
+                Ok(tonic::Response::new(::rpc::forge::IpxeTemplate {
+                    name: template.name.clone(),
+                    template: template.template.clone(),
+                    required_params: template.required_params.clone(),
+                    description: template.description.clone(),
+                    reserved_params: template.reserved_params.clone(),
+                    required_artifacts: template.required_artifacts.clone(),
+                }))
+            }
+            None => Err(Status::not_found(format!(
+                "iPXE template '{}' not found",
+                req.name
+            ))),
+        }
     }
 
     async fn list_ipxe_templates(
         &self,
         _request: tonic::Request<::rpc::forge::ListIpxeTemplatesRequest>,
     ) -> Result<tonic::Response<::rpc::forge::ListIpxeTemplatesResponse>, Status> {
-        Err(Status::unimplemented(
-            "list_ipxe_templates not yet implemented",
+        use carbide_ipxe_renderer::IpxeOsRenderer;
+        
+        let renderer = carbide_ipxe_renderer::DefaultIpxeOsRenderer::new();
+        let template_names = renderer.list_templates();
+        
+        let templates = template_names
+            .iter()
+            .filter_map(|name| {
+                renderer.get_template(name).map(|t| ::rpc::forge::IpxeTemplate {
+                    name: t.name.clone(),
+                    template: t.template.clone(),
+                    required_params: t.required_params.clone(),
+                    description: t.description.clone(),
+                    reserved_params: t.reserved_params.clone(),
+                    required_artifacts: t.required_artifacts.clone(),
+                })
+            })
+            .collect();
+        
+        Ok(tonic::Response::new(
+            ::rpc::forge::ListIpxeTemplatesResponse { templates },
         ))
     }
 }

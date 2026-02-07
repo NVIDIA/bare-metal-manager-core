@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use ::rpc::forge as rpc;
+use carbide_ipxe_renderer::{DefaultIpxeOsRenderer, IpxeOs, IpxeOsArtifact, IpxeOsParameter, IpxeOsRenderer, ArtifactCacheStrategy};
 use carbide_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
 use db::{self};
 use mac_address::MacAddress;
@@ -101,6 +102,36 @@ impl PxeInstructions {
                 }
             }
         }.serialize_pxe_instructions()
+    }
+    
+    /// Render an IpxeOs definition using the template-based renderer
+    fn render_ipxe_os_definition(
+        ipxeos: &IpxeOs,
+        base_url: &str,
+        console: &str,
+    ) -> Result<String, CarbideError> {
+        let renderer = DefaultIpxeOsRenderer::new();
+        
+        // Build reserved parameters
+        let mut reserved_params = vec![
+            IpxeOsParameter {
+                name: "base_url".to_string(),
+                value: base_url.to_string(),
+            },
+        ];
+        
+        // Check if template requires console parameter
+        if let Some(template) = renderer.get_template(&ipxeos.ipxe_template_name) {
+            if template.reserved_params.iter().any(|p| p.to_lowercase() == "console") {
+                reserved_params.push(IpxeOsParameter {
+                    name: "console".to_string(),
+                    value: console.to_string(),
+                });
+            }
+        }
+        
+        renderer.render_with_artifact_substitution(ipxeos, &reserved_params)
+            .map_err(|e| CarbideError::InternalError(format!("Failed to render iPXE script: {}", e)))
     }
 
     pub async fn get_pxe_instructions(
@@ -376,6 +407,13 @@ exit ||
                                     }
                                 }
                                 tenant_ipxe
+                            }
+                            model::os::OperatingSystemVariant::IpxeOsDefinition(os_def_id) => {
+                                // Load the OS definition from database
+                                let ipxeos = db::ipxe_os_definition::get(txn, os_def_id).await?;
+                                
+                                // Render using template-based renderer
+                                Self::render_ipxe_os_definition(&ipxeos, "${base-url}", console)?
                             }
                             model::os::OperatingSystemVariant::OsImage(id) => {
                                 let os_image = db::os_image::get(txn, id).await?;

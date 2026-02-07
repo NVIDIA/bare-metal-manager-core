@@ -496,14 +496,7 @@ service Forge {
   rpc GetOsImage(common.UUID) returns (OsImage);
   rpc UpdateOsImage(OsImageAttributes) returns (OsImage);
 
-  // New template-based OS management endpoints
-  rpc CreateIpxeOsDef(CreateIpxeOsDefRequest) returns (IpxeOsDefinition);
-  rpc GetIpxeOsDef(common.UUID) returns (IpxeOsDefinition);
-  rpc ListIpxeOsDefs(ListIpxeOsDefsRequest) returns (ListIpxeOsDefsResponse);
-  rpc UpdateIpxeOsDef(UpdateIpxeOsDefRequest) returns (IpxeOsDefinition);
-  rpc DeleteIpxeOsDef(common.UUID) returns (google.protobuf.Empty);
-  
-  // Template management
+  // iPXE Template management
   rpc GetIpxeTemplate(GetIpxeTemplateRequest) returns (IpxeTemplate);
   rpc ListIpxeTemplates(ListIpxeTemplatesRequest) returns (ListIpxeTemplatesResponse);
 
@@ -2092,8 +2085,9 @@ message IpxeTemplate {
   string name = 1;
   string template = 2;
   repeated string required_params = 3;  // Error if these params are not provided or empty
-  repeated string reserved_params = 5;  // Error if these params are provided
   string description = 4;
+  repeated string reserved_params = 5;  // Reserved for carbide-core to provide at render time
+  repeated string required_artifacts = 6;  // Error if these artifacts are not provided or empty
 }
 
 // Tenant related configuration that is set once the instance is allocated
@@ -4641,34 +4635,7 @@ message DeleteOsImageRequest {
 message DeleteOsImageResponse {
 }
 
-// Request/Response messages for iPXE OS management
-message CreateIpxeOsDefRequest {
-  IpxeOsDefinition os = 1;
-}
-
-message UpdateIpxeOsDefRequest {
-  IpxeOsDefinition os = 1;
-}
-
-message ListIpxeOsDefsRequest {
-  optional string org = 1;
-  optional OsScope scope = 2;
-  optional bool is_active = 3;
-  repeated string names = 4;
-  optional common.UUID tenant_id = 5;
-  optional string ipxe_template_name = 6;  // Filter by template
-  optional common.UUID provider_id = 10;   // Filter by infrastructure provider
-  
-  // Pagination
-  optional int32 page_size = 7;
-  optional int32 page_number = 8;
-  optional string order_by = 9;
-}
-
-message ListIpxeOsDefsResponse {
-  repeated IpxeOsDefinition os_images = 1;
-}
-
+// Request/Response messages for iPXE Template management
 message GetIpxeTemplateRequest {
   string name = 1;  // Template name
 }
