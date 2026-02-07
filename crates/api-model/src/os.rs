@@ -63,9 +63,12 @@ impl InlineIpxe {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OperatingSystemVariant {
-    /// An operating system that is booted into via iPXE
+    /// An operating system that is booted into via iPXE (inline script)
     Ipxe(InlineIpxe),
+    /// An operating system that references a qcow image
     OsImage(Uuid),
+    /// An operating system that uses iPXE template-based rendering
+    IpxeOsDefinition(Uuid),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,11 +127,12 @@ impl TryFrom<rpc::forge::OperatingSystem> for OperatingSystem {
                     RpcDataConversionError::InvalidUuid("os_image_id: ", e.to_string())
                 })?)
             }
-            rpc::forge::operating_system::Variant::IpxeOsDef(_ipxe_os_def) => {
-                // IpxeOsDef is not yet supported for instance configuration conversion
-                return Err(RpcDataConversionError::InvalidArgument(
-                    "IpxeOsDef variant not supported in instance configuration".to_string(),
-                ));
+            rpc::forge::operating_system::Variant::IpxeOsDef(ipxe_os_def) => {
+                OperatingSystemVariant::IpxeOsDefinition(
+                    Uuid::try_from(ipxe_os_def.os_definition_id).map_err(|e| {
+                        RpcDataConversionError::InvalidUuid("ipxe_os_definition_id: ", e.to_string())
+                    })?
+                )
             }
         };
 
@@ -155,6 +159,13 @@ impl TryFrom<OperatingSystem> for rpc::forge::OperatingSystem {
             OperatingSystemVariant::OsImage(id) => {
                 rpc::forge::operating_system::Variant::OsImageId(id.into())
             }
+            OperatingSystemVariant::IpxeOsDefinition(id) => {
+                rpc::forge::operating_system::Variant::IpxeOsDef(
+                    rpc::forge::IpxeOsDefinitionRef {
+                        os_definition_id: id.into(),
+                    }
+                )
+            }
         };
 
         Ok(Self {
@@ -173,6 +184,7 @@ impl OperatingSystem {
         match &self.variant {
             OperatingSystemVariant::Ipxe(ipxe) => ipxe.validate(),
             OperatingSystemVariant::OsImage(_id) => Ok(()),
+            OperatingSystemVariant::IpxeOsDefinition(_id) => Ok(()), // Validation handled at render time
         }
     }
 
