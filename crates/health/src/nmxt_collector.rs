@@ -174,10 +174,11 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
             })?;
 
         let registry = config.collector_registry.registry();
+        let prefix = config.collector_registry.prefix();
 
         let effective_ber_gauge = GaugeVec::new(
             Opts::new(
-                "carbide_hardware_health_switch_effective_ber",
+                format!("{prefix}_switch_effective_ber"),
                 "Effective BER from NMX-T telemetry",
             ),
             &["switch_id", "switch_ip", "node_guid", "port_num"],
@@ -186,7 +187,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
 
         let symbol_error_gauge = GaugeVec::new(
             Opts::new(
-                "carbide_hardware_health_switch_symbol_error_counter",
+                format!("{prefix}_switch_symbol_error_counter"),
                 "Symbol error counter from NMX-T telemetry",
             ),
             &["switch_id", "switch_ip", "node_guid", "port_num"],
@@ -195,7 +196,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
 
         let link_down_gauge = GaugeVec::new(
             Opts::new(
-                "carbide_hardware_health_switch_link_down_counter",
+                format!("{prefix}_switch_link_down_counter"),
                 "Link down counter from NMX-T telemetry",
             ),
             &["switch_id", "switch_ip", "node_guid", "port_num"],
