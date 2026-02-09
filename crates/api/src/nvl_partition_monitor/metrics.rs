@@ -51,6 +51,7 @@ pub struct NvlPartitionMonitorMetrics {
 pub enum NmxmPartitionOperations {
     Create,
     Remove,
+    RemoveDefaultPartition,
     Update,
     Pending,
 }
@@ -348,6 +349,7 @@ impl From<NmxmPartitionOperations> for opentelemetry::Value {
             NmxmPartitionOperations::Update => "update",
             NmxmPartitionOperations::Remove => "remove",
             NmxmPartitionOperations::Pending => "pending",
+            NmxmPartitionOperations::RemoveDefaultPartition => "remove_default_partition",
         };
 
         Self::from(str_value)
@@ -359,6 +361,9 @@ impl From<NmxmPartitionOperationType> for NmxmPartitionOperations {
         match value {
             NmxmPartitionOperationType::Create => NmxmPartitionOperations::Create,
             NmxmPartitionOperationType::Remove(_) => NmxmPartitionOperations::Remove,
+            NmxmPartitionOperationType::RemoveDefaultPartition(_) => {
+                NmxmPartitionOperations::RemoveDefaultPartition
+            }
             NmxmPartitionOperationType::Update(_) => NmxmPartitionOperations::Update,
             NmxmPartitionOperationType::Pending(_) => NmxmPartitionOperations::Pending,
         }
