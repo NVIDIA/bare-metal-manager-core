@@ -355,6 +355,8 @@ impl TestEnv {
     ) -> ManagedHostState {
         //This block is to fill data that is populated within statemachine
         match state.clone() {
+            ManagedHostState::RegisterRmsMembership => state.clone(),
+            ManagedHostState::VerifyRmsMembership => state.clone(),
             ManagedHostState::DpuDiscoveringState { .. } => state.clone(),
             ManagedHostState::DPUInit { .. } => state.clone(),
             ManagedHostState::HostInit { machine_state } => {
@@ -1367,7 +1369,7 @@ pub async fn create_test_env_with_overrides(
         scout_reporting_timeout: config.machine_state_controller.scout_reporting_timeout,
     };
 
-    let rms_sim = Arc::new(RmsSim);
+    let rms_sim = Arc::new(RmsSim::default());
 
     let api = Arc::new(Api {
         kube_client_provider: Arc::new(TestDpfKubeClient {}),
@@ -1442,7 +1444,7 @@ pub async fn create_test_env_with_overrides(
         ipmi_tool: ipmi_tool.clone(),
         site_config: config.clone(),
         dpa_info: None,
-        rms_client: None,
+        rms_client: rms_sim.as_rms_client(),
     });
 
     let state_controller_id = uuid::Uuid::new_v4().to_string();
