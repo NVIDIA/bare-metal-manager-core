@@ -142,19 +142,17 @@ async fn test_dpu_agent_version_staleness(db_pool: sqlx::PgPool) -> Result<(), e
     let stale_version = "stale_version";
     let recently_superseded_version = "recently_superseded_version";
     let current_version = carbide_version::v!(build_version);
+    let stale_time = Utc::now() - Duration::hours(25);
+    let recently_superseded_time = Utc::now() - Duration::hours(23);
 
     {
         let mut txn = env.pool.begin().await?;
-        db::carbide_version::make_mock_observation(
-            &mut txn,
-            stale_version,
-            Some(Utc::now() - Duration::hours(25)),
-        )
-        .await?;
+        db::carbide_version::make_mock_observation(&mut txn, stale_version, Some(stale_time))
+            .await?;
         db::carbide_version::make_mock_observation(
             &mut txn,
             recently_superseded_version,
-            Some(Utc::now() - Duration::hours(23)),
+            Some(recently_superseded_time),
         )
         .await?;
         db::carbide_version::make_mock_observation(&mut txn, current_version, None).await?;
@@ -186,7 +184,10 @@ async fn test_dpu_agent_version_staleness(db_pool: sqlx::PgPool) -> Result<(), e
         .expect("Should have caused a health alert");
     assert_eq!(
         alert.message,
-        format!("Agent version is {stale_version}, which is out of date for 1 day and 1 hour")
+        format!(
+            "Agent version is {stale_version}, which is out of date since {}",
+            stale_time.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+        )
     );
     assert_eq!(alert.target, Some(mh.dpu().id.to_string()));
     assert_eq!(
