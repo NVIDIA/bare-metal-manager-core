@@ -1,19 +1,27 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-use bmc_mock::{BmcCommand, DpuMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult};
+use bmc_mock::{
+    BmcCommand, DpuMachineInfo, HostHardwareType, MachineInfo, SetSystemPowerResult,
+    SystemPowerControl,
+};
 use eyre::Context;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -65,6 +73,7 @@ impl DpuMachine {
         let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
 
         let dpu_info = DpuMachineInfo {
+            hw_type: persisted_dpu_machine.hw_type.unwrap_or_default(),
             bmc_mac_address: persisted_dpu_machine.bmc_mac_address,
             host_mac_address: persisted_dpu_machine.host_mac_address,
             oob_mac_address: persisted_dpu_machine.oob_mac_address,
@@ -101,6 +110,7 @@ impl DpuMachine {
     }
 
     pub fn new(
+        hw_type: HostHardwareType,
         mat_host: Uuid,
         dpu_index: u8,
         app_context: Arc<MachineATronContext>,
@@ -120,7 +130,8 @@ impl DpuMachine {
             .unwrap_or_default()
             .fill_missing_from_desired_firmware(&app_context.desired_firmware_versions);
 
-        let dpu_info = DpuMachineInfo::new(config.dpus_in_nic_mode, firmware_versions.into());
+        let dpu_info =
+            DpuMachineInfo::new(hw_type, config.dpus_in_nic_mode, firmware_versions.into());
         let state_machine = MachineStateMachine::new(
             MachineInfo::Dpu(dpu_info.clone()),
             config,
@@ -300,7 +311,7 @@ impl DpuMachine {
 
 enum DpuMachineMessage {
     SetSystemPower {
-        request: SetSystemPowerReq,
+        request: SystemPowerControl,
         reply: Option<oneshot::Sender<SetSystemPowerResult>>,
     },
     WaitUntilMachineUpWithApiState(String, oneshot::Sender<()>),
@@ -332,7 +343,7 @@ struct DpuMachineActor {
 pub struct DpuMachineHandle(Arc<DpuMachineActor>);
 
 impl DpuMachineHandle {
-    pub fn set_system_power(&self, request: SetSystemPowerReq) -> eyre::Result<()> {
+    pub fn set_system_power(&self, request: SystemPowerControl) -> eyre::Result<()> {
         Ok(self.0.message_tx.send(DpuMachineMessage::SetSystemPower {
             request,
             reply: None,
@@ -398,6 +409,7 @@ impl DpuMachineHandle {
     pub fn persisted(&self) -> PersistedDpuMachine {
         PersistedDpuMachine {
             mat_id: self.0.mat_id,
+            hw_type: Some(self.0.dpu_info.hw_type),
             bmc_mac_address: self.0.dpu_info.bmc_mac_address,
             host_mac_address: self.0.dpu_info.host_mac_address,
             oob_mac_address: self.0.dpu_info.oob_mac_address,

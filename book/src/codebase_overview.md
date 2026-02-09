@@ -5,7 +5,7 @@ bluefield/ - `forge-dpu-agent` and other tools running on the DPU
 
 book/ - architecture of forge book.  aka "the book"
 
-- admin/ - `forge-admin-cli`: A command line client for the carbide API server
+- admin/ - `carbide-admin-cli`: A command line client for the carbide API server
 - api/ - forge primary entrypoint for GRPC API calls. This component receives all the  GRPC calls
 - scout/ - `forge-scout`. A binary that runs on Forge managed hosts and DPUs and executes various parts workflows on behalf of the site controller
 

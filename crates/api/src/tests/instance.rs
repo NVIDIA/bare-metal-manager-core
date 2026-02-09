@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
@@ -1720,8 +1725,11 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         segment_id: segment_id_1,
         busy_ips: vec![],
     };
-    let used_ips = allocated_ip_resolver.used_ips(&mut txn).await.unwrap();
-    let used_prefixes = allocated_ip_resolver.used_prefixes(&mut txn).await.unwrap();
+    let used_ips = allocated_ip_resolver.used_ips(txn.as_mut()).await.unwrap();
+    let used_prefixes = allocated_ip_resolver
+        .used_prefixes(txn.as_mut())
+        .await
+        .unwrap();
     assert_eq!(1, used_ips.len());
     assert_eq!(1, used_prefixes.len());
     assert_eq!("192.0.4.3", used_ips[0].to_string());
@@ -1732,8 +1740,11 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         segment_id: segment_id_2,
         busy_ips: vec![],
     };
-    let used_ips = allocated_ip_resolver.used_ips(&mut txn).await.unwrap();
-    let used_prefixes = allocated_ip_resolver.used_prefixes(&mut txn).await.unwrap();
+    let used_ips = allocated_ip_resolver.used_ips(txn.as_mut()).await.unwrap();
+    let used_prefixes = allocated_ip_resolver
+        .used_prefixes(txn.as_mut())
+        .await
+        .unwrap();
     assert_eq!(1, used_ips.len());
     assert_eq!(1, used_prefixes.len());
     assert_eq!("192.1.4.3", used_ips[0].to_string());
@@ -2296,7 +2307,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
 
     let mut txn = env.db_txn().await;
     let network_segment = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(
             IdColumn,
             &config.network.interfaces[0].network_segment_id.unwrap(),
@@ -2421,7 +2432,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .unwrap();
 
     let ns = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(db::network_segment::IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
     )
@@ -2462,7 +2473,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
 
     let mut txn = env.db_txn().await;
     let mut ns = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(
             IdColumn,
             &fetched_instance.config.network.interfaces[0]
@@ -2533,7 +2544,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     // Address is freed during delete
     let mut txn = env.db_txn().await;
     let network_segments = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::List(IdColumn, &segment_ids),
         NetworkSegmentSearchConfig::default(),
     )
@@ -2613,7 +2624,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .unwrap();
 
     let ns1 = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
     )
@@ -2642,7 +2653,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .unwrap();
 
     let ns2 = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
     )
@@ -2670,7 +2681,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .unwrap();
 
     let ns3 = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
     )
@@ -2705,7 +2716,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .unwrap();
 
     let ns4 = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
     )
@@ -4311,7 +4322,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
 
     for iface in config.network.interfaces {
         let network_segment = db::network_segment::find_by(
-            &mut txn,
+            txn.as_mut(),
             ObjectColumnFilter::One(IdColumn, &iface.network_segment_id.unwrap()),
             NetworkSegmentSearchConfig::default(),
         )

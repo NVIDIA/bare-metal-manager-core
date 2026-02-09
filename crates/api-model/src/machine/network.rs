@@ -1,15 +1,20 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::time::SystemTime;
 
 use ::rpc::errors::RpcDataConversionError;
@@ -243,8 +248,8 @@ impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
 /// fields for easier migrations.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ManagedHostNetworkConfig {
-    pub loopback_ip: Option<Ipv4Addr>,
-    pub secondary_overlay_vtep_ip: Option<Ipv4Addr>,
+    pub loopback_ip: Option<IpAddr>,
+    pub secondary_overlay_vtep_ip: Option<IpAddr>,
     pub use_admin_network: Option<bool>,
     pub quarantine_state: Option<ManagedHostQuarantineState>,
 }
@@ -327,5 +332,140 @@ impl Default for ManagedHostNetworkConfig {
             use_admin_network: Some(true),
             quarantine_state: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    use super::*;
+
+    // Verify that existing JSON with IPv4 addresses (as stored in Postgres) still
+    // deserializes correctly after going from Ipv4Addr to IpAddr (to support v6).
+    #[test]
+    fn test_managed_host_network_config_ipv4_json_roundtrip() {
+        let config = ManagedHostNetworkConfig {
+            loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+            secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
+            use_admin_network: Some(true),
+            quarantine_state: None,
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: ManagedHostNetworkConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(config, deserialized);
+    }
+
+    // Ensure that the JSON representation of an IPv4 address under IpAddr is
+    // identical to what Ipv4Addr would have produced. It should be, but better
+    // safe than sorry, and backwards compatibility is key here, even though
+    // it's not really backwards.
+    #[test]
+    fn test_managed_host_network_config_ipv4_json_format_unchanged() {
+        let config = ManagedHostNetworkConfig {
+            loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+            secondary_overlay_vtep_ip: None,
+            use_admin_network: Some(true),
+            quarantine_state: None,
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        // Ensure IpAddr serializes IPv4 same as Ipv4Addr.
+        assert!(json.contains(r#""loopback_ip":"10.0.0.1""#), "json: {json}");
+    }
+
+    // Confirm that a raw JSON string with an IPv4 address (as would already
+    // exist in the database from before switching to IpAddr for v6 support),
+    // deserializes correctly into the new IpAddr type.
+    #[test]
+    fn test_managed_host_network_config_deserialize_legacy_ipv4_json() {
+        let json = r#"{
+            "loopback_ip": "10.0.0.1",
+            "secondary_overlay_vtep_ip": "172.16.0.5",
+            "use_admin_network": true,
+            "quarantine_state": null
+        }"#;
+        let config: ManagedHostNetworkConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            config.loopback_ip,
+            Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)))
+        );
+        assert_eq!(
+            config.secondary_overlay_vtep_ip,
+            Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5)))
+        );
+    }
+
+    // Verify that IPv6 addresses serialize/deserialize correctly through our
+    // ManagedHostNetworkConfig JSON representation, for the case when IPv6
+    // pools are enabled.
+    #[test]
+    fn test_managed_host_network_config_ipv6_json_roundtrip() {
+        let config = ManagedHostNetworkConfig {
+            loopback_ip: Some(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))),
+            secondary_overlay_vtep_ip: Some(IpAddr::V6(Ipv6Addr::new(
+                0xfd00, 0, 0, 0, 0, 0, 0, 0x42,
+            ))),
+            use_admin_network: Some(false),
+            quarantine_state: None,
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: ManagedHostNetworkConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(config, deserialized);
+    }
+
+    // ...aand confirm deserialization of IPv6 addresses from JSON.
+    #[test]
+    fn test_managed_host_network_config_deserialize_ipv6_json() {
+        let json = r#"{
+            "loopback_ip": "2001:db8::1",
+            "secondary_overlay_vtep_ip": null,
+            "use_admin_network": true,
+            "quarantine_state": null
+        }"#;
+        let config: ManagedHostNetworkConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            config.loopback_ip,
+            Some(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)))
+        );
+        assert_eq!(config.secondary_overlay_vtep_ip, None);
+    }
+
+    // Ensure default ManagedHostNetworkConfig is still all-None/Some(true),
+    // etc etc, and unaffected by the type change to IpAddr for v6 support.
+    #[test]
+    fn test_managed_host_network_config_default() {
+        let config = ManagedHostNetworkConfig::default();
+        assert_eq!(config.loopback_ip, None);
+        assert_eq!(config.secondary_overlay_vtep_ip, None);
+        assert_eq!(config.use_admin_network, Some(true));
+        assert_eq!(config.quarantine_state, None);
+    }
+
+    // Verify that IpAddr::to_string() produces the expected format for both
+    // address families, since several call sites throughout the codebase
+    // use .to_string() on the loopback_ip value.
+    #[test]
+    fn test_ip_addr_to_string_format() {
+        let v4 = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        assert_eq!(v4.to_string(), "10.0.0.1");
+
+        let v6 = IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1));
+        assert_eq!(v6.to_string(), "2001:db8::1");
+    }
+
+    // Verify that IPv4 strings parse correctly as IpAddr, since resource pools
+    // store values as strings and parse them via IpAddr::from_str.
+    #[test]
+    fn test_ip_addr_parse_from_pool_strings() {
+        let v4: IpAddr = "10.0.0.1".parse().unwrap();
+        assert!(v4.is_ipv4());
+        assert_eq!(v4, IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
+
+        let v6: IpAddr = "2001:db8::1".parse().unwrap();
+        assert!(v6.is_ipv6());
+        assert_eq!(
+            v6,
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))
+        );
     }
 }

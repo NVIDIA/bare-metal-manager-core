@@ -1,13 +1,18 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::borrow::Cow;
@@ -16,11 +21,11 @@ use axum::Router;
 use axum::extract::State;
 use axum::response::Response;
 use axum::routing::get;
-use serde_json::json;
 
+use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch};
-use crate::mock_machine_router::MockWrapperState;
 use crate::redfish;
+use crate::redfish::Builder;
 
 pub fn resource<'a>() -> redfish::Resource<'a> {
     redfish::Resource {
@@ -31,7 +36,7 @@ pub fn resource<'a>() -> redfish::Resource<'a> {
     }
 }
 
-pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
+pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     r.route(&resource().odata_id, get(get_service_root))
 }
 
@@ -41,10 +46,10 @@ pub fn builder(resource: &redfish::Resource) -> ServiceRootBuilder {
     }
 }
 
-async fn get_service_root(State(state): State<MockWrapperState>) -> Response {
+async fn get_service_root(State(state): State<BmcState>) -> Response {
     builder(&resource())
         .redfish_version("1.13.1")
-        .vendor(state.bmc_state.bmc_vendor.service_root_value())
+        .vendor(state.bmc_vendor.service_root_value())
         .account_service(&redfish::account_service::resource())
         .chassis_collection(&redfish::chassis::collection())
         .system_collection(&redfish::computer_system::collection())
@@ -55,6 +60,14 @@ async fn get_service_root(State(state): State<MockWrapperState>) -> Response {
 
 pub struct ServiceRootBuilder {
     value: serde_json::Value,
+}
+
+impl Builder for ServiceRootBuilder {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
+        }
+    }
 }
 
 impl ServiceRootBuilder {
@@ -84,15 +97,5 @@ impl ServiceRootBuilder {
 
     pub fn update_service(self, v: &redfish::Resource<'_>) -> Self {
         self.apply_patch(v.nav_property("UpdateService"))
-    }
-
-    fn add_str_field(self, name: &str, value: &str) -> Self {
-        self.apply_patch(json!({ name: value }))
-    }
-
-    fn apply_patch(self, patch: serde_json::Value) -> Self {
-        Self {
-            value: self.value.patch(patch),
-        }
     }
 }

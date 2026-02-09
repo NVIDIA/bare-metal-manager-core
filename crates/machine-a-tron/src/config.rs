@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 use std::collections::{BTreeMap, HashMap};
 use std::net::Ipv4Addr;
@@ -15,7 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use bmc_mock::{DpuMachineInfo, HostMachineInfo};
+use bmc_mock::{DpuMachineInfo, HostHardwareType, HostMachineInfo};
 use carbide_uuid::machine::MachineId;
 use clap::Parser;
 use duration_str::deserialize_duration;
@@ -62,6 +67,8 @@ pub struct MachineATronArgs {
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct MachineConfig {
+    #[serde(default = "default_host_hardware_type")]
+    pub hw_type: HostHardwareType,
     pub host_count: u32,
     pub vpc_count: u32,
     pub subnets_per_vpc: u32,
@@ -297,6 +304,7 @@ impl MachineATronConfig {
 pub struct PersistedHostMachine {
     pub mat_id: Uuid,
     pub machine_config_section: String,
+    pub hw_type: Option<HostHardwareType>,
     pub bmc_mac_address: MacAddress,
     pub serial: String,
     pub dpus: Vec<PersistedDpuMachine>,
@@ -311,6 +319,7 @@ pub struct PersistedHostMachine {
 impl From<PersistedHostMachine> for HostMachineInfo {
     fn from(value: PersistedHostMachine) -> Self {
         Self {
+            hw_type: value.hw_type.unwrap_or_default(),
             bmc_mac_address: value.bmc_mac_address,
             serial: value.serial,
             dpus: value.dpus.into_iter().map(Into::into).collect(),
@@ -322,6 +331,7 @@ impl From<PersistedHostMachine> for HostMachineInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedDpuMachine {
     pub mat_id: Uuid,
+    pub hw_type: Option<HostHardwareType>,
     pub bmc_mac_address: MacAddress,
     pub host_mac_address: MacAddress,
     pub oob_mac_address: MacAddress,
@@ -337,6 +347,7 @@ pub struct PersistedDpuMachine {
 impl From<PersistedDpuMachine> for DpuMachineInfo {
     fn from(value: PersistedDpuMachine) -> Self {
         Self {
+            hw_type: value.hw_type.unwrap_or_default(),
             bmc_mac_address: value.bmc_mac_address,
             host_mac_address: value.host_mac_address,
             oob_mac_address: value.oob_mac_address,
@@ -369,6 +380,10 @@ fn default_api_refresh_interval() -> Duration {
 
 fn default_network_status_run_interval() -> Duration {
     Duration::from_secs(20)
+}
+
+fn default_host_hardware_type() -> HostHardwareType {
+    HostHardwareType::default()
 }
 
 fn default_scout_run_interval() -> Duration {

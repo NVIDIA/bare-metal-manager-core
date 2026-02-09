@@ -1,27 +1,42 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::borrow::Cow;
 
 use axum::Router;
 use axum::extract::State;
-use axum::http::StatusCode;
 use axum::response::Response;
 use axum::routing::{get, patch, post};
 use serde_json::json;
 
+use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch};
-use crate::mock_machine_router::MockWrapperState;
-use crate::{MachineInfo, redfish};
+use crate::{http, redfish};
+
+#[derive(Clone)]
+pub struct BluefieldState {
+    nic_mode: bool,
+}
+
+impl BluefieldState {
+    pub fn new(nic_mode: bool) -> Self {
+        Self { nic_mode }
+    }
+}
 
 pub fn resource() -> redfish::Resource<'static> {
     redfish::Resource {
@@ -35,7 +50,7 @@ pub fn resource() -> redfish::Resource<'static> {
 }
 const SYSTEMS_OEM_RESOURCE_DELETE_FIELDS: &[&str] = &["Id", "Name"];
 
-pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
+pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     r.route(&resource().odata_id, get(get_oem_nvidia))
         .route(
             // TODO: This is BF-3 only.
@@ -52,15 +67,11 @@ async fn hostrshim_set() -> Response {
     json!({}).into_ok_response()
 }
 
-async fn get_oem_nvidia(State(state): State<MockWrapperState>) -> Response {
-    let MachineInfo::Dpu(dpu_machine) = state.machine_info else {
-        return json!({}).into_response(StatusCode::NOT_FOUND);
+async fn get_oem_nvidia(State(state): State<BmcState>) -> Response {
+    let redfish::oem::State::NvidiaBluefield(state) = state.oem_state else {
+        return http::not_found();
     };
-    let mode = if dpu_machine.nic_mode {
-        "NicMode"
-    } else {
-        "DpuMode"
-    };
+    let mode = if state.nic_mode { "NicMode" } else { "DpuMode" };
     resource()
         .json_patch()
         .patch(json!({"Mode": mode}))

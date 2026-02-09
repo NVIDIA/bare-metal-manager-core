@@ -1,19 +1,23 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 use std::collections::HashMap;
 use std::error::Error;
 use std::time::Duration;
 
-use bmc_mock::EntryMap;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use crossterm::ExecutableCommand;
@@ -163,7 +167,6 @@ pub struct TuiData {
     pub machine_details: String,
     pub machine_logs: String,
     pub overrides: Vec<String>,
-    pub routes: EntryMap,
     pub original_routes: HashMap<String, String>,
 }
 
@@ -172,7 +175,6 @@ impl Tui {
         event_rx: Receiver<UiUpdate>,
         quit_rx: Receiver<()>,
         app_tx: Sender<AppEvent>,
-        host_redfish_routes: EntryMap,
         host_logs: Option<TuiHostLogs>,
     ) -> Self {
         Self {
@@ -186,7 +188,6 @@ impl Tui {
                 machine_details: String::default(),
                 machine_logs: String::default(),
                 overrides: Vec::new(),
-                routes: host_redfish_routes,
                 original_routes: HashMap::new(),
             },
             ui: Tab::default(),
@@ -476,13 +477,10 @@ impl Tui {
                             if state.scroll_focused() {
                                 block = block.border_style(Style::new().yellow().bold());
                             }
-                            // In practice, this mutex seems to have low contention.
-                            // If waiting for lock in render loop becomes issue, can 
-                            // change to RWLock (almost all accesses should be reads).
-                            if let Some(response) = data.routes.lock().unwrap().get(&data.overrides[selected]) {
-                                f.render_widget(Paragraph::new(response.clone())
-                                    .scroll((state.scroll_offset, 0)).block(block), chunks[1]);
-                            }
+
+                            // TODO: make request to redfish using selected override path.
+                            f.render_widget(Paragraph::new(format!("TODO: not implemented yet: selected: {selected}"))
+                                                           .scroll((state.scroll_offset, 0)).block(block), chunks[1]);
                         }
                     }
                 }

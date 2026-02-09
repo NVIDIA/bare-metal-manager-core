@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::borrow::Cow;
@@ -21,9 +26,10 @@ use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde_json::json;
 
+use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch};
-use crate::mock_machine_router::MockWrapperState;
-use crate::redfish;
+use crate::redfish::Builder;
+use crate::{http, redfish};
 
 pub fn collection() -> redfish::Collection<'static> {
     redfish::Collection {
@@ -58,6 +64,15 @@ pub fn builder(resource: &redfish::Resource<'_>) -> ManagerBuilder {
 pub struct ManagerBuilder {
     reset_target: String,
     value: serde_json::Value,
+}
+
+impl Builder for ManagerBuilder {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
+            reset_target: self.reset_target,
+        }
+    }
 }
 
 impl ManagerBuilder {
@@ -104,27 +119,16 @@ impl ManagerBuilder {
         self.add_str_field("DateTime", &current_time)
     }
 
-    pub fn build(self) -> serde_json::Value {
-        self.value
-    }
-
-    fn add_str_field(self, name: &str, value: &str) -> Self {
-        self.apply_patch(json!({ name: value }))
-    }
-
     pub fn status(self, status: redfish::resource::Status) -> Self {
         self.apply_patch(json!({"Status": status.into_json()}))
     }
 
-    fn apply_patch(self, patch: serde_json::Value) -> Self {
-        Self {
-            value: self.value.patch(patch),
-            reset_target: self.reset_target,
-        }
+    pub fn build(self) -> serde_json::Value {
+        self.value
     }
 }
 
-pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
+pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     const MGR_ID: &str = "{manager_id}";
     const ETH_ID: &str = "{ethernet_id}";
     r.route(&collection().odata_id, get(get_manager_collection))
@@ -148,20 +152,44 @@ pub fn add_routes(r: Router<MockWrapperState>) -> Router<MockWrapperState> {
 }
 
 pub struct Config {
+    pub managers: Vec<SingleConfig>,
+}
+
+pub struct SingleConfig {
     pub id: &'static str,
     pub eth_interfaces: Vec<redfish::ethernet_interface::EthernetInterface>,
     pub firmware_version: &'static str,
 }
 
 pub struct ManagerState {
+    managers: Vec<SingleManagerState>,
+}
+
+impl ManagerState {
+    pub fn new(config: &Config) -> Self {
+        Self {
+            managers: config
+                .managers
+                .iter()
+                .map(SingleManagerState::new)
+                .collect(),
+        }
+    }
+
+    pub fn find(&self, manager_id: &str) -> Option<&SingleManagerState> {
+        self.managers.iter().find(|c| c.id == manager_id)
+    }
+}
+
+pub struct SingleManagerState {
     id: &'static str,
     eth_interfaces: Vec<redfish::ethernet_interface::EthernetInterface>,
     firmware_version: String,
     ipmi_enabled: Arc<atomic::AtomicBool>,
 }
 
-impl ManagerState {
-    pub fn new(config: &Config) -> Self {
+impl SingleManagerState {
+    pub fn new(config: &SingleConfig) -> Self {
         Self {
             id: config.id,
             eth_interfaces: config.eth_interfaces.clone(),
@@ -171,22 +199,23 @@ impl ManagerState {
     }
 }
 
-async fn get_manager_collection(State(state): State<MockWrapperState>) -> Response {
+async fn get_manager_collection(State(state): State<BmcState>) -> Response {
     collection()
-        .with_members(std::slice::from_ref(
-            &resource(state.bmc_state.manager.id).entity_ref(),
-        ))
+        .with_members(
+            &state
+                .manager
+                .managers
+                .iter()
+                .map(|manager| resource(manager.id).entity_ref())
+                .collect::<Vec<_>>(),
+        )
         .into_ok_response()
 }
 
-async fn get_manager(
-    State(state): State<MockWrapperState>,
-    Path(manager_id): Path<String>,
-) -> Response {
-    let this = state.bmc_state.manager;
-    if this.id != manager_id {
-        return not_found();
-    }
+async fn get_manager(State(state): State<BmcState>, Path(manager_id): Path<String>) -> Response {
+    let Some(this) = state.manager.find(&manager_id) else {
+        return http::not_found();
+    };
 
     builder(&resource(&manager_id))
         .manager_type("BMC")
@@ -205,13 +234,13 @@ async fn get_manager(
 }
 
 async fn get_ethernet_interface_collection(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path(manager_id): Path<String>,
 ) -> Response {
-    let this = state.bmc_state.manager;
-    if this.id != manager_id {
-        return not_found();
-    }
+    let Some(this) = state.manager.find(&manager_id) else {
+        return http::not_found();
+    };
+
     let members = this
         .eth_interfaces
         .iter()
@@ -223,28 +252,26 @@ async fn get_ethernet_interface_collection(
 }
 
 async fn get_ethernet_interface(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path((manager_id, eth_id)): Path<(String, String)>,
 ) -> Response {
-    let this = state.bmc_state.manager;
-    if this.id != manager_id {
-        return not_found();
-    }
+    let Some(this) = state.manager.find(&manager_id) else {
+        return http::not_found();
+    };
     this.eth_interfaces
         .iter()
         .find(|eth| eth.id == eth_id)
         .map(|eth| eth.to_json().into_ok_response())
-        .unwrap_or_else(not_found)
+        .unwrap_or_else(http::not_found)
 }
 
 async fn get_network_protocol(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path(manager_id): Path<String>,
 ) -> Response {
-    let this = state.bmc_state.manager;
-    if this.id != manager_id {
-        return not_found();
-    }
+    let Some(this) = state.manager.find(&manager_id) else {
+        return http::not_found();
+    };
     let resource = redfish::manager_network_protocol::manager_resource(&manager_id);
     redfish::manager_network_protocol::builder(&resource)
         .ipmi_enabled(this.ipmi_enabled.load(atomic::Ordering::Relaxed))
@@ -253,14 +280,13 @@ async fn get_network_protocol(
 }
 
 async fn patch_network_protocol(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Path(manager_id): Path<String>,
     Json(json): Json<serde_json::Value>,
 ) -> Response {
-    let this = state.bmc_state.manager;
-    if this.id != manager_id {
-        return not_found();
-    }
+    let Some(this) = state.manager.find(&manager_id) else {
+        return http::not_found();
+    };
     if let Some(v) = json
         .get("IPMI")
         .and_then(|v| v.get("ProtocolEnabled"))
@@ -273,10 +299,6 @@ async fn patch_network_protocol(
 
 async fn get_log_services() -> Response {
     not_implemented()
-}
-
-fn not_found() -> Response {
-    json!("").into_response(StatusCode::NOT_FOUND)
 }
 
 fn not_implemented() -> Response {

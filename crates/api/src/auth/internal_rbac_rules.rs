@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::collections::HashMap;
@@ -38,11 +43,12 @@ enum RulePrincipal {
     Pxe,
     Rla,
     MaintenanceJobs,
+    DsxExchangeConsumer,
     Anonymous, // Permitted for everything
 }
 use self::RulePrincipal::{
-    Agent, Anonymous, Dhcp, Dns, ForgeAdminCLI, Health, Machineatron, MaintenanceJobs, Pxe, Rla,
-    Scout, SiteAgent, Ssh, SshRs,
+    Agent, Anonymous, Dhcp, Dns, DsxExchangeConsumer, ForgeAdminCLI, Health, Machineatron,
+    MaintenanceJobs, Pxe, Rla, Scout, SiteAgent, Ssh, SshRs,
 };
 
 impl InternalRBACRules {
@@ -126,6 +132,18 @@ impl InternalRBACRules {
         x.perm("ListHealthReportOverrides", vec![ForgeAdminCLI]);
         x.perm("InsertHealthReportOverride", vec![ForgeAdminCLI]);
         x.perm("RemoveHealthReportOverride", vec![ForgeAdminCLI]);
+        x.perm(
+            "ListRackHealthReportOverrides",
+            vec![ForgeAdminCLI, DsxExchangeConsumer],
+        );
+        x.perm(
+            "InsertRackHealthReportOverride",
+            vec![ForgeAdminCLI, DsxExchangeConsumer],
+        );
+        x.perm(
+            "RemoveRackHealthReportOverride",
+            vec![ForgeAdminCLI, DsxExchangeConsumer],
+        );
         x.perm("DpuAgentUpgradeCheck", vec![Scout]);
         x.perm("DpuAgentUpgradePolicyAction", vec![ForgeAdminCLI]);
         x.perm("LookupRecord", vec![Dns]);
@@ -213,6 +231,7 @@ impl InternalRBACRules {
         x.perm("TriggerDpuReprovisioning", vec![ForgeAdminCLI]);
         x.perm("TriggerHostReprovisioning", vec![ForgeAdminCLI, Rla]);
         x.perm("ListDpuWaitingForReprovisioning", vec![ForgeAdminCLI]);
+        x.perm("MarkManualFirmwareUpgradeComplete", vec![ForgeAdminCLI]);
         x.perm(
             "ListHostsWaitingForReprovisioning",
             vec![ForgeAdminCLI, Rla],
@@ -575,7 +594,10 @@ impl InternalRBACRules {
             "FindPowerShelfStateHistories",
             vec![ForgeAdminCLI, Machineatron, Rla],
         );
-        x.perm("FindSwitches", vec![ForgeAdminCLI, Machineatron, Rla]);
+        x.perm(
+            "FindSwitches",
+            vec![ForgeAdminCLI, Machineatron, Rla, Health],
+        );
         x.perm("CreateSwitch", vec![ForgeAdminCLI, Machineatron]);
         x.perm("DeleteSwitch", vec![ForgeAdminCLI, Machineatron]);
         x.perm("AddExpectedSwitch", vec![ForgeAdminCLI, Machineatron]);
@@ -657,6 +679,7 @@ impl InternalRBACRules {
         );
         x.perm("ModifyDPFState", vec![ForgeAdminCLI]);
         x.perm("GetDPFState", vec![ForgeAdminCLI]);
+        x.perm("UpdateMachineNvLinkInfo", vec![ForgeAdminCLI]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {
@@ -740,6 +763,9 @@ impl RuleInfo {
                     RulePrincipal::MaintenanceJobs => {
                         Principal::SpiffeServiceIdentifier("carbide-maintenance-jobs".to_string())
                     }
+                    RulePrincipal::DsxExchangeConsumer => Principal::SpiffeServiceIdentifier(
+                        "carbide-dsx-exchange-consumer".to_string(),
+                    ),
                     RulePrincipal::Anonymous => Principal::Anonymous,
                 })
                 .collect(),

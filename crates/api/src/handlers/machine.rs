@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::collections::HashMap;
@@ -22,6 +27,7 @@ use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use futures_util::FutureExt;
 use itertools::Itertools;
 use libredfish::SystemPowerControl;
+use model::hardware_info::MachineNvLinkInfo;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot};
 use model::metadata::Metadata;
@@ -41,7 +47,7 @@ pub(crate) async fn find_machine_ids(
     let search_config = request.into_inner().try_into()?;
 
     let machine_ids = api
-        .with_txn(|txn| db::machine::find_machine_ids(txn, search_config).boxed())
+        .with_txn(|txn| db::machine::find_machine_ids(txn.as_mut(), search_config).boxed())
         .await??;
 
     Ok(Response::new(::rpc::common::MachineIdList {
@@ -758,4 +764,27 @@ pub async fn get_machine_position_info(
     };
 
     Ok(Response::new(ret))
+}
+
+pub(crate) async fn update_machine_nv_link_info(
+    api: &Api,
+    request: Request<rpc::UpdateMachineNvLinkInfoRequest>,
+) -> std::result::Result<tonic::Response<()>, tonic::Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+    let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
+
+    let nvlink_info = request.nvlink_info.ok_or_else(|| {
+        CarbideError::from(RpcDataConversionError::MissingArgument("nvlink_info"))
+    })?;
+
+    let nvlink_info = MachineNvLinkInfo::try_from(nvlink_info).map_err(CarbideError::from)?;
+
+    let mut txn = api.txn_begin().await?;
+
+    db::machine::update_nvlink_info(&mut txn, &machine_id, nvlink_info).await?;
+
+    txn.commit().await?;
+
+    Ok(tonic::Response::new(()))
 }

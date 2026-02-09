@@ -1,6 +1,7 @@
 # NVIDIA Carbide
 
 - [Introduction](README.md)
+- [Hardware Compatbility List (WIP)](HCL.md)
 
 # Architecture
 
@@ -31,7 +32,7 @@
 
 # Sites and site access
 
-- [forge-admin-cli access](sites/forge_admin_cli.md)
+- [carbide-admin-cli access](sites/forge_admin_cli.md)
 
 # Development
 

@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::collections::HashMap;
@@ -43,7 +48,8 @@ use crate::db_init;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::network_segment::FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS;
 use crate::tests::common::api_fixtures::{
-    TestEnvOverrides, create_test_env, create_test_env_with_overrides, get_vpc_fixture_id,
+    TEST_SITE_PREFIXES, TestEnvOverrides, create_test_env, create_test_env_with_overrides,
+    get_vpc_fixture_id,
 };
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 
@@ -134,7 +140,7 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
 
     let mut txn = env.pool.begin().await?;
     let db_segment = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(db::network_segment::IdColumn, &segment.id.unwrap()),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
@@ -298,7 +304,7 @@ async fn test_network_segment_max_history_length(
 
     let mut txn = env.pool.begin().await.unwrap();
     let mut version = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
@@ -323,7 +329,7 @@ async fn test_network_segment_max_history_length(
             .unwrap()
         );
         version = db::network_segment::find_by(
-            &mut txn,
+            txn.as_mut(),
             ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
             network_segment::NetworkSegmentSearchConfig::default(),
         )
@@ -484,7 +490,7 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
     let search_cfg = NetworkSegmentSearchConfig::default();
     let mut txn = db_pool.begin().await?;
     let num_before = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::<db::network_segment::IdColumn>::All,
         search_cfg,
     )
@@ -494,7 +500,7 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
     crate::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
     let mut txn = db_pool.begin().await?;
     let num_after = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::<db::network_segment::IdColumn>::All,
         search_cfg,
     )
@@ -885,7 +891,7 @@ async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     let mut txn = env.pool.begin().await?;
     let segments = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(VpcColumn, &vpc_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
@@ -910,7 +916,7 @@ async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     // Already created segments must have SVI allocated.
     let mut txn = env.pool.begin().await?;
     let segments = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(VpcColumn, &vpc_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
@@ -938,7 +944,7 @@ async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     let mut txn = env.pool.begin().await?;
     let segments = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(VpcColumn, &vpc_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
@@ -993,7 +999,7 @@ async fn test_update_svi_ip_post_instance_allocation(
 
     let mut txn = env.pool.begin().await?;
     let segments = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
@@ -1032,7 +1038,7 @@ async fn test_update_svi_ip_post_instance_allocation(
     // At this moment, the third IP is taken from the tenant subnet for the instance.
     let mut txn = env.pool.begin().await?;
     let mut segment = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
@@ -1048,7 +1054,7 @@ async fn test_update_svi_ip_post_instance_allocation(
 
     let mut txn = env.pool.begin().await?;
     let mut segment = db::network_segment::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
@@ -1060,6 +1066,191 @@ async fn test_update_svi_ip_post_instance_allocation(
     assert_eq!(
         segment.prefixes[0].svi_ip.unwrap().to_string(),
         "192.0.4.3".to_string()
+    );
+
+    Ok(())
+}
+
+/// Verify that creating a network segment with an IPv6 prefix succeeds
+/// through the full API handler chain.
+#[crate::sqlx_test]
+async fn test_create_network_segment_with_ipv6_prefix(
+    pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
+
+    let request = rpc::forge::NetworkSegmentCreationRequest {
+        id: None,
+        mtu: Some(1500),
+        name: "IPV6_SEGMENT".to_string(),
+        prefixes: vec![rpc::forge::NetworkPrefix {
+            id: None,
+            prefix: "2001:db8::/64".to_string(),
+            gateway: None,
+            reserve_first: 0,
+            free_ip_count: 0,
+            svi_ip: None,
+        }],
+        subdomain_id: None,
+        vpc_id: None,
+        segment_type: rpc::forge::NetworkSegmentType::Admin as i32,
+    };
+
+    let response = env
+        .api
+        .create_network_segment(Request::new(request))
+        .await?
+        .into_inner();
+
+    assert_eq!(response.name, "IPV6_SEGMENT");
+    assert_eq!(response.prefixes.len(), 1);
+    assert_eq!(response.prefixes[0].prefix, "2001:db8::/64");
+    assert!(response.prefixes[0].gateway.is_none());
+
+    Ok(())
+}
+
+/// Verify that creating a tenant segment with both IPv4 and IPv6 prefixes
+/// succeeds when the site fabric prefixes include both address families.
+#[crate::sqlx_test]
+async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    // Include an IPv6 site fabric prefix so the containment check passes for dual-stack segments
+    let mut site_prefixes = TEST_SITE_PREFIXES.to_vec();
+    site_prefixes.push("2001:db8::/32".parse().unwrap());
+
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            create_network_segments: Some(false),
+            site_prefixes: Some(site_prefixes),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let vpc = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder("dual-stack vpc", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+
+    let request = rpc::forge::NetworkSegmentCreationRequest {
+        id: None,
+        mtu: Some(1500),
+        name: "DUAL_STACK_SEGMENT".to_string(),
+        prefixes: vec![
+            rpc::forge::NetworkPrefix {
+                id: None,
+                prefix: "192.0.2.0/24".to_string(),
+                gateway: Some("192.0.2.1".to_string()),
+                reserve_first: 3,
+                free_ip_count: 0,
+                svi_ip: None,
+            },
+            rpc::forge::NetworkPrefix {
+                id: None,
+                prefix: "2001:db8::/64".to_string(),
+                gateway: None,
+                reserve_first: 0,
+                free_ip_count: 0,
+                svi_ip: None,
+            },
+        ],
+        subdomain_id: None,
+        vpc_id: vpc.id,
+        segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+    };
+
+    let response = env
+        .api
+        .create_network_segment(Request::new(request))
+        .await?
+        .into_inner();
+
+    assert_eq!(response.name, "DUAL_STACK_SEGMENT");
+    assert_eq!(response.prefixes.len(), 2);
+
+    // Verify both prefixes are present (order may vary)
+    let prefix_strs: Vec<&str> = response
+        .prefixes
+        .iter()
+        .map(|p| p.prefix.as_str())
+        .collect();
+    assert!(prefix_strs.contains(&"192.0.2.0/24"), "IPv4 prefix missing");
+    assert!(
+        prefix_strs.contains(&"2001:db8::/64"),
+        "IPv6 prefix missing"
+    );
+
+    Ok(())
+}
+
+/// Verify that an IPv6 tenant segment prefix that is NOT contained in the site
+/// fabric prefixes is correctly rejected, just like an uncontained IPv4 prefix would be.
+#[crate::sqlx_test]
+async fn test_ipv6_tenant_prefix_rejected_when_not_in_site_fabric(
+    pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    // Site fabric prefixes include 2001:db8::/32 but NOT fd00::/8
+    let mut site_prefixes = TEST_SITE_PREFIXES.to_vec();
+    site_prefixes.push("2001:db8::/32".parse().unwrap());
+
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            create_network_segments: Some(false),
+            site_prefixes: Some(site_prefixes),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let vpc = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder(
+                "uncontained-ipv6-vpc",
+                "2829bbe3-c169-4cd9-8b2a-19a8b1618a93",
+            )
+            .tonic_request(),
+        )
+        .await?
+        .into_inner();
+
+    // fd00:abcd::/48 is NOT contained in our site fabric prefixes
+    let request = rpc::forge::NetworkSegmentCreationRequest {
+        id: None,
+        mtu: Some(1500),
+        name: "UNCONTAINED_V6_SEGMENT".to_string(),
+        prefixes: vec![rpc::forge::NetworkPrefix {
+            id: None,
+            prefix: "fd00:abcd::/48".to_string(),
+            gateway: None,
+            reserve_first: 0,
+            free_ip_count: 0,
+            svi_ip: None,
+        }],
+        subdomain_id: None,
+        vpc_id: vpc.id,
+        segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+    };
+
+    let result = env.api.create_network_segment(Request::new(request)).await;
+
+    assert!(
+        result.is_err(),
+        "Expected rejection of uncontained IPv6 prefix"
+    );
+    let status = result.unwrap_err();
+    assert!(
+        status
+            .message()
+            .contains("not contained within the configured site fabric prefixes"),
+        "Error message should mention site fabric prefix containment, got: {}",
+        status.message()
     );
 
     Ok(())

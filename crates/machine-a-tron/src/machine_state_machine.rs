@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
@@ -16,9 +21,8 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use bmc_mock::{
-    BmcCommand, BmcMockError, HostMachineInfo, HostnameQuerying, MachineInfo, MockPowerState,
-    POWER_CYCLE_DELAY, PowerControl, SetSystemPowerError, SetSystemPowerReq, SetSystemPowerResult,
-    SystemPowerControl,
+    BmcCommand, HostMachineInfo, HostnameQuerying, MachineInfo, MockPowerState, POWER_CYCLE_DELAY,
+    PowerControl, SetSystemPowerError, SetSystemPowerResult, SystemPowerControl,
 };
 use carbide_uuid::machine::MachineId;
 use mac_address::MacAddress;
@@ -92,7 +96,7 @@ impl PowerControl for LiveStatePowerControl {
     ) -> Result<(), SetSystemPowerError> {
         self.command_channel
             .send(BmcCommand::SetSystemPower {
-                request: SetSystemPowerReq { reset_type },
+                request: reset_type,
                 reply: None,
             })
             .map_err(|err| SetSystemPowerError::CommandSendError(err.to_string()))
@@ -205,6 +209,7 @@ impl MachineStateMachine {
                     h.bmc_dhcp_id,
                     h.machine_dhcp_id,
                     MachineInfo::Host(HostMachineInfo {
+                        hw_type: h.hw_type.unwrap_or_default(),
                         bmc_mac_address: h.bmc_mac_address,
                         serial: h.serial,
                         dpus: h.dpus.into_iter().map(Into::into).collect(),
@@ -799,11 +804,11 @@ impl MachineStateMachine {
         Ok(())
     }
 
-    pub fn set_system_power(&mut self, request: SetSystemPowerReq) -> SetSystemPowerResult {
+    pub fn set_system_power(&mut self, request: SystemPowerControl) -> SetSystemPowerResult {
         let bmc_only = self.is_nic_mode_dpu();
         use SystemPowerControl::*;
         let (new_machine_state, new_power_state) = match (
-            request.reset_type,
+            request,
             self.live_state.read().unwrap().power_state,
         ) {
             // If we're off and we get an on or power-cycle signal, turn on.
@@ -816,7 +821,7 @@ impl MachineStateMachine {
                     tracing::debug!("Power cycling machine");
                 }
 
-                let new_power_state = match request.reset_type {
+                let new_power_state = match request {
                     PowerCycle => MockPowerState::PowerCycling {
                         since: Instant::now(),
                     },
@@ -1179,8 +1184,10 @@ pub enum MachineStateError {
     DhcpError(#[from] DhcpRelayError),
     #[error("Failed to get PXE response: {0}")]
     PxeError(#[from] PxeError),
-    #[error("Failed to run BMC mock: {0}")]
-    BmcMock(#[from] BmcMockError),
+    #[error("BMC mock TLS error: {0}")]
+    BmcMockTls(#[from] bmc_mock::tls::Error),
+    #[error("Mock SSH server error: {0}")]
+    MockSshServer(String),
     #[error("{0}")]
     WrongOsForMachine(String),
 }

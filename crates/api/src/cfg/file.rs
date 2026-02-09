@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::cmp::Ordering;
@@ -25,7 +30,7 @@ use arc_swap::ArcSwap;
 use bmc_vendor::BMCVendor;
 use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
-use ipnetwork::Ipv4Network;
+use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
 use mlxconfig_profile::MlxConfigProfile;
 use mlxconfig_profile::serialization::{
@@ -107,13 +112,24 @@ pub struct CarbideConfig {
     pub enable_route_servers: bool,
 
     /// List of IPv4 prefixes (in CIDR notation) that tenant instances are not allowed to talk to.
+    ///
+    /// TODO(chet): For now, this remains `Vec<Ipv4Network>`, because the dpu-agent consumers
+    /// that process deny prefixes are IPv4-only (and I'll do it in another PR):
+    /// - `crates/agent/src/acl_rules.rs` parses rules into `Ipv4Network` and generates
+    ///   iptables DROP rules via `make_deny_prefix_rules(&[Ipv4Network], ...)`
+    /// - nvue templates (in `nvue_startup_fnn.conf` and `nvue_startup_etv.conf`) render these
+    ///   prefixes under a "p0000_deny_prefixes_ipv4" ACL policy with `type: ipv4`.
+    ///
+    /// Updating to support `Vec<IpNetwork>` requires the agent to generate parallel IPv6 deny
+    /// rules (I think via ip6tables / `type: ipv6` ACL policy), similar to how NSG rules already
+    /// handle the `ipv6: bool` split.
     #[serde(default)]
     pub deny_prefixes: Vec<Ipv4Network>,
 
-    /// List of IPv4 prefixes (in CIDR notation) that are assigned for tenant
-    /// use within this site.
+    /// List of IP prefixes (in CIDR notation) that are assigned for tenant
+    /// use within this site. Supports both IPv4 and IPv6 prefixes.
     #[serde(default)]
-    pub site_fabric_prefixes: Vec<Ipv4Network>,
+    pub site_fabric_prefixes: Vec<IpNetwork>,
 
     /// List of aggregate IPv4 prefixes (in CIDR notation) that contain prefixes assigned
     /// to tenants so that they themselves can announce to the DPU.  E.g., BYOIP

@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::sync::Arc;
@@ -38,14 +43,17 @@ pub async fn run(
 ) -> eyre::Result<()> {
     let carbide_config = setup::parse_carbide_config(config_str, site_config_str)?;
 
-    // Reject config that contains overlaps between deny_prefixes and site_fabric_prefixes
+    // Reject config that contains overlaps between deny_prefixes and site_fabric_prefixes.
+    // deny_prefixes are IPv4-only; only check against IPv4 site fabric prefixes.
     for deny_prefix in carbide_config.deny_prefixes.iter() {
         for site_fabric_prefix in carbide_config.site_fabric_prefixes.iter() {
-            if deny_prefix.overlaps(site_fabric_prefix.to_owned()) {
+            if let ipnetwork::IpNetwork::V4(site_v4) = site_fabric_prefix
+                && deny_prefix.overlaps(*site_v4)
+            {
                 return Err(eyre::eyre!(
                     "overlap found in deny_prefixes `{}` and site_fabric_prefixes `{}`",
-                    deny_prefix.to_owned(),
-                    site_fabric_prefix.to_owned(),
+                    deny_prefix,
+                    site_fabric_prefix,
                 ));
             }
         }

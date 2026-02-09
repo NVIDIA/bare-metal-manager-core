@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 use std::borrow::Cow;
 use std::error::Error;
@@ -15,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use bmc_mock::{BmcMockHandle, HostnameQuerying, ListenerOrAddress};
+use bmc_mock::{CombinedServer, HostnameQuerying, ListenerOrAddress};
 use clap::Parser;
 use figment::Figment;
 use figment::providers::{Format, Toml};
@@ -146,20 +151,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut mat = MachineATron::new(app_context.clone());
 
     // If we're using a combined BMC mock that routes to each mock machine using headers, launch it now
-    let maybe_bmc_mock_handles: Option<(BmcMockHandle, Option<MockSshServerHandle>)> =
+    let maybe_bmc_mock_handles: Option<(CombinedServer, Option<MockSshServerHandle>)> =
         match &app_context.bmc_registration_mode {
             BmcRegistrationMode::BackingInstance(bmc_mock_registry) => {
                 let certs_dir = PathBuf::from(forge_root_ca_path.clone())
                     .parent()
                     .map(Path::to_path_buf);
 
-                let bmc_https_mock = bmc_mock::run_combined_mock(
+                let server_config = bmc_mock::tls::server_config(certs_dir)?;
+                let bmc_https_mock = bmc_mock::CombinedServer::run(
+                    "bmc-mock",
                     bmc_mock_registry.clone(),
-                    certs_dir,
                     Some(ListenerOrAddress::Address(
                         format!("0.0.0.0:{bmc_mock_port}").parse().unwrap(),
                     )),
-                )?;
+                    server_config,
+                );
 
                 let bmc_ssh_mock = if app_context.app_config.mock_bmc_ssh_server {
                     // Spawn a single mock SSH server too. ssh-console can be configured to talk to
@@ -208,9 +215,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let (ui_tx, ui_rx) = mpsc::channel(5000);
         let (quit_tx, quit_rx) = mpsc::channel(1);
 
-        let host_redfish_routes = Default::default();
         let tui_handle = Some(tokio::spawn(async {
-            let mut tui = Tui::new(ui_rx, quit_rx, app_tx, host_redfish_routes, tui_host_logs);
+            let mut tui = Tui::new(ui_rx, quit_rx, app_tx, tui_host_logs);
             _ = tui.run().await.inspect_err(|e| {
                 let estr = format!("Error running TUI: {e}");
                 tracing::error!(estr);

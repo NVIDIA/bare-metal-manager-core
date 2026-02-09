@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::collections::HashSet;
@@ -20,6 +25,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use ::rpc::forge::ManagedHostNetworkConfigResponse;
+use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::{forge as rpc, forge_tls_client};
 use carbide_host_support::agent_config::AgentConfig;
 use carbide_systemd::systemd;
@@ -65,7 +71,7 @@ use crate::{
 pub async fn setup_and_run(
     machine_id: MachineId,
     factory_mac_address: MacAddress,
-    forge_client_config: forge_tls_client::ForgeClientConfig,
+    forge_client_config: Arc<ForgeClientConfig>,
     agent_config: AgentConfig,
     options: command_line::RunOptions,
 ) -> eyre::Result<()> {
@@ -90,12 +96,12 @@ pub async fn setup_and_run(
     let forge_api_server = agent_config.forge_system.api_server.clone();
     // Setup client certificate renewal
     let client_cert_renewer =
-        ClientCertRenewer::new(forge_api_server.clone(), forge_client_config.clone());
+        ClientCertRenewer::new(forge_api_server.clone(), Arc::clone(&forge_client_config));
 
     let machine_info = MachineInfo::new(machine_id);
     let remediation_executor = RemediationExecutor::new(
         forge_api_server.clone(),
-        forge_client_config.clone(),
+        Arc::clone(&forge_client_config),
         machine_info,
     );
     tokio::task::spawn(async move {
@@ -106,7 +112,7 @@ pub async fn setup_and_run(
         instance_metadata_endpoint::InstanceMetadataRouterStateImpl::new(
             machine_id,
             forge_api_server.clone(),
-            forge_client_config.clone(),
+            Arc::clone(&forge_client_config),
         ),
     );
 
@@ -177,7 +183,7 @@ pub async fn setup_and_run(
             ),
             machine_id,
             forge_api: forge_api_server.clone(),
-            forge_client_config: forge_client_config.clone(),
+            forge_client_config: Arc::clone(&forge_client_config),
         },
     )
     .await;
@@ -241,7 +247,7 @@ pub async fn setup_and_run(
         update_inventory_interval: Duration::from_secs(agent_config.period.inventory_update_secs),
         machine_id,
         forge_api: forge_api_server.clone(),
-        forge_client_config: forge_client_config.clone(),
+        forge_client_config: Arc::clone(&forge_client_config),
     };
 
     // Get all DPU Ip addresses via gRPC call
@@ -268,10 +274,14 @@ pub async fn setup_and_run(
                 Arc::from(pinger_type),
             );
             let forge_api_clone = forge_api_server.clone();
-            let client_config_clone = forge_client_config.clone();
+            let forge_client_config_clone = Arc::clone(&forge_client_config);
             let network_monitor_handle = tokio::spawn(async move {
                 network_monitor
-                    .run(&forge_api_clone, client_config_clone, &mut close_receiver)
+                    .run(
+                        &forge_api_clone,
+                        forge_client_config_clone,
+                        &mut close_receiver,
+                    )
                     .await
             });
             Some(network_monitor_handle)
@@ -322,7 +332,7 @@ pub async fn setup_and_run(
 }
 
 struct MainLoop {
-    forge_client_config: forge_tls_client::ForgeClientConfig,
+    forge_client_config: Arc<ForgeClientConfig>,
     machine_id: MachineId,
     factory_mac_address: MacAddress,
     build_version: String,

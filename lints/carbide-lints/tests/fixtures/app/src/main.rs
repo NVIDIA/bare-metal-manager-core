@@ -295,6 +295,20 @@ async fn good_move_out() -> PgTransaction<'static> {
     make_transaction()
 }
 
+// TDD NOTE: When trait detection works, this should emit the lint.
+async fn bad_takes_db_reader() {
+    let mut txn = make_transaction();
+    bad_takes_db_reader_inner(&mut txn).await;
+    txn.commit().await.unwrap();
+}
+
+async fn bad_takes_db_reader_inner<DB>(_db: &mut DB)
+where
+    for<'db> &'db mut DB: db_read::DbReader<'db>,
+{
+    unrelated_async_work("bad").await;
+}
+
 #[tokio::main]
 async fn main() {
     // Actually call the functions to dead code warnings. But we're not actually running this code,
@@ -319,4 +333,11 @@ async fn main() {
     bad_missing_commit_param(make_transaction());
     let owned_txn = good_move_out().await;
     owned_txn.commit().await.unwrap();
+    bad_takes_db_reader().await;
+}
+
+pub mod db_read {
+    pub trait DbReader<'c>: sqlx::PgExecutor<'c> {}
+
+    impl<'c> DbReader<'c> for &'c mut sqlx::PgConnection {}
 }

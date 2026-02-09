@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -89,14 +94,16 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
         ),
     };
 
-    let forge_client_config = ForgeClientConfig::new(
-        agent.forge_system.root_ca.clone(),
-        Some(ClientCert {
-            cert_path: agent.forge_system.client_cert.clone(),
-            key_path: agent.forge_system.client_key.clone(),
-        }),
-    )
-    .use_mgmt_vrf()?;
+    let forge_client_config = Arc::new(
+        ForgeClientConfig::new(
+            agent.forge_system.root_ca.clone(),
+            Some(ClientCert {
+                cert_path: agent.forge_system.client_cert.clone(),
+                key_path: agent.forge_system.client_key.clone(),
+            }),
+        )
+        .use_mgmt_vrf()?,
+    );
 
     let forge_api = agent.forge_system.api_server;
 
@@ -109,7 +116,7 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
 
     // Initialize network monitor
     let forge_api_clone = forge_api.clone();
-    let client_config_clone = forge_client_config.clone();
+    let forge_client_config_clone = Arc::clone(&forge_client_config);
     let (close_sender, mut close_receiver) = watch::channel(false);
 
     info!("Initializing network monitor");
@@ -122,7 +129,11 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
     info!("Starting network monitor");
     tokio::spawn(async move {
         network_monitor
-            .run(&forge_api_clone, client_config_clone, &mut close_receiver)
+            .run(
+                &forge_api_clone,
+                forge_client_config_clone,
+                &mut close_receiver,
+            )
             .await
     });
 

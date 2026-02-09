@@ -15,13 +15,13 @@ instance lifecycle.**
 
 The following steps can be used to reboot a machine:
 
-### 1. Obtain access to `forge-admin-cli`
+### 1. Obtain access to `carbide-admin-cli`
 
-See [forge-admin-cli access on a Forge cluster](forge_admin_cli.md).
+See [carbide-admin-cli access on a Forge cluster](forge_admin_cli.md).
 
-### 2. Execute the `forge-admin-cli machine reboot` command
+### 2. Execute the `carbide-admin-cli machine reboot` command
 
-`forge-admin-cli machine reboot` can be used to restart a machine.
+`carbide-admin-cli machine reboot` can be used to restart a machine.
 It always will require the machine's BMC IP and port to be specified.
 
 BMC credentials can either be explicitely passed, or the `--machine-id` parameter
@@ -35,11 +35,11 @@ the Forge site controller.
 **Example:**
 
 ```
-/opt/carbide/forge-admin-cli -c https://127.0.0.1:1079 machine reboot --address 123.123.123.123 --port 9999 --machine-id="60cef902-9779-4666-8362-c9bb4b37184f"
+/opt/carbide/carbide-admin-cli -c https://127.0.0.1:1079 machine reboot --address 123.123.123.123 --port 9999 --machine-id="60cef902-9779-4666-8362-c9bb4b37184f"
 ```
 
 or using username and password:
 
 ```
-/opt/carbide/forge-admin-cli -c https://127.0.0.1:1079 machine reboot --address 123.123.123.123 --port 9999 --username myhost --password mypassword
+/opt/carbide/carbide-admin-cli -c https://127.0.0.1:1079 machine reboot --address 123.123.123.123 --port 9999 --username myhost --password mypassword
 ```

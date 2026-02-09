@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 //!
 //! Machine - represents a database-backed Machine object
@@ -37,7 +42,7 @@ use model::machine::network::{
 use model::machine::nvlink::MachineNvLinkStatusObservation;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::machine::{
-    FailureDetails, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
+    Dpf, FailureDetails, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
     MachineLastRebootRequestedMode, ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use model::machine_interface_address::MachineInterfaceAssociation;
@@ -52,6 +57,7 @@ use uuid::Uuid;
 
 use super::{DatabaseError, ObjectFilter, Transaction, queries};
 use crate::DatabaseResult;
+use crate::db_read::DbReader;
 
 #[derive(Serialize)]
 struct ReprovisionRequestRestart {
@@ -1270,7 +1276,7 @@ pub async fn create(
     };
 
     let query = r#"INSERT INTO machines(
-                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels, hw_sku, dpf_enabled)
+                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels, hw_sku, dpf)
                             VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::json, $12, $13) RETURNING id"#;
     let machine_id: MachineId = sqlx::query_as(query)
         .bind(&stable_machine_id_string)
@@ -1285,7 +1291,10 @@ pub async fn create(
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
         .bind(sku_id)
-        .bind(dpf_enabled)
+        .bind(sqlx::types::Json(Dpf {
+            enabled: dpf_enabled,
+            used_for_ingestion: false,
+        }))
         .fetch_one(&mut *txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -1635,7 +1644,7 @@ pub async fn set_dpu_agent_upgrade_requested(
 }
 
 pub async fn find_machine_ids(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     search_config: MachineSearchConfig,
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let mut qb = sqlx::QueryBuilder::new("SELECT id FROM machines");
@@ -1818,7 +1827,7 @@ pub async fn allocate_loopback_ip(
     common_pools: &CommonPools,
     txn: &mut PgConnection,
     owner_id: &str,
-) -> Result<Ipv4Addr, DatabaseError> {
+) -> Result<IpAddr, DatabaseError> {
     match crate::resource_pool::allocate(
         &common_pools.ethernet.pool_loopback_ip,
         txn,
@@ -1848,7 +1857,7 @@ pub async fn allocate_vpc_dpu_loopback(
     common_pools: &CommonPools,
     txn: &mut PgConnection,
     owner_id: &str,
-) -> Result<Ipv4Addr, DatabaseError> {
+) -> Result<IpAddr, DatabaseError> {
     match crate::resource_pool::allocate(
         &common_pools.ethernet.pool_vpc_dpu_loopback_ip,
         txn,
@@ -1882,7 +1891,7 @@ pub async fn allocate_secondary_vtep_ip(
     common_pools: &CommonPools,
     txn: &mut PgConnection,
     owner_id: &str,
-) -> Result<Ipv4Addr, DatabaseError> {
+) -> Result<IpAddr, DatabaseError> {
     match crate::resource_pool::allocate(
         &common_pools.ethernet.pool_secondary_vtep_ip,
         txn,
@@ -2193,11 +2202,25 @@ pub async fn clear_quarantine_state(
 pub async fn modify_dpf_state(
     txn: &mut PgConnection,
     machine_id: &MachineId,
-    state: bool,
+    status: bool,
 ) -> Result<(), DatabaseError> {
-    let query = "UPDATE machines set dpf_enabled=$1 WHERE id=$2";
+    let query = "UPDATE machines set dpf = jsonb_set(dpf, '{enabled}', to_jsonb($1)) WHERE id=$2";
     sqlx::query(query)
-        .bind(state)
+        .bind(status)
+        .bind(machine_id)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(())
+}
+
+pub async fn mark_machine_ingestion_done_with_dpf(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machines set dpf = jsonb_set(dpf, '{used_for_ingestion}', to_jsonb(true)) WHERE id=$1";
+    sqlx::query(query)
         .bind(machine_id)
         .execute(txn)
         .await

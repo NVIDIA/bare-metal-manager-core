@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -16,7 +21,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use bmc_mock::{
-    BmcMockError, BmcMockHandle, HostnameQuerying, ListenerOrAddress, MachineInfo, MockPowerState,
+    CombinedServer, HostnameQuerying, ListenerOrAddress, MachineInfo, MockPowerState,
     POWER_CYCLE_DELAY, PowerControl,
 };
 use tokio::sync::RwLock;
@@ -122,7 +127,7 @@ impl BmcMockWrapper {
                 )
                 .await
                 .map_err(|error| {
-                    BmcMockError::MockSshServer(format!(
+                    MachineStateError::MockSshServer(format!(
                         "error running mock SSH server on {}:{}: {error:?}",
                         address.ip(),
                         port.map(|p| p.to_string()).unwrap_or("<none>".to_string()),
@@ -135,16 +140,18 @@ impl BmcMockWrapper {
 
         tracing::info!("Starting bmc mock on {:?}", address);
 
+        let tls_server_config = bmc_mock::tls::server_config(Some(certs_dir))?;
         let bmc_mock_router = self.bmc_mock_router.clone();
         Ok(BmcMockWrapperHandle {
-            _bmc_mock: bmc_mock::run_combined_mock(
+            _bmc_mock: CombinedServer::run(
+                "bmc-mock",
                 Arc::new(RwLock::new(HashMap::from([(
                     "".to_string(),
                     bmc_mock_router,
                 )]))),
-                Some(certs_dir),
                 Some(ListenerOrAddress::Address(address)),
-            )?,
+                tls_server_config,
+            ),
             ssh_handle,
         })
     }
@@ -156,7 +163,7 @@ impl BmcMockWrapper {
 
 #[derive(Debug)]
 pub struct BmcMockWrapperHandle {
-    pub _bmc_mock: BmcMockHandle,
+    pub _bmc_mock: CombinedServer,
     pub ssh_handle: Option<MockSshServerHandle>,
 }
 

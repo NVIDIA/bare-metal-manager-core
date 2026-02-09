@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
@@ -15,8 +20,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use bmc_mock::{
-    BmcCommand, HostMachineInfo, MachineInfo, SetSystemPowerReq, SetSystemPowerResult,
-    SystemPowerControl,
+    BmcCommand, HostMachineInfo, MachineInfo, SetSystemPowerResult, SystemPowerControl,
 };
 use carbide_uuid::machine::MachineId;
 use eyre::Context;
@@ -89,6 +93,7 @@ impl HostMachine {
             })
             .collect::<Vec<_>>();
         let host_info = HostMachineInfo {
+            hw_type: persisted_host_machine.hw_type.unwrap_or_default(),
             bmc_mac_address: persisted_host_machine.bmc_mac_address,
             serial: persisted_host_machine.serial.clone(),
             dpus: persisted_host_machine
@@ -153,6 +158,7 @@ impl HostMachine {
         let dpu_machines = (1..=config.dpu_per_host_count as u8)
             .map(|index| {
                 DpuMachine::new(
+                    config.hw_type,
                     mat_id,
                     index,
                     app_context.clone(),
@@ -165,8 +171,10 @@ impl HostMachine {
                 )
             })
             .collect::<Vec<_>>();
-        let host_info =
-            HostMachineInfo::new(dpu_machines.iter().map(|d| d.dpu_info().clone()).collect());
+        let host_info = HostMachineInfo::new(
+            config.hw_type,
+            dpu_machines.iter().map(|d| d.dpu_info().clone()).collect(),
+        );
         let dpus = dpu_machines
             .into_iter()
             .map(|d| d.start(true))
@@ -357,16 +365,16 @@ impl HostMachine {
         }
     }
 
-    fn set_system_power(&mut self, request: SetSystemPowerReq) -> SetSystemPowerResult {
+    fn set_system_power(&mut self, request: SystemPowerControl) -> SetSystemPowerResult {
         tracing::debug!("Host set_system_power request: {request:?}");
 
-        match request.reset_type {
+        match request {
             // Force-restart does not restart DPUs
             SystemPowerControl::ForceRestart => {}
             // Other power actions happen on the DPUs too (power cycle, force-off, etc.)
             _ => {
                 // Graceful restart might not restart DPUs if an OS is running (let's emulate that)
-                if matches!(request.reset_type, SystemPowerControl::GracefulRestart)
+                if matches!(request, SystemPowerControl::GracefulRestart)
                     && self.live_state.read().unwrap().booted_os.0.is_some()
                 {
                     tracing::debug!(
@@ -563,6 +571,7 @@ impl HostMachineHandle {
     pub fn persisted(&self) -> PersistedHostMachine {
         let live_state = self.0.live_state.read().unwrap();
         PersistedHostMachine {
+            hw_type: Some(self.0.host_info.hw_type),
             mat_id: self.0.mat_id,
             machine_config_section: self.0.machine_config_section.clone(),
             bmc_mac_address: self.0.host_info.bmc_mac_address,

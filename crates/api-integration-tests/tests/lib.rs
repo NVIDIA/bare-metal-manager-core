@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -21,7 +26,7 @@ use ::utils::HostPortPair;
 use api_test_helper::{
     IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, utils, vpc,
 };
-use bmc_mock::ListenerOrAddress;
+use bmc_mock::{HostHardwareType, ListenerOrAddress};
 use eyre::ContextCompat;
 use futures::FutureExt;
 use futures::future::join_all;
@@ -50,14 +55,16 @@ async fn test_integration() -> eyre::Result<()> {
 
     let bmc_address_registry = BmcMockRegistry::default();
     let certs_dir = PathBuf::from(format!("{}/crates/bmc-mock", test_env.root_dir.display()));
-    let mut bmc_mock_handle = bmc_mock::run_combined_mock(
+    let server_config = bmc_mock::tls::server_config(Some(certs_dir)).unwrap();
+    let mut bmc_mock_handle = bmc_mock::CombinedServer::run(
+        "bmc-mock",
         bmc_address_registry.clone(),
-        Some(certs_dir),
         Some(ListenerOrAddress::Listener(
             // let OS choose available port
             TcpListener::bind("127.0.0.1:0")?,
         )),
-    )?;
+        server_config,
+    );
 
     // For preingestion firmware checks to work, carbide needs a directory which exists to be
     // configured as the firmware_directory. It can be empty, because our mocks should be showing
@@ -101,6 +108,16 @@ async fn test_integration() -> eyre::Result<()> {
     // Run several tests in parallel.
     let all_tests = join_all([
         test_machine_a_tron_multidpu(
+            HostHardwareType::DellPowerEdgeR750,
+            &test_env,
+            &bmc_address_registry,
+            &managed_segment_id,
+            // Relay IP in admin net
+            Ipv4Addr::new(172, 20, 0, 2),
+        )
+        .boxed(),
+        test_machine_a_tron_multidpu(
+            HostHardwareType::WiwynnGB200Nvl,
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
@@ -109,6 +126,7 @@ async fn test_integration() -> eyre::Result<()> {
         )
         .boxed(),
         test_machine_a_tron_zerodpu(
+            HostHardwareType::DellPowerEdgeR750,
             &test_env,
             &bmc_address_registry,
             // Relay IP in host-inband net
@@ -116,6 +134,7 @@ async fn test_integration() -> eyre::Result<()> {
         )
         .boxed(),
         test_machine_a_tron_singledpu_nic_mode(
+            HostHardwareType::DellPowerEdgeR750,
             &test_env,
             &bmc_address_registry,
             // Relay IP in host-inband  net
@@ -220,14 +239,16 @@ async fn test_metrics_integration() -> eyre::Result<()> {
 
     let bmc_address_registry = BmcMockRegistry::default();
     let certs_dir = PathBuf::from(format!("{}/crates/bmc-mock", test_env.root_dir.display()));
-    let mut bmc_mock_handle = bmc_mock::run_combined_mock(
+    let server_config = bmc_mock::tls::server_config(Some(certs_dir)).unwrap();
+    let mut bmc_mock_handle = bmc_mock::CombinedServer::run(
+        "bmc-mock",
         bmc_address_registry.clone(),
-        Some(certs_dir),
         Some(ListenerOrAddress::Listener(
             // let OS choose available port
             TcpListener::bind("127.0.0.1:0")?,
         )),
-    )?;
+        server_config,
+    );
 
     // For preingestion firmware checks to work, carbide needs a directory which exists to be
     // configured as the firmware_directory. It can be empty, because our mocks should be showing
@@ -254,6 +275,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
     assert_eq!(0i64, get_dns_record_count(&db_pool).await);
 
     run_machine_a_tron_test(
+        HostHardwareType::DellPowerEdgeR750,
         1,
         1,
         false,
@@ -390,12 +412,14 @@ async fn test_metrics_integration() -> eyre::Result<()> {
 }
 
 async fn test_machine_a_tron_multidpu(
+    hw_type: HostHardwareType,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     segment_id: &str,
     admin_dhcp_relay_address: Ipv4Addr,
 ) -> eyre::Result<()> {
     run_machine_a_tron_test(
+        hw_type,
         1,
         2,
         false,
@@ -471,11 +495,13 @@ async fn test_machine_a_tron_multidpu(
 }
 
 async fn test_machine_a_tron_zerodpu(
+    hw_type: HostHardwareType,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     admin_dhcp_relay_address: Ipv4Addr,
 ) -> eyre::Result<()> {
     run_machine_a_tron_test(
+        hw_type,
         1,
         0,
         false,
@@ -502,11 +528,13 @@ async fn test_machine_a_tron_zerodpu(
 }
 
 async fn test_machine_a_tron_singledpu_nic_mode(
+    hw_type: HostHardwareType,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     admin_dhcp_relay_address: Ipv4Addr,
 ) -> eyre::Result<()> {
     run_machine_a_tron_test(
+        hw_type,
         1,
         1,
         true,
@@ -532,7 +560,9 @@ async fn test_machine_a_tron_singledpu_nic_mode(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_machine_a_tron_test<F, O>(
+    hw_type: HostHardwareType,
     host_count: u32,
     dpu_per_host_count: u32,
     dpus_in_nic_mode: bool,
@@ -558,6 +588,7 @@ where
         machines: BTreeMap::from([(
             "config".to_string(),
             Arc::new(MachineConfig {
+                hw_type,
                 host_count,
                 dpu_per_host_count,
                 boot_delay: 1,

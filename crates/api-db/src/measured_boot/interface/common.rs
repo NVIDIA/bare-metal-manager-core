@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 /*!
@@ -26,6 +31,7 @@ use measured_boot::pcr::PcrRegisterValue;
 use sqlx::postgres::PgRow;
 use sqlx::{Encode, PgConnection, PgTransaction, Postgres};
 
+use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
 // DISCOVERY_PROFILE_ATTRS are the attributes we pull
@@ -79,7 +85,7 @@ pub fn generate_name() -> DatabaseResult<String> {
 /// the DbPrimaryUuid and DbTable traits (which are traits defined in this
 /// crate) to build the query.
 pub async fn get_object_for_id<T, R>(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     id: T,
 ) -> Result<Option<R>, DatabaseError>
 where
@@ -99,7 +105,7 @@ where
 /// the DbPrimaryUuid and DbTable traits (which are traits defined in this
 /// crate) to build the query.
 pub async fn get_object_for_unique_column<T, R>(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     col_name: &str,
     value: T,
 ) -> Result<Option<R>, DatabaseError>

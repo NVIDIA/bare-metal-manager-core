@@ -910,7 +910,7 @@ jobs:
   # ============================================================================
 
   notify-build-status:
-    if: ${{ always() && github.event_name != 'schedule' }}
+    if: ${{ always() && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')) && github.event_name != 'schedule' }}
     needs:
       - prepare
       - build-container-x86_64

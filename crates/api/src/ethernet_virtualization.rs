@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 use ::rpc::forge as rpc;
 use carbide_uuid::instance::InstanceId;
@@ -54,15 +59,6 @@ impl SiteFabricPrefixList {
         } else {
             Some(Self { prefixes })
         }
-    }
-
-    pub fn from_ipv4_slice(ipv4_prefixes: &[Ipv4Network]) -> Option<Self> {
-        let prefixes: Vec<_> = ipv4_prefixes
-            .iter()
-            .copied()
-            .map(ipnetwork::IpNetwork::V4)
-            .collect();
-        Self::from_ipnetwork_vec(prefixes)
     }
 
     pub fn as_ip_slice(&self) -> &[IpNetwork] {
@@ -534,5 +530,56 @@ mod test {
         assert!(!site_prefix_list.contains(uncontained_different));
 
         assert!(SiteFabricPrefixList::from_ipnetwork_vec(vec![]).is_none());
+    }
+
+    #[test]
+    fn test_site_prefix_list_ipv6_containment() {
+        let prefixes: Vec<IpNetwork> = vec![IpNetwork::V6("2001:db8:abcd::/48".parse().unwrap())];
+        let site_prefix_list = SiteFabricPrefixList::from_ipnetwork_vec(prefixes).unwrap();
+
+        // Make sure a /64 subnet is contained within the /48.
+        assert!(site_prefix_list.contains("2001:db8:abcd:1::/64".parse().unwrap()));
+        // Make sure an exact match is contained.
+        assert!(site_prefix_list.contains("2001:db8:abcd::/48".parse().unwrap()));
+        // Make sure a larger prefix is NOT contained.
+        assert!(!site_prefix_list.contains("2001:db8::/32".parse().unwrap()));
+        // Make sure a completely different prefix is also not contained.
+        assert!(!site_prefix_list.contains("2001:db8:ffff::/48".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_site_prefix_list_cross_family_never_matches() {
+        // IPv4-only site fabric prefixes should never match IPv6
+        // segments and vice versa.
+        let ipv4_only = SiteFabricPrefixList::from_ipnetwork_vec(vec![IpNetwork::V4(
+            "10.0.0.0/8".parse().unwrap(),
+        )])
+        .unwrap();
+        assert!(!ipv4_only.contains("2001:db8::/32".parse().unwrap()));
+
+        let ipv6_only = SiteFabricPrefixList::from_ipnetwork_vec(vec![IpNetwork::V6(
+            "2001:db8::/32".parse().unwrap(),
+        )])
+        .unwrap();
+        assert!(!ipv6_only.contains("10.0.0.0/24".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_site_prefix_list_dual_stack() {
+        // A dual-stack site with both IPv4 and IPv6 fabric prefixes.
+        let prefixes: Vec<IpNetwork> = vec![
+            IpNetwork::V4("10.100.0.0/16".parse().unwrap()),
+            IpNetwork::V6("fd00:100::/32".parse().unwrap()),
+        ];
+        let site_prefix_list = SiteFabricPrefixList::from_ipnetwork_vec(prefixes).unwrap();
+
+        // This IPv4 subnet should be contained in the SiteFabricPrefixList.
+        assert!(site_prefix_list.contains("10.100.1.0/24".parse().unwrap()));
+        // ...and so should this IPv6 prefix.
+        assert!(site_prefix_list.contains("fd00:100:1::/48".parse().unwrap()));
+        // ...but not this IPv4 prefix.
+        assert!(!site_prefix_list.contains("10.200.0.0/24".parse().unwrap()));
+        // ...or this IPv6 prefix.
+        assert!(!site_prefix_list.contains("fd00:200::/48".parse().unwrap()));
     }
 }

@@ -1,18 +1,23 @@
-use std::cmp::Ordering;
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::ops::Deref;
 
 use ::rpc::errors::RpcDataConversionError;
@@ -727,12 +732,31 @@ pub struct Machine {
     pub nvlink_info: Option<MachineNvLinkInfo>,
 
     /// Whether the DPF is enabled for this machine
-    pub dpf_enabled: bool,
+    pub dpf: Dpf,
 
     /// Timestamp when manual firmware upgrade was marked as completed
     /// TEMPORARY: Used for workflow where manual upgrades are required before automatic ones
     /// TODO: Remove after upgrade-through-scout is complete
     pub manual_firmware_upgrade_completed: Option<DateTime<Utc>>,
+}
+
+// Dpf status field.
+#[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Dpf {
+    // This field is copied from expected_machines.
+    pub enabled: bool,
+    // If dpf is used for ingestion.
+    pub used_for_ingestion: bool,
+}
+
+impl From<Machine> for ::rpc::forge::dpf_state_response::DpfState {
+    fn from(value: Machine) -> Self {
+        Self {
+            machine_id: value.id.into(),
+            enabled: value.dpf.enabled,
+            used_for_ingestion: value.dpf.used_for_ingestion,
+        }
+    }
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -782,7 +806,7 @@ impl Machine {
         self.state.version
     }
 
-    pub fn loopback_ip(&self) -> Option<Ipv4Addr> {
+    pub fn loopback_ip(&self) -> Option<IpAddr> {
         self.network_config.loopback_ip
     }
 
@@ -1303,7 +1327,7 @@ impl NextStateBFBSupport<DpuDiscoveringState> for DpuDiscoveringState {
         // DPF should be given priority over secure boot.
         // DPF does not support Secure boot.
         let is_dpf_based_provisioning_possible =
-            dpf_based_dpu_provisioning_possible(state, dpf_enabled_at_site);
+            dpf_based_dpu_provisioning_possible(state, dpf_enabled_at_site, false);
 
         if !is_dpf_based_provisioning_possible
             && enable_secure_boot
@@ -1331,7 +1355,7 @@ impl NextStateBFBSupport<ReprovisionState> for ReprovisionState {
     ) -> ReprovisionState {
         let bfb_support = bfb_install_support(&state.dpu_snapshots);
         let is_dpf_based_provisioning_possible =
-            dpf_based_dpu_provisioning_possible(state, dpf_enabled_at_site);
+            dpf_based_dpu_provisioning_possible(state, dpf_enabled_at_site, true);
         if is_dpf_based_provisioning_possible {
             ReprovisionState::DpfStates {
                 substate: DpfState::TriggerReprovisioning {
@@ -1395,8 +1419,18 @@ pub enum NetworkConfigUpdateState {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum HostReprovisionState {
+    // deprecated, kept for backwards compatibility with existing database entries: FORGE-7975
     CheckingFirmware,
+    // deprecated, kept for backwards compatibility with existing database entries: FORGE-7975
     CheckingFirmwareRepeat,
+    CheckingFirmwareV2 {
+        firmware_type: Option<FirmwareComponentType>,
+        firmware_number: Option<u32>,
+    },
+    CheckingFirmwareRepeatV2 {
+        firmware_type: Option<FirmwareComponentType>,
+        firmware_number: Option<u32>,
+    },
     InitialReset {
         phase: InitialResetPhase,
         last_time: DateTime<Utc>,
@@ -1422,6 +1456,7 @@ pub enum HostReprovisionState {
     ResetForNewFirmware {
         final_version: String,
         firmware_type: FirmwareComponentType,
+        firmware_number: Option<u32>,
         power_drains_needed: Option<u32>,
         delay_until: Option<i64>,
         last_power_drain_operation: Option<PowerDrainState>,
@@ -1429,6 +1464,7 @@ pub enum HostReprovisionState {
     NewFirmwareReportedWait {
         final_version: String,
         firmware_type: FirmwareComponentType,
+        firmware_number: Option<u32>,
         previous_reset_time: Option<i64>,
     },
     FailedFirmwareUpgrade {
@@ -2748,6 +2784,7 @@ pub enum HardwareHealthReportsConfig {
 pub fn dpf_based_dpu_provisioning_possible(
     state: &ManagedHostStateSnapshot,
     dpf_enabled_at_site: bool,
+    reprovisioing_case: bool,
 ) -> bool {
     // DPF is disabled at site.
     if !dpf_enabled_at_site {
@@ -2755,9 +2792,19 @@ pub fn dpf_based_dpu_provisioning_possible(
     }
 
     // DPF should be enabled for host.
-    if !state.host_snapshot.dpf_enabled {
+    if !state.host_snapshot.dpf.enabled {
         tracing::info!(
             "DPF based DPU provisioning is not possible because DPF is not enabled for the host {}.",
+            state.host_snapshot.id
+        );
+        return false;
+    }
+
+    // if it is reprovisioing case, initial ingestion should be done with dpf to continue
+    // reprovision.
+    if reprovisioing_case && !state.host_snapshot.dpf.used_for_ingestion {
+        tracing::info!(
+            "DPF based DPU reprovisioning is not possible because initial ingestion is not done with DPF - host {}.",
             state.host_snapshot.id
         );
         return false;

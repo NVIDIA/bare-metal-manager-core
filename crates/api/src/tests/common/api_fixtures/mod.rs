@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 //! Contains fixtures that use the Carbide API for setting up
@@ -250,6 +255,7 @@ pub struct TestEnvOverrides {
     pub network_segments_drain_period: Option<chrono::Duration>,
     pub power_manager_enabled: Option<bool>,
     pub dpf_config: Option<DpfConfig>,
+    pub nmxm_default_partition: Option<bool>,
 }
 
 impl TestEnvOverrides {
@@ -1221,7 +1227,12 @@ pub async fn create_test_env_with_overrides(
     populate_default_credentials(credential_provider.as_ref()).await;
     let certificate_provider = Arc::new(TestCertificateProvider::new());
     let redfish_sim = Arc::new(RedfishSim::default());
-    let nmxm_sim: Arc<dyn NmxmClientPool> = Arc::new(NmxmSimClient::default());
+    let nmxm_sim: Arc<dyn NmxmClientPool> =
+        Arc::new(if overrides.nmxm_default_partition == Some(true) {
+            NmxmSimClient::with_default_partition()
+        } else {
+            NmxmSimClient::default()
+        });
 
     let mut config = overrides.config.unwrap_or(get_config());
     if let Some(threshold) = overrides.dpu_agent_version_staleness_threshold {

@@ -1,41 +1,38 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
-use std::collections::HashMap;
-use std::convert::Infallible;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use axum::routing::get;
 use axum::{Json, Router};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 
 use crate::bmc_state::BmcState;
 use crate::bug::InjectedBugs;
 use crate::json::JsonExt;
 use crate::redfish::manager::ManagerState;
-use crate::{MachineInfo, PowerControl, SetSystemPowerReq, middleware_router};
-
-#[derive(Clone)]
-pub(crate) struct MockWrapperState {
-    pub machine_info: MachineInfo,
-    pub bmc_state: BmcState,
-}
+use crate::{MachineInfo, PowerControl, SystemPowerControl, middleware_router, redfish};
 
 #[derive(Debug)]
 pub enum BmcCommand {
     SetSystemPower {
-        request: SetSystemPowerReq,
+        request: SystemPowerControl,
         reply: Option<oneshot::Sender<SetSystemPowerResult>>,
     },
 }
@@ -56,7 +53,7 @@ trait AddRoutes {
         Self: Sized;
 }
 
-impl AddRoutes for Router<MockWrapperState> {
+impl AddRoutes for Router<BmcState> {
     fn add_routes(self, f: impl FnOnce(Self) -> Self) -> Self {
         f(self)
     }
@@ -73,6 +70,7 @@ pub fn machine_router(
     let chassis_config = machine_info.chassis_config();
     let update_service_config = machine_info.update_service_config();
     let bmc_vendor = machine_info.bmc_vendor();
+    let oem_state = machine_info.oem_state();
     let router = Router::new()
         // Couple routes for bug injection.
         .route(
@@ -103,66 +101,31 @@ pub fn machine_router(
         crate::redfish::update_service::UpdateServiceState::from_config(update_service_config),
     );
     let injected_bugs = Arc::new(InjectedBugs::default());
-    let router = router.with_state(MockWrapperState {
-        machine_info,
-        bmc_state: BmcState {
-            bmc_vendor,
-            jobs: Arc::new(Mutex::new(HashMap::new())),
-            manager,
-            system_state,
-            chassis_state,
-            update_service_state,
-            dell_attrs: Arc::new(Mutex::new(serde_json::json!({}))),
-            injected_bugs: injected_bugs.clone(),
-        },
+    let router = router.with_state(BmcState {
+        bmc_vendor,
+        oem_state,
+        manager,
+        system_state,
+        chassis_state,
+        update_service_state,
+        injected_bugs: injected_bugs.clone(),
     });
-    middleware_router::append(mat_host_id, router, injected_bugs)
+    let router_with_expansion = redfish::expander_router::append(router);
+    middleware_router::append(mat_host_id, router_with_expansion, injected_bugs)
 }
 
-#[derive(thiserror::Error, Debug)]
-pub(crate) enum MockWrapperError {
-    #[error("Serde error: {0}")]
-    Serde(#[from] serde_json::Error),
-    #[error("Axum error on inner request: {0}")]
-    Axum(#[from] axum::Error),
-    #[error("Infallible error: {0}")]
-    Infallible(#[from] Infallible),
-    #[error("{0}")]
-    SetSystemPower(#[from] SetSystemPowerError),
-    #[error("Error sending to BMC command channel: {0}")]
-    BmcCommandSendError(#[from] mpsc::error::SendError<BmcCommand>),
-    #[error("Error receiving from BMC command channel: {0}")]
-    BmcCommandReceiveError(#[from] oneshot::error::RecvError),
-}
-
-impl IntoResponse for MockWrapperError {
-    fn into_response(self) -> axum::response::Response {
-        match self {
-            MockWrapperError::SetSystemPower(e) => {
-                let status = match e {
-                    SetSystemPowerError::BadRequest(_) => StatusCode::BAD_REQUEST,
-                    SetSystemPowerError::CommandSendError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-                };
-                (status, e.to_string()).into_response()
-            }
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()).into_response(),
-        }
-    }
-}
-
-async fn get_injected_bugs(State(state): State<MockWrapperState>) -> Response {
-    state.bmc_state.injected_bugs.get().into_ok_response()
+async fn get_injected_bugs(State(state): State<BmcState>) -> Response {
+    state.injected_bugs.get().into_ok_response()
 }
 
 async fn post_injected_bugs(
-    State(state): State<MockWrapperState>,
+    State(state): State<BmcState>,
     Json(bug_args): Json<serde_json::Value>,
 ) -> Response {
     state
-        .bmc_state
         .injected_bugs
         .update(bug_args)
-        .map(|_| state.bmc_state.injected_bugs.get().into_ok_response())
+        .map(|_| state.injected_bugs.get().into_ok_response())
         .unwrap_or_else(|err| {
             serde_json::json!({"error": format!("{err:?}")}).into_response(StatusCode::BAD_REQUEST)
         })

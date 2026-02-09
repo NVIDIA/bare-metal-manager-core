@@ -1,10 +1,10 @@
-ExternalConfigs: 
+ExternalConfigs:
   - "shoreline"
-Tests: 
+Tests:
   Cpu:
     BenchMark:
       CpuEcho1:
-        ContainerImageName: "nvcr.io/nvidian/nvforge/machine-validation-runner:latest"
+        ContainerImageName: "your.registry/docker/machine-validation-runner:latest"
         ExecuteInHost: true
         Command: "echo "
         Desc: "Test desc"

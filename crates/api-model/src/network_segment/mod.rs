@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 use std::fmt;
 use std::str::FromStr;
@@ -146,6 +151,133 @@ mod tests {
             serde_json::from_str::<NetworkSegmentControllerState>(&serialized).unwrap(),
             state
         );
+    }
+
+    fn make_test_creation_request(
+        prefixes: Vec<rpc::forge::NetworkPrefix>,
+        segment_type: NetworkSegmentType,
+    ) -> rpc::forge::NetworkSegmentCreationRequest {
+        rpc::forge::NetworkSegmentCreationRequest {
+            id: None,
+            mtu: Some(1500),
+            name: "TEST_SEGMENT".to_string(),
+            prefixes,
+            subdomain_id: None,
+            vpc_id: None,
+            segment_type: match segment_type {
+                NetworkSegmentType::Admin => rpc::forge::NetworkSegmentType::Admin as i32,
+                NetworkSegmentType::Tenant => rpc::forge::NetworkSegmentType::Tenant as i32,
+                NetworkSegmentType::Underlay => rpc::forge::NetworkSegmentType::Underlay as i32,
+                NetworkSegmentType::HostInband => rpc::forge::NetworkSegmentType::HostInband as i32,
+            },
+        }
+    }
+
+    fn ipv4_prefix(prefix: &str, gateway: Option<&str>) -> rpc::forge::NetworkPrefix {
+        rpc::forge::NetworkPrefix {
+            id: None,
+            prefix: prefix.to_string(),
+            gateway: gateway.map(|g| g.to_string()),
+            reserve_first: 1,
+            free_ip_count: 0,
+            svi_ip: None,
+        }
+    }
+
+    fn ipv6_prefix(prefix: &str) -> rpc::forge::NetworkPrefix {
+        rpc::forge::NetworkPrefix {
+            id: None,
+            prefix: prefix.to_string(),
+            gateway: None,
+            reserve_first: 0,
+            free_ip_count: 0,
+            svi_ip: None,
+        }
+    }
+
+    #[test]
+    fn test_ipv6_prefix_accepted() {
+        let request = make_test_creation_request(
+            vec![ipv6_prefix("2001:db8::/64")],
+            NetworkSegmentType::Admin,
+        );
+        let result = NewNetworkSegment::try_from(request);
+        assert!(result.is_ok(), "IPv6 prefix should be accepted: {result:?}");
+        let segment = result.unwrap();
+        assert_eq!(segment.prefixes.len(), 1);
+        assert!(segment.prefixes[0].prefix.is_ipv6());
+    }
+
+    #[test]
+    fn test_dual_stack_prefixes_accepted() {
+        let request = make_test_creation_request(
+            vec![
+                ipv4_prefix("192.0.2.0/24", Some("192.0.2.1")),
+                ipv6_prefix("2001:db8::/64"),
+            ],
+            NetworkSegmentType::Admin,
+        );
+        let result = NewNetworkSegment::try_from(request);
+        assert!(result.is_ok(), "Dual-stack should be accepted: {result:?}");
+        let segment = result.unwrap();
+        assert_eq!(segment.prefixes.len(), 2);
+    }
+
+    #[test]
+    fn test_ipv6_tenant_prefix_size_validation() {
+        // /64 should be allowed for tenant segments
+        let request = make_test_creation_request(
+            vec![ipv6_prefix("2001:db8::/64")],
+            NetworkSegmentType::Tenant,
+        );
+        assert!(
+            NewNetworkSegment::try_from(request).is_ok(),
+            "/64 IPv6 prefix should be allowed for tenant segments"
+        );
+
+        // /127 should be rejected for tenant segments
+        let request = make_test_creation_request(
+            vec![ipv6_prefix("2001:db8::1/127")],
+            NetworkSegmentType::Tenant,
+        );
+        assert!(
+            NewNetworkSegment::try_from(request).is_err(),
+            "/127 IPv6 prefix should be rejected for tenant segments"
+        );
+
+        // /128 should be rejected for tenant segments
+        let request = make_test_creation_request(
+            vec![ipv6_prefix("2001:db8::1/128")],
+            NetworkSegmentType::Tenant,
+        );
+        assert!(
+            NewNetworkSegment::try_from(request).is_err(),
+            "/128 IPv6 prefix should be rejected for tenant segments"
+        );
+    }
+
+    #[test]
+    fn test_ipv4_tenant_prefix_size_validation_unchanged() {
+        // /24 should be allowed
+        let request = make_test_creation_request(
+            vec![ipv4_prefix("192.0.2.0/24", Some("192.0.2.1"))],
+            NetworkSegmentType::Tenant,
+        );
+        assert!(NewNetworkSegment::try_from(request).is_ok());
+
+        // /31 should be rejected
+        let request = make_test_creation_request(
+            vec![ipv4_prefix("192.0.2.0/31", Some("192.0.2.1"))],
+            NetworkSegmentType::Tenant,
+        );
+        assert!(NewNetworkSegment::try_from(request).is_err());
+
+        // /32 should be rejected
+        let request = make_test_creation_request(
+            vec![ipv4_prefix("192.0.2.0/32", None)],
+            NetworkSegmentType::Tenant,
+        );
+        assert!(NewNetworkSegment::try_from(request).is_err());
     }
 }
 
@@ -353,20 +485,17 @@ impl TryFrom<rpc::forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
             .map(NewNetworkPrefix::try_from)
             .collect::<Result<Vec<NewNetworkPrefix>, RpcDataConversionError>>()?;
 
-        if prefixes.iter().any(|ip| ip.prefix.ip().is_ipv6()) {
-            return Err(RpcDataConversionError::InvalidArgument(
-                "IPv6 is not yet supported.".to_string(),
-            ));
-        }
-
         let id = value.id.unwrap_or_else(|| uuid::Uuid::new_v4().into());
 
         let segment_type: NetworkSegmentType = value.segment_type.try_into()?;
         if segment_type == NetworkSegmentType::Tenant
-            && prefixes.iter().any(|ip| ip.prefix.prefix() >= 31)
+            && prefixes.iter().any(|ip| match ip.prefix {
+                ipnetwork::IpNetwork::V4(v4) => v4.prefix() >= 31,
+                ipnetwork::IpNetwork::V6(v6) => v6.prefix() >= 127,
+            })
         {
             return Err(RpcDataConversionError::InvalidArgument(
-                "Prefix 31 and 32 are not allowed.".to_string(),
+                "IPv4 prefix /31 and /32 (or IPv6 /127 and /128) are not allowed for tenant segments.".to_string(),
             ));
         }
 

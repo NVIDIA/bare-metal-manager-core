@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 use std::collections::{HashMap, HashSet};
@@ -19,6 +24,7 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
 use carbide_uuid::machine::{MachineId, MachineType};
 use hyper::http::StatusCode;
+use itertools::Itertools;
 use model::machine::network::ManagedHostQuarantineState;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, MachineInventorySoftwareComponent, OverrideMode};
@@ -73,8 +79,8 @@ impl Ord for MachineRowDisplay {
     }
 }
 
-impl From<forgerpc::Machine> for MachineRowDisplay {
-    fn from(m: forgerpc::Machine) -> Self {
+impl MachineRowDisplay {
+    fn new(m: forgerpc::Machine, instance_type: String) -> Self {
         let mut machine_interfaces = m
             .interfaces
             .into_iter()
@@ -160,7 +166,7 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
             ),
             metadata: m.metadata.unwrap_or_default(),
             instance_type_id: m.instance_type_id.unwrap_or_default(),
-            instance_type: String::new(),
+            instance_type,
             num_nvlink_gpus,
         }
     }
@@ -220,7 +226,7 @@ async fn show(
     include_hosts: bool,
     include_dpus: bool,
 ) -> Response {
-    let mut all_machines = match fetch_machines(state.clone(), include_dpus, false).await {
+    let all_machines = match fetch_machines(state.clone(), include_dpus, false).await {
         Ok(m) => m,
         Err(err) => {
             tracing::error!(%err, "find_machines");
@@ -228,44 +234,67 @@ async fn show(
         }
     };
 
-    let mut machines: Vec<MachineRowDisplay> = Vec::new();
-    use forgerpc::MachineType;
-    for m in all_machines.machines.drain(..) {
-        match MachineType::try_from(m.machine_type) {
-            Ok(MachineType::Host) => {
-                if include_hosts {
-                    machines.push(m.into());
-                }
-            }
-            Ok(MachineType::Dpu) => {
-                if include_dpus {
-                    machines.push(m.into());
-                }
-            }
-            _ => {}
-        }
-    }
-    machines.sort_unstable();
-
-    let instance_type_ids: HashSet<String> = machines
-        .iter()
-        .filter_map(|m| match m.instance_type_id.is_empty() {
-            false => Some(m.instance_type_id.clone()),
-            true => None,
-        })
-        .collect();
-
-    let instance_types =
-        match fetch_instance_type_names(&state, instance_type_ids.into_iter().collect()).await {
-            Ok(instance_types) => instance_types,
-            Err(e) => return e,
+    // Should we show this machine? Since we need to use this
+    // twice, make a closure out of it. Previously, we created
+    // looped over `all_machines` to create `machines` as mut,
+    // and then iter_mut'd over `machines` again to set the
+    // instance_type (name). We no longer use mut, but we still
+    // need to loop twice -- once to collect all of the instance
+    // type IDs the included list of machines, and then again to
+    // actually build `machines`. Maybe it was better to just
+    // leave `machines` as mut in this case, but hey this is
+    // where we are.
+    let should_show_machine =
+        |m: &forgerpc::Machine| match forgerpc::MachineType::try_from(m.machine_type) {
+            Ok(forgerpc::MachineType::Host) => include_hosts,
+            Ok(forgerpc::MachineType::Dpu) => include_dpus,
+            _ => false,
         };
 
-    for m in machines.iter_mut() {
-        if let Some(instance_type) = instance_types.get(&m.instance_type_id) {
-            m.instance_type = instance_type.clone();
-        }
-    }
+    // Populate all of the included instance_type_ids by going
+    // over all machines. If it's a machine we should show, and
+    // the ID isn't empty, include it.
+    let instance_type_ids: Vec<String> = all_machines
+        .machines
+        .iter()
+        .filter(|m| should_show_machine(m))
+        .filter_map(|m| {
+            m.instance_type_id
+                .as_ref()
+                .filter(|id| !id.is_empty())
+                .cloned()
+        })
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    // And now pass all of the instance_type_ids to our name
+    // fetcher, which takes all of the IDs we care about.
+    let instance_types = match fetch_instance_type_names(&state, instance_type_ids).await {
+        Ok(instance_types) => instance_types,
+        Err(e) => return e,
+    };
+
+    // And NOW go over all of the machines we should show,
+    // setting the correct instance type on the machine.
+    // I added support for constructing a new MachineRowDisplay
+    // with an instance_type here so we didn't need to deal
+    // with it being mut (and retroactively populating it).
+    let machines: Vec<MachineRowDisplay> = all_machines
+        .machines
+        .into_iter()
+        .filter(should_show_machine)
+        .map(|m| {
+            let instance_type = m
+                .instance_type_id
+                .as_ref()
+                .and_then(|id| instance_types.get(id.as_str()))
+                .cloned()
+                .unwrap_or_default();
+            MachineRowDisplay::new(m, instance_type)
+        })
+        .sorted()
+        .collect();
 
     let tmpl = MachineShow {
         machines,
@@ -498,20 +527,23 @@ impl From<forgerpc::Machine> for MachineDetail {
     fn from(m: forgerpc::Machine) -> Self {
         let machine_id = m.id.map(|id| id.to_string()).unwrap_or_default();
 
-        let mut history_records = Vec::new();
-        for e in m.events.into_iter().rev() {
-            history_records.push(MachineStateHistoryRecord {
-                state: e.event,
-                version: e.version,
-            });
-        }
         let history = MachineStateHistoryTable {
-            records: history_records,
+            records: m
+                .events
+                .into_iter()
+                .rev()
+                .map(|e| MachineStateHistoryRecord {
+                    state: e.event,
+                    version: e.version,
+                })
+                .collect(),
         };
 
-        let mut interfaces = Vec::new();
-        for (i, interface) in m.interfaces.into_iter().enumerate() {
-            interfaces.push(MachineInterfaceDisplay {
+        let interfaces: Vec<_> = m
+            .interfaces
+            .into_iter()
+            .enumerate()
+            .map(|(i, interface)| MachineInterfaceDisplay {
                 index: i,
                 id: interface.id.unwrap_or_default().to_string(),
                 dpu_id: interface
@@ -524,8 +556,8 @@ impl From<forgerpc::Machine> for MachineDetail {
                 primary: interface.primary_interface.to_string(),
                 mac_address: interface.mac_address,
                 addresses: interface.address.join(","),
-            });
-        }
+            })
+            .collect();
 
         let mut bios_version = String::new();
         let mut board_version = String::new();

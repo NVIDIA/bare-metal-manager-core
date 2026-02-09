@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 use std::str::FromStr;
 
@@ -71,4 +76,68 @@ pub async fn delete_rack(
     })
     .await??;
     Ok(Response::new(()))
+}
+
+/// List health report overrides for a rack.
+///
+/// This is a stub - actual implementation TBD.
+/// Similar to list_health_report_overrides but for racks table.
+#[allow(clippy::unused_async)] // Will need async when implemented
+pub async fn list_rack_health_report_overrides(
+    _api: &Api,
+    request: Request<rpc::ListRackHealthReportOverridesRequest>,
+) -> Result<Response<rpc::ListHealthReportOverrideResponse>, Status> {
+    let req = request.into_inner();
+    tracing::info!(
+        rack_id = ?req.rack_id,
+        "list_rack_health_report_overrides called (stub)"
+    );
+
+    // TODO: Implement rack health override listing
+    Err(Status::unimplemented(
+        "ListRackHealthReportOverrides is not yet implemented",
+    ))
+}
+
+/// Insert a health report override for a rack.
+///
+/// This is a stub - actual implementation TBD.
+/// Similar to insert_health_report_override but for racks table.
+#[allow(clippy::unused_async)] // Will need async when implemented
+pub async fn insert_rack_health_report_override(
+    _api: &Api,
+    request: Request<rpc::InsertRackHealthReportOverrideRequest>,
+) -> Result<Response<()>, Status> {
+    let req = request.into_inner();
+    tracing::info!(
+        rack_id = ?req.rack_id,
+        "insert_rack_health_report_override called (stub)"
+    );
+
+    // TODO: Implement rack health override insertion
+    Err(Status::unimplemented(
+        "InsertRackHealthReportOverride is not yet implemented",
+    ))
+}
+
+/// Remove a health report override for a rack.
+///
+/// This is a stub - actual implementation TBD.
+/// Similar to remove_health_report_override but for racks table.
+#[allow(clippy::unused_async)] // Will need async when implemented
+pub async fn remove_rack_health_report_override(
+    _api: &Api,
+    request: Request<rpc::RemoveRackHealthReportOverrideRequest>,
+) -> Result<Response<()>, Status> {
+    let req = request.into_inner();
+    tracing::info!(
+        rack_id = ?req.rack_id,
+        source = %req.source,
+        "remove_rack_health_report_override called (stub)"
+    );
+
+    // TODO: Implement rack health override removal
+    Err(Status::unimplemented(
+        "RemoveRackHealthReportOverride is not yet implemented",
+    ))
 }

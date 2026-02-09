@@ -1,13 +1,13 @@
 # VPC Peering Management
 
-VPC peering allows you to connect two VPCs together, enabling bi-directional network communication between instances in different VPCs. This page explains how to manage VPC peering connections using `forge-admin-cli`.
+VPC peering allows you to connect two VPCs together, enabling bi-directional network communication between instances in different VPCs. This page explains how to manage VPC peering connections using `carbide-admin-cli`.
 
 ## VPC Peering Commands
 
-The `forge-admin-cli vpc-peering` command provides three main operations:
+The `carbide-admin-cli vpc-peering` command provides three main operations:
 
 ```bash
-forge-admin-cli vpc-peering <COMMAND>
+carbide-admin-cli vpc-peering <COMMAND>
 
 Commands:
   create  Create VPC peering connection
@@ -20,12 +20,12 @@ Commands:
 To create a new VPC peering connection between two VPCs:
 
 ```bash
-forge-admin-cli vpc-peering create <VPC1_ID> <VPC2_ID>
+carbide-admin-cli vpc-peering create <VPC1_ID> <VPC2_ID>
 ```
 
 **Example:**
 ```bash
-forge-admin-cli vpc-peering create e65a9d69-39d2-4872-a53e-e5cb87c84e75 366de82e-1113-40dd-830a-a15711d54ef1
+carbide-admin-cli vpc-peering create e65a9d69-39d2-4872-a53e-e5cb87c84e75 366de82e-1113-40dd-830a-a15711d54ef1
 ```
 
 **Notes:**
@@ -41,21 +41,21 @@ To view VPC peering connections, you can either show all connections or filter b
 
 **Show all peering connections:**
 ```bash
-forge-admin-cli vpc-peering show
+carbide-admin-cli vpc-peering show
 ```
 
 **Show peering connections for a specific VPC:**
 ```bash
-forge-admin-cli vpc-peering show --vpc-id <VPC_ID>
+carbide-admin-cli vpc-peering show --vpc-id <VPC_ID>
 ```
 
 **Example:**
 ```bash
 # Show all peering connections
-forge-admin-cli vpc-peering show
+carbide-admin-cli vpc-peering show
 
 # Show peering connections for a specific VPC
-forge-admin-cli vpc-peering show --vpc-id 550e8400-e29b-41d4-a716-446655440000
+carbide-admin-cli vpc-peering show --vpc-id 550e8400-e29b-41d4-a716-446655440000
 ```
 
 The output will display:
@@ -70,12 +70,12 @@ The output will display:
 To delete an existing VPC peering connection:
 
 ```bash
-forge-admin-cli vpc-peering delete <PEERING_CONNECTION_ID>
+carbide-admin-cli vpc-peering delete <PEERING_CONNECTION_ID>
 ```
 
 **Example:**
 ```bash
-forge-admin-cli vpc-peering delete 123e4567-e89b-12d3-a456-426614174000
+carbide-admin-cli vpc-peering delete 123e4567-e89b-12d3-a456-426614174000
 ```
 
 **Notes:**
