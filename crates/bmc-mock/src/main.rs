@@ -25,8 +25,8 @@ use std::sync::Arc;
 
 use axum::Router;
 use bmc_mock::{
-    BmcCommand, DpuMachineInfo, HostMachineInfo, ListenerOrAddress, MachineInfo, MockPowerState,
-    PowerControl, SetSystemPowerError, SystemPowerControl,
+    BmcCommand, DpuMachineInfo, HostHardwareType, HostMachineInfo, ListenerOrAddress, MachineInfo,
+    MockPowerState, PowerControl, SetSystemPowerError, SystemPowerControl,
 };
 use tar_router::TarGzOption;
 use tokio::sync::{RwLock, mpsc};
@@ -155,7 +155,10 @@ fn default_host_mock() -> Router {
     let command_channel = spawn_qemu_reboot_handler();
     let power_control = Arc::new(ChannelPowerControl::new(command_channel));
     bmc_mock::machine_router(
-        MachineInfo::Host(HostMachineInfo::new(vec![DpuMachineInfo::default()])),
+        MachineInfo::Host(HostMachineInfo::new(
+            HostHardwareType::DellPowerEdgeR750,
+            vec![DpuMachineInfo::default()],
+        )),
         power_control,
         String::default(),
     )

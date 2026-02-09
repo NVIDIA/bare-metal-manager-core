@@ -481,7 +481,7 @@ async fn handle_mlxreport_action(
             Ok(d) => d,
             Err(s) => {
                 tracing::error!(
-                    "handle_mlxreport_actioni Error from discover_device::from_str {s} for dev: {:#?}",
+                    "handle_mlxreport_action Error from discover_device::from_str {s} for dev: {:#?}",
                     dev_pci_name
                 );
                 continue;
@@ -495,7 +495,7 @@ async fn handle_mlxreport_action(
             Ok(dpc) => dpc,
             Err(e) => {
                 tracing::error!(
-                    "handle_mlxreport_actioni Error decodeing DpaCommand {e} for dev: {:#?}",
+                    "handle_mlxreport_action Error decodeing DpaCommand {e} for dev: {:#?}",
                     dev_pci_name
                 );
                 continue;
@@ -504,28 +504,23 @@ async fn handle_mlxreport_action(
 
         match dpa_cmd.op {
             OpCode::Noop => (),
-            OpCode::Lock { key } => {
-                // XXX TODO XXX
-                // Call lock_card with the proper key
-                // XXX TODO XXX
-                match mlx_device::lock_device(&dev_pci_name, &key) {
-                    Ok(()) => {
-                        let obs = MlxObservation {
-                            device_info: Some(dev.into()),
-                            lock_status: Some(LockStatus::Locked.into()),
-                            profile_name: None,
-                            profile_synced: None,
-                        };
-                        report.observations.push(obs);
-                    }
-                    Err(e) => {
-                        tracing::info!(
-                            "handle_mlxreport_actioni Error from lock_device: {e} for dev: {:#?}",
-                            dev_pci_name
-                        );
-                    }
+            OpCode::Lock { key } => match mlx_device::lock_device(&dev_pci_name, &key) {
+                Ok(()) => {
+                    let obs = MlxObservation {
+                        device_info: Some(dev.into()),
+                        lock_status: Some(LockStatus::Locked.into()),
+                        profile_name: None,
+                        profile_synced: None,
+                    };
+                    report.observations.push(obs);
                 }
-            }
+                Err(e) => {
+                    tracing::info!(
+                        "handle_mlxreport_action Error from lock_device: {e} for dev: {:#?}",
+                        dev_pci_name
+                    );
+                }
+            },
             OpCode::ApplyProfile { profile_str } => {
                 // XXX TODO XXX
                 // Call appropriate mlx routine to apply profile and handle errors
@@ -538,28 +533,23 @@ async fn handle_mlxreport_action(
                 };
                 report.observations.push(obs);
             }
-            OpCode::Unlock { key } => {
-                // XXX TODO XXX
-                // Call unlock_card with the proper key
-                // XXX TODO XXX
-                match mlx_device::unlock_device(&dev_pci_name, &key) {
-                    Ok(()) => {
-                        let obs = MlxObservation {
-                            device_info: Some(dev.into()),
-                            lock_status: Some(LockStatus::Unlocked.into()),
-                            profile_name: None,
-                            profile_synced: None,
-                        };
-                        report.observations.push(obs);
-                    }
-                    Err(e) => {
-                        tracing::info!(
-                            "handle_mlxreport_actioni Error from unlock_device: {e} for dev: {:#?}",
-                            dev_pci_name
-                        );
-                    }
+            OpCode::Unlock { key } => match mlx_device::unlock_device(&dev_pci_name, &key) {
+                Ok(()) => {
+                    let obs = MlxObservation {
+                        device_info: Some(dev.into()),
+                        lock_status: Some(LockStatus::Unlocked.into()),
+                        profile_name: None,
+                        profile_synced: None,
+                    };
+                    report.observations.push(obs);
                 }
-            }
+                Err(e) => {
+                    tracing::info!(
+                        "handle_mlxreport_action Error from unlock_device: {e} for dev: {:#?}",
+                        dev_pci_name
+                    );
+                }
+            },
         };
     }
 

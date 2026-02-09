@@ -29,7 +29,7 @@ use nv_redfish::resource::Health as BmcHealth;
 use nv_redfish::sensor::SensorRef;
 use nv_redfish_core::{Bmc, EntityTypeRef, ToSnakeCase};
 
-use crate::api_client::{BmcAddr, BmcEndpoint, HealthReportSink};
+use crate::api_client::{BmcAddr, BmcEndpoint, EndpointMetadata, HealthReportSink};
 use crate::collector::PeriodicCollector;
 use crate::metrics::{CollectorRegistry, GaugeMetrics, GaugeReading, MetricLabel, sanitize_unit};
 use crate::{HealthError, collector};
@@ -40,6 +40,7 @@ pub struct HealthMonitorConfig {
     pub state_refresh_interval: Duration,
     pub sensor_fetch_concurrency: usize,
     pub collector_registry: Arc<CollectorRegistry>,
+    pub include_sensor_thresholds: bool,
 }
 
 /// Health monitor for a single BMC endpoint
@@ -50,6 +51,7 @@ pub struct HealthMonitor<B: Bmc> {
     report_sink: Option<Arc<dyn HealthReportSink>>,
     state_refresh_interval: Duration,
     sensor_fetch_concurrency: usize,
+    include_sensor_thresholds: bool,
     metrics: Arc<GaugeMetrics>,
 }
 
@@ -61,16 +63,13 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for HealthMonitor<B> {
         endpoint: Arc<BmcEndpoint>,
         config: Self::Config,
     ) -> Result<Self, HealthError> {
-        let serial = endpoint
-            .machine
-            .as_ref()
-            .and_then(|m| m.machine_serial.clone())
-            .unwrap_or_default();
-        let machine_id = endpoint
-            .machine
-            .as_ref()
-            .map(|m| m.machine_id.to_string())
-            .unwrap_or_default();
+        let (serial, machine_id) = match &endpoint.metadata {
+            Some(EndpointMetadata::Machine(m)) => (
+                m.machine_serial.clone().unwrap_or_default(),
+                m.machine_id.to_string(),
+            ),
+            _ => (String::new(), String::new()),
+        };
         let metrics = config.collector_registry.create_gauge_metrics(
             format!("health_gauge_{}", endpoint.addr.hash_key()),
             "BMC Sensor readings",
@@ -88,6 +87,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for HealthMonitor<B> {
             report_sink: config.report_sink,
             state_refresh_interval: config.state_refresh_interval,
             sensor_fetch_concurrency: config.sensor_fetch_concurrency,
+            include_sensor_thresholds: config.include_sensor_thresholds,
             metrics,
         })
     }
@@ -494,7 +494,8 @@ impl<B: Bmc + 'static> HealthMonitor<B> {
             let (successes, alerts) = self.fetch_and_update_sensors(state).await?;
             entity_count = Some(successes.len() + alerts.len());
 
-            if let (Some(machine), Some(report_sink)) = (&self.endpoint.machine, &self.report_sink)
+            if let (Some(EndpointMetadata::Machine(machine)), Some(report_sink)) =
+                (&self.endpoint.metadata, &self.report_sink)
             {
                 let machine_id = machine.machine_id;
 
@@ -863,6 +864,34 @@ impl<B: Bmc + 'static> HealthMonitor<B> {
         let attributes: Vec<_> =
             std::iter::once(("sensor_name".to_string(), sensor.base.id.clone()))
                 .chain(entity.base_attributes())
+                .chain(
+                    sensor
+                        .thresholds
+                        .as_ref()
+                        .filter(|_| self.include_sensor_thresholds)
+                        .map(|t| {
+                            [
+                                (
+                                    "upper_critical_threshold".to_string(),
+                                    t.upper_critical
+                                        .as_ref()
+                                        .and_then(|th| th.reading.flatten())
+                                        .unwrap_or_default()
+                                        .to_string(),
+                                ),
+                                (
+                                    "lower_critical_threshold".to_string(),
+                                    t.lower_critical
+                                        .as_ref()
+                                        .and_then(|th| th.reading.flatten())
+                                        .unwrap_or_default()
+                                        .to_string(),
+                                ),
+                            ]
+                        })
+                        .into_iter()
+                        .flatten(),
+                )
                 .chain(
                     sensor
                         .physical_context

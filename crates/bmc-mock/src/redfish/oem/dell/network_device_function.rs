@@ -17,19 +17,14 @@
 
 use serde_json::json;
 
-use crate::DpuMachineInfo;
-
-pub fn dpu_dell_nic_info(function_id: &str, machine_info: &DpuMachineInfo) -> serde_json::Value {
+pub fn dell_nic_info(function_id: &str, slot: usize, serial_number: &str) -> serde_json::Value {
     json!({
         "Dell": {
             "@odata.type": "#DellOem.v1_3_0.DellOemResources",
             "DellNIC": {
                 "Id": function_id,
-                "SerialNumber": machine_info.serial,
-                // TODO: We need more precise model of the
-                // hardware. Slot / port must be part of machine_info
-                // in future.
-                "DeviceDescription": "NIC in Slot 5 Port 1"
+                "SerialNumber": serial_number,
+                "DeviceDescription": format!("NIC in Slot {} Port 1", slot)
             }
         }
     })

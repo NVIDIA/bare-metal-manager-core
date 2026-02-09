@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::vpc::VpcId;
@@ -71,19 +71,10 @@ pub async fn delete_and_deallocate(
 
     for value in deleted_loopbacks {
         // We deleted a IP from vpc_dpu_loopback table. Deallocate this IP from common pool.
-        let ipv4_addr = match value.loopback_ip {
-            IpAddr::V4(ipv4_addr) => ipv4_addr,
-            IpAddr::V6(_) => {
-                return Err(DatabaseError::InvalidArgument(
-                    "Ipv6 is not supported.".to_string(),
-                ));
-            }
-        };
-
         crate::resource_pool::release(
             &common_pools.ethernet.pool_vpc_dpu_loopback_ip,
             txn,
-            ipv4_addr,
+            value.loopback_ip,
         )
         .await?;
     }
@@ -113,19 +104,14 @@ pub async fn get_or_allocate_loopback_ip_for_vpc(
     txn: &mut PgConnection,
     dpu_id: &MachineId,
     vpc_id: &VpcId,
-) -> Result<Ipv4Addr, DatabaseError> {
+) -> Result<IpAddr, DatabaseError> {
     let loopback_ip = match find(txn, dpu_id, vpc_id).await? {
-        Some(x) => match x.loopback_ip {
-            IpAddr::V4(ipv4_addr) => ipv4_addr,
-            IpAddr::V6(_) => {
-                return Err(DatabaseError::NotImplemented);
-            }
-        },
+        Some(x) => x.loopback_ip,
         None => {
             let loopback_ip =
                 crate::machine::allocate_vpc_dpu_loopback(common_pools, txn, &dpu_id.to_string())
                     .await?;
-            let vpc_dpu_loopback = VpcDpuLoopback::new(*dpu_id, *vpc_id, IpAddr::V4(loopback_ip));
+            let vpc_dpu_loopback = VpcDpuLoopback::new(*dpu_id, *vpc_id, loopback_ip);
             persist(vpc_dpu_loopback, txn).await?;
 
             loopback_ip

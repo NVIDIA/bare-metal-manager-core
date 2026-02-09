@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use std::collections::HashMap;
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::oneshot;
@@ -74,14 +74,14 @@ pub struct DpaPools {
 /// ResourcePools that are used for ethernet virtualization
 #[derive(Debug)]
 pub struct EthernetPools {
-    pub pool_loopback_ip: Arc<ResourcePool<Ipv4Addr>>,
+    pub pool_loopback_ip: Arc<ResourcePool<IpAddr>>,
     pub pool_vlan_id: Arc<ResourcePool<i16>>,
     pub pool_vni: Arc<ResourcePool<i32>>,
     pub pool_vpc_vni: Arc<ResourcePool<i32>>,
     pub pool_external_vpc_vni: Arc<ResourcePool<i32>>,
     pub pool_fnn_asn: Arc<ResourcePool<u32>>,
-    pub pool_vpc_dpu_loopback_ip: Arc<ResourcePool<Ipv4Addr>>,
-    pub pool_secondary_vtep_ip: Arc<ResourcePool<Ipv4Addr>>,
+    pub pool_vpc_dpu_loopback_ip: Arc<ResourcePool<IpAddr>>,
+    pub pool_secondary_vtep_ip: Arc<ResourcePool<IpAddr>>,
 }
 
 /// ResourcePools that are used for infiniband

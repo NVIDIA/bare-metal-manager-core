@@ -184,6 +184,9 @@ pub struct CollectorsConfig {
 
     /// Logs collector configuration (if present, logs collector is enabled)
     pub logs: Configurable<LogsCollectorConfig>,
+
+    /// Switch NMX-T collector configuration (if present, nmxt collector is enabled)
+    pub nmxt: Configurable<NmxtCollectorConfig>,
 }
 
 impl Default for CollectorsConfig {
@@ -192,6 +195,7 @@ impl Default for CollectorsConfig {
             health: Configurable::Enabled(HealthCollectorConfig::default()),
             firmware: Configurable::Disabled,
             logs: Configurable::Enabled(LogsCollectorConfig::default()),
+            nmxt: Configurable::Disabled,
         }
     }
 }
@@ -203,10 +207,6 @@ pub struct HealthCollectorConfig {
     #[serde(with = "humantime_serde")]
     pub rediscover_interval: Duration,
 
-    /// Interval between health checks for each endpoint.
-    #[serde(with = "humantime_serde")]
-    pub monitor_check_interval: Duration,
-
     /// Interval between entity state refresh.
     #[serde(with = "humantime_serde")]
     pub state_refresh_interval: Duration,
@@ -217,16 +217,19 @@ pub struct HealthCollectorConfig {
 
     /// Number of concurrent sensor fetches.
     pub sensor_fetch_concurrency: usize,
+
+    /// Include sensor thresholds in the metrics attributes.
+    pub include_sensor_thresholds: bool,
 }
 
 impl Default for HealthCollectorConfig {
     fn default() -> Self {
         Self {
             rediscover_interval: Duration::from_secs(300),
-            monitor_check_interval: Duration::from_secs(60),
             state_refresh_interval: Duration::from_secs(9000),
             sensor_fetch_interval: Duration::from_secs(60),
             sensor_fetch_concurrency: 10,
+            include_sensor_thresholds: true,
         }
     }
 }
@@ -275,6 +278,22 @@ impl Default for LogsCollectorConfig {
             logs_output_dir: "/tmp/logs".to_string(),
             logs_max_file_size: 104857600,
             logs_max_backups: 5,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NmxtCollectorConfig {
+    /// Interval between switch NMX-T metric scrapes.
+    #[serde(with = "humantime_serde")]
+    pub scrape_interval: Duration,
+}
+
+impl Default for NmxtCollectorConfig {
+    fn default() -> Self {
+        Self {
+            scrape_interval: Duration::from_secs(60),
         }
     }
 }
@@ -496,8 +515,8 @@ enabled = false
 rediscover_interval = "1m"
 sensor_fetch_interval = "30s"
 state_refresh_interval = "10m"
-monitor_check_interval = "30s"
 sensor_fetch_concurrency = 5
+include_sensor_thresholds = false
 
 [metrics]
 endpoint = "127.0.0.1:9009"
@@ -540,6 +559,7 @@ cache_size = 50
         if let Configurable::Enabled(ref health) = config.collectors.health {
             assert_eq!(health.rediscover_interval, Duration::from_secs(60));
             assert_eq!(health.sensor_fetch_interval, Duration::from_secs(30));
+            assert!(!health.include_sensor_thresholds);
         } else {
             panic!("health empty")
         }

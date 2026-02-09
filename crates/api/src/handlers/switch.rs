@@ -61,13 +61,42 @@ pub async fn find_switch(
         .map_err(|e| Status::internal(format!("Failed to find switch: {}", e)))?
     };
 
+    let bmc_info_map: std::collections::HashMap<String, rpc::BmcInfo> = {
+        let rows = db_switch::list_switch_bmc_info(&mut txn)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to get switch BMC info: {}", e)))?;
+
+        rows.into_iter()
+            .map(|row| {
+                (
+                    row.serial_number,
+                    rpc::BmcInfo {
+                        ip: Some(row.ip_address.to_string()),
+                        mac: Some(row.bmc_mac_address.to_string()),
+                        version: None,
+                        firmware_version: None,
+                        port: None,
+                    },
+                )
+            })
+            .collect()
+    };
+
     txn.commit()
         .await
         .map_err(|e| Status::internal(format!("Failed to commit transaction: {}", e)))?;
 
     let switches: Vec<rpc::Switch> = switch_list
         .into_iter()
-        .map(rpc::Switch::try_from)
+        .map(|s| {
+            let serial = s.config.name.clone();
+            let bmc_info = bmc_info_map.get(&serial).cloned();
+
+            rpc::Switch::try_from(s).map(|mut rpc_switch| {
+                rpc_switch.bmc_info = bmc_info;
+                rpc_switch
+            })
+        })
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| Status::internal(format!("Failed to convert switch: {}", e)))?;
 

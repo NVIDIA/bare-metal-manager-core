@@ -1824,7 +1824,7 @@ pub async fn allocate_loopback_ip(
     common_pools: &CommonPools,
     txn: &mut PgConnection,
     owner_id: &str,
-) -> Result<Ipv4Addr, DatabaseError> {
+) -> Result<IpAddr, DatabaseError> {
     match crate::resource_pool::allocate(
         &common_pools.ethernet.pool_loopback_ip,
         txn,
@@ -1854,7 +1854,7 @@ pub async fn allocate_vpc_dpu_loopback(
     common_pools: &CommonPools,
     txn: &mut PgConnection,
     owner_id: &str,
-) -> Result<Ipv4Addr, DatabaseError> {
+) -> Result<IpAddr, DatabaseError> {
     match crate::resource_pool::allocate(
         &common_pools.ethernet.pool_vpc_dpu_loopback_ip,
         txn,
@@ -1888,7 +1888,7 @@ pub async fn allocate_secondary_vtep_ip(
     common_pools: &CommonPools,
     txn: &mut PgConnection,
     owner_id: &str,
-) -> Result<Ipv4Addr, DatabaseError> {
+) -> Result<IpAddr, DatabaseError> {
     match crate::resource_pool::allocate(
         &common_pools.ethernet.pool_secondary_vtep_ip,
         txn,

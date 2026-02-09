@@ -43,11 +43,12 @@ enum RulePrincipal {
     Pxe,
     Rla,
     MaintenanceJobs,
+    DsxExchangeConsumer,
     Anonymous, // Permitted for everything
 }
 use self::RulePrincipal::{
-    Agent, Anonymous, Dhcp, Dns, ForgeAdminCLI, Health, Machineatron, MaintenanceJobs, Pxe, Rla,
-    Scout, SiteAgent, Ssh, SshRs,
+    Agent, Anonymous, Dhcp, Dns, DsxExchangeConsumer, ForgeAdminCLI, Health, Machineatron,
+    MaintenanceJobs, Pxe, Rla, Scout, SiteAgent, Ssh, SshRs,
 };
 
 impl InternalRBACRules {
@@ -131,6 +132,18 @@ impl InternalRBACRules {
         x.perm("ListHealthReportOverrides", vec![ForgeAdminCLI]);
         x.perm("InsertHealthReportOverride", vec![ForgeAdminCLI]);
         x.perm("RemoveHealthReportOverride", vec![ForgeAdminCLI]);
+        x.perm(
+            "ListRackHealthReportOverrides",
+            vec![ForgeAdminCLI, DsxExchangeConsumer],
+        );
+        x.perm(
+            "InsertRackHealthReportOverride",
+            vec![ForgeAdminCLI, DsxExchangeConsumer],
+        );
+        x.perm(
+            "RemoveRackHealthReportOverride",
+            vec![ForgeAdminCLI, DsxExchangeConsumer],
+        );
         x.perm("DpuAgentUpgradeCheck", vec![Scout]);
         x.perm("DpuAgentUpgradePolicyAction", vec![ForgeAdminCLI]);
         x.perm("LookupRecord", vec![Dns]);
@@ -581,7 +594,10 @@ impl InternalRBACRules {
             "FindPowerShelfStateHistories",
             vec![ForgeAdminCLI, Machineatron, Rla],
         );
-        x.perm("FindSwitches", vec![ForgeAdminCLI, Machineatron, Rla]);
+        x.perm(
+            "FindSwitches",
+            vec![ForgeAdminCLI, Machineatron, Rla, Health],
+        );
         x.perm("CreateSwitch", vec![ForgeAdminCLI, Machineatron]);
         x.perm("DeleteSwitch", vec![ForgeAdminCLI, Machineatron]);
         x.perm("AddExpectedSwitch", vec![ForgeAdminCLI, Machineatron]);
@@ -747,6 +763,9 @@ impl RuleInfo {
                     RulePrincipal::MaintenanceJobs => {
                         Principal::SpiffeServiceIdentifier("carbide-maintenance-jobs".to_string())
                     }
+                    RulePrincipal::DsxExchangeConsumer => Principal::SpiffeServiceIdentifier(
+                        "carbide-dsx-exchange-consumer".to_string(),
+                    ),
                     RulePrincipal::Anonymous => Principal::Anonymous,
                 })
                 .collect(),

@@ -8,4 +8,5 @@ the complexity of the bare-metal lifecycle, putting NCPs and ISVs on the fast tr
 ## Getting Started
 
 - Go to the [Carbide overview](docs/overview.md) to get an overview of Carbide architecture and capabilities.
+- Or jump to the [Installation guide](docs/build.md) to see an overview for building the code.
 - Or jump to the [Installation guide](docs/installation/index.md) to start setting up your site for Carbide.

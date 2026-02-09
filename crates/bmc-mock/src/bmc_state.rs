@@ -34,12 +34,6 @@ pub struct BmcState {
     pub injected_bugs: Arc<InjectedBugs>,
 }
 
-#[derive(Debug, Clone)]
-pub enum JobState {
-    Scheduled,
-    Completed,
-}
-
 impl BmcState {
     pub fn complete_all_bios_jobs(&self) {
         if let redfish::oem::State::DellIdrac(v) = &self.oem_state {

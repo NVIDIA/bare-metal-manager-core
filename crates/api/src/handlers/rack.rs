@@ -77,3 +77,67 @@ pub async fn delete_rack(
     .await??;
     Ok(Response::new(()))
 }
+
+/// List health report overrides for a rack.
+///
+/// This is a stub - actual implementation TBD.
+/// Similar to list_health_report_overrides but for racks table.
+#[allow(clippy::unused_async)] // Will need async when implemented
+pub async fn list_rack_health_report_overrides(
+    _api: &Api,
+    request: Request<rpc::ListRackHealthReportOverridesRequest>,
+) -> Result<Response<rpc::ListHealthReportOverrideResponse>, Status> {
+    let req = request.into_inner();
+    tracing::info!(
+        rack_id = ?req.rack_id,
+        "list_rack_health_report_overrides called (stub)"
+    );
+
+    // TODO: Implement rack health override listing
+    Err(Status::unimplemented(
+        "ListRackHealthReportOverrides is not yet implemented",
+    ))
+}
+
+/// Insert a health report override for a rack.
+///
+/// This is a stub - actual implementation TBD.
+/// Similar to insert_health_report_override but for racks table.
+#[allow(clippy::unused_async)] // Will need async when implemented
+pub async fn insert_rack_health_report_override(
+    _api: &Api,
+    request: Request<rpc::InsertRackHealthReportOverrideRequest>,
+) -> Result<Response<()>, Status> {
+    let req = request.into_inner();
+    tracing::info!(
+        rack_id = ?req.rack_id,
+        "insert_rack_health_report_override called (stub)"
+    );
+
+    // TODO: Implement rack health override insertion
+    Err(Status::unimplemented(
+        "InsertRackHealthReportOverride is not yet implemented",
+    ))
+}
+
+/// Remove a health report override for a rack.
+///
+/// This is a stub - actual implementation TBD.
+/// Similar to remove_health_report_override but for racks table.
+#[allow(clippy::unused_async)] // Will need async when implemented
+pub async fn remove_rack_health_report_override(
+    _api: &Api,
+    request: Request<rpc::RemoveRackHealthReportOverrideRequest>,
+) -> Result<Response<()>, Status> {
+    let req = request.into_inner();
+    tracing::info!(
+        rack_id = ?req.rack_id,
+        source = %req.source,
+        "remove_rack_health_report_override called (stub)"
+    );
+
+    // TODO: Implement rack health override removal
+    Err(Status::unimplemented(
+        "RemoveRackHealthReportOverride is not yet implemented",
+    ))
+}

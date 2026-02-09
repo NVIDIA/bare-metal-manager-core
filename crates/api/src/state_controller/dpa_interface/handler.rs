@@ -31,7 +31,7 @@ use model::resource_pool::ResourcePool;
 use mqttea::MqtteaClient;
 use sqlx::PgTransaction;
 
-use crate::dpa::DpaInfo;
+use crate::dpa::handler::DpaInfo;
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::dpa_interface::context::DpaInterfaceStateHandlerContextObjects;
 use crate::state_controller::machine::db_write_batch::DbWriteBatch;
@@ -378,7 +378,7 @@ async fn send_set_vni_command<'a>(
     };
 
     // Send a heartbeat command, indicated by the revision string being "NIL".
-    match crate::dpa::send_dpa_command(
+    match crate::dpa::handler::send_dpa_command(
         client,
         dpa_info,
         state.mac_address.to_string(),

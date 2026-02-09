@@ -159,6 +159,40 @@ pub async fn find_by_ip(
     Ok(results)
 }
 
+// get_for_pci_name gets the DpaInterface for a specific device
+// on a machine, based on its PCI name, which may be either the PCIe
+// address or /dev/mst address.
+//
+// Returns exactly one DpaInterface, or an error if none or multiple
+// are found, because multiple would not make sense.
+pub async fn get_for_pci_name(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    pci_name: &str,
+) -> Result<DpaInterface, DatabaseError> {
+    let query = "SELECT row_to_json(m.*) from (select * from dpa_interfaces WHERE deleted is NULL AND machine_id = $1 AND pci_name = $2) m";
+
+    let results: Vec<DpaInterface> = sqlx::query_as(query)
+        .bind(machine_id)
+        .bind(pci_name)
+        .fetch_all(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    match results.len() {
+        0 => Err(DatabaseError::NotFoundError {
+            kind: "dpa_interface",
+            id: format!("machine_id={machine_id}, pci_name={pci_name}"),
+        }),
+        1 => Ok(results.into_iter().next().unwrap()),
+        n => Err(DatabaseError::Internal {
+            message: format!(
+                "expected 1 dpa_interface for machine_id={machine_id}, pci_name={pci_name}, found {n}"
+            ),
+        }),
+    }
+}
+
 // Find a DPA Interface given its mac address. When we receive messages from the MQTT broker,
 // the topic contains the mac address, and we look up the interface based on that mac address.
 pub async fn find_by_mac_addr(

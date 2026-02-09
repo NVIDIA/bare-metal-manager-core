@@ -21,18 +21,18 @@ the state will not be advanced.
 
 If a ManagedHost is stuck due to this check, you can inspect which condition is
 not met by inspecting the last report from the Host and DPUs
-- via forge-admin-cli:
+- via carbide-admin-cli:
   - ```
-    forge-admin-cli managed-host show fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
+    carbide-admin-cli managed-host show fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
     ```
   - ```
-    forge-admin-cli machine show fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
+    carbide-admin-cli machine show fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
     ```
   - ```
-    forge-admin-cli machine show fm100dsa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
+    carbide-admin-cli machine show fm100dsa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
     ```
   - ```
-    forge-admin-cli machine network status
+    carbide-admin-cli machine network status
     ```
 - via Forge Admin Web UI:
   - [https://api-pdx01.frg.nvidia.com/admin/managed-host/fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg](https://api-pdx01.frg.nvidia.com/admin/managed-host/fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg)
@@ -41,7 +41,7 @@ not met by inspecting the last report from the Host and DPUs
 
 E.g. in the following report
 ```
-/opt/carbide/forge-admin-cli managed-host show fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
+/opt/carbide/carbide-admin-cli managed-host show fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
 Hostname    : 10-217-18-95
 State       : DPUInitializing/WaitingForNetworkConfig
     Time in State : 296 days and 29 minutes
@@ -103,7 +103,7 @@ DPU0:
 
 The network status details show:
 ```
-/opt/carbide/forge-admin-cli machine network status
+/opt/carbide/carbide-admin-cli machine network status
 +-------------------------+-------------------------------------------------------------+------------------------+----------+--------------------------------------------+---------------------------------+
 | Observed at             | DPU machine ID                                              | Network config version | Healthy? | Health Probe Alerts                        | Agent version                   |
 +=========================+=============================================================+========================+==========+============================================+=================================+

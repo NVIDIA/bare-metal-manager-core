@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-dsx-exchange-consumer
+  namespace: default
+  labels:
+    app: carbide-dsx-exchange-consumer
+    app.kubernetes.io/metrics: carbide-dsx-exchange-consumer
+
+spec:
+  ports:
+    - port: 9009
+      name: metrics
+      protocol: TCP

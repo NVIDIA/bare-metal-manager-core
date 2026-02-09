@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbide-dsx-exchange-consumer
+  namespace: default
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: carbide-dsx-exchange-consumer
+  template:
+    metadata:
+    spec:
+      serviceAccountName: carbide-dsx-exchange-consumer
+      containers:
+        - name: carbide-dsx-exchange-consumer
+          image: yourdockerregistry.com/path/to/carbide-core:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            capabilities:
+              add:
+                - SYS_PTRACE
+          command:
+            - /bin/sh
+            - -c
+            - /opt/carbide/carbide-dsx-exchange-consumer
+          env:
+            - name: RUST_BACKTRACE
+              value: "full"
+            - name: RUST_LIB_BACKTRACE
+              value: "0"
+          ports:
+            - name: metrics
+              containerPort: 9009
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              port: 9009
+              scheme: HTTP
+            initialDelaySeconds: 20
+            periodSeconds: 300
+            successThreshold: 1
+          resources: {}
+          volumeMounts:
+            - mountPath: "/var/run/secrets/spiffe.io"
+              name: spiffe
+              readOnly: true
+      volumes:
+        - name: spiffe
+          secret:
+            secretName: carbide-dsx-exchange-consumer-certificate

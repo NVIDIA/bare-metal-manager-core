@@ -353,5 +353,5 @@ pub async fn loopback_ip(txn: &mut PgConnection, dpu_machine_id: &MachineId) -> 
         .await
         .unwrap()
         .unwrap();
-    IpAddr::V4(dpu.network_config.loopback_ip.unwrap())
+    dpu.network_config.loopback_ip.unwrap()
 }

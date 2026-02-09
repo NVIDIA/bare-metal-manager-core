@@ -428,7 +428,7 @@ pub async fn create_common_pools(
     let mut pool_names = Vec::new();
     let mut optional_pool_names = Vec::new();
 
-    let pool_loopback_ip: Arc<ResourcePool<Ipv4Addr>> =
+    let pool_loopback_ip: Arc<ResourcePool<IpAddr>> =
         Arc::new(ResourcePool::new(LOOPBACK_IP.to_string(), ValueType::Ipv4));
     pool_names.push(pool_loopback_ip.name().to_string());
     let pool_vlan_id: Arc<ResourcePool<i16>> =
@@ -444,14 +444,14 @@ pub async fn create_common_pools(
         Arc::new(ResourcePool::new(FNN_ASN.to_string(), ValueType::Integer));
     optional_pool_names.push(pool_fnn_asn.name().to_string());
 
-    let pool_vpc_dpu_loopback_ip: Arc<ResourcePool<Ipv4Addr>> = Arc::new(ResourcePool::new(
+    let pool_vpc_dpu_loopback_ip: Arc<ResourcePool<IpAddr>> = Arc::new(ResourcePool::new(
         VPC_DPU_LOOPBACK.to_string(),
         ValueType::Ipv4,
     ));
     //  TODO: This should be removed from optional once FNN become mandatory.
     optional_pool_names.push(pool_vpc_dpu_loopback_ip.name().to_string());
 
-    let pool_secondary_vtep_ip: Arc<ResourcePool<Ipv4Addr>> = Arc::new(ResourcePool::new(
+    let pool_secondary_vtep_ip: Arc<ResourcePool<IpAddr>> = Arc::new(ResourcePool::new(
         SECONDARY_VTEP_IP.to_string(),
         ValueType::Ipv4,
     ));

@@ -22,22 +22,22 @@ You should check both the expected machines DB and the site vault pod data store
 If there is an existing data in expected machines for the machine, you can either update the password
 in expected machines or change the password on the Host BMC to match.
 
-1. Use `forge-admin-cli` to check if there is an existing entry for the host BMC:
+1. Use `carbide-admin-cli` to check if there is an existing entry for the host BMC:
 
     ```bash
-    forge-admin-cli expected-machine show |grep <Host BMC IP Address|Host BMC MAC Address>
+    carbide-admin-cli expected-machine show |grep <Host BMC IP Address|Host BMC MAC Address>
     ```
 
-2. If an entry exists for the machine, display the details using `forge-admin-cli`:
+2. If an entry exists for the machine, display the details using `carbide-admin-cli`:
 
     ```bash
-    forge-admin-cli expected-machine show <Host BMC MAC address>
+    carbide-admin-cli expected-machine show <Host BMC MAC address>
     ```
 
 3. To update an existing expected machines data:
 
     ```bash
-    forge-admin-cli expected-machine add --bmc-mac-address <BMC MAC Address> --bmc-username <BMC Username> --bmc-password <BMC Password --chassis-serial-number <Chassis Serial Number>
+    carbide-admin-cli expected-machine add --bmc-mac-address <BMC MAC Address> --bmc-username <BMC Username> --bmc-password <BMC Password --chassis-serial-number <Chassis Serial Number>
     ```
 
     ***Note:*** If you only need to update the BMC password, you just need to supply the BMC MAC Address and BMC Password
@@ -45,7 +45,7 @@ in expected machines or change the password on the Host BMC to match.
 4. To add a new machine to the expected machines DB:
 
     ```bash
-    forge-admin-cli expected-machine update --bmc-mac-address <BMC_MAC_ADDRESS> <--bmc-username <BMC_USERNAME> --bmc-password <BMC_PASSWORD> --chassis-serial-number <CHASSIS_SERIAL_NUMBER>
+    carbide-admin-cli expected-machine update --bmc-mac-address <BMC_MAC_ADDRESS> <--bmc-username <BMC_USERNAME> --bmc-password <BMC_PASSWORD> --chassis-serial-number <CHASSIS_SERIAL_NUMBER>
     ```
 
 ### Checking site vault data

@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::net::IpAddr;
+
 use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
@@ -243,4 +245,32 @@ pub async fn update(switch: &Switch, txn: &mut PgConnection) -> Result<Switch, D
         .map_err(|e| DatabaseError::new("update", e))?;
 
     Ok(switch.clone())
+}
+
+use mac_address::MacAddress;
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct SwitchBmcInfoRow {
+    pub serial_number: String,
+    pub bmc_mac_address: MacAddress,
+    pub ip_address: IpAddr,
+}
+
+pub async fn list_switch_bmc_info(txn: &mut PgConnection) -> DatabaseResult<Vec<SwitchBmcInfoRow>> {
+    let sql = r#"
+        SELECT 
+            es.serial_number,
+            es.bmc_mac_address,
+            mia.address as ip_address
+        FROM expected_switches es
+        JOIN machine_interfaces mi ON mi.mac_address = es.bmc_mac_address
+        JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
+        JOIN network_segments ns ON ns.id = mi.segment_id
+        WHERE ns.network_segment_type = 'underlay'
+    "#;
+
+    sqlx::query_as(sql)
+        .fetch_all(txn)
+        .await
+        .map_err(|err| DatabaseError::new("list_switch_bmc_info", err))
 }

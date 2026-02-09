@@ -238,10 +238,10 @@ root:/# curl -s -k -XGET -u admin:45364nnfgd https://172.16.110.44:443/ufmRest/a
 ]
 ```
 
-Create the credential for UFM client in Carbide by forge-admin-cli as follows:
+Create the credential for UFM client in Carbide by carbide-admin-cli as follows:
 
 ```
-root:/# forge-admin-cli credential add-ufm --url=https://<address:port> --token=<access_token>
+root:/# carbide-admin-cli credential add-ufm --url=https://<address:port> --token=<access_token>
 ```
 
 ##### Client Authentication (mTLS)
@@ -279,13 +279,13 @@ openssl x509 -in server.crt -text -noout | grep DNS
 
 Existing carbide certificates such as `/run/secrets/spiffe.io/{tls.crt,tls.key,ca.crt}` are used for client side.
 
-    forge-admin-cli credential add-ufm --url=<ufm host name>
+    carbide-admin-cli credential add-ufm --url=<ufm host name>
 
 **Generate UFM server certificate using Vault.**
 
 Enter this command to create server UFM certificates using the vault:
 
-    forge-admin-cli credential generate-ufm-cert --fabric=default
+    carbide-admin-cli credential generate-ufm-cert --fabric=default
 
 UFM Server Certificates have predefined names as `default-ufm-ca-intermediate.crt, default-ufm-server.crt, default-ufm-server.key` and stored under `/var/run/secrets` location on `carbide-api` pod.
 
