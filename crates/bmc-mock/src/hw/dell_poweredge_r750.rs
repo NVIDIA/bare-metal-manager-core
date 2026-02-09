@@ -210,6 +210,7 @@ impl DellPowerEdgeR750<'_> {
         redfish::chassis::ChassisConfig {
             chassis: vec![redfish::chassis::SingleChassisConfig {
                 id: Cow::Borrowed(chassis_id),
+                chassis_type: Cow::Borrowed("RackMount"),
                 manufacturer: Some("Dell Inc.".into()),
                 part_number: Some("01J4WFA05".into()),
                 model: Some("PowerEdge R750".into()),

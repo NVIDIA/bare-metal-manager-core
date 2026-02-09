@@ -49,7 +49,9 @@ pub fn collection() -> redfish::Collection<'static> {
 
 pub fn builder(resource: &redfish::Resource) -> ChassisBuilder {
     ChassisBuilder {
-        value: resource.json_patch(),
+        value: resource.json_patch().patch(json!({
+            "Links": {},
+        })),
     }
 }
 
@@ -110,6 +112,7 @@ pub struct SingleChassisConfig {
     pub network_adapters: Option<Vec<redfish::network_adapter::NetworkAdapter>>,
     pub pcie_devices: Option<Vec<redfish::pcie_device::PCIeDevice>>,
     pub sensors: Option<Vec<redfish::sensor::Sensor>>,
+    pub chassis_type: Cow<'static, str>,
 }
 
 pub struct ChassisConfig {
@@ -193,6 +196,8 @@ async fn get_chassis(State(state): State<BmcState>, Path(chassis_id): Path<Strin
     };
     let config = &chassis_state.config;
     let b = builder(&resource(&chassis_id));
+    let b = b.chassis_type(&config.chassis_type);
+
     let b = if config.pcie_devices.is_some() {
         b.pcie_devices(redfish::pcie_device::chassis_collection(&chassis_id))
     } else {
@@ -390,6 +395,10 @@ impl Builder for ChassisBuilder {
 impl ChassisBuilder {
     pub fn serial_number(self, v: &str) -> Self {
         self.add_str_field("SerialNumber", v)
+    }
+
+    pub fn chassis_type(self, v: &str) -> Self {
+        self.add_str_field("ChassisType", v)
     }
 
     pub fn manufacturer(self, v: &str) -> Self {

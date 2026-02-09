@@ -21,6 +21,7 @@ use axum::Router;
 use axum::extract::State;
 use axum::response::Response;
 use axum::routing::get;
+use serde_json::json;
 
 use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch};
@@ -42,7 +43,9 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
 
 pub fn builder(resource: &redfish::Resource) -> ServiceRootBuilder {
     ServiceRootBuilder {
-        value: resource.json_patch(),
+        value: resource.json_patch().patch(json!({
+            "Links": {},
+        })),
     }
 }
 

@@ -120,6 +120,7 @@ impl WiwynnGB200Nvl<'_> {
 
             redfish::chassis::SingleChassisConfig {
                 id: chassis_id.into(),
+                chassis_type: Cow::Borrowed("Card"),
                 manufacturer: nic.manufacturer,
                 part_number: nic.part_number,
                 model: Some("GB200 NVL".into()),
@@ -133,6 +134,7 @@ impl WiwynnGB200Nvl<'_> {
             chassis: vec![
                 redfish::chassis::SingleChassisConfig {
                     id: "Chassis_0".into(),
+                    chassis_type: Cow::Borrowed("RackMount"),
                     manufacturer: Some("NVIDIA".into()),
                     part_number: Some("B81.11810.000D".into()),
                     model: Some("GB200 NVL".into()),

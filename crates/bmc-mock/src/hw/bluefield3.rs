@@ -59,6 +59,7 @@ impl Bluefield3<'_> {
             chassis: vec![
                 redfish::chassis::SingleChassisConfig {
                     id: "Bluefield_BMC".into(),
+                    chassis_type: Cow::Borrowed("Component"),
                     manufacturer: Some("Nvidia".into()),
                     model: Some("BlueField-3 DPU".into()),
                     network_adapters: Some(vec![]),
@@ -69,6 +70,7 @@ impl Bluefield3<'_> {
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "Bluefield_ERoT".into(),
+                    chassis_type: Cow::Borrowed("Component"),
                     manufacturer: Some(Cow::Borrowed("NVIDIA")),
                     model: None,
                     network_adapters: None,
@@ -78,7 +80,8 @@ impl Bluefield3<'_> {
                     sensors: None,
                 },
                 redfish::chassis::SingleChassisConfig {
-                    id: "CPU_0".into(),
+                    id: "CPU".into(),
+                    chassis_type: Cow::Borrowed("CPU"),
                     manufacturer: Some("https://www.mellanox.com".into()),
                     model: Some("Mellanox BlueField-3 [A1] A78(D42) 16 Cores r0p1".into()),
                     network_adapters: Some(vec![]),
@@ -88,7 +91,8 @@ impl Bluefield3<'_> {
                     sensors: None,
                 },
                 redfish::chassis::SingleChassisConfig {
-                    id: "Card1".into(),
+                    id: "Card".into(),
+                    chassis_type: Cow::Borrowed("Card"),
                     manufacturer: Some("Nvidia".into()),
                     model: Some("BlueField-3 DPU".into()),
                     network_adapters: Some(vec![]),
