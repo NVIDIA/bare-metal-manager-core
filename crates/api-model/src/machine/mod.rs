@@ -732,12 +732,31 @@ pub struct Machine {
     pub nvlink_info: Option<MachineNvLinkInfo>,
 
     /// Whether the DPF is enabled for this machine
-    pub dpf_enabled: bool,
+    pub dpf: Dpf,
 
     /// Timestamp when manual firmware upgrade was marked as completed
     /// TEMPORARY: Used for workflow where manual upgrades are required before automatic ones
     /// TODO: Remove after upgrade-through-scout is complete
     pub manual_firmware_upgrade_completed: Option<DateTime<Utc>>,
+}
+
+// Dpf status field.
+#[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Dpf {
+    // This field is copied from expected_machines.
+    pub enabled: bool,
+    // If dpf is used for ingestion.
+    pub used_for_ingestion: bool,
+}
+
+impl From<Machine> for ::rpc::forge::dpf_state_response::DpfState {
+    fn from(value: Machine) -> Self {
+        Self {
+            machine_id: value.id.into(),
+            enabled: value.dpf.enabled,
+            used_for_ingestion: value.dpf.used_for_ingestion,
+        }
+    }
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -1308,7 +1327,7 @@ impl NextStateBFBSupport<DpuDiscoveringState> for DpuDiscoveringState {
         // DPF should be given priority over secure boot.
         // DPF does not support Secure boot.
         let is_dpf_based_provisioning_possible =
-            dpf_based_dpu_provisioning_possible(state, dpf_enabled_at_site);
+            dpf_based_dpu_provisioning_possible(state, dpf_enabled_at_site, false);
 
         if !is_dpf_based_provisioning_possible
             && enable_secure_boot
@@ -1336,7 +1355,7 @@ impl NextStateBFBSupport<ReprovisionState> for ReprovisionState {
     ) -> ReprovisionState {
         let bfb_support = bfb_install_support(&state.dpu_snapshots);
         let is_dpf_based_provisioning_possible =
-            dpf_based_dpu_provisioning_possible(state, dpf_enabled_at_site);
+            dpf_based_dpu_provisioning_possible(state, dpf_enabled_at_site, true);
         if is_dpf_based_provisioning_possible {
             ReprovisionState::DpfStates {
                 substate: DpfState::TriggerReprovisioning {
@@ -2765,6 +2784,7 @@ pub enum HardwareHealthReportsConfig {
 pub fn dpf_based_dpu_provisioning_possible(
     state: &ManagedHostStateSnapshot,
     dpf_enabled_at_site: bool,
+    reprovisioing_case: bool,
 ) -> bool {
     // DPF is disabled at site.
     if !dpf_enabled_at_site {
@@ -2772,9 +2792,19 @@ pub fn dpf_based_dpu_provisioning_possible(
     }
 
     // DPF should be enabled for host.
-    if !state.host_snapshot.dpf_enabled {
+    if !state.host_snapshot.dpf.enabled {
         tracing::info!(
             "DPF based DPU provisioning is not possible because DPF is not enabled for the host {}.",
+            state.host_snapshot.id
+        );
+        return false;
+    }
+
+    // if it is reprovisioing case, initial ingestion should be done with dpf to continue
+    // reprovision.
+    if reprovisioing_case && !state.host_snapshot.dpf.used_for_ingestion {
+        tracing::info!(
+            "DPF based DPU reprovisioning is not possible because initial ingestion is not done with DPF - host {}.",
             state.host_snapshot.id
         );
         return false;

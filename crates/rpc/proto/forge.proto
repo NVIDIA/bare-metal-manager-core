@@ -6449,7 +6449,8 @@ message ModifyDPFStateRequest {
 message DPFStateResponse {
   message DPFState {
     common.MachineId machine_id = 1;
-    bool dpf_enabled = 2;
+    bool enabled = 2;
+    bool used_for_ingestion = 3;
   }
   repeated DPFState dpf_states = 1;
 }

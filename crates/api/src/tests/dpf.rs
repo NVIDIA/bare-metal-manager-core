@@ -753,9 +753,13 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
     }
 
     let mut txn = env.db_txn().await;
-    let dpu = mh.dpu().db_machine(&mut txn).await;
 
-    assert!(matches!(dpu.current_state(), ManagedHostState::Ready));
+    assert!(mh.host().db_machine(&mut txn).await.dpf.used_for_ingestion);
+    for i in 0..mh.dpu_ids.len() {
+        let dpu = mh.dpu_n(i).db_machine(&mut txn).await;
+        assert!(dpu.dpf.used_for_ingestion);
+        assert!(matches!(dpu.current_state(), ManagedHostState::Ready));
+    }
 
     let carbide_machines_per_state = env.test_meter.parsed_metrics("carbide_machines_per_state");
 

@@ -77,18 +77,20 @@ pub async fn show(
 
     if response.len() == 1 {
         println!(
-            "DPF state for machine {}: {}",
+            "DPF status for machine {}:",
             response[0].machine_id.unwrap_or_default(),
-            response[0].dpf_enabled
         );
+        println!("\tEnabled            : {}", response[0].enabled);
+        println!("\tUsed For Ingestion : {}", response[0].used_for_ingestion);
     } else {
         let mut table = prettytable::Table::new();
-        table.set_titles(row!["Id", "State",]);
+        table.set_titles(row!["Id", "Enabled", "Used For Ingestion"]);
 
         for dpf_state in response {
             table.add_row(row![
                 dpf_state.machine_id.unwrap_or_default().to_string(),
-                dpf_state.dpf_enabled.to_string(),
+                dpf_state.enabled.to_string(),
+                dpf_state.used_for_ingestion.to_string(),
             ]);
         }
         table.printstd();

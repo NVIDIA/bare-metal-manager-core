@@ -33,7 +33,7 @@ use crate::machine::network::{MachineNetworkStatusObservation, ManagedHostNetwor
 use crate::machine::nvlink::MachineNvLinkStatusObservation;
 use crate::machine::topology::MachineTopology;
 use crate::machine::{
-    FailureDetails, HostReprovisionRequest, Machine, MachineInterfaceSnapshot,
+    Dpf, FailureDetails, HostReprovisionRequest, Machine, MachineInterfaceSnapshot,
     MachineLastRebootRequested, MachineStateHistory, ManagedHostState, ReprovisionRequest,
     UpgradeDecision,
 };
@@ -103,7 +103,7 @@ pub struct MachineSnapshotPgJson {
     pub hw_sku_device_type: Option<String>,
     pub update_complete: bool,
     pub nvlink_info: Option<MachineNvLinkInfo>,
-    pub dpf_enabled: bool,
+    pub dpf: Dpf,
 }
 
 impl TryFrom<MachineSnapshotPgJson> for Machine {
@@ -216,7 +216,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             hw_sku_device_type: value.hw_sku_device_type,
             update_complete: value.update_complete,
             nvlink_info: value.nvlink_info,
-            dpf_enabled: value.dpf_enabled,
+            dpf: value.dpf,
         })
     }
 }
