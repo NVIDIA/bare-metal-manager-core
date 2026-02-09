@@ -89,6 +89,7 @@ struct LogicalPartitionDetail {
     id: String,
     name: String,
     state: String,
+    created: String,
     physical_partitions: Vec<ShowPhysicalPartitionDetail>,
 }
 
@@ -104,6 +105,11 @@ impl From<ShowLogicalPartition> for LogicalPartitionDetail {
             };
             physical_partitions.push(pp);
         }
+        let created = show
+            .partition
+            .created
+            .map(|c| c.to_string())
+            .unwrap_or_default();
         Self {
             id: show.partition.id.map(|i| i.to_string()).unwrap_or_default(),
             name: show
@@ -117,6 +123,7 @@ impl From<ShowLogicalPartition> for LogicalPartitionDetail {
                 .unwrap_or_default()
                 .as_str_name()
                 .to_string(),
+            created,
             physical_partitions,
         }
     }
