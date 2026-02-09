@@ -126,6 +126,7 @@ impl WiwynnGB200Nvl<'_> {
                 serial_number: None,
                 network_adapters,
                 pcie_devices: Some(vec![]),
+                sensors: None,
             }
         };
         redfish::chassis::ChassisConfig {
@@ -138,6 +139,7 @@ impl WiwynnGB200Nvl<'_> {
                     serial_number: None,
                     network_adapters: None,
                     pcie_devices: None,
+                    sensors: None,
                 },
                 dpu_chassis("Riser_Slot1_BlueField_3_Card", &self.dpu1),
                 dpu_chassis("Riser_Slot2_BlueField_3_Card", &self.dpu2),

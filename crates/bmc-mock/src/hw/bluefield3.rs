@@ -45,6 +45,15 @@ pub struct FirmwareVersions {
 }
 
 impl Bluefield3<'_> {
+    fn sensor_layout() -> redfish::sensor::Layout {
+        redfish::sensor::Layout {
+            temperature: 4,
+            fan: 4,
+            power: 3,
+            current: 3,
+        }
+    }
+
     pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         redfish::chassis::ChassisConfig {
             chassis: vec![
@@ -56,6 +65,7 @@ impl Bluefield3<'_> {
                     part_number: Some(Cow::Borrowed(self.part_number())),
                     pcie_devices: Some(vec![]),
                     serial_number: Some(self.product_serial_number.to_string().into()),
+                    sensors: None,
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "Bluefield_ERoT".into(),
@@ -65,6 +75,7 @@ impl Bluefield3<'_> {
                     part_number: None,
                     pcie_devices: None,
                     serial_number: Some("".into()),
+                    sensors: None,
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "CPU_0".into(),
@@ -74,6 +85,7 @@ impl Bluefield3<'_> {
                     part_number: Some(format!("OPN: {}", self.opn()).into()),
                     serial_number: Some("Unspecified Serial Number".into()),
                     pcie_devices: Some(vec![]),
+                    sensors: None,
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "Card1".into(),
@@ -83,6 +95,10 @@ impl Bluefield3<'_> {
                     part_number: Some(self.part_number().into()),
                     pcie_devices: Some(vec![]),
                     serial_number: Some(self.product_serial_number.to_string().into()),
+                    sensors: Some(redfish::sensor::generate_chassis_sensors(
+                        "Card1",
+                        Self::sensor_layout(),
+                    )),
                 },
             ],
         }

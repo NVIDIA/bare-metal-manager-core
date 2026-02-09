@@ -38,6 +38,15 @@ pub struct EmbeddedNic {
 }
 
 impl DellPowerEdgeR750<'_> {
+    fn sensor_layout() -> redfish::sensor::Layout {
+        redfish::sensor::Layout {
+            temperature: 10,
+            fan: 10,
+            power: 20,
+            current: 10,
+        }
+    }
+
     pub fn manager_config(&self) -> redfish::manager::Config {
         redfish::manager::Config {
             managers: vec![redfish::manager::SingleConfig {
@@ -207,6 +216,10 @@ impl DellPowerEdgeR750<'_> {
                 serial_number: Some(self.product_serial_number.to_string().into()),
                 network_adapters: Some(network_adapters),
                 pcie_devices: Some(pcie_devices),
+                sensors: Some(redfish::sensor::generate_chassis_sensors(
+                    chassis_id,
+                    Self::sensor_layout(),
+                )),
             }],
         }
     }
