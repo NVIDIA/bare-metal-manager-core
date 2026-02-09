@@ -49,9 +49,7 @@ pub fn collection() -> redfish::Collection<'static> {
 
 pub fn builder(resource: &redfish::Resource) -> ChassisBuilder {
     ChassisBuilder {
-        value: resource.json_patch().patch(json!({
-            "Links": {},
-        })),
+        value: resource.json_patch(),
     }
 }
 
