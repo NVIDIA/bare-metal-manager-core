@@ -521,7 +521,7 @@ impl BmcEndpointExplorer {
                 })?;
             }
 
-            tracing::info!("Writing bf.cfg to {UNIFIED_PREINGESTION_BFB_PATH}:\n{bf_cfg_contents}");
+            tracing::info!("Writing bf.cfg to {UNIFIED_PREINGESTION_BFB_PATH}");
 
             unified_bfb
                 .write_all(bf_cfg_contents.as_bytes())
