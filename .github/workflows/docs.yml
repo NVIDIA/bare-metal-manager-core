@@ -8,7 +8,6 @@ on:
       - main
       - pull-request/[0-9]+
 
-
   # Allow manual trigger
   workflow_dispatch:
     inputs:
@@ -53,7 +52,47 @@ env:
   RUNNER: ${{ inputs.runner || 'linux-amd64-cpu4' }}
 
 jobs:
+  # Determine if we should build based on branch and changed files
+  check:
+    runs-on: linux-amd64-cpu4
+    outputs:
+      should-build: ${{ steps.evaluate.outputs.should-build }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check changed files
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            book:
+              - 'book/**'
+              - '.github/workflows/docs.yml'
+
+      - name: Evaluate build condition
+        id: evaluate
+        run: |
+          # main: always build
+          # pull-request/*: only build if book files changed
+          # workflow_dispatch/workflow_call: always build
+          if [[ "${{ github.event_name }}" != "push" ]]; then
+            echo "should-build=true" >> $GITHUB_OUTPUT
+            echo "Building: manual or workflow_call trigger"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "should-build=true" >> $GITHUB_OUTPUT
+            echo "Building: main branch (always build)"
+          elif [[ "${{ steps.filter.outputs.book }}" == "true" ]]; then
+            echo "should-build=true" >> $GITHUB_OUTPUT
+            echo "Building: book files changed"
+          else
+            echo "should-build=false" >> $GITHUB_OUTPUT
+            echo "Skipping: no book changes on PR branch"
+          fi
+
   build:
+    needs: check
+    if: needs.check.outputs.should-build == 'true'
     runs-on: ${{ inputs.runner || 'linux-amd64-cpu4' }}
 
     steps:
@@ -110,12 +149,12 @@ jobs:
   # https://github.com/NVIDIA/carbide-core-snapshot/settings/environments
   deploy:
     # Only deploy on push to main (pull-request/* branches only run build to test compilation)
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && needs.build.result == 'success'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ${{ inputs.runner || 'linux-amd64-cpu4' }}
-    needs: build
+    needs: [check, build]
 
     steps:
       - name: Deploy to GitHub Pages
