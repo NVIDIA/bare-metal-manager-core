@@ -162,6 +162,7 @@ impl SiteExplorer {
                 database_connection.clone(),
                 explorer_config.clone(),
                 common_pools,
+                rms_client.clone(),
             ),
             database_connection,
             enabled: explorer_config.enabled,

@@ -68,8 +68,12 @@ async fn test_site_explorer_reject_zero_dpu_hosts(
         switches_created_per_run: 1,
         ..Default::default()
     };
-    let machine_creator =
-        MachineCreator::new(env.pool.clone(), explorer_config, env.common_pools.clone());
+    let machine_creator = MachineCreator::new(
+        env.pool.clone(),
+        explorer_config,
+        env.common_pools.clone(),
+        None,
+    );
 
     let host_bmc_mac = MacAddress::from_str("a0:88:c2:08:81:98")?;
     let response = env
@@ -146,8 +150,12 @@ async fn test_site_explorer_creates_managed_host(
         ..Default::default()
     };
 
-    let machine_creator =
-        MachineCreator::new(env.pool.clone(), explorer_config, env.common_pools.clone());
+    let machine_creator = MachineCreator::new(
+        env.pool.clone(),
+        explorer_config,
+        env.common_pools.clone(),
+        None,
+    );
 
     let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
     let response = env
@@ -562,8 +570,12 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         ..Default::default()
     };
 
-    let machine_creator =
-        MachineCreator::new(env.pool.clone(), explorer_config, env.common_pools.clone());
+    let machine_creator = MachineCreator::new(
+        env.pool.clone(),
+        explorer_config,
+        env.common_pools.clone(),
+        None,
+    );
     let mut txn = env.pool.begin().await.unwrap();
     const NUM_DPUS: usize = 2;
     let initial_loopback_pool_stats =
@@ -903,8 +915,12 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
         ..Default::default()
     };
 
-    let machine_creator =
-        MachineCreator::new(env.pool.clone(), explorer_config, env.common_pools.clone());
+    let machine_creator = MachineCreator::new(
+        env.pool.clone(),
+        explorer_config,
+        env.common_pools.clone(),
+        None,
+    );
 
     // Machine interface should not have any machine id associated with it right now.
     let mut txn = env.pool.begin().await?;
@@ -1002,8 +1018,12 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
         ..Default::default()
     };
 
-    let machine_creator =
-        MachineCreator::new(env.pool.clone(), explorer_config, env.common_pools.clone());
+    let machine_creator = MachineCreator::new(
+        env.pool.clone(),
+        explorer_config,
+        env.common_pools.clone(),
+        None,
+    );
 
     // No way to find a machine_interface using machine id as machine id is not yet associated with
     // interface (right now no machine interface is created yet).
@@ -1106,8 +1126,12 @@ async fn test_site_explorer_creates_managed_host_with_dpf_disable(
         ..Default::default()
     };
 
-    let machine_creator =
-        MachineCreator::new(env.pool.clone(), explorer_config, env.common_pools.clone());
+    let machine_creator = MachineCreator::new(
+        env.pool.clone(),
+        explorer_config,
+        env.common_pools.clone(),
+        None,
+    );
 
     let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
     let response = env
@@ -1244,8 +1268,12 @@ async fn test_site_explorer_creates_managed_host_with_dpf_enabled(
         ..Default::default()
     };
 
-    let machine_creator =
-        MachineCreator::new(env.pool.clone(), explorer_config, env.common_pools.clone());
+    let machine_creator = MachineCreator::new(
+        env.pool.clone(),
+        explorer_config,
+        env.common_pools.clone(),
+        None,
+    );
 
     let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
     let response = env

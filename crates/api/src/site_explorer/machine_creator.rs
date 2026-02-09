@@ -36,10 +36,11 @@ use model::resource_pool::common::CommonPools;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
 use sqlx::{PgConnection, PgPool};
 
-use crate::site_explorer::SiteExplorerConfig;
+use crate::rack::rms_client::{RmsApi, RmsNodeType};
 use crate::site_explorer::explored_endpoint_index::ExploredEndpointIndex;
 use crate::site_explorer::managed_host::ManagedHost;
 use crate::site_explorer::metrics::SiteExplorationMetrics;
+use crate::site_explorer::{SiteExplorerConfig, rms};
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
 use crate::{CarbideError, CarbideResult};
 
@@ -47,6 +48,7 @@ pub struct MachineCreator {
     database_connection: PgPool,
     config: SiteExplorerConfig,
     common_pools: Arc<CommonPools>,
+    rms_client: Option<Arc<dyn RmsApi>>,
 }
 
 impl MachineCreator {
@@ -54,11 +56,13 @@ impl MachineCreator {
         database_connection: PgPool,
         config: SiteExplorerConfig,
         common_pools: Arc<CommonPools>,
+        rms_client: Option<Arc<dyn RmsApi>>,
     ) -> Self {
         Self {
             database_connection,
             config,
             common_pools,
+            rms_client,
         }
     }
 
@@ -197,10 +201,48 @@ impl MachineCreator {
 
         txn.commit().await?;
 
+        // And finally, if a rack_id is set for the expected machine,
+        // and an RMS client is available, register the managed host
+        // with Rack Manager.
+        if let Some(rms_client) = &self.rms_client {
+            if let Some(expected) = expected_machine
+                && let Some(rack_id) = expected.data.rack_id
+            {
+                if let Err(e) = rms::add_node_to_rms(
+                    rms_client.as_ref(),
+                    rack_id,
+                    host_machine_id.to_string(),
+                    explored_host.host_bmc_ip.to_string(),
+                    443,
+                    expected.bmc_mac_address,
+                    RmsNodeType::Compute,
+                )
+                .await
+                {
+                    tracing::warn!(
+                        "Failed to add managed host {} to Rack Manager: {}",
+                        host_machine_id,
+                        e
+                    );
+                } else {
+                    tracing::info!(
+                        "Added managed host {} to Rack Manager for endpoint {}",
+                        host_machine_id,
+                        explored_host.host_bmc_ip,
+                    );
+                }
+            } else {
+                tracing::warn!(
+                    "Cannot add managed host {} to Rack Manager: rack_id is missing",
+                    host_machine_id
+                );
+            }
+        }
+
         Ok(true)
     }
 
-    // Returns MachineId if machene was created.
+    // Returns MachineId if machine was created.
     async fn create_zero_dpu_machine(
         &self,
         txn: &mut PgConnection,
