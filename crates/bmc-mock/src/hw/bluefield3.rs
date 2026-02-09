@@ -80,7 +80,7 @@ impl Bluefield3<'_> {
                     sensors: None,
                 },
                 redfish::chassis::SingleChassisConfig {
-                    id: "CPU".into(),
+                    id: "CPU_0".into(),
                     chassis_type: Cow::Borrowed("CPU"),
                     manufacturer: Some("https://www.mellanox.com".into()),
                     model: Some("Mellanox BlueField-3 [A1] A78(D42) 16 Cores r0p1".into()),
@@ -91,7 +91,7 @@ impl Bluefield3<'_> {
                     sensors: None,
                 },
                 redfish::chassis::SingleChassisConfig {
-                    id: "Card".into(),
+                    id: "Card1".into(),
                     chassis_type: Cow::Borrowed("Card"),
                     manufacturer: Some("Nvidia".into()),
                     model: Some("BlueField-3 DPU".into()),
