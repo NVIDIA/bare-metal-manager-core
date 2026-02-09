@@ -267,6 +267,7 @@ impl BmcClient {
                     tracing::warn!(
                         %machine_id,
                         error = error_string,
+                        ?connection_time,
                         "connection to BMC closed, will retry in {}s",
                         next_retry.checked_duration_since(Instant::now()).unwrap_or_default().as_secs(),
                     );

@@ -71,7 +71,9 @@ pub async fn spawn(
         .await
         .map_err(|error| SpawnError::OpeningSession { error })?;
 
+    tracing::info!(%machine_id, "BMC SSH connection has established");
     trigger_and_await_sol_console(machine_id, &mut ssh_client_channel, bmc_vendor).await?;
+    tracing::info!(%machine_id, "SOL console setup completed");
 
     let mut output_ringbuf: LocalRb<Array<u8, 1024>> = ringbuf::LocalRb::default();
     let bmc_prompt = bmc_vendor.bmc_prompt();
