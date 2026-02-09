@@ -658,35 +658,105 @@ impl RmsApi for RackManagerApi {
 #[cfg(test)]
 pub mod test_support {
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use tokio::sync::Mutex;
 
     use super::*;
 
     /// RMS simulation for testing, similar to RedfishSim
-    #[derive(Default)]
-    pub struct RmsSim;
+    pub struct RmsSim {
+        fail_add_node: Arc<AtomicBool>,
+        fail_inventory_get: Arc<AtomicBool>,
+        registered_nodes: Arc<Mutex<Vec<rpc::protos::rack_manager::NodeInventoryInfo>>>,
+    }
+
+    impl Default for RmsSim {
+        fn default() -> Self {
+            Self {
+                fail_add_node: Arc::new(AtomicBool::new(false)),
+                fail_inventory_get: Arc::new(AtomicBool::new(false)),
+                registered_nodes: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+    }
 
     impl RmsSim {
         /// Convert RmsSim to the type expected by Api and StateHandlerServices
         pub fn as_rms_client(&self) -> Option<Arc<dyn RmsApi>> {
-            Some(Arc::new(MockRmsClient))
+            Some(Arc::new(MockRmsClient {
+                fail_add_node: self.fail_add_node.clone(),
+                fail_inventory_get: self.fail_inventory_get.clone(),
+                registered_nodes: self.registered_nodes.clone(),
+            }))
+        }
+
+        /// Set whether `add_node` should return an error for testing
+        /// if registration attempts are failing (and should retry).
+        pub fn set_fail_add_node(&self, fail: bool) {
+            self.fail_add_node.store(fail, Ordering::Relaxed);
+        }
+
+        /// Set whether `inventory_get` should return an error for
+        /// testing things like whether RMS membership verification
+        /// should retry, or going back to re-registration (or moving
+        /// forward thanks to successful registration verification).
+        pub fn set_fail_inventory_get(&self, fail: bool) {
+            self.fail_inventory_get.store(fail, Ordering::Relaxed);
         }
     }
 
-    #[derive(Debug, Default, Clone)]
-    pub struct MockRmsClient;
+    #[derive(Debug, Clone)]
+    pub struct MockRmsClient {
+        fail_add_node: Arc<AtomicBool>,
+        fail_inventory_get: Arc<AtomicBool>,
+        registered_nodes: Arc<Mutex<Vec<rpc::protos::rack_manager::NodeInventoryInfo>>>,
+    }
 
     #[async_trait::async_trait]
     impl RmsApi for MockRmsClient {
         async fn inventory_get(
             &self,
         ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError> {
-            Ok(rpc::protos::rack_manager::InventoryResponse::default())
+            if self.fail_inventory_get.load(Ordering::Relaxed) {
+                return Err(RackManagerError::ApiInvocationError(
+                    tonic::Status::unavailable("mock RMS inventory_get failure"),
+                ));
+            }
+            let nodes = self.registered_nodes.lock().await.clone();
+            Ok(rpc::protos::rack_manager::InventoryResponse {
+                response: Some(
+                    rpc::protos::rack_manager::inventory_response::Response::GetInventory(
+                        rpc::protos::rack_manager::GetInventoryResponse { nodes },
+                    ),
+                ),
+                ..Default::default()
+            })
         }
 
         async fn add_node(
             &self,
-            _new_nodes: Vec<NewNodeInfo>,
+            new_nodes: Vec<NewNodeInfo>,
         ) -> Result<rpc::protos::rack_manager::InventoryResponse, RackManagerError> {
+            if self.fail_add_node.load(Ordering::Relaxed) {
+                return Err(RackManagerError::ApiInvocationError(
+                    tonic::Status::unavailable("mock RMS add_node failure"),
+                ));
+            }
+            // Track registered nodes so inventory_get can find them,
+            // just like a real RMS would.
+            let mut registered = self.registered_nodes.lock().await;
+            for node in &new_nodes {
+                registered.push(rpc::protos::rack_manager::NodeInventoryInfo {
+                    node_id: node.node_id.clone(),
+                    ip_address: node.ip_address.clone(),
+                    port: node.port,
+                    mac_address: node.mac_address.clone(),
+                    rack_id: node.rack_id.clone(),
+                    r#type: node.r#type.unwrap_or(0),
+                    ..Default::default()
+                });
+            }
             Ok(rpc::protos::rack_manager::InventoryResponse::default())
         }
 

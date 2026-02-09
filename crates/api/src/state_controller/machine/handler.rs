@@ -62,8 +62,8 @@ use model::machine::infiniband::{IbConfigNotSyncedReason, ib_config_synced};
 use model::machine::nvlink::nvlink_config_synced;
 use model::machine::{
     BomValidating, BomValidatingContext, CleanupState, CreateBossVolumeContext,
-    CreateBossVolumeState, DpuDiscoveringState, DpuInitNextStateResolver, DpuInitState,
-    FailureCause, FailureDetails, FailureSource, HostPlatformConfigurationState,
+    CreateBossVolumeState, DpuDiscoveringState, DpuDiscoveringStates, DpuInitNextStateResolver,
+    DpuInitState, FailureCause, FailureDetails, FailureSource, HostPlatformConfigurationState,
     HostReprovisionState, InitialResetPhase, InstallDpuOsState, InstanceNextStateResolver,
     InstanceState, LockdownInfo, LockdownState, Machine, MachineLastRebootRequested,
     MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState, ManagedHostState,
@@ -89,9 +89,11 @@ use crate::cfg::file::{
     PowerManagerOptions, TimePeriod,
 };
 use crate::firmware_downloader::FirmwareDownloader;
+use crate::rack::rms_client::{RackManagerError, RmsNodeType};
 use crate::redfish::{
     self, host_power_control, host_power_control_with_location, set_host_uefi_password,
 };
+use crate::site_explorer::rms;
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::{
@@ -693,6 +695,186 @@ impl MachineStateHandler {
         }
 
         match &mh_state {
+            ManagedHostState::VerifyRmsMembership => {
+                let dpu_ids = mh_snapshot.host_snapshot.associated_dpu_machine_ids();
+                let next_state = ManagedHostState::DpuDiscoveringState {
+                    dpu_states: DpuDiscoveringStates {
+                        states: dpu_ids
+                            .into_iter()
+                            .map(|id| (id, DpuDiscoveringState::Initializing))
+                            .collect(),
+                    },
+                };
+
+                let Some(rms_client) = &ctx.services.rms_client else {
+                    tracing::debug!(
+                        machine_id = %host_machine_id,
+                        "No RMS client configured, skipping RMS verification"
+                    );
+                    return Ok(StateHandlerOutcome::transition(next_state));
+                };
+
+                // If there's no rack_id, this machine isn't rack-managed,
+                // so skip RMS verification entirely.
+                let expected_machine =
+                    if let Some(bmc_mac) = mh_snapshot.host_snapshot.bmc_info.mac {
+                        db::expected_machine::find_by_bmc_mac_address(txn, bmc_mac).await?
+                    } else {
+                        None
+                    };
+
+                let rack_id = expected_machine.as_ref().and_then(|em| em.data.rack_id);
+                if rack_id.is_none() {
+                    tracing::debug!(
+                        machine_id = %host_machine_id,
+                        "No rack_id configured for machine, skipping RMS verification"
+                    );
+                    return Ok(StateHandlerOutcome::transition(next_state));
+                }
+
+                let node_id_str = host_machine_id.to_string();
+
+                match rms_client.inventory_get().await {
+                    Ok(response) => {
+                        let node_found = response
+                            .response
+                            .as_ref()
+                            .is_some_and(|r| {
+                                if let rpc::protos::rack_manager::inventory_response::Response::GetInventory(inv) = r {
+                                    inv.nodes.iter().any(|n| n.node_id == node_id_str)
+                                } else {
+                                    false
+                                }
+                            });
+
+                        if node_found {
+                            tracing::info!(
+                                machine_id = %host_machine_id,
+                                "Verified machine is registered with RMS, skipping registration"
+                            );
+                            Ok(StateHandlerOutcome::transition(next_state))
+                        } else {
+                            tracing::info!(
+                                machine_id = %host_machine_id,
+                                "Machine not found in RMS inventory, registering"
+                            );
+                            Ok(StateHandlerOutcome::transition(
+                                ManagedHostState::RegisterRmsMembership,
+                            ))
+                        }
+                    }
+                    Err(e) => {
+                        // NotFound means the node definitely isn't registered —
+                        // move on to registration. Any other error (connectivity,
+                        // internal, etc.) means we should retry verification.
+                        let is_not_found = matches!(
+                            &e,
+                            RackManagerError::ApiInvocationError(status)
+                                if status.code() == tonic::Code::NotFound
+                        );
+
+                        if is_not_found {
+                            tracing::warn!(
+                                machine_id = %host_machine_id,
+                                "RMS returned NotFound during verification, registering"
+                            );
+                            Ok(StateHandlerOutcome::transition(
+                                ManagedHostState::RegisterRmsMembership,
+                            ))
+                        } else {
+                            tracing::warn!(
+                                machine_id = %host_machine_id,
+                                "Failed to verify RMS membership: {e}, will retry"
+                            );
+                            Ok(StateHandlerOutcome::wait(
+                                "Waiting to retry RMS verification".to_string(),
+                            ))
+                        }
+                    }
+                }
+            }
+
+            ManagedHostState::RegisterRmsMembership => {
+                let dpu_ids = mh_snapshot.host_snapshot.associated_dpu_machine_ids();
+                let next_state = ManagedHostState::DpuDiscoveringState {
+                    dpu_states: DpuDiscoveringStates {
+                        states: dpu_ids
+                            .into_iter()
+                            .map(|id| (id, DpuDiscoveringState::Initializing))
+                            .collect(),
+                    },
+                };
+
+                // We only reach RegisterRmsMembership via VerifyRmsMembership,
+                // which already confirmed rms_client and rack_id exist. But
+                // guard defensively in case this state is entered directly
+                // (e.g. after a restart with persisted state).
+                let Some(rms_client) = &ctx.services.rms_client else {
+                    tracing::debug!(
+                        machine_id = %host_machine_id,
+                        "No RMS client configured, skipping RMS registration"
+                    );
+                    return Ok(StateHandlerOutcome::transition(next_state));
+                };
+
+                let bmc_mac = mh_snapshot.host_snapshot.bmc_info.mac;
+
+                let expected_machine = if let Some(mac) = bmc_mac {
+                    db::expected_machine::find_by_bmc_mac_address(txn, mac).await?
+                } else {
+                    None
+                };
+
+                let rack_id = expected_machine.as_ref().and_then(|em| em.data.rack_id);
+                let Some(rack_id) = rack_id else {
+                    tracing::debug!(
+                        machine_id = %host_machine_id,
+                        "No rack_id configured for machine, skipping RMS registration"
+                    );
+                    return Ok(StateHandlerOutcome::transition(next_state));
+                };
+
+                let bmc_ip = mh_snapshot
+                    .host_snapshot
+                    .bmc_info
+                    .ip
+                    .clone()
+                    .unwrap_or_default();
+
+                match rms::add_node_to_rms(
+                    rms_client.as_ref(),
+                    rack_id,
+                    host_machine_id.to_string(),
+                    bmc_ip,
+                    443,
+                    bmc_mac.unwrap_or_default(),
+                    RmsNodeType::Compute,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        tracing::info!(
+                            machine_id = %host_machine_id,
+                            "Successfully registered machine with RMS"
+                        );
+                        // NOTE: We could also transition back to VerifyRmsMembership
+                        // here to confirm the registration took effect. For now, we
+                        // trust that a successful add_node means we're registered
+                        // and move forward.
+                        Ok(StateHandlerOutcome::transition(next_state))
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            machine_id = %host_machine_id,
+                            "Failed to register machine with RMS: {e}, will retry"
+                        );
+                        Ok(StateHandlerOutcome::wait(
+                            "Waiting to retry RMS registration".to_string(),
+                        ))
+                    }
+                }
+            }
+
             ManagedHostState::DpuDiscoveringState { .. } => {
                 if mh_snapshot
                     .host_snapshot

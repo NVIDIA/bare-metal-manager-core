@@ -68,7 +68,7 @@ mod metrics;
 pub use metrics::SiteExplorationMetrics;
 mod bmc_endpoint_explorer;
 mod redfish;
-mod rms;
+pub mod rms;
 pub use bmc_endpoint_explorer::BmcEndpointExplorer;
 mod boot_order_tracker;
 use boot_order_tracker::BootOrderTracker;
@@ -162,6 +162,7 @@ impl SiteExplorer {
                 database_connection.clone(),
                 explorer_config.clone(),
                 common_pools,
+                rms_client.clone(),
             ),
             database_connection,
             enabled: explorer_config.enabled,
