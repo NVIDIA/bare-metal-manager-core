@@ -17,9 +17,12 @@
 
 // src/client/options.rs
 // Configuration options for the Mqttea client.
+use std::sync::Arc;
+
 use rumqttc::QoS;
 use tokio::time::Duration;
 
+use crate::auth::{CredentialsProvider, StaticCredentials};
 use crate::registry::types::PublishOptions;
 
 // ClientOptions are optional parameters that can be
@@ -53,10 +56,9 @@ pub struct ClientOptions {
     // any time it encounters a topic pattern without a handler match.
     // Defaults to TRUE.
     pub warn_on_unmatched_topic: Option<bool>,
-    // credentials are optional username/password credentials
-    // that can be provided to the MQTT server for authnz. This
-    // can be used with or without a tls_config.
-    pub credentials: Option<ClientCredentials>,
+    // credentials_provider is an optional pluggable credentials provider
+    // that can dynamically fetch credentials (e.g., OAuth2 tokens).
+    pub credentials_provider: Option<Arc<dyn CredentialsProvider>>,
     // tls_config is an optional ClientTlsConfig to provide
     // for using TLS, and optionally, mTLS. This can be used
     // with or without credentials.
@@ -101,6 +103,27 @@ impl ClientOptions {
 
     pub fn with_max_concurrency(mut self, max_concurrency: usize) -> Self {
         self.max_concurrency = Some(max_concurrency);
+        self
+    }
+
+    /// Set a credentials provider for dynamic credential fetching.
+    ///
+    /// Use this for OAuth2 or other token-based authentication where
+    /// credentials need to be refreshed.
+    pub fn with_credentials_provider(mut self, provider: Arc<dyn CredentialsProvider>) -> Self {
+        self.credentials_provider = Some(provider);
+        self
+    }
+
+    /// Set static credentials for authentication.
+    ///
+    /// Creates a provider from the given credentials and sets it as the credentials provider.
+    /// The provider will be used on reconnection as well.
+    pub fn with_credentials(mut self, credentials: ClientCredentials) -> Self {
+        // CredentialsProvider trait is implemented by StaticCredentials.
+        let provider =
+            StaticCredentials::new(credentials.username.clone(), credentials.password.clone());
+        self.credentials_provider = Some(Arc::new(provider));
         self
     }
 }

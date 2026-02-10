@@ -45,44 +45,64 @@ pub struct FirmwareVersions {
 }
 
 impl Bluefield3<'_> {
+    fn sensor_layout() -> redfish::sensor::Layout {
+        redfish::sensor::Layout {
+            temperature: 4,
+            fan: 4,
+            power: 3,
+            current: 3,
+        }
+    }
+
     pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         redfish::chassis::ChassisConfig {
             chassis: vec![
                 redfish::chassis::SingleChassisConfig {
                     id: "Bluefield_BMC".into(),
+                    chassis_type: "Component".into(),
                     manufacturer: Some("Nvidia".into()),
                     model: Some("BlueField-3 DPU".into()),
                     network_adapters: Some(vec![]),
                     part_number: Some(Cow::Borrowed(self.part_number())),
                     pcie_devices: Some(vec![]),
                     serial_number: Some(self.product_serial_number.to_string().into()),
+                    sensors: None,
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "Bluefield_ERoT".into(),
+                    chassis_type: "Component".into(),
                     manufacturer: Some(Cow::Borrowed("NVIDIA")),
                     model: None,
                     network_adapters: None,
                     part_number: None,
                     pcie_devices: None,
                     serial_number: Some("".into()),
+                    sensors: None,
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "CPU_0".into(),
+                    chassis_type: "CPU".into(),
                     manufacturer: Some("https://www.mellanox.com".into()),
                     model: Some("Mellanox BlueField-3 [A1] A78(D42) 16 Cores r0p1".into()),
                     network_adapters: Some(vec![]),
                     part_number: Some(format!("OPN: {}", self.opn()).into()),
                     serial_number: Some("Unspecified Serial Number".into()),
                     pcie_devices: Some(vec![]),
+                    sensors: None,
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "Card1".into(),
+                    chassis_type: "Card".into(),
                     manufacturer: Some("Nvidia".into()),
                     model: Some("BlueField-3 DPU".into()),
                     network_adapters: Some(vec![]),
                     part_number: Some(self.part_number().into()),
                     pcie_devices: Some(vec![]),
                     serial_number: Some(self.product_serial_number.to_string().into()),
+                    sensors: Some(redfish::sensor::generate_chassis_sensors(
+                        "Card1",
+                        Self::sensor_layout(),
+                    )),
                 },
             ],
         }

@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Create a bug report to help us improve Carbide
+about: Create a bug report to help us improve NVIDIA Bare Metal Manager
 title: "[BUG]"
 labels: "? - Needs Triage, bug"
 assignees: ''
@@ -18,10 +18,10 @@ A clear and concise description of what you expected to happen.
 
 **Environment details (please complete the following information):**
  - Environment location: [Bare-metal, Docker, Kubernetes]
- - Method of Carbide install: [source]
+ - Method of NVIDIA Bare Metal Manager install: [source]
 
 **Additional context**
 Add any other context about the problem here.
 
 -----
-By submitting this issue, you agree to follow our [code of conduct](https://github.com/NVIDIA/carbide-core/blob/main/CODE_OF_CONDUCT.md) and our [contributing guidelines](https://github.com/NVIDIA/carbide-core/blob/main/CONTRIBUTING.md).
+By submitting this issue, you agree to follow our [code of conduct](https://github.com/NVIDIA/bare-metal-manager-core/blob/main/CODE_OF_CONDUCT.md) and our [contributing guidelines](https://github.com/NVIDIA/bare-metal-manager-core/blob/main/CONTRIBUTING.md).

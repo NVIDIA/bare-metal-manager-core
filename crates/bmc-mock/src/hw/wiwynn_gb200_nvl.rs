@@ -120,24 +120,28 @@ impl WiwynnGB200Nvl<'_> {
 
             redfish::chassis::SingleChassisConfig {
                 id: chassis_id.into(),
+                chassis_type: "Card".into(),
                 manufacturer: nic.manufacturer,
                 part_number: nic.part_number,
                 model: Some("GB200 NVL".into()),
                 serial_number: None,
                 network_adapters,
                 pcie_devices: Some(vec![]),
+                sensors: None,
             }
         };
         redfish::chassis::ChassisConfig {
             chassis: vec![
                 redfish::chassis::SingleChassisConfig {
                     id: "Chassis_0".into(),
+                    chassis_type: "RackMount".into(),
                     manufacturer: Some("NVIDIA".into()),
                     part_number: Some("B81.11810.000D".into()),
                     model: Some("GB200 NVL".into()),
                     serial_number: None,
                     network_adapters: None,
                     pcie_devices: None,
+                    sensors: None,
                 },
                 dpu_chassis("Riser_Slot1_BlueField_3_Card", &self.dpu1),
                 dpu_chassis("Riser_Slot2_BlueField_3_Card", &self.dpu2),

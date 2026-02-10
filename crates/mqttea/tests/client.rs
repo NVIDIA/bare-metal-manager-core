@@ -84,6 +84,7 @@ async fn create_test_client() -> Result<Arc<MqtteaClient>, MqtteaClientError> {
         "test-cat-client",
         Some(ClientOptions::default().with_qos(QoS::AtMostOnce)),
     )
+    .await
 }
 
 // Handler for tracking received messages in tests
@@ -147,7 +148,8 @@ async fn test_client_creation_with_custom_qos() {
         1883,
         "test-hamster-client",
         Some(ClientOptions::default().with_qos(QoS::AtMostOnce)),
-    );
+    )
+    .await;
     assert!(
         client.is_ok(),
         "Client creation with custom QoS should succeed"

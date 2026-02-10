@@ -81,6 +81,9 @@ pub enum MqtteaClientError {
     // been called on the client.
     #[error("Already started error: connect() has already been called on the client")]
     AlreadyStartedError,
+    // CredentialsError occurs when fetching credentials from a provider fails.
+    #[error("Credentials provider error: {0}")]
+    CredentialsError(String),
 }
 
 // Convenience implementations for creating common error types.
@@ -113,6 +116,11 @@ impl MqtteaClientError {
     // Create a PatternCompilationError.
     pub fn pattern_compilation_error(message: impl Into<String>) -> Self {
         Self::PatternCompilationError(message.into())
+    }
+
+    // Create a CredentialsError.
+    pub fn credentials_error(message: impl Into<String>) -> Self {
+        Self::CredentialsError(message.into())
     }
 
     // Check if this error is related to network connectivity.

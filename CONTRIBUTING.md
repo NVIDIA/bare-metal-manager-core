@@ -1,6 +1,6 @@
-# Contributing to Carbide
+# Contributing to NVIDIA Bare Metal Manager
 
-Thank you for your interest in contributing to Carbide! We welcome contributions from the community.
+Thank you for your interest in contributing to NVIDIA Bare Metal Manager! We welcome contributions from the community.
 
 ## Table of Contents
 
@@ -11,7 +11,7 @@ Thank you for your interest in contributing to Carbide! We welcome contributions
 
 ## Developer Certificate of Origin (DCO)
 
-Carbide requires the Developer Certificate of Origin (DCO) process to be followed for all contributions.
+NVIDIA Bare Metal Manager requires the Developer Certificate of Origin (DCO) process to be followed for all contributions.
 
 The DCO is a lightweight way for contributors to certify that they wrote or otherwise have the right to submit the code they are contributing. The full text of the DCO can be found at [developercertificate.org](https://developercertificate.org/):
 
@@ -100,19 +100,19 @@ All pull requests are automatically checked for DCO complianc via DCO bot. Pull 
 
 ## Fork and Setup
 
-Developers must first fork the upstream [Carbide repository](https://github.com/NVIDIA/carbide-core).
+Developers must first fork the upstream [NVIDIA Bare Metal Manager repository](https://github.com/NVIDIA/bare-metal-manager-core).
 
 ### 1. Fork the Repository
 
-1. Navigate to the [Carbide repository](https://github.com/NVIDIA/carbide-core) on GitHub.
+1. Navigate to the [NVIDIA Bare Metal Manager repository](https://github.com/NVIDIA/bare-metal-manager-core) on GitHub.
 2. Click the **Fork** button in the upper right corner.
 3. Select your GitHub account as the destination.
 
 ### 2. Clone Your Fork
 
 ```bash
-git clone https://github.com/<your-username>/carbide-core.git
-cd carbide-core
+git clone https://github.com/<your-username>/metal-manager.git
+cd metal-manager
 ```
 
 ### 3. Add Upstream Remote
@@ -120,7 +120,7 @@ cd carbide-core
 Add the original repository as an upstream remote to keep your fork in sync:
 
 ```bash
-git remote add upstream https://github.com/NVIDIA/carbide-core.git
+git remote add upstream https://github.com/NVIDIA/metal-manager.git
 git remote -v  # Verify remotes
 ```
 

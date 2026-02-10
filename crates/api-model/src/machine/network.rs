@@ -106,9 +106,9 @@ impl MachineNetworkStatusObservation {
                         "forge-dpu-agent".to_string(),
                         self.machine_id.to_string(),
                         format!(
-                            "Agent version is {}, which is out of date for {}",
+                            "Agent version is {}, which is out of date since {}",
                             agent_version,
-                            config_version::format_duration(staleness),
+                            superseded_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
                         ),
                         prevent_allocations,
                     ))

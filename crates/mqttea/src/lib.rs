@@ -18,6 +18,7 @@
 // src/lib.rs
 // Main exports for the mqttea MQTT client library.
 
+pub mod auth;
 pub mod client;
 pub mod errors;
 pub mod message_types;
@@ -26,6 +27,11 @@ pub mod stats;
 pub mod traits;
 
 // Export some things for convenience.
+// Re-export auth types for convenience.
+pub use auth::{
+    CredentialsProvider, OAuth2Config, OAuth2TokenProvider, StaticCredentials,
+    TokenCredentialsProvider, TokenProvider,
+};
 pub use client::{MqtteaClient, TopicPatterns};
 pub use errors::MqtteaClientError;
 pub use message_types::RawMessage;

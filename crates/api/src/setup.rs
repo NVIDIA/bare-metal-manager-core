@@ -586,7 +586,8 @@ pub async fn initialize_and_start_controllers(
                 "carbide-dsx-exchange-event-bus",
                 Some(mqttea::client::ClientOptions::default().with_qos(mqttea::QoS::AtMostOnce)),
             )
-            .map_err(|e| eyre::eyre!("Failed to create DSX Exchange Event Bus MQTT client: {e}"))?;
+            .map_err(|e| eyre::eyre!("Failed to create DSX Exchange Event Bus MQTT client: {e}"))
+            .await?;
 
             client.connect().await.map_err(|e| {
                 eyre::eyre!("Failed to connect DSX Exchange Event Bus MQTT client: {e}")

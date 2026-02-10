@@ -1,6 +1,6 @@
 [book]
-title = "Carbide Documentation"
-authors = ["Carbide Development Team <carbide-dev@exchange.nvidia.com>"]
+title = "NVIDIA Bare Metal Manager Documentation"
+authors = ["NVIDIA Bare Metal Manager Development Team <carbide-dev@exchange.nvidia.com>"]
 
 [rust]
 edition = "2021"

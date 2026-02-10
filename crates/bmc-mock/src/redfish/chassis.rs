@@ -58,6 +58,7 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     const NET_ADAPTER_ID: &str = "{network_adapter_id}";
     const NET_FUNC_ID: &str = "{function_id}";
     const PCIE_DEVICE_ID: &str = "{pcie_device_id}";
+    const SENSOR_ID: &str = "{sensor_id}";
     r.route(&collection().odata_id, get(get_chassis_collection))
         .route(&resource(CHASSIS_ID).odata_id, get(get_chassis))
         .route(
@@ -90,6 +91,14 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
             &redfish::pcie_device::chassis_resource(CHASSIS_ID, PCIE_DEVICE_ID).odata_id,
             get(get_pcie_device),
         )
+        .route(
+            &redfish::sensor::chassis_collection(CHASSIS_ID).odata_id,
+            get(get_chassis_sensors),
+        )
+        .route(
+            &redfish::sensor::chassis_resource(CHASSIS_ID, SENSOR_ID).odata_id,
+            get(get_chassis_sensor),
+        )
 }
 
 pub struct SingleChassisConfig {
@@ -100,6 +109,8 @@ pub struct SingleChassisConfig {
     pub part_number: Option<Cow<'static, str>>,
     pub network_adapters: Option<Vec<redfish::network_adapter::NetworkAdapter>>,
     pub pcie_devices: Option<Vec<redfish::pcie_device::PCIeDevice>>,
+    pub sensors: Option<Vec<redfish::sensor::Sensor>>,
+    pub chassis_type: Cow<'static, str>,
 }
 
 pub struct ChassisConfig {
@@ -158,6 +169,13 @@ impl SingleChassisState {
             .as_ref()
             .and_then(|devs| devs.iter().find(|v| v.id == id))
     }
+
+    fn find_sensor(&self, id: &str) -> Option<&redfish::sensor::Sensor> {
+        self.config
+            .sensors
+            .as_ref()
+            .and_then(|sensors| sensors.iter().find(|sensor| sensor.id.as_ref() == id))
+    }
 }
 
 async fn get_chassis_collection(State(state): State<BmcState>) -> Response {
@@ -176,6 +194,8 @@ async fn get_chassis(State(state): State<BmcState>, Path(chassis_id): Path<Strin
     };
     let config = &chassis_state.config;
     let b = builder(&resource(&chassis_id));
+    let b = b.chassis_type(&config.chassis_type);
+
     let b = if config.pcie_devices.is_some() {
         b.pcie_devices(redfish::pcie_device::chassis_collection(&chassis_id))
     } else {
@@ -183,6 +203,11 @@ async fn get_chassis(State(state): State<BmcState>, Path(chassis_id): Path<Strin
     };
     let b = if config.network_adapters.is_some() {
         b.network_adapters(redfish::network_adapter::chassis_collection(&chassis_id))
+    } else {
+        b
+    };
+    let b = if config.sensors.is_some() {
+        b.sensors(redfish::sensor::chassis_collection(&chassis_id))
     } else {
         b
     };
@@ -317,6 +342,42 @@ async fn get_chassis_pcie_devices(
         .unwrap_or_else(http::not_found)
 }
 
+async fn get_chassis_sensors(
+    State(state): State<BmcState>,
+    Path(chassis_id): Path<String>,
+) -> Response {
+    state
+        .chassis_state
+        .find(&chassis_id)
+        .and_then(|chassis_state| chassis_state.config.sensors.as_ref())
+        .map(|sensors| {
+            sensors
+                .iter()
+                .map(|sensor| {
+                    redfish::sensor::chassis_resource(&chassis_id, &sensor.id).entity_ref()
+                })
+                .collect::<Vec<_>>()
+        })
+        .map(|members| {
+            redfish::sensor::chassis_collection(&chassis_id)
+                .with_members(&members)
+                .into_ok_response()
+        })
+        .unwrap_or_else(http::not_found)
+}
+
+async fn get_chassis_sensor(
+    State(state): State<BmcState>,
+    Path((chassis_id, sensor_id)): Path<(String, String)>,
+) -> Response {
+    state
+        .chassis_state
+        .find(&chassis_id)
+        .and_then(|chassis_state| chassis_state.find_sensor(&sensor_id))
+        .map(|sensor| sensor.to_json().into_ok_response())
+        .unwrap_or_else(http::not_found)
+}
+
 pub struct ChassisBuilder {
     value: serde_json::Value,
 }
@@ -332,6 +393,10 @@ impl Builder for ChassisBuilder {
 impl ChassisBuilder {
     pub fn serial_number(self, v: &str) -> Self {
         self.add_str_field("SerialNumber", v)
+    }
+
+    pub fn chassis_type(self, v: &str) -> Self {
+        self.add_str_field("ChassisType", v)
     }
 
     pub fn manufacturer(self, v: &str) -> Self {
@@ -352,6 +417,10 @@ impl ChassisBuilder {
 
     pub fn pcie_devices(self, v: redfish::Collection<'_>) -> Self {
         self.apply_patch(v.nav_property("PCIeDevices"))
+    }
+
+    pub fn sensors(self, v: redfish::Collection<'_>) -> Self {
+        self.apply_patch(v.nav_property("Sensors"))
     }
 
     pub fn build(self) -> serde_json::Value {
