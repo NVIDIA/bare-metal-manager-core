@@ -2,7 +2,7 @@
 
 ## Overview
 
-Define the code of conduct followed and enforced for Carbide.
+Define the code of conduct followed and enforced for NVIDIA Bare Metal Manager.
 
 ### Intended audience
 

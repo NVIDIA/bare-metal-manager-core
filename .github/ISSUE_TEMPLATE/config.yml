@@ -7,5 +7,5 @@ blank_issues_enabled: true
 # link that below to have it show up in the 'Submit Issue' page
 contact_links:
   - name: Ask a Question
-    url: https://github.com/NVIDIA/carbide-core/discussions
+    url: https://github.com/NVIDIA/bare-metal-manager-core/discussions
     about: Please ask any questions here.
