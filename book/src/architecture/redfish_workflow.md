@@ -274,45 +274,5 @@ Both libraries are declared in the workspace `Cargo.toml`.
 
 ## Redfish Endpoints Reference
 
-Complete list of Redfish endpoints used by Carbide:
-
-| Endpoint | Method | Purpose |
-|---|---|---|
-| `/redfish/v1` | GET | Service root, vendor detection |
-| `/redfish/v1/Systems` | GET | List computer systems |
-| `/redfish/v1/Systems/{id}` | GET, PATCH | System info, serial number, power state |
-| `/redfish/v1/Systems/{id}/Actions/ComputerSystem.Reset` | POST | Power control (On/Off/Restart/Cycle) |
-| `/redfish/v1/Systems/{id}/Bios` | GET | Read BIOS attributes |
-| `/redfish/v1/Systems/{id}/Bios/Settings` | PATCH | Write BIOS attributes (pending reboot) |
-| `/redfish/v1/Systems/{id}/Bios/Actions/Bios.ChangePassword` | POST | UEFI password management |
-| `/redfish/v1/Systems/{id}/SecureBoot` | GET, PATCH | Secure boot enable/disable |
-| `/redfish/v1/Systems/{id}/SecureBoot/SecureBootDatabases/db/Certificates` | GET, POST, DELETE | Secure boot certificates |
-| `/redfish/v1/Systems/{id}/BootOptions` | GET | Boot option enumeration |
-| `/redfish/v1/Systems/{id}/EthernetInterfaces` | GET | System network interfaces |
-| `/redfish/v1/Chassis` | GET | List chassis |
-| `/redfish/v1/Chassis/{id}` | GET | Chassis info, serial number |
-| `/redfish/v1/Chassis/{id}/NetworkAdapters` | GET | Network adapters (DPU serial matching) |
-| `/redfish/v1/Chassis/{id}/NetworkAdapters/{id}/NetworkDeviceFunctions` | GET | Network device functions |
-| `/redfish/v1/Chassis/{id}/PCIeDevices` | GET | PCIe devices (DPU serial matching) |
-| `/redfish/v1/Chassis/{id}/Sensors` | GET | Environmental sensors (temp, fan, power) |
-| `/redfish/v1/Chassis/{id}/Certificates/CertChain` | GET | Component integrity certificates |
-| `/redfish/v1/Managers` | GET | List BMC managers |
-| `/redfish/v1/Managers/{id}` | GET | BMC info, firmware version, UUID |
-| `/redfish/v1/Managers/{id}/EthernetInterfaces` | GET | BMC network interfaces (MAC, IP) |
-| `/redfish/v1/Managers/{id}/Actions/Manager.Reset` | POST | BMC reset |
-| `/redfish/v1/Managers/{id}/Actions/Manager.ResetToDefaults` | POST | BMC factory reset |
-| `/redfish/v1/Managers/{id}/LogServices` | GET | System event log access |
-| `/redfish/v1/Managers/{id}/NetworkProtocol` | GET, PATCH | BMC network services config |
-| `/redfish/v1/AccountService` | GET, PATCH | Account service settings |
-| `/redfish/v1/AccountService/Accounts` | GET, POST | List/create user accounts |
-| `/redfish/v1/AccountService/Accounts/{id}` | GET, PATCH | User account management, password changes |
-| `/redfish/v1/UpdateService` | GET | Firmware update service info |
-| `/redfish/v1/UpdateService/FirmwareInventory` | GET | Firmware version inventory |
-| `/redfish/v1/UpdateService/FirmwareInventory/{id}` | GET | Individual firmware component |
-| `/redfish/v1/UpdateService/update` | POST | Firmware upload (octet-stream) |
-| `/redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate` | POST | URL-based firmware update |
-| `/redfish/v1/TaskService/Tasks` | GET | Async operation tracking |
-| `/redfish/v1/TaskService/Tasks/{id}` | GET | Individual task status |
-| `/redfish/v1/ComponentIntegrity` | GET | Component attestation (SPDM) |
-
-**Vendor-specific OEM endpoints** are also used for Dell iDRAC, NVIDIA BlueField, and OpenBMC extensions. These are handled transparently by libredfish's vendor-specific trait implementations.
+For the complete list of Redfish endpoints and their required response fields,
+see [Redfish Endpoints Reference](redfish/endpoints_reference.md).
