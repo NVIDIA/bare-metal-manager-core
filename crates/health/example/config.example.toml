@@ -10,8 +10,6 @@ bmc_proxy_url = "http://proxy.example.com:8080"
 # Endpoint Sources: Where to discover BMC endpoints from
 # ==============================================================================
 
-[endpoint_sources]
-
 [endpoint_sources.carbide_api]
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
@@ -50,8 +48,6 @@ max_jitter = "40ms"
 # ==============================================================================
 # Collectors: What data to collect from BMCs and NMX-T enabled switches
 # ==============================================================================
-
-[collectors]
 
 [collectors.health]
 rediscover_interval = "5m"

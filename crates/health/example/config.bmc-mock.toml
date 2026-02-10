@@ -1,0 +1,20 @@
+# BMC Mock should be running on localhost:1266 for this config to work. You can run it with `cargo run -p bmc-mock`.
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "127.0.0.1"
+port = 1266
+mac = "aa:bb:cc:dd:ee:ff"
+username = "admin"
+password = "secret"
+
+
+[endpoint_sources.carbide_api]
+enabled = false
+
+
+[health_sinks.carbide_api]
+enabled = false
+
+
+[health_sinks]
+console = true
