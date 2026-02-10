@@ -15,17 +15,16 @@
  * limitations under the License.
  */
 
-use std::sync::Arc;
-
 use db::db_read::PgPoolReader;
+use librms::RmsApi;
 use model::resource_pool::common::IbPools;
 use sqlx::PgPool;
+use std::sync::Arc;
 
 use crate::cfg::file::CarbideConfig;
 use crate::dpa::handler::DpaInfo;
 use crate::ib::IBFabricManager;
 use crate::ipmitool::IPMITool;
-use crate::rack::rms_client::RmsApi;
 use crate::redfish::RedfishClientPool;
 
 /// Services that are accessible to all statehandlers within carbide-core

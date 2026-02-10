@@ -1039,31 +1039,20 @@ pub async fn apply(
                 continue;
             };
 
-            match rms_client
-                .update_firmware(
-                    rack_id,
-                    device_id.clone(),
-                    full_firmware_path.clone(),
-                    target.clone(),
-                    false, // Don't activate firmware after update
-                )
-                .await
-            {
+            let request = librms::protos::rack_manager::UpdateNodeFirmwareRequest {
+                metadata: None,
+                node_id: device_id.clone(),
+                filename: full_firmware_path.clone(),
+                target: target.clone(),
+                activate: false,
+                rack_id: rack_id.to_string(),
+                ..Default::default()
+            };
+            match rms_client.update_node_firmware(request).await {
                 Ok(response) => {
-                    let status_msg = response
-                        .response
-                        .and_then(|r| {
-                            match r {
-                            rpc::protos::rack_manager::firmware_response::Response::UpdateFirmware(
-                                uf,
-                            ) => Some(uf.message),
-                            _ => None,
-                        }
-                        })
-                        .unwrap_or_else(|| "Unknown response".to_string());
-
+                    let status_msg = response.message;
                     let success =
-                        response.status == rpc::protos::rack_manager::ReturnCode::Success as i32;
+                        response.status == librms::protos::rack_manager::ReturnCode::Success as i32;
 
                     if success {
                         successful_updates += 1;

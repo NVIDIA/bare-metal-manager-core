@@ -59,19 +59,6 @@ pub mod convenience_converters;
 #[rustfmt::skip]
 pub mod dpa_rpc;
 
-
-#[allow(clippy::all)]
-#[rustfmt::skip]
-pub mod rack_manager;
-
-#[allow(clippy::all)]
-#[rustfmt::skip]
-pub mod rack_manager_client;
-
-#[allow(clippy::all)]
-#[rustfmt::skip]
-pub mod rack_manager_converters;
-
 #[allow(clippy::all)]
 #[rustfmt::skip]
 pub mod nmx_c;

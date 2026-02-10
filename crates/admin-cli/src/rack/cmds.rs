@@ -20,8 +20,7 @@ use prettytable::{Cell, Row, Table};
 use rpc::admin_cli::OutputFormat;
 
 use super::args::{DeleteRack, ShowRack};
-use crate::rms::args::{AddNode, AvailableFwImages, FirmwareInventory, PowerState, RemoveNode};
-use crate::rpc::{ApiClient, RmsApiClient};
+use crate::rpc::ApiClient;
 
 pub async fn show_rack(api_client: &ApiClient, show_opts: ShowRack) -> Result<()> {
     let query = rpc::forge::GetRackRequest {
@@ -132,87 +131,5 @@ pub async fn delete_rack(api_client: &ApiClient, delete_opts: DeleteRack) -> Res
         id: delete_opts.identifier,
     };
     api_client.0.delete_rack(query).await?;
-    Ok(())
-}
-
-pub async fn get_inventory(rms_client: &RmsApiClient) -> Result<()> {
-    let response = rms_client.inventory_get().await?;
-    println!("{:#?}", response);
-    Ok(())
-}
-
-pub async fn add_node(rms_client: &RmsApiClient, add_node_opts: AddNode) -> Result<()> {
-    let new_node = ::rpc::protos::rack_manager::NewNodeInfo {
-        rack_id: add_node_opts.rack_id,
-        node_id: add_node_opts.node_id,
-        mac_address: add_node_opts.mac_address,
-        ip_address: add_node_opts.ip_address,
-        port: add_node_opts.port,
-        username: None,
-        password: None,
-        r#type: add_node_opts.node_type,
-    };
-    let new_nodes = vec![new_node];
-    let response = rms_client.add_node(new_nodes).await?;
-    println!("{:#?}", response);
-    Ok(())
-}
-
-pub async fn remove_node(rms_client: &RmsApiClient, remove_node_opts: RemoveNode) -> Result<()> {
-    let response = rms_client
-        .remove_node(remove_node_opts.rack_id, remove_node_opts.node_id)
-        .await?;
-    println!("{:#?}", response);
-    Ok(())
-}
-
-pub async fn get_power_state(
-    rms_client: &RmsApiClient,
-    power_state_opts: PowerState,
-) -> Result<()> {
-    let response = rms_client
-        .get_power_state(power_state_opts.rack_id, power_state_opts.node_id)
-        .await?;
-    println!("{:#?}", response);
-    Ok(())
-}
-
-pub async fn get_firmware_inventory(
-    rms_client: &RmsApiClient,
-    firmware_inventory_opts: FirmwareInventory,
-) -> Result<()> {
-    let response = rms_client
-        .get_firmware_inventory(
-            firmware_inventory_opts.rack_id,
-            firmware_inventory_opts.node_id,
-        )
-        .await?;
-    println!("{:#?}", response);
-    Ok(())
-}
-
-pub async fn get_available_fw_images(
-    rms_client: &RmsApiClient,
-    available_fw_images_opts: AvailableFwImages,
-) -> Result<()> {
-    let response = rms_client
-        .get_available_fw_images(
-            available_fw_images_opts.rack_id,
-            available_fw_images_opts.node_id,
-        )
-        .await?;
-    println!("{:#?}", response);
-    Ok(())
-}
-
-pub async fn get_bkc_files(rms_client: &RmsApiClient) -> Result<()> {
-    let response = rms_client.get_bkc_files().await?;
-    println!("{:#?}", response);
-    Ok(())
-}
-
-pub async fn check_bkc_compliance(rms_client: &RmsApiClient) -> Result<()> {
-    let response = rms_client.check_bkc_compliance().await?;
-    println!("{:#?}", response);
     Ok(())
 }

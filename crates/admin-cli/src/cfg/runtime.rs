@@ -20,7 +20,7 @@ use std::pin::Pin;
 use rpc::admin_cli::OutputFormat;
 
 use crate::cfg::cli_options::SortField;
-use crate::rpc::{ApiClient, RmsApiClient};
+use crate::rpc::ApiClient;
 
 // RuntimeContext is context passed to all subcommand
 // dispatch handlers. This is built at the beginning of
@@ -29,7 +29,6 @@ pub struct RuntimeContext {
     pub api_client: ApiClient,
     pub config: RuntimeConfig,
     pub output_file: Pin<Box<dyn tokio::io::AsyncWrite>>,
-    pub rms_client: RmsApiClient,
 }
 
 // RuntimeConfig contains runtime configuration parameters extracted

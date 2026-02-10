@@ -1185,6 +1185,7 @@ dependencies = [
  "futures",
  "ipnet",
  "libredfish",
+ "librms",
  "mac_address",
  "prettytable-rs",
  "reqwest",
@@ -1351,6 +1352,7 @@ dependencies = [
  "lazy_static",
  "libnmxm",
  "libredfish",
+ "librms",
  "logfmt",
  "mac_address",
  "md5",
@@ -2214,7 +2216,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tonic 0.14.2",
- "tonic-client-wrapper",
+ "tonic-client-wrapper 0.1.0",
  "tonic-prost",
  "tonic-prost-build",
  "tower 0.5.2",
@@ -5563,6 +5565,32 @@ dependencies = [
  "bitflags",
  "libc",
  "redox_syscall",
+]
+
+[[package]]
+name = "librms"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "eyre",
+ "hyper",
+ "hyper-rustls",
+ "hyper-timeout",
+ "hyper-util",
+ "prost 0.14.1",
+ "rustls 0.23.34",
+ "rustls-pemfile",
+ "serde",
+ "thiserror 2.0.17",
+ "tokio",
+ "tonic 0.14.2",
+ "tonic-client-wrapper 1.0.0",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tower 0.5.2",
+ "tracing",
+ "tryhard",
 ]
 
 [[package]]
@@ -10000,6 +10028,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "tonic-client-wrapper"
+version = "1.0.0"
+dependencies = [
+ "async-trait",
+ "heck 0.5.0",
+ "lazy_static",
+ "prettyplease",
+ "proc-macro2",
+ "prost-types 0.14.1",
+ "quote",
+ "syn 2.0.108",
+ "thiserror 2.0.17",
+ "tonic 0.14.2",
+ "tonic-prost-build",
+]
+
+[[package]]
 name = "tonic-prost"
 version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10012,9 +10057,9 @@ dependencies = [
 
 [[package]]
 name = "tonic-prost-build"
-version = "0.14.2"
+version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4a16cba4043dc3ff43fcb3f96b4c5c154c64cbd18ca8dce2ab2c6a451d058a2"
+checksum = "a4556786613791cfef4ed134aa670b61a85cfcacf71543ef33e8d801abae988f"
 dependencies = [
  "prettyplease",
  "proc-macro2",

@@ -79,6 +79,7 @@ ipnetwork = { workspace = true, features = ["serde"] }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
 libredfish = { workspace = true }
+librms = { workspace = true }
 mac_address = { workspace = true }
 md5 = { workspace = true }
 num-bigint-dig = { workspace = true }
