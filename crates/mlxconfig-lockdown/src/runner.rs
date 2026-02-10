@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use crate::error::{MlxError, MlxResult};
@@ -207,6 +208,98 @@ impl FlintRunner {
         }
 
         Ok(())
+    }
+
+    // burn burns a firmware image onto the device. This runs:
+    // flint -d <device> -y -i <image_path> burn
+    //
+    // TODO(chet): I realize this is a weird place to put `burn`, but this
+    // was where all of the existing `flint` calls were, so I wanted to
+    // keep them together for now. Ultimately I want to refactor/collapse
+    // all of the mlxconfig-* stuff into a single crate with everything,
+    // at which point I think things can be generalized, or at least maybe
+    // restructured per command? Tbd.
+    pub fn burn(&self, device_id: &str, image_path: &Path) -> MlxResult<String> {
+        if !image_path.exists() {
+            return Err(MlxError::CommandFailed(format!(
+                "Firmware image does not exist: {}",
+                image_path.display()
+            )));
+        }
+
+        let image_str = image_path.to_string_lossy();
+        let args = ["-d", device_id, "-y", "-i", &image_str, "burn"];
+
+        if self.dry_run {
+            return Err(MlxError::DryRun(self.build_command(&args)));
+        }
+
+        let output = Command::new(&self.flint_path)
+            .args(args)
+            .output()
+            .map_err(|e| MlxError::CommandFailed(format!("Failed to execute burn: {e}")))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        if !output.status.success() {
+            if stderr.contains("Permission denied") || stdout.contains("Permission denied") {
+                return Err(MlxError::PermissionDenied);
+            }
+            if stderr.contains("Cannot open") || stdout.contains("Cannot open") {
+                return Err(MlxError::DeviceNotFound(device_id.to_string()));
+            }
+            let error_msg = format!("stdout: {}\nstderr: {}", stdout.trim(), stderr.trim());
+            return Err(MlxError::CommandFailed(error_msg));
+        }
+
+        Ok(stdout)
+    }
+
+    // verify_image verifies the firmware on the device against a given
+    // image file. This runs: flint -d <device> -i <image_path> verify
+    //
+    // TODO(chet): See comments above in `fn burn` re: why this is in
+    // the lockdown crate. Seems kind of weird, but I'm also trying to
+    // keep command usage together, and right now all of the `flint`
+    // stuff is in here.
+    pub fn verify_image(&self, device_id: &str, image_path: &Path) -> MlxResult<String> {
+        if !image_path.exists() {
+            return Err(MlxError::CommandFailed(format!(
+                "Firmware image does not exist: {}",
+                image_path.display()
+            )));
+        }
+
+        let image_str = image_path.to_string_lossy();
+        let args = ["-d", device_id, "-i", &image_str, "verify"];
+
+        if self.dry_run {
+            return Err(MlxError::DryRun(self.build_command(&args)));
+        }
+
+        let output = Command::new(&self.flint_path)
+            .args(args)
+            .output()
+            .map_err(|e| {
+                MlxError::CommandFailed(format!("Failed to execute verify with image: {e}"))
+            })?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        if !output.status.success() {
+            if stderr.contains("Permission denied") || stdout.contains("Permission denied") {
+                return Err(MlxError::PermissionDenied);
+            }
+            if stderr.contains("Cannot open") || stdout.contains("Cannot open") {
+                return Err(MlxError::DeviceNotFound(device_id.to_string()));
+            }
+            let error_msg = format!("stdout: {}\nstderr: {}", stdout.trim(), stderr.trim());
+            return Err(MlxError::CommandFailed(error_msg));
+        }
+
+        Ok(stdout)
     }
 
     // is_valid_key validates that the key is in the correct format (8 hex digits).

@@ -16,12 +16,28 @@
  */
 
 use clap::Parser;
-use mlxconfig_embedded::cmd::{Cli, run_cli};
+use mlxconfig_embedded::cmd::{Cli, LogLevel, run_cli};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli = Cli::parse();
 
-    if let Err(e) = run_cli(cli) {
+    // While --log-level is used to control the log level here, you
+    // can also set RUST_LOG in your environment to override.
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        let level = match cli.log_level {
+            LogLevel::Error => "error",
+            LogLevel::Warn => "warn",
+            LogLevel::Info => "info",
+            LogLevel::Debug => "debug",
+            LogLevel::Trace => "trace",
+        };
+        tracing_subscriber::EnvFilter::new(level)
+    });
+
+    tracing_subscriber::fmt().with_env_filter(env_filter).init();
+
+    if let Err(e) = run_cli(cli).await {
         eprintln!("Error: {e}");
         std::process::exit(1);
     }

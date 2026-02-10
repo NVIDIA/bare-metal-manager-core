@@ -41,4 +41,8 @@ carbide-mlxconfig-lockdown = { path = "../mlxconfig-lockdown" }
 carbide-mlxconfig-profile = { path = "../mlxconfig-profile" }
 carbide-mlxconfig-registry = { path = "../mlxconfig-registry" }
 carbide-mlxconfig-runner = { path = "../mlxconfig-runner" }
+carbide-mlxconfig-firmware = { path = "../mlxconfig-firmware" }
 carbide-mlxconfig-variables = { path = "../mlxconfig-variables" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { features = ["env-filter"], workspace = true }

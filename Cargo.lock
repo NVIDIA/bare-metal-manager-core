@@ -2012,6 +2012,7 @@ name = "carbide-mlxconfig-embedded"
 version = "0.0.1"
 dependencies = [
  "carbide-mlxconfig-device",
+ "carbide-mlxconfig-firmware",
  "carbide-mlxconfig-lockdown",
  "carbide-mlxconfig-profile",
  "carbide-mlxconfig-registry",
@@ -2023,6 +2024,29 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "carbide-mlxconfig-firmware"
+version = "0.0.1"
+dependencies = [
+ "async-ssh2-tokio",
+ "base64 0.22.1",
+ "carbide-mlxconfig-device",
+ "carbide-mlxconfig-lockdown",
+ "carbide-mlxconfig-runner",
+ "chrono",
+ "reqwest",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "toml 0.8.23",
+ "tracing",
+ "url",
 ]
 
 [[package]]

@@ -32,11 +32,26 @@ pub enum OutputFormat {
     Yaml,
 }
 
+#[derive(Debug, Clone, ValueEnum, Default)]
+pub enum LogLevel {
+    Error,
+    Warn,
+    #[default]
+    Info,
+    Debug,
+    Trace,
+}
+
 #[derive(Parser)]
 #[command(name = "mlxconfig-embedded")]
 #[command(about = "CLI reference example for Forge mlxconfig management crates")]
 #[command(version = "0.0.1")]
 pub struct Cli {
+    // --log-level controls the tracing output level (default: info).
+    // Can be overridden by the RUST_LOG environment variable.
+    #[arg(long, default_value = "info")]
+    pub log_level: LogLevel,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -133,6 +148,161 @@ pub enum Commands {
     Lockdown {
         #[command(subcommand)]
         action: LockdownAction,
+    },
+
+    // Firmware is for firmware flash, verify, and reset operations,
+    // using the mlxconfig-firmware crate.
+    Firmware {
+        // --dry-run enables dry-run mode.
+        #[arg(short = 'n', long = "dry-run")]
+        dry_run: bool,
+
+        // --work-dir is the staging directory for downloaded files.
+        #[arg(long)]
+        work_dir: Option<PathBuf>,
+
+        // firmware_action contains the firmware subcommand to execute.
+        #[command(subcommand)]
+        firmware_action: FirmwareAction,
+    },
+}
+
+// FirmwareAction contains all available subcommands
+// under the `firmware` command.
+#[derive(Subcommand)]
+pub enum FirmwareAction {
+    // flash runs the full firmware flash lifecycle: optionally
+    // apply device config, then burn firmware via flint.
+    Flash {
+        // device is the PCI address of the target device (e.g., "01:00.0").
+        device: String,
+
+        // firmware_url is the firmware source. Supports:
+        //   local path:  /path/to/firmware.signed.bin
+        //   file:// URL: file:///path/to/firmware.signed.bin
+        //   HTTPS URL:   https://host/path/to/firmware.bin
+        //   SSH URL:     ssh://user@host:path/to/firmware.bin
+        firmware_url: String,
+
+        // --device-conf-url is the optional device config source
+        // (e.g., debug token). Same URL formats as firmware_url.
+        #[arg(long)]
+        device_conf_url: Option<String>,
+
+        // --firmware-bearer-token sets a bearer token for HTTPS
+        // firmware downloads.
+        #[arg(long)]
+        firmware_bearer_token: Option<String>,
+
+        // --firmware-basic-auth sets basic auth (user:pass) for
+        // HTTPS firmware downloads.
+        #[arg(long)]
+        firmware_basic_auth: Option<String>,
+
+        // --firmware-ssh-key sets the SSH private key path for
+        // SSH firmware downloads.
+        #[arg(long)]
+        firmware_ssh_key: Option<PathBuf>,
+
+        // --firmware-ssh-agent uses the SSH agent for SSH firmware
+        // downloads.
+        #[arg(long)]
+        firmware_ssh_agent: bool,
+
+        // --device-conf-bearer-token sets a bearer token for HTTPS
+        // device config downloads.
+        #[arg(long)]
+        device_conf_bearer_token: Option<String>,
+
+        // --device-conf-basic-auth sets basic auth (user:pass) for
+        // HTTPS device config downloads.
+        #[arg(long)]
+        device_conf_basic_auth: Option<String>,
+
+        // --device-conf-ssh-key sets the SSH private key path for
+        // SSH device config downloads.
+        #[arg(long)]
+        device_conf_ssh_key: Option<PathBuf>,
+
+        // --device-conf-ssh-agent uses the SSH agent for SSH device
+        // config downloads.
+        #[arg(long)]
+        device_conf_ssh_agent: bool,
+
+        // --expected-version is the firmware version to verify after
+        // flashing (e.g., "32.43.1014").
+        #[arg(long)]
+        expected_version: Option<String>,
+    },
+
+    // flash-config loads firmware configuration from a TOML file
+    // and executes the flash lifecycle.
+    #[command(name = "flash-config")]
+    FlashConfig {
+        // device is the PCI address of the target device.
+        device: String,
+
+        // config_file is the path to the TOML configuration file.
+        config_file: PathBuf,
+    },
+
+    // verify-image verifies device firmware by comparing against
+    // a provided firmware image. Supports remote sources (HTTPS,
+    // SSH) — the image is downloaded first, then verified via flint.
+    #[command(name = "verify-image")]
+    VerifyImage {
+        // device is the PCI address of the target device.
+        device: String,
+
+        // image_url is the firmware image to verify against.
+        // Supports local paths, file://, https://, and ssh:// URLs.
+        image_url: String,
+
+        // --bearer-token sets a bearer token for HTTPS downloads.
+        #[arg(long)]
+        bearer_token: Option<String>,
+
+        // --basic-auth sets basic auth (user:pass) for HTTPS downloads.
+        #[arg(long)]
+        basic_auth: Option<String>,
+
+        // --ssh-key sets the SSH private key path for SSH downloads.
+        #[arg(long)]
+        ssh_key: Option<PathBuf>,
+
+        // --ssh-agent uses the SSH agent for SSH downloads.
+        #[arg(long)]
+        ssh_agent: bool,
+    },
+
+    // verify-version checks that the installed firmware version
+    // matches the expected version.
+    #[command(name = "verify-version")]
+    VerifyVersion {
+        // device is the PCI address of the target device.
+        device: String,
+
+        // expected_version is the version string to compare against.
+        expected_version: String,
+    },
+
+    // reset runs mlxfwreset on the device to activate new firmware.
+    Reset {
+        // device is the PCI address of the target device.
+        device: String,
+
+        // --level is the mlxfwreset level (default 3).
+        #[arg(short, long, default_value = "3")]
+        level: u8,
+    },
+
+    // config-reset resets all mlxconfig NV configuration parameters
+    // on the device to their factory default values. This is NOT a
+    // device reset — use `reset` for that.
+    #[command(name = "config-reset")]
+    ConfigReset {
+        // device is the PCI address of the target device.
+        device: String,
     },
 }
 
