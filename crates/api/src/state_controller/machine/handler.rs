@@ -9318,19 +9318,75 @@ async fn set_host_boot_order(
             }))
         }
         SetBootOrderState::WaitForSetBootOrderJobCompletion => {
-            if let Some(job_id) = &set_boot_order_info.set_boot_order_jid {
-                let job_state = redfish_client.get_job_state(job_id).await.map_err(|e| {
-                    StateHandlerError::RedfishError {
-                        operation: "get_job_state",
-                        error: e,
-                    }
-                })?;
+            const JOB_QUERY_WAIT_MINUTES: i64 = 5;
 
-                if !matches!(job_state, libredfish::JobState::Completed) {
-                    return Err(StateHandlerError::GenericError(eyre::eyre!(
-                        "waiting for job {:#?} to complete; current state: {job_state:#?}",
-                        job_id
-                    )));
+            if let Some(job_id) = &set_boot_order_info.set_boot_order_jid {
+                let job_state = match redfish_client.get_job_state(job_id).await {
+                    Ok(state) => state,
+                    Err(e) => {
+                        // Wait 5 minutes before declaring the job was lost or failed.
+                        // This helps differentiate between transient errors and true failures.
+                        let minutes_since_state_change = mh_snapshot
+                            .host_snapshot
+                            .state
+                            .version
+                            .since_state_change()
+                            .num_minutes();
+
+                        if minutes_since_state_change < JOB_QUERY_WAIT_MINUTES {
+                            return Err(StateHandlerError::RedfishError {
+                                operation: "get_job_state",
+                                error: e,
+                            });
+                        }
+
+                        tracing::warn!(
+                            "SetBootOrder: job {} lookup failed for {} after {} minutes, transitioning to HandleJobFailure: {}",
+                            job_id,
+                            mh_snapshot.host_snapshot.id,
+                            minutes_since_state_change,
+                            e
+                        );
+
+                        return Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
+                            set_boot_order_jid: None,
+                            set_boot_order_state: SetBootOrderState::HandleJobFailure {
+                                failure: format!("Job {} lookup failed: {}", job_id, e),
+                                power_state: libredfish::PowerState::Off,
+                            },
+                            retry_count: set_boot_order_info.retry_count,
+                        }));
+                    }
+                };
+
+                match job_state {
+                    libredfish::JobState::Completed => {
+                        // Job completed successfully, proceed to CheckBootOrder
+                    }
+                    libredfish::JobState::ScheduledWithErrors
+                    | libredfish::JobState::CompletedWithErrors => {
+                        tracing::warn!(
+                            "SetBootOrder: job {} failed for {} with state {job_state:#?}, transitioning to HandleJobFailure",
+                            job_id,
+                            mh_snapshot.host_snapshot.id,
+                        );
+
+                        return Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
+                            set_boot_order_jid: None,
+                            set_boot_order_state: SetBootOrderState::HandleJobFailure {
+                                failure: format!("Job {} failed: {job_state:#?}", job_id),
+                                power_state: libredfish::PowerState::Off,
+                            },
+                            retry_count: set_boot_order_info.retry_count,
+                        }));
+                    }
+                    _ => {
+                        // Job is still running, wait for completion
+                        return Err(StateHandlerError::GenericError(eyre::eyre!(
+                            "waiting for job {:#?} to complete; current state: {job_state:#?}",
+                            job_id
+                        )));
+                    }
                 }
             }
 
@@ -9339,6 +9395,119 @@ async fn set_host_boot_order(
                 set_boot_order_state: SetBootOrderState::CheckBootOrder,
                 retry_count: set_boot_order_info.retry_count,
             }))
+        }
+        SetBootOrderState::HandleJobFailure {
+            failure,
+            power_state,
+        } => {
+            // Handles recovery when a SetBootOrder BIOS job fails or is lost.
+            // 1. Power off the host
+            // 2. Reset the BMC
+            // 3. Transition to CheckBootOrder to verify and retry if needed
+
+            let current_power_state = redfish_client.get_power_state().await.map_err(|e| {
+                StateHandlerError::RedfishError {
+                    operation: "get_power_state",
+                    error: e,
+                }
+            })?;
+
+            match power_state {
+                libredfish::PowerState::Off => {
+                    if current_power_state != libredfish::PowerState::Off {
+                        handler_host_power_control(
+                            mh_snapshot,
+                            ctx.services,
+                            SystemPowerControl::ForceOff,
+                            txn,
+                        )
+                        .await?;
+
+                        return Ok(SetBootOrderOutcome::WaitingForReboot(format!(
+                            "HandleJobFailure: waiting for {} to power down; current power state: {current_power_state}; failure: {}",
+                            mh_snapshot.host_snapshot.id, failure
+                        )));
+                    }
+
+                    // Host is powered off, reset the BMC
+                    tracing::info!(
+                        "HandleJobFailure: Resetting BMC for {} after failure: {}",
+                        mh_snapshot.host_snapshot.id,
+                        failure
+                    );
+
+                    redfish_client.bmc_reset().await.map_err(|e| {
+                        StateHandlerError::RedfishError {
+                            operation: "bmc_reset",
+                            error: e,
+                        }
+                    })?;
+
+                    // Transition to PowerState::On to wait for BMC to come back
+                    Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
+                        set_boot_order_jid: None,
+                        set_boot_order_state: SetBootOrderState::HandleJobFailure {
+                            failure: failure.clone(),
+                            power_state: libredfish::PowerState::On,
+                        },
+                        retry_count: set_boot_order_info.retry_count,
+                    }))
+                }
+                libredfish::PowerState::On => {
+                    // BMC should be back, power the host back on
+                    if current_power_state != libredfish::PowerState::On {
+                        // Wait for the BMC to come back online after reset before powering on
+                        let basetime = mh_snapshot
+                            .host_snapshot
+                            .last_reboot_requested
+                            .as_ref()
+                            .map(|x| x.time)
+                            .unwrap_or(mh_snapshot.host_snapshot.state.version.timestamp());
+
+                        let power_down_wait = ctx
+                            .services
+                            .site_config
+                            .machine_state_controller
+                            .power_down_wait;
+
+                        if Utc::now().signed_duration_since(basetime) < power_down_wait {
+                            return Ok(SetBootOrderOutcome::WaitingForReboot(format!(
+                                "HandleJobFailure: waiting for BMC to come back online for {}; job failure: {}",
+                                mh_snapshot.host_snapshot.id, failure
+                            )));
+                        }
+
+                        handler_host_power_control(
+                            mh_snapshot,
+                            ctx.services,
+                            SystemPowerControl::On,
+                            txn,
+                        )
+                        .await?;
+
+                        return Ok(SetBootOrderOutcome::WaitingForReboot(format!(
+                            "HandleJobFailure: powering on {} after BMC reset; job failure: {}",
+                            mh_snapshot.host_snapshot.id, failure
+                        )));
+                    }
+
+                    // Host is powered on, transition to CheckBootOrder to verify and retry
+                    tracing::info!(
+                        "HandleJobFailure: BMC reset complete and host powered on for {}, transitioning to CheckBootOrder",
+                        mh_snapshot.host_snapshot.id,
+                    );
+
+                    Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
+                        set_boot_order_jid: None,
+                        set_boot_order_state: SetBootOrderState::CheckBootOrder,
+                        retry_count: set_boot_order_info.retry_count,
+                    }))
+                }
+                _ => Err(StateHandlerError::GenericError(eyre::eyre!(
+                    "HandleJobFailure: unexpected power state {power_state:#?} for {}",
+                    mh_snapshot.host_snapshot.id
+                ))),
+            }
         }
         SetBootOrderState::CheckBootOrder => {
             const MAX_BOOT_ORDER_RETRIES: u32 = 3;

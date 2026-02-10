@@ -1740,6 +1740,10 @@ pub enum SetBootOrderState {
     WaitForSetBootOrderJobScheduled,
     RebootHost,
     WaitForSetBootOrderJobCompletion,
+    HandleJobFailure {
+        failure: String,
+        power_state: PowerState,
+    },
     CheckBootOrder,
 }
 
