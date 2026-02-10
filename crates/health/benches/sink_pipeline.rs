@@ -15,7 +15,9 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::net::{IpAddr, Ipv4Addr};
+use std::str::FromStr;
 use std::sync::Arc;
 
 use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
@@ -26,29 +28,26 @@ use carbide_health::sink::{
 };
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use health_report::{HealthProbeAlert, HealthReport};
+use mac_address::MacAddress;
 
 const MACHINE_ID: &str = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
 
 struct CountingSink;
 
 impl DataSink for CountingSink {
-    fn handle_event(
-        &self,
-        context: &EventContext,
-        event: &CollectorEvent,
-    ) -> Result<(), carbide_health::HealthError> {
+    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         std::hint::black_box(context);
         std::hint::black_box(event);
-        Ok(())
     }
 }
 
 fn event_context() -> EventContext {
     EventContext {
+        endpoint_key: "42:9e:b1:bd:9d:dd".to_string(),
         addr: BmcAddr {
             ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
             port: Some(443),
-            mac: "aa:bb:cc:dd".to_string(),
+            mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
         },
         collector_type: "sensor_collector",
         metadata: Some(EndpointMetadata::Machine(MachineData {
@@ -72,7 +71,7 @@ fn metric_events(batch_size: usize, unique_keys: usize) -> Vec<CollectorEvent> {
                 metric_type: "temperature".to_string(),
                 unit: "celsius".to_string(),
                 value: (idx % 100) as f64,
-                labels: vec![("sensor".to_string(), key)],
+                labels: vec![(Cow::Borrowed("sensor"), key)],
             })
         })
         .collect()
@@ -80,15 +79,12 @@ fn metric_events(batch_size: usize, unique_keys: usize) -> Vec<CollectorEvent> {
 
 fn emit_metric_batch(sink: &dyn DataSink, context: &EventContext, events: &[CollectorEvent]) {
     let start = CollectorEvent::MetricCollectionStart;
-    sink.handle_event(context, &start)
-        .expect("start event should succeed");
+    sink.handle_event(context, &start);
     for event in events {
-        sink.handle_event(context, event)
-            .expect("metric event should succeed");
+        sink.handle_event(context, event);
     }
     let end = CollectorEvent::MetricCollectionEnd;
-    sink.handle_event(context, &end)
-        .expect("end event should succeed");
+    sink.handle_event(context, &end);
 }
 
 fn bench_prometheus_sink(c: &mut Criterion) {
@@ -224,10 +220,7 @@ fn bench_health_override_sink(c: &mut Criterion) {
         |b, state| {
             b.iter(|| {
                 for _ in 0..batch_size {
-                    state
-                        .sink
-                        .handle_event(&state.context, &state.small_event)
-                        .expect("enqueue should succeed");
+                    state.sink.handle_event(&state.context, &state.small_event);
                 }
             });
         },
@@ -239,10 +232,7 @@ fn bench_health_override_sink(c: &mut Criterion) {
         |b, state| {
             b.iter(|| {
                 for _ in 0..batch_size {
-                    state
-                        .sink
-                        .handle_event(&state.context, &state.large_event)
-                        .expect("enqueue should succeed");
+                    state.sink.handle_event(&state.context, &state.large_event);
                 }
             });
         },

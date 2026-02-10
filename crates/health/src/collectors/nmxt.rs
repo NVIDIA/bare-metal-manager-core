@@ -14,6 +14,7 @@
 //! Scrapes HTTP on 9352 (default for NMX-T) - NOT A Redfish collector!
 //! Currently scraping for Effective BER, Symbol Errors and Link Down counter.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -167,7 +168,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
     ) -> Result<Self, HealthError> {
         let switch_id = match &endpoint.metadata {
             Some(EndpointMetadata::Switch(s)) => s.serial.clone(),
-            _ => endpoint.addr.mac.clone(),
+            _ => endpoint.addr.mac.to_string(),
         };
         let event_context = EventContext::from_endpoint(endpoint.as_ref(), "nmxt");
 
@@ -234,11 +235,10 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
 }
 
 impl NmxtCollector {
-    fn emit_event(&self, event: CollectorEvent) -> Result<(), HealthError> {
+    fn emit_event(&self, event: CollectorEvent) {
         if let Some(data_sink) = &self.data_sink {
-            data_sink.handle_event(&self.event_context, &event)?;
+            data_sink.handle_event(&self.event_context, &event);
         }
-        Ok(())
     }
 
     async fn scrape_iteration(&self) -> Result<(), HealthError> {
@@ -287,22 +287,20 @@ impl NmxtCollector {
             metric_key.push_str(&port_num);
 
             let event_labels = vec![
-                ("switch_id".to_string(), self.switch_id.clone()),
-                ("switch_ip".to_string(), switch_ip.clone()),
-                ("node_guid".to_string(), node_guid),
-                ("port_num".to_string(), port_num),
+                (Cow::Borrowed("switch_id"), self.switch_id.clone()),
+                (Cow::Borrowed("switch_ip"), switch_ip.clone()),
+                (Cow::Borrowed("node_guid"), node_guid),
+                (Cow::Borrowed("port_num"), port_num),
             ];
 
-            if let Err(error) = self.emit_event(CollectorEvent::Metric(MetricSample {
+            self.emit_event(CollectorEvent::Metric(MetricSample {
                 key: metric_key,
                 name: "switch_nmxt".to_string(),
                 metric_type: metric_type.to_string(),
                 unit: "count".to_string(),
                 value,
                 labels: event_labels,
-            })) {
-                tracing::warn!(error = ?error, "Failed to emit NMX-T metric event");
-            }
+            }));
         }
 
         Ok(())

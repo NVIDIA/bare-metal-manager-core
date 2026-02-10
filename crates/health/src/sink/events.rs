@@ -24,6 +24,7 @@ use crate::metrics::MetricLabel;
 
 #[derive(Clone, Debug)]
 pub struct EventContext {
+    pub endpoint_key: String,
     pub addr: BmcAddr,
     pub collector_type: &'static str,
     pub metadata: Option<EndpointMetadata>,
@@ -32,6 +33,7 @@ pub struct EventContext {
 impl EventContext {
     pub fn from_endpoint(endpoint: &BmcEndpoint, collector_type: &'static str) -> Self {
         Self {
+            endpoint_key: endpoint.addr.hash_key().into_owned(),
             addr: endpoint.addr.clone(),
             collector_type,
             metadata: endpoint.metadata.clone(),
@@ -39,7 +41,7 @@ impl EventContext {
     }
 
     pub fn endpoint_key(&self) -> &str {
-        self.addr.hash_key()
+        &self.endpoint_key
     }
 
     pub fn machine_id(&self) -> Option<MachineId> {

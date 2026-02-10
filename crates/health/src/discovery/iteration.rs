@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
@@ -28,10 +29,10 @@ use crate::endpoint::{BmcEndpoint, EndpointSource};
 use crate::sharding::ShardManager;
 use crate::sink::DataSink;
 
-fn active_keys(sharded_endpoints: &[Arc<BmcEndpoint>]) -> HashSet<String> {
+fn active_keys(sharded_endpoints: &[Arc<BmcEndpoint>]) -> HashSet<Cow<'static, str>> {
     sharded_endpoints
         .iter()
-        .map(|e| e.addr.hash_key().to_string())
+        .map(|e| e.addr.hash_key())
         .collect()
 }
 
@@ -93,16 +94,19 @@ pub async fn run_discovery_iteration(
 #[cfg(test)]
 mod tests {
     use std::net::{IpAddr, Ipv4Addr};
+    use std::str::FromStr;
+
+    use mac_address::MacAddress;
 
     use super::*;
     use crate::endpoint::{BmcAddr, BmcCredentials, EndpointMetadata, SwitchData};
 
-    fn endpoint(mac: &str, switch: bool) -> Arc<BmcEndpoint> {
+    fn endpoint(mac: MacAddress, switch: bool) -> Arc<BmcEndpoint> {
         Arc::new(BmcEndpoint {
             addr: BmcAddr {
                 ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
                 port: Some(443),
-                mac: mac.to_string(),
+                mac,
             },
             credentials: BmcCredentials {
                 username: "user".to_string(),
@@ -120,17 +124,14 @@ mod tests {
 
     #[test]
     fn test_active_keys_includes_all_endpoints() {
-        let ep1 = endpoint("aa:bb:cc:dd", false);
-        let ep2 = endpoint("11:22:33:44", true);
+        let ep1 = endpoint(MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(), false);
+        let ep2 = endpoint(MacAddress::from_str("11:22:33:44:55:66").unwrap(), true);
 
         let keys = active_keys(&[ep1.clone(), ep2.clone()]);
 
         assert_eq!(
             keys,
-            HashSet::from([
-                ep1.addr.hash_key().to_string(),
-                ep2.addr.hash_key().to_string()
-            ])
+            HashSet::from([ep1.addr.hash_key(), ep2.addr.hash_key()])
         );
     }
 }

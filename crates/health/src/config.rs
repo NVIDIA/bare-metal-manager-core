@@ -113,8 +113,8 @@ impl Debug for StaticBmcEndpoint {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SinksConfig {
-    /// Console sink: logs all collector events.
-    pub console: Configurable<ConsoleSinkConfig>,
+    /// Tracing sink: logs all collector events through `tracing`.
+    pub tracing: Configurable<TracingSinkConfig>,
 
     /// Prometheus sink: stores metric events in Prometheus exporter format.
     pub prometheus: Configurable<PrometheusSinkConfig>,
@@ -127,7 +127,7 @@ pub struct SinksConfig {
 impl Default for SinksConfig {
     fn default() -> Self {
         Self {
-            console: Configurable::Enabled(ConsoleSinkConfig::default()),
+            tracing: Configurable::Enabled(TracingSinkConfig::default()),
             prometheus: Configurable::Enabled(PrometheusSinkConfig::default()),
             health_override: Configurable::Enabled(CarbideApiConnectionConfig::default()),
         }
@@ -136,7 +136,7 @@ impl Default for SinksConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
-pub struct ConsoleSinkConfig {}
+pub struct TracingSinkConfig {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -498,7 +498,7 @@ mod tests {
         assert!(config.collectors.sensors.is_enabled());
         assert!(config.collectors.firmware.is_enabled());
         assert!(config.collectors.logs.is_enabled());
-        assert!(!config.sinks.console.is_enabled());
+        assert!(!config.sinks.tracing.is_enabled());
         assert!(config.sinks.prometheus.is_enabled());
 
         if let Configurable::Enabled(ref sensors) = config.collectors.sensors {

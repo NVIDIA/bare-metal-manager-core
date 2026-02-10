@@ -16,9 +16,11 @@
  */
 
 use std::net::IpAddr;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use forge_tls::client_config::ClientCert;
+use mac_address::MacAddress;
 use rpc::forge::{BmcRequestType, MachineSearchConfig, UserRoles};
 use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
@@ -112,7 +114,7 @@ impl ApiClientWrapper {
                         .filter_map(|s| {
                             let bmc = s.bmc_info?;
                             let ip = bmc.ip.as_ref()?.parse().ok()?;
-                            let mac = bmc.mac?;
+                            let mac = bmc.mac.and_then(|m| MacAddress::from_str(&m).ok())?;
                             let serial = s.config?.name;
 
                             Some(Arc::new(BmcEndpoint {
@@ -148,7 +150,10 @@ impl ApiClientWrapper {
         let bmc_info = machine.bmc_info.as_ref()?;
         let ip_str = bmc_info.ip.as_ref()?;
         let ip = ip_str.parse::<IpAddr>().ok()?;
-        let mac = bmc_info.mac.as_ref()?.clone();
+        let mac = bmc_info
+            .mac
+            .as_ref()
+            .and_then(|m| MacAddress::from_str(m).ok())?;
         let port = bmc_info.port.map(|v| v.try_into().unwrap_or(443));
 
         let addr = BmcAddr { ip, port, mac };
@@ -174,7 +179,7 @@ impl ApiClientWrapper {
             machine_id: None,
             bmc_endpoint_request: Some(rpc::forge::BmcEndpointRequest {
                 ip_address: endpoint.ip.to_string(),
-                mac_address: Some(endpoint.mac.clone()),
+                mac_address: Some(endpoint.mac.to_string()),
             }),
             role: UserRoles::Administrator.into(),
             request_type: BmcRequestType::Redfish.into(),

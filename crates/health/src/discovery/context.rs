@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -63,35 +64,50 @@ impl CollectorKind {
 }
 
 pub(super) struct CollectorState {
-    maps: HashMap<CollectorKind, HashMap<String, Collector>>,
+    sensors: HashMap<Cow<'static, str>, Collector>,
+    firmware: HashMap<Cow<'static, str>, Collector>,
+    logs: HashMap<Cow<'static, str>, Collector>,
+    nmxt: HashMap<Cow<'static, str>, Collector>,
 }
 
 impl CollectorState {
     fn new() -> Self {
-        let mut maps = HashMap::new();
-        for kind in CollectorKind::ALL {
-            maps.insert(kind, HashMap::new());
+        Self {
+            sensors: HashMap::new(),
+            firmware: HashMap::new(),
+            logs: HashMap::new(),
+            nmxt: HashMap::new(),
         }
-        Self { maps }
     }
 
-    fn map(&self, kind: CollectorKind) -> &HashMap<String, Collector> {
-        self.maps
-            .get(&kind)
-            .expect("collector map should always exist for every kind")
+    fn map(&self, kind: CollectorKind) -> &HashMap<Cow<'static, str>, Collector> {
+        match kind {
+            CollectorKind::Sensor => &self.sensors,
+            CollectorKind::Logs => &self.logs,
+            CollectorKind::Firmware => &self.firmware,
+            CollectorKind::Nmxt => &self.nmxt,
+        }
     }
 
-    fn map_mut(&mut self, kind: CollectorKind) -> &mut HashMap<String, Collector> {
-        self.maps
-            .get_mut(&kind)
-            .expect("collector map should always exist for every kind")
+    fn map_mut(&mut self, kind: CollectorKind) -> &mut HashMap<Cow<'static, str>, Collector> {
+        match kind {
+            CollectorKind::Sensor => &mut self.sensors,
+            CollectorKind::Logs => &mut self.logs,
+            CollectorKind::Firmware => &mut self.firmware,
+            CollectorKind::Nmxt => &mut self.nmxt,
+        }
     }
 
     pub(super) fn contains(&self, kind: CollectorKind, key: &str) -> bool {
         self.map(kind).contains_key(key)
     }
 
-    pub(super) fn insert(&mut self, kind: CollectorKind, key: String, collector: Collector) {
+    pub(super) fn insert(
+        &mut self,
+        kind: CollectorKind,
+        key: Cow<'static, str>,
+        collector: Collector,
+    ) {
         self.map_mut(kind).insert(key, collector);
     }
 
@@ -102,14 +118,19 @@ impl CollectorState {
     pub(super) fn map_mut_for_kind(
         &mut self,
         kind: CollectorKind,
-    ) -> &mut HashMap<String, Collector> {
+    ) -> &mut HashMap<Cow<'static, str>, Collector> {
         self.map_mut(kind)
     }
 
-    pub(super) fn removed_keys(&self, active_keys: &HashSet<String>) -> HashSet<String> {
-        self.maps
-            .values()
-            .flat_map(|map| map.keys())
+    pub(super) fn removed_keys(
+        &self,
+        active_keys: &HashSet<Cow<'static, str>>,
+    ) -> HashSet<Cow<'static, str>> {
+        self.sensors
+            .keys()
+            .chain(self.logs.keys())
+            .chain(self.firmware.keys())
+            .chain(self.nmxt.keys())
             .filter(|key| !active_keys.contains(*key))
             .cloned()
             .collect()

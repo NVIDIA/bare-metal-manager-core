@@ -33,21 +33,13 @@ fn logs_state_file_path(template: &str, endpoint_id: &str) -> PathBuf {
     PathBuf::from(template.replace("{machine_id}", endpoint_id))
 }
 
-fn endpoint_log_identity(endpoint: &BmcEndpoint) -> String {
-    match &endpoint.metadata {
-        Some(EndpointMetadata::Machine(machine)) => machine.machine_id.to_string(),
-        Some(EndpointMetadata::Switch(switch)) => switch.serial.clone(),
-        None => endpoint.addr.hash_key().to_string(),
-    }
-}
-
 pub(super) async fn spawn_collectors_for_endpoint(
     ctx: &mut DiscoveryLoopContext,
     endpoint: &Arc<BmcEndpoint>,
     data_sink: Option<Arc<dyn DataSink>>,
     metrics_prefix: &str,
 ) -> Result<(), HealthError> {
-    let key = endpoint.addr.hash_key().to_string();
+    let key = endpoint.addr.hash_key();
     let endpoint_arc = endpoint.clone();
     if let Configurable::Enabled(sensor_cfg) = &ctx.sensors_config
         && !ctx.collectors.contains(CollectorKind::Sensor, &key)
@@ -80,7 +72,11 @@ pub(super) async fn spawn_collectors_for_endpoint(
                 );
             }
             Err(error) => {
-                tracing::error!(error = ?error, "Could not start sensor collector for: {:?}", endpoint.addr);
+                tracing::error!(
+                    ?error,
+                    "Could not start sensor collector for: {:?}",
+                    endpoint.addr
+                );
             }
         }
     }
@@ -88,7 +84,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
     if let Configurable::Enabled(logs_cfg) = &ctx.logs_config
         && !ctx.collectors.contains(CollectorKind::Logs, &key)
     {
-        let endpoint_id = endpoint_log_identity(endpoint.as_ref());
+        let endpoint_id = endpoint.log_identity().into_owned();
         let state_file_path = logs_state_file_path(&logs_cfg.logs_state_file, &endpoint_id);
 
         let log_writer = match create_log_file_writer(
@@ -102,7 +98,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
             Ok(writer) => Some(Arc::new(tokio::sync::Mutex::new(writer))),
             Err(error) => {
                 tracing::error!(
-                    error = ?error,
+                    ?error,
                     endpoint_id = %endpoint_id,
                     "Failed to create log file writer, skipping logs collector"
                 );
@@ -140,7 +136,11 @@ pub(super) async fn spawn_collectors_for_endpoint(
                     );
                 }
                 Err(error) => {
-                    tracing::error!(error = ?error, "Could not start logs collector for: {:?}", endpoint.addr)
+                    tracing::error!(
+                        ?error,
+                        "Could not start logs collector for: {:?}",
+                        endpoint.addr
+                    )
                 }
             }
         }
@@ -174,7 +174,11 @@ pub(super) async fn spawn_collectors_for_endpoint(
                 );
             }
             Err(error) => {
-                tracing::error!(error = ?error, "Could not start firmware collector for: {:?}", endpoint.addr)
+                tracing::error!(
+                    ?error,
+                    "Could not start firmware collector for: {:?}",
+                    endpoint.addr
+                )
             }
         }
     }
@@ -211,7 +215,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
             }
             Err(error) => {
                 tracing::error!(
-                    error = ?error,
+                    ?error,
                     endpoint_key = %key,
                     "Could not start NMX-T collector for switch"
                 );
@@ -225,6 +229,9 @@ pub(super) async fn spawn_collectors_for_endpoint(
 #[cfg(test)]
 mod tests {
     use std::net::{IpAddr, Ipv4Addr};
+    use std::str::FromStr;
+
+    use mac_address::MacAddress;
 
     use super::*;
     use crate::config::{Config, Configurable};
@@ -244,7 +251,7 @@ mod tests {
             addr: BmcAddr {
                 ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
                 port: Some(443),
-                mac: "aa:bb:cc:dd:ee:ff".to_string(),
+                mac: MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap(),
             },
             credentials: BmcCredentials {
                 username: "user".to_string(),
@@ -253,7 +260,7 @@ mod tests {
             metadata: None,
         };
 
-        assert_eq!(endpoint_log_identity(&endpoint), "aa:bb:cc:dd:ee:ff");
+        assert_eq!(endpoint.log_identity().as_ref(), "AA:BB:CC:DD:EE:FF");
     }
 
     #[test]
@@ -262,7 +269,7 @@ mod tests {
             addr: BmcAddr {
                 ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
                 port: Some(443),
-                mac: "11:22:33:44:55:66".to_string(),
+                mac: MacAddress::from_str("11:22:33:44:55:66").unwrap(),
             },
             credentials: BmcCredentials {
                 username: "user".to_string(),
@@ -273,7 +280,7 @@ mod tests {
             })),
         };
 
-        assert_eq!(endpoint_log_identity(&endpoint), "switch-serial-1");
+        assert_eq!(endpoint.log_identity().as_ref(), "switch-serial-1");
     }
 
     #[tokio::test]
@@ -293,7 +300,7 @@ mod tests {
             addr: BmcAddr {
                 ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
                 port: Some(443),
-                mac: "aa:bb:cc:dd:ee:ff".to_string(),
+                mac: MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap(),
             },
             credentials: BmcCredentials {
                 username: "user".to_string(),

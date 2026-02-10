@@ -18,7 +18,6 @@
 use std::sync::Arc;
 
 use super::{CollectorEvent, DataSink, EventContext};
-use crate::HealthError;
 
 pub struct CompositeDataSink {
     sinks: Vec<Arc<dyn DataSink>>,
@@ -31,17 +30,9 @@ impl CompositeDataSink {
 }
 
 impl DataSink for CompositeDataSink {
-    fn handle_event(
-        &self,
-        context: &EventContext,
-        event: &CollectorEvent,
-    ) -> Result<(), HealthError> {
+    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         for sink in &self.sinks {
-            if let Err(error) = sink.handle_event(context, event) {
-                tracing::warn!(error = ?error, "sink failed to process event");
-            }
+            sink.handle_event(context, event);
         }
-
-        Ok(())
     }
 }

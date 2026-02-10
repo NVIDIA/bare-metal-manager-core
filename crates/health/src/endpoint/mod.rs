@@ -26,18 +26,21 @@ pub use sources::{CompositeEndpointSource, StaticEndpointSource};
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
     use std::sync::Arc;
+
+    use mac_address::MacAddress;
 
     use super::*;
     use crate::HealthError;
     use crate::config::StaticBmcEndpoint;
 
-    fn make_test_endpoint(mac: &str) -> BmcEndpoint {
+    fn make_test_endpoint(mac: MacAddress) -> BmcEndpoint {
         BmcEndpoint {
             addr: BmcAddr {
                 ip: "10.0.0.1".parse().unwrap(),
                 port: Some(443),
-                mac: mac.to_string(),
+                mac,
             },
             credentials: BmcCredentials {
                 username: "admin".to_string(),
@@ -50,8 +53,8 @@ mod tests {
     #[tokio::test]
     async fn test_static_endpoint_source_shares_arc_data() {
         let endpoints = vec![
-            make_test_endpoint("00:11:22:33:44:55"),
-            make_test_endpoint("aa:bb:cc:dd:ee:ff"),
+            make_test_endpoint(MacAddress::from_str("00:11:22:33:44:55").unwrap()),
+            make_test_endpoint(MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap()),
         ];
         let source = StaticEndpointSource::new(endpoints);
 
@@ -66,8 +69,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_composite_endpoint_source_preserves_arc_sharing() {
-        let endpoints1 = vec![make_test_endpoint("00:11:22:33:44:55")];
-        let endpoints2 = vec![make_test_endpoint("aa:bb:cc:dd:ee:ff")];
+        let endpoints1 = vec![make_test_endpoint(
+            MacAddress::from_str("00:11:22:33:44:55").unwrap(),
+        )];
+        let endpoints2 = vec![make_test_endpoint(
+            MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap(),
+        )];
 
         let source1 = Arc::new(StaticEndpointSource::new(endpoints1));
         let source2 = Arc::new(StaticEndpointSource::new(endpoints2));
@@ -88,12 +95,12 @@ mod tests {
         let addr_http = BmcAddr {
             ip: "10.0.0.1".parse().expect("valid ip"),
             port: Some(80),
-            mac: "00:11:22:33:44:55".to_string(),
+            mac: MacAddress::from_str("00:11:22:33:44:55").unwrap(),
         };
         let addr_https = BmcAddr {
             ip: "10.0.0.2".parse().expect("valid ip"),
             port: Some(443),
-            mac: "aa:bb:cc:dd:ee:ff".to_string(),
+            mac: MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap(),
         };
 
         let url_http = addr_http.to_url().expect("url should build");
@@ -126,7 +133,10 @@ mod tests {
         let endpoints = source.fetch_bmc_hosts().await.expect("fetch should work");
 
         assert_eq!(endpoints.len(), 1);
-        assert_eq!(endpoints[0].addr.mac, "00:11:22:33:44:55");
+        assert_eq!(
+            endpoints[0].addr.mac,
+            MacAddress::from_str("00:11:22:33:44:55").unwrap()
+        );
     }
 
     struct FailingSource;
@@ -146,7 +156,7 @@ mod tests {
     #[tokio::test]
     async fn test_composite_endpoint_source_propagates_errors() {
         let source_ok = Arc::new(StaticEndpointSource::new(vec![make_test_endpoint(
-            "00:11:22:33:44:55",
+            MacAddress::from_str("00:11:22:33:44:55").unwrap(),
         )]));
         let source_fail = Arc::new(FailingSource);
         let composite = CompositeEndpointSource::new(vec![source_ok, source_fail]);

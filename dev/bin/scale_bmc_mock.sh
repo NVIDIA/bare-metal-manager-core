@@ -82,7 +82,7 @@ cache_size = 100
 [endpoint_sources.carbide_api]
 enabled = false
 
-[sinks.console]
+[sinks.tracing]
 enabled = true
 
 [sinks.prometheus]

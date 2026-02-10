@@ -15,7 +15,10 @@
  * limitations under the License.
  */
 
+use std::str::FromStr;
 use std::sync::Arc;
+
+use mac_address::MacAddress;
 
 use crate::HealthError;
 use crate::config::StaticBmcEndpoint;
@@ -39,16 +42,18 @@ impl StaticEndpointSource {
                 let ip = match cfg.ip.parse() {
                     Ok(ip) => ip,
                     Err(error) => {
-                        tracing::warn!(error = ?error, ip = ?cfg.ip, "Invalid IP in static endpoint config");
+                        tracing::warn!(?error, ip = ?cfg.ip, "Invalid IP in static endpoint config");
                         return None;
                     }
                 };
+
+                let mac = MacAddress::from_str(&cfg.mac).ok()?;
 
                 Some(Arc::new(BmcEndpoint {
                     addr: BmcAddr {
                         ip,
                         port: cfg.port,
-                        mac: cfg.mac.clone(),
+                        mac,
                     },
                     credentials: BmcCredentials {
                         username: cfg.username.clone(),

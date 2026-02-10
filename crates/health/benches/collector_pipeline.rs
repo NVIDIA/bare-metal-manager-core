@@ -15,8 +15,10 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::hint::black_box;
 use std::net::{IpAddr, Ipv4Addr};
+use std::str::FromStr;
 use std::sync::Arc;
 
 use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
@@ -26,29 +28,26 @@ use carbide_health::sink::{
     MetricSample, PrometheusSink,
 };
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use mac_address::MacAddress;
 
 const MACHINE_ID: &str = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
 
 struct CountingSink;
 
 impl DataSink for CountingSink {
-    fn handle_event(
-        &self,
-        context: &EventContext,
-        event: &CollectorEvent,
-    ) -> Result<(), carbide_health::HealthError> {
+    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         black_box(context);
         black_box(event);
-        Ok(())
     }
 }
 
 fn event_context() -> EventContext {
     EventContext {
+        endpoint_key: "42:9e:b1:bd:9d:dd".to_string(),
         addr: BmcAddr {
             ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
             port: Some(443),
-            mac: "aa:bb:cc:dd".to_string(),
+            mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
         },
         collector_type: "sensor_collector",
         metadata: Some(EndpointMetadata::Machine(MachineData {
@@ -72,11 +71,11 @@ fn build_sensor_metric_event(idx: usize, unique_keys: usize) -> CollectorEvent {
         unit: "celsius".to_string(),
         value: 25.0 + ((idx % 40) as f64),
         labels: vec![
-            ("sensor_name".to_string(), sensor_key),
-            ("physical_context".to_string(), "cpu".to_string()),
-            ("model".to_string(), "x86-test".to_string()),
-            ("machine_slot".to_string(), format!("slot-{machine_idx}")),
-            ("rack".to_string(), format!("rack-{rack_idx}")),
+            (Cow::Borrowed("sensor_name"), sensor_key),
+            (Cow::Borrowed("physical_context"), "cpu".to_string()),
+            (Cow::Borrowed("model"), "x86-test".to_string()),
+            (Cow::Borrowed("machine_slot"), format!("slot-{machine_idx}")),
+            (Cow::Borrowed("rack"), format!("rack-{rack_idx}")),
         ],
     })
 }
@@ -89,10 +88,10 @@ fn build_nmxt_metric_event(idx: usize) -> CollectorEvent {
         unit: "count".to_string(),
         value: (idx % 10) as f64,
         labels: vec![
-            ("switch_id".to_string(), "switch-1".to_string()),
-            ("switch_ip".to_string(), "10.0.1.1".to_string()),
-            ("node_guid".to_string(), format!("0x{:x}", idx)),
-            ("port_num".to_string(), (idx % 64).to_string()),
+            (Cow::Borrowed("switch_id"), "switch-1".to_string()),
+            (Cow::Borrowed("switch_ip"), "10.0.1.1".to_string()),
+            (Cow::Borrowed("node_guid"), format!("0x{:x}", idx)),
+            (Cow::Borrowed("port_num"), (idx % 64).to_string()),
         ],
     })
 }
@@ -102,9 +101,9 @@ fn build_log_event(idx: usize) -> CollectorEvent {
         body: format!("BMC event line {idx}"),
         severity: "INFO".to_string(),
         attributes: vec![
-            ("machine_id".to_string(), MACHINE_ID.to_string()),
-            ("entry_id".to_string(), idx.to_string()),
-            ("service_id".to_string(), "logservice-1".to_string()),
+            (Cow::Borrowed("machine_id"), MACHINE_ID.to_string()),
+            (Cow::Borrowed("entry_id"), idx.to_string()),
+            (Cow::Borrowed("service_id"), "logservice-1".to_string()),
         ],
     })
 }
@@ -115,8 +114,8 @@ fn build_firmware_event(idx: usize) -> CollectorEvent {
         component: component.clone(),
         version: format!("1.0.{}", idx % 100),
         attributes: vec![
-            ("firmware_name".to_string(), component),
-            ("version".to_string(), format!("1.0.{}", idx % 100)),
+            (Cow::Borrowed("firmware_name"), component),
+            (Cow::Borrowed("version"), format!("1.0.{}", idx % 100)),
         ],
     })
 }
@@ -168,18 +167,15 @@ fn emit_metric_batch_building(
     unique_keys: usize,
 ) {
     let start = CollectorEvent::MetricCollectionStart;
-    sink.handle_event(context, &start)
-        .expect("start event should succeed");
+    sink.handle_event(context, &start);
 
     for idx in 0..batch_size {
         let event = build_sensor_metric_event(idx, unique_keys);
-        sink.handle_event(context, &event)
-            .expect("metric event should succeed");
+        sink.handle_event(context, &event);
     }
 
     let end = CollectorEvent::MetricCollectionEnd;
-    sink.handle_event(context, &end)
-        .expect("end event should succeed");
+    sink.handle_event(context, &end);
 }
 
 fn bench_collector_build_and_emit_prometheus(c: &mut Criterion) {

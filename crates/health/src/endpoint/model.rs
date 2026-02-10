@@ -15,12 +15,14 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::future::Future;
 use std::net::IpAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use carbide_uuid::machine::MachineId;
+use mac_address::MacAddress;
 use url::Url;
 
 use crate::HealthError;
@@ -32,6 +34,16 @@ pub struct BmcEndpoint {
     pub addr: BmcAddr,
     pub credentials: BmcCredentials,
     pub metadata: Option<EndpointMetadata>,
+}
+
+impl BmcEndpoint {
+    pub fn log_identity(&self) -> Cow<'_, str> {
+        match &self.metadata {
+            Some(EndpointMetadata::Machine(machine)) => Cow::Owned(machine.machine_id.to_string()),
+            Some(EndpointMetadata::Switch(switch)) => Cow::Borrowed(&switch.serial),
+            None => self.addr.hash_key(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -61,12 +73,12 @@ pub struct BmcCredentials {
 pub struct BmcAddr {
     pub ip: IpAddr,
     pub port: Option<u16>,
-    pub mac: String,
+    pub mac: MacAddress,
 }
 
 impl BmcAddr {
-    pub fn hash_key(&self) -> &str {
-        &self.mac
+    pub fn hash_key(&self) -> Cow<'static, str> {
+        Cow::Owned(self.mac.to_string())
     }
 
     pub fn to_url(&self) -> Result<Url, url::ParseError> {

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -142,12 +143,12 @@ impl<B: Bmc> SensorRecordable<B> for MonitoredEntity<B> {
     fn base_attributes(&self) -> Vec<MetricLabel> {
         match self {
             MonitoredEntity::Processor { entity, system, .. } => vec![
-                ("processor_id".to_string(), entity.raw().base.id.clone()),
-                ("system_id".to_string(), system.raw().base.id.clone()),
+                (Cow::Borrowed("processor_id"), entity.raw().base.id.clone()),
+                (Cow::Borrowed("system_id"), system.raw().base.id.clone()),
             ],
             MonitoredEntity::Memory { entity, system, .. } => vec![
-                ("memory_id".to_string(), entity.raw().base.id.clone()),
-                ("system_id".to_string(), system.raw().base.id.clone()),
+                (Cow::Borrowed("memory_id"), entity.raw().base.id.clone()),
+                (Cow::Borrowed("system_id"), system.raw().base.id.clone()),
             ],
             MonitoredEntity::Drive {
                 entity,
@@ -155,18 +156,21 @@ impl<B: Bmc> SensorRecordable<B> for MonitoredEntity<B> {
                 storage,
                 ..
             } => vec![
-                ("drive_id".to_string(), entity.raw().base.id.clone()),
-                ("storage_id".to_string(), storage.raw().base.id.clone()),
-                ("system_id".to_string(), system.raw().base.id.clone()),
+                (Cow::Borrowed("drive_id"), entity.raw().base.id.clone()),
+                (Cow::Borrowed("storage_id"), storage.raw().base.id.clone()),
+                (Cow::Borrowed("system_id"), system.raw().base.id.clone()),
             ],
             MonitoredEntity::PowerSupply {
                 entity, chassis, ..
             } => vec![
-                ("powersupply_id".to_string(), entity.raw().base.id.clone()),
-                ("chassis_id".to_string(), chassis.raw().base.id.clone()),
+                (
+                    Cow::Borrowed("powersupply_id"),
+                    entity.raw().base.id.clone(),
+                ),
+                (Cow::Borrowed("chassis_id"), chassis.raw().base.id.clone()),
             ],
             MonitoredEntity::Chassis { entity, .. } => {
-                vec![("chassis_id".to_string(), entity.raw().base.id.clone())]
+                vec![(Cow::Borrowed("chassis_id"), entity.raw().base.id.clone())]
             }
         }
     }
@@ -178,38 +182,38 @@ impl<B: Bmc> SensorRecordable<B> for MonitoredEntity<B> {
             MonitoredEntity::Processor { entity, .. } => {
                 if let Some(processor_type) = entity.raw().processor_type.flatten() {
                     attrs.push((
-                        "processor_type".to_string(),
+                        Cow::Borrowed("processor_type"),
                         processor_type.to_snake_case().to_string(),
                     ));
                 }
                 if let Some(model) = entity.raw().model.clone().flatten() {
-                    attrs.push(("model".to_string(), model));
+                    attrs.push((Cow::Borrowed("model"), model));
                 }
             }
             MonitoredEntity::Memory { entity, .. } => {
                 if let Some(device_type) = entity.raw().memory_device_type.flatten() {
                     attrs.push((
-                        "device_type".to_string(),
+                        Cow::Borrowed("device_type"),
                         device_type.to_snake_case().to_string(),
                     ));
                 }
                 if let Some(model) = entity.raw().model.clone().flatten() {
-                    attrs.push(("model".to_string(), model));
+                    attrs.push((Cow::Borrowed("model"), model));
                 }
             }
             MonitoredEntity::Drive { entity, .. } => {
                 if let Some(model) = entity.raw().model.clone().flatten() {
-                    attrs.push(("model".to_string(), model));
+                    attrs.push((Cow::Borrowed("model"), model));
                 }
             }
             MonitoredEntity::PowerSupply { entity, .. } => {
                 if let Some(model) = entity.raw().model.clone().flatten() {
-                    attrs.push(("model".to_string(), model));
+                    attrs.push((Cow::Borrowed("model"), model));
                 }
             }
             MonitoredEntity::Chassis { entity, .. } => {
                 if let Some(model) = entity.raw().model.clone().flatten() {
-                    attrs.push(("model".to_string(), model));
+                    attrs.push((Cow::Borrowed("model"), model));
                 }
             }
         }
@@ -279,12 +283,10 @@ struct SensorCollectorState<B: Bmc> {
 }
 
 impl<B: Bmc + 'static> SensorCollector<B> {
-    fn emit_event(&self, event: CollectorEvent) -> Result<(), HealthError> {
+    fn emit_event(&self, event: CollectorEvent) {
         if let Some(data_sink) = &self.data_sink {
-            data_sink.handle_event(&self.event_context, &event)?;
+            data_sink.handle_event(&self.event_context, &event);
         }
-
-        Ok(())
     }
 
     async fn run_monitor_iteration(&mut self) -> Result<IterationResult, HealthError> {
@@ -338,19 +340,13 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                 "Sending hardware health report"
             );
 
-            if let Err(e) = self.emit_event(CollectorEvent::HealthOverride(HealthOverride {
+            self.emit_event(CollectorEvent::HealthOverride(HealthOverride {
                 machine_id: self.endpoint.metadata.as_ref().and_then(|m| match m {
                     EndpointMetadata::Machine(machine) => Some(machine.machine_id),
                     EndpointMetadata::Switch(_) => None,
                 }),
                 report: Arc::new(report),
-            })) {
-                tracing::warn!(
-                endpoint = %self.endpoint.addr.mac,
-                    error = ?e,
-                    "Failed to emit health override event"
-                );
-            }
+            }));
         }
 
         Ok(IterationResult {
@@ -614,7 +610,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
         }
 
         tracing::info!(
-            bmc = self.endpoint.addr.mac,
+            bmc = %self.endpoint.addr.mac,
             total_valid = validated_entities.len(),
             "Discovered hardware entities with sensors"
         );
@@ -632,9 +628,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
         ),
         HealthError,
     > {
-        if let Err(error) = self.emit_event(CollectorEvent::MetricCollectionStart) {
-            tracing::warn!(error = ?error, "Failed to emit metric collection start event");
-        }
+        self.emit_event(CollectorEvent::MetricCollectionStart);
         let futures: Vec<_> = state
             .entities
             .iter()
@@ -656,9 +650,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                 SensorHealthResult::Alert(a) => alerts.push(a),
             }
         }
-        if let Err(error) = self.emit_event(CollectorEvent::MetricCollectionEnd) {
-            tracing::warn!(error = ?error, "Failed to emit metric collection end event");
-        }
+        self.emit_event(CollectorEvent::MetricCollectionEnd);
 
         Ok((successes, alerts))
     }
@@ -696,7 +688,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
 
         let mut attributes = entity.base_attributes();
         attributes.reserve(6);
-        attributes.push(("sensor_name".to_string(), sensor.base.id.clone()));
+        attributes.push((Cow::Borrowed("sensor_name"), sensor.base.id.clone()));
 
         if let Some(thresholds) = sensor
             .thresholds
@@ -704,7 +696,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             .filter(|_| self.include_sensor_thresholds)
         {
             attributes.push((
-                "upper_critical_threshold".to_string(),
+                Cow::Borrowed("upper_critical_threshold"),
                 thresholds
                     .upper_critical
                     .as_ref()
@@ -713,7 +705,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                     .to_string(),
             ));
             attributes.push((
-                "lower_critical_threshold".to_string(),
+                Cow::Borrowed("lower_critical_threshold"),
                 thresholds
                     .lower_critical
                     .as_ref()
@@ -737,26 +729,22 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                 }
                 .to_string()
             });
-        attributes.push(("physical_context".to_string(), physical_context));
+        attributes.push((Cow::Borrowed("physical_context"), physical_context));
         attributes.extend(entity.entity_specific_attributes());
 
         let derived_metrics = entity.entity_metrics(&attributes);
         let metric_type = reading_type.to_snake_case().to_string();
-        if let Err(error) = self.emit_event(CollectorEvent::Metric(MetricSample {
+        self.emit_event(CollectorEvent::Metric(MetricSample {
             key: sensor.id().to_string(),
             name: "hw_sensor".to_string(),
             metric_type: metric_type.clone(),
             unit: sanitize_unit(&unit),
             value: reading,
             labels: attributes,
-        })) {
-            tracing::warn!(error = ?error, "Failed to emit sensor metric event");
-        }
+        }));
 
         for metric in derived_metrics {
-            if let Err(error) = self.emit_event(CollectorEvent::Metric(metric)) {
-                tracing::warn!(error = ?error, "Failed to emit derived sensor metric event");
-            }
+            self.emit_event(CollectorEvent::Metric(metric));
         }
 
         let (upper_critical, lower_critical, upper_caution, lower_caution) =

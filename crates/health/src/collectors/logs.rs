@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -432,19 +433,19 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                         .await
                     {
                         Ok(e) => e,
-                        Err(e) => {
+                        Err(error) => {
                             tracing::debug!(
-                                service_id = %service_id,
-                                error = ?e,
+                                %service_id,
+                                ?error,
                                 "Failed to fetch filtered log entries, fetching all"
                             );
                             // Fallback - if filter is not supported properly
                             match service.entries().await {
                                 Ok(e) => e,
-                                Err(e) => {
+                                Err(error) => {
                                     tracing::warn!(
-                                        service_id = %service_id,
-                                        error = ?e,
+                                        %service_id,
+                                        ?error,
                                         "Failed to fetch log entries"
                                     );
                                     continue;
@@ -468,17 +469,17 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                         .collect()
                 }
                 None => match service.entries().await {
-                    Ok(e) => {
+                    Ok(error) => {
                         tracing::info!(
-                            service_id = %service_id,
+                            %service_id,
                             endpont=?self.endpoint.addr,
                             "Last seen id is empty, fetching all entries");
-                        e
+                        error
                     }
-                    Err(e) => {
+                    Err(error) => {
                         tracing::warn!(
-                            service_id = %service_id,
-                            error = ?e,
+                            %service_id,
+                            ?error,
                             "Failed to fetch log entries"
                         );
                         continue;
@@ -560,15 +561,13 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                     body,
                     severity: severity_text,
                     attributes: vec![
-                        ("machine_id".to_string(), machine_id.clone()),
-                        ("entry_id".to_string(), entry.base.id.clone()),
-                        ("service_id".to_string(), service_id.clone()),
+                        (Cow::Borrowed("machine_id"), machine_id.clone()),
+                        (Cow::Borrowed("entry_id"), entry.base.id.clone()),
+                        (Cow::Borrowed("service_id"), service_id.clone()),
                     ],
                 });
-                if let Some(sink) = &self.data_sink
-                    && let Err(error) = sink.handle_event(&self.event_context, &log_event)
-                {
-                    tracing::warn!(error = ?error, "Failed to emit log event");
+                if let Some(sink) = &self.data_sink {
+                    sink.handle_event(&self.event_context, &log_event);
                 }
 
                 if let Ok(entry_id) = entry.base.id.parse::<i32>() {

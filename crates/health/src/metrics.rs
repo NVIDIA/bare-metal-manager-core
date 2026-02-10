@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -35,7 +36,7 @@ use tokio::net::TcpListener;
 
 use crate::HealthError;
 
-pub type MetricLabel = (String, String);
+pub type MetricLabel = (Cow<'static, str>, String);
 type BoxedErr = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 pub fn operation_duration_buckets_seconds() -> Vec<f64> {
@@ -315,7 +316,7 @@ impl Collector for GaugeMetrics {
 
             for (name, value) in &data.labels {
                 let mut label = proto::LabelPair::new();
-                label.set_name(name.clone());
+                label.set_name(name.as_ref().to_owned());
                 label.set_value(value.clone());
                 labels.push(label);
             }

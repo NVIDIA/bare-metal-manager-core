@@ -42,7 +42,7 @@ use crate::endpoint::{CompositeEndpointSource, EndpointSource, StaticEndpointSou
 use crate::limiter::{BucketLimiter, NoopLimiter, RateLimiter};
 use crate::metrics::{MetricsManager, run_metrics_server};
 use crate::sharding::ShardManager;
-use crate::sink::{CompositeDataSink, ConsoleSink, DataSink, HealthOverrideSink, PrometheusSink};
+use crate::sink::{CompositeDataSink, DataSink, HealthOverrideSink, PrometheusSink, TracingSink};
 
 #[derive(thiserror::Error, Debug)]
 pub enum HealthError {
@@ -133,8 +133,8 @@ fn build_data_sink(
 ) -> Result<Option<Arc<dyn DataSink>>, HealthError> {
     let mut sinks: Vec<Arc<dyn DataSink>> = Vec::new();
 
-    if let Configurable::Enabled(_) = &config.sinks.console {
-        sinks.push(Arc::new(ConsoleSink));
+    if let Configurable::Enabled(_) = &config.sinks.tracing {
+        sinks.push(Arc::new(TracingSink));
     }
 
     if let Configurable::Enabled(_) = &config.sinks.prometheus {

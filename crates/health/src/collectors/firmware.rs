@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use nv_redfish::ServiceRoot;
@@ -61,12 +62,10 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for FirmwareCollector<B> {
 }
 
 impl<B: Bmc + 'static> FirmwareCollector<B> {
-    fn emit_event(&self, event: CollectorEvent) -> Result<(), HealthError> {
+    fn emit_event(&self, event: CollectorEvent) {
         if let Some(data_sink) = &self.data_sink {
-            data_sink.handle_event(&self.event_context, &event)?;
+            data_sink.handle_event(&self.event_context, &event);
         }
-
-        Ok(())
     }
 
     async fn run_firmware_iteration(&self) -> Result<IterationResult, HealthError> {
@@ -89,17 +88,15 @@ impl<B: Bmc + 'static> FirmwareCollector<B> {
 
             let component = firmware_data.base.name.clone();
             let attributes = vec![
-                ("firmware_name".to_string(), component.clone()),
-                ("version".to_string(), version.clone()),
+                (Cow::Borrowed("firmware_name"), component.clone()),
+                (Cow::Borrowed("version"), version.clone()),
             ];
 
-            if let Err(error) = self.emit_event(CollectorEvent::Firmware(FirmwareInfo {
+            self.emit_event(CollectorEvent::Firmware(FirmwareInfo {
                 component,
                 version,
                 attributes,
-            })) {
-                tracing::warn!(error = ?error, "Failed to emit firmware event");
-            }
+            }));
             firmware_count += 1;
         }
 

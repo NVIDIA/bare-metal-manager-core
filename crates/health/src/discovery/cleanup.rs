@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 
 use super::context::{CollectorKind, DiscoveryLoopContext};
@@ -22,7 +23,7 @@ use super::context::{CollectorKind, DiscoveryLoopContext};
 fn stop_collectors_for_keys(
     ctx: &mut DiscoveryLoopContext,
     kind: CollectorKind,
-    removed_keys: &HashSet<String>,
+    removed_keys: &HashSet<Cow<'static, str>>,
 ) {
     let collectors = ctx.collectors.map_mut_for_kind(kind);
     for key in removed_keys {
@@ -42,7 +43,7 @@ fn stop_collectors_for_keys(
 
 pub(super) fn stop_removed_bmc_collectors(
     ctx: &mut DiscoveryLoopContext,
-    active_endpoints: &HashSet<String>,
+    active_endpoints: &HashSet<Cow<'static, str>>,
 ) {
     let removed_keys = ctx.collectors.removed_keys(active_endpoints);
     for kind in CollectorKind::ALL {

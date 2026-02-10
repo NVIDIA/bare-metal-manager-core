@@ -27,7 +27,7 @@ password = "secret"
 # Sinks: Where collector events are sent
 # ==============================================================================
 
-[sinks.console]
+[sinks.tracing]
 enabled = false
 
 [sinks.prometheus]

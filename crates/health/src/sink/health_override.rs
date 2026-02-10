@@ -60,7 +60,7 @@ impl HealthOverrideSink {
                     .submit_health_report(&job.machine_id, report)
                     .await
                 {
-                    tracing::warn!(error = ?error, "Failed to submit health override report");
+                    tracing::warn!(?error, "Failed to submit health override report");
                 }
             }
         });
@@ -84,26 +84,18 @@ impl HealthOverrideSink {
 }
 
 impl DataSink for HealthOverrideSink {
-    fn handle_event(
-        &self,
-        _context: &EventContext,
-        event: &CollectorEvent,
-    ) -> Result<(), HealthError> {
+    fn handle_event(&self, _context: &EventContext, event: &CollectorEvent) {
         if let CollectorEvent::HealthOverride(HealthOverride { machine_id, report }) = event {
             if let Some(machine_id) = machine_id {
                 if let Err(error) = self.sender.send(HealthOverrideJob {
                     machine_id: *machine_id,
                     report: report.clone(),
                 }) {
-                    return Err(HealthError::GenericError(format!(
-                        "failed to enqueue health override report: {error}"
-                    )));
+                    tracing::warn!(?error, "failed to enqueue health override report");
                 }
             } else {
                 tracing::warn!(report = ?report, "Received HealthOverride event without machine_id");
             }
         }
-
-        Ok(())
     }
 }
