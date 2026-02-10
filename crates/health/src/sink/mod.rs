@@ -15,9 +15,6 @@
  * limitations under the License.
  */
 
-use std::future::Future;
-use std::pin::Pin;
-
 use crate::HealthError;
 
 mod composite;
@@ -34,14 +31,12 @@ pub use events::{
 pub use health_override::HealthOverrideSink;
 pub use prometheus::PrometheusSink;
 
-type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
 pub trait DataSink: Send + Sync {
-    fn handle_event<'a>(
-        &'a self,
-        context: EventContext,
-        event: CollectorEvent,
-    ) -> BoxFuture<'a, Result<(), HealthError>>;
+    fn handle_event(
+        &self,
+        context: &EventContext,
+        event: &CollectorEvent,
+    ) -> Result<(), HealthError>;
 }
 
 #[cfg(test)]
@@ -50,10 +45,11 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::{
-        BoxFuture, CollectorEvent, CompositeDataSink, DataSink, EventContext, LogRecord,
-        MetricSample, PrometheusSink,
+        CollectorEvent, CompositeDataSink, DataSink, EventContext, LogRecord, MetricSample,
+        PrometheusSink,
     };
     use crate::HealthError;
+    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
     use crate::metrics::MetricsManager;
 
     struct CountingSink {
@@ -62,19 +58,17 @@ mod tests {
     }
 
     impl DataSink for CountingSink {
-        fn handle_event<'a>(
-            &'a self,
-            _context: EventContext,
-            _event: CollectorEvent,
-        ) -> BoxFuture<'a, Result<(), HealthError>> {
-            Box::pin(async move {
-                if self.fail {
-                    return Err(HealthError::GenericError("forced failure".to_string()));
-                }
+        fn handle_event(
+            &self,
+            _context: &EventContext,
+            _event: &CollectorEvent,
+        ) -> Result<(), HealthError> {
+            if self.fail {
+                return Err(HealthError::GenericError("forced failure".to_string()));
+            }
 
-                self.counter.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            })
+            self.counter.fetch_add(1, Ordering::SeqCst);
+            Ok(())
         }
     }
 
@@ -98,28 +92,34 @@ mod tests {
         let composite = CompositeDataSink::new(vec![sink_ok_1, sink_fail, sink_ok_2]);
 
         let context = EventContext {
-            endpoint_key: "aa:bb:cc:dd".to_string(),
-            endpoint_ip: "10.0.0.1".to_string(),
-            endpoint_mac: "aa:bb:cc:dd".to_string(),
-            collector_type: "test".to_string(),
-            machine_id: None,
-            switch_serial: None,
+            addr: BmcAddr {
+                ip: "10.0.0.1".parse().expect("valid ip"),
+                port: Some(443),
+                mac: "aa:bb:cc:dd".to_string(),
+            },
+            collector_type: "test",
+            metadata: None,
         };
 
+        let event = CollectorEvent::Metric(MetricSample {
+            key: "key".to_string(),
+            name: "metric".to_string(),
+            metric_type: "gauge".to_string(),
+            unit: "count".to_string(),
+            value: 1.0,
+            labels: Vec::new(),
+        });
         composite
-            .handle_event(
-                context,
-                CollectorEvent::Metric(MetricSample {
-                    key: "key".to_string(),
-                    name: "metric".to_string(),
-                    metric_type: "gauge".to_string(),
-                    unit: "count".to_string(),
-                    value: 1.0,
-                    labels: Vec::new(),
-                }),
-            )
-            .await
+            .handle_event(&context, &event)
             .expect("composite sink should isolate downstream sink failures");
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while success_counter.load(Ordering::SeqCst) < 2 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("composite sink workers should process queued events");
 
         assert_eq!(success_counter.load(Ordering::SeqCst), 2);
     }
@@ -131,43 +131,43 @@ mod tests {
             .expect("sink should initialize");
 
         let context = EventContext {
-            endpoint_key: "aa:bb:cc:dd".to_string(),
-            endpoint_ip: "10.0.0.1".to_string(),
-            endpoint_mac: "aa:bb:cc:dd".to_string(),
-            collector_type: "test".to_string(),
-            machine_id: Some("machine-1".to_string()),
-            switch_serial: None,
+            addr: BmcAddr {
+                ip: "10.0.0.1".parse().expect("valid ip"),
+                port: Some(443),
+                mac: "aa:bb:cc:dd".to_string(),
+            },
+            collector_type: "test",
+            metadata: Some(EndpointMetadata::Machine(MachineData {
+                machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+                    .parse()
+                    .expect("valid machine id"),
+                machine_serial: None,
+            })),
         };
 
-        sink.handle_event(
-            context.clone(),
-            CollectorEvent::Log(LogRecord {
-                body: "ignored by prometheus sink".to_string(),
-                severity: "INFO".to_string(),
-                attributes: Vec::new(),
-            }),
-        )
-        .await
-        .expect("log event should not fail");
+        let log_event = CollectorEvent::Log(LogRecord {
+            body: "ignored by prometheus sink".to_string(),
+            severity: "INFO".to_string(),
+            attributes: Vec::new(),
+        });
+        sink.handle_event(&context, &log_event)
+            .expect("log event should not fail");
 
         let export_after_log = metrics_manager
             .export_all()
             .expect("metrics export should work");
         assert!(!export_after_log.contains("test_sink_hw_sensor"));
 
-        sink.handle_event(
-            context,
-            CollectorEvent::Metric(MetricSample {
-                key: "metric_key".to_string(),
-                name: "hw_sensor".to_string(),
-                metric_type: "temperature".to_string(),
-                unit: "celsius".to_string(),
-                value: 42.0,
-                labels: vec![("sensor".to_string(), "temp1".to_string())],
-            }),
-        )
-        .await
-        .expect("metric event should be accepted");
+        let metric_event = CollectorEvent::Metric(MetricSample {
+            key: "metric_key".to_string(),
+            name: "hw_sensor".to_string(),
+            metric_type: "temperature".to_string(),
+            unit: "celsius".to_string(),
+            value: 42.0,
+            labels: vec![("sensor".to_string(), "temp1".to_string())],
+        });
+        sink.handle_event(&context, &metric_event)
+            .expect("metric event should be accepted");
 
         let export_after_metric = metrics_manager
             .export_all()
@@ -182,32 +182,35 @@ mod tests {
             .expect("sink should initialize");
 
         let context = EventContext {
-            endpoint_key: "aa:bb:cc:dd".to_string(),
-            endpoint_ip: "10.0.0.1".to_string(),
-            endpoint_mac: "aa:bb:cc:dd".to_string(),
-            collector_type: "sensor_collector".to_string(),
-            machine_id: Some("machine-1".to_string()),
-            switch_serial: None,
+            addr: BmcAddr {
+                ip: "10.0.0.1".parse().expect("valid ip"),
+                port: Some(443),
+                mac: "aa:bb:cc:dd".to_string(),
+            },
+            collector_type: "sensor_collector",
+            metadata: Some(EndpointMetadata::Machine(MachineData {
+                machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+                    .parse()
+                    .expect("valid machine id"),
+                machine_serial: None,
+            })),
         };
 
-        sink.handle_event(context.clone(), CollectorEvent::MetricCollectionStart)
-            .await
+        let start_event = CollectorEvent::MetricCollectionStart;
+        sink.handle_event(&context, &start_event)
             .expect("start should succeed");
-        sink.handle_event(
-            context.clone(),
-            CollectorEvent::Metric(MetricSample {
-                key: "s1".to_string(),
-                name: "hw_sensor".to_string(),
-                metric_type: "temperature".to_string(),
-                unit: "celsius".to_string(),
-                value: 10.0,
-                labels: vec![("sensor".to_string(), "temp1".to_string())],
-            }),
-        )
-        .await
-        .expect("metric event should be accepted");
-        sink.handle_event(context.clone(), CollectorEvent::MetricCollectionEnd)
-            .await
+        let s1_event = CollectorEvent::Metric(MetricSample {
+            key: "s1".to_string(),
+            name: "hw_sensor".to_string(),
+            metric_type: "temperature".to_string(),
+            unit: "celsius".to_string(),
+            value: 10.0,
+            labels: vec![("sensor".to_string(), "temp1".to_string())],
+        });
+        sink.handle_event(&context, &s1_event)
+            .expect("metric event should be accepted");
+        let end_event = CollectorEvent::MetricCollectionEnd;
+        sink.handle_event(&context, &end_event)
             .expect("end should succeed");
 
         let first_export = metrics_manager
@@ -215,24 +218,21 @@ mod tests {
             .expect("metrics export should work");
         assert!(first_export.contains("sensor=\"temp1\""));
 
-        sink.handle_event(context.clone(), CollectorEvent::MetricCollectionStart)
-            .await
+        let start_event = CollectorEvent::MetricCollectionStart;
+        sink.handle_event(&context, &start_event)
             .expect("start should succeed");
-        sink.handle_event(
-            context.clone(),
-            CollectorEvent::Metric(MetricSample {
-                key: "s2".to_string(),
-                name: "hw_sensor".to_string(),
-                metric_type: "temperature".to_string(),
-                unit: "celsius".to_string(),
-                value: 20.0,
-                labels: vec![("sensor".to_string(), "temp2".to_string())],
-            }),
-        )
-        .await
-        .expect("metric event should be accepted");
-        sink.handle_event(context, CollectorEvent::MetricCollectionEnd)
-            .await
+        let s2_event = CollectorEvent::Metric(MetricSample {
+            key: "s2".to_string(),
+            name: "hw_sensor".to_string(),
+            metric_type: "temperature".to_string(),
+            unit: "celsius".to_string(),
+            value: 20.0,
+            labels: vec![("sensor".to_string(), "temp2".to_string())],
+        });
+        sink.handle_event(&context, &s2_event)
+            .expect("metric event should be accepted");
+        let end_event = CollectorEvent::MetricCollectionEnd;
+        sink.handle_event(&context, &end_event)
             .expect("end should succeed");
 
         let second_export = metrics_manager

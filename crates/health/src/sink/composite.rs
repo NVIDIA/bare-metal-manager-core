@@ -17,60 +17,78 @@
 
 use std::sync::Arc;
 
-use super::{BoxFuture, CollectorEvent, DataSink, EventContext};
+use tokio::sync::mpsc;
+
+use super::{CollectorEvent, DataSink, EventContext};
 use crate::HealthError;
 
+struct SinkEvent {
+    context: Arc<EventContext>,
+    event: Arc<CollectorEvent>,
+}
+
 pub struct CompositeDataSink {
-    sinks: Vec<Arc<dyn DataSink>>,
+    worker_senders: Vec<mpsc::UnboundedSender<SinkEvent>>,
+    fallback_sinks: Vec<Arc<dyn DataSink>>,
 }
 
 impl CompositeDataSink {
     pub fn new(sinks: Vec<Arc<dyn DataSink>>) -> Self {
-        Self { sinks }
+        let mut worker_senders = Vec::with_capacity(sinks.len());
+        let mut fallback_sinks = Vec::new();
+
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            for sink in sinks {
+                let (sender, mut receiver) = mpsc::unbounded_channel::<SinkEvent>();
+                worker_senders.push(sender);
+
+                handle.spawn(async move {
+                    while let Some(SinkEvent { context, event }) = receiver.recv().await {
+                        if let Err(error) = sink.handle_event(&context, &event) {
+                            tracing::warn!(error = ?error, "sink failed to process event");
+                        }
+                    }
+                });
+            }
+        } else {
+            fallback_sinks = sinks;
+        }
+
+        Self {
+            worker_senders,
+            fallback_sinks,
+        }
     }
 }
 
 impl DataSink for CompositeDataSink {
-    fn handle_event<'a>(
-        &'a self,
-        context: EventContext,
-        event: CollectorEvent,
-    ) -> BoxFuture<'a, Result<(), HealthError>> {
-        Box::pin(async move {
-            if self.sinks.is_empty() {
-                return Ok(());
-            }
+    fn handle_event(
+        &self,
+        context: &EventContext,
+        event: &CollectorEvent,
+    ) -> Result<(), HealthError> {
+        if !self.worker_senders.is_empty() {
+            let context = Arc::new(context.clone());
+            let event = Arc::new(event.clone());
 
-            let last = self.sinks.len() - 1;
-            let mut owned_context = Some(context);
-            let mut owned_event = Some(event);
-            for (idx, sink) in self.sinks.iter().enumerate() {
-                let sink_context = if idx == last {
-                    owned_context
-                        .take()
-                        .expect("owned context should be available for final sink")
-                } else {
-                    owned_context
-                        .as_ref()
-                        .expect("owned context should be available")
-                        .clone()
-                };
-                let sink_event = if idx == last {
-                    owned_event
-                        .take()
-                        .expect("owned event should be available for final sink")
-                } else {
-                    owned_event
-                        .as_ref()
-                        .expect("owned event should be available")
-                        .clone()
-                };
-
-                if let Err(error) = sink.handle_event(sink_context, sink_event).await {
-                    tracing::warn!(error = ?error, "sink failed to process event");
+            for sender in &self.worker_senders {
+                if let Err(error) = sender.send(SinkEvent {
+                    context: context.clone(),
+                    event: event.clone(),
+                }) {
+                    tracing::warn!(error = ?error, "failed to enqueue sink event");
                 }
             }
-            Ok(())
-        })
+
+            return Ok(());
+        }
+
+        for sink in &self.fallback_sinks {
+            if let Err(error) = sink.handle_event(context, event) {
+                tracing::warn!(error = ?error, "sink failed to process event");
+            }
+        }
+
+        Ok(())
     }
 }

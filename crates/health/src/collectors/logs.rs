@@ -413,8 +413,6 @@ impl<B: Bmc + 'static> LogsCollector<B> {
         let Some(EndpointMetadata::Machine(machine)) = &self.endpoint.metadata else {
             return Ok(0);
         };
-        let data_sink = self.data_sink.clone();
-        let event_context = self.event_context.clone();
         let machine_id = machine.machine_id.to_string();
 
         let Some(state) = self.state.as_mut() else {
@@ -558,21 +556,17 @@ impl<B: Bmc + 'static> LogsCollector<B> {
 
                 records.push(otel_record);
 
-                if let Some(sink) = &data_sink
-                    && let Err(error) = sink
-                        .handle_event(
-                            event_context.clone(),
-                            CollectorEvent::Log(LogRecord {
-                                body,
-                                severity: severity_text,
-                                attributes: vec![
-                                    ("machine_id".to_string(), machine_id.clone()),
-                                    ("entry_id".to_string(), entry.base.id.clone()),
-                                    ("service_id".to_string(), service_id.clone()),
-                                ],
-                            }),
-                        )
-                        .await
+                let log_event = CollectorEvent::Log(LogRecord {
+                    body,
+                    severity: severity_text,
+                    attributes: vec![
+                        ("machine_id".to_string(), machine_id.clone()),
+                        ("entry_id".to_string(), entry.base.id.clone()),
+                        ("service_id".to_string(), service_id.clone()),
+                    ],
+                });
+                if let Some(sink) = &self.data_sink
+                    && let Err(error) = sink.handle_event(&self.event_context, &log_event)
                 {
                     tracing::warn!(error = ?error, "Failed to emit log event");
                 }

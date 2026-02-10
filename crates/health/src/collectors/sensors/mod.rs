@@ -279,11 +279,9 @@ struct SensorCollectorState<B: Bmc> {
 }
 
 impl<B: Bmc + 'static> SensorCollector<B> {
-    async fn emit_event(&self, event: CollectorEvent) -> Result<(), HealthError> {
+    fn emit_event(&self, event: CollectorEvent) -> Result<(), HealthError> {
         if let Some(data_sink) = &self.data_sink {
-            data_sink
-                .handle_event(self.event_context.clone(), event)
-                .await?;
+            data_sink.handle_event(&self.event_context, &event)?;
         }
 
         Ok(())
@@ -340,16 +338,13 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                 "Sending hardware health report"
             );
 
-            if let Err(e) = self
-                .emit_event(CollectorEvent::HealthOverride(HealthOverride {
-                    machine_id: self.endpoint.metadata.as_ref().and_then(|m| match m {
-                        EndpointMetadata::Machine(machine) => Some(machine.machine_id),
-                        EndpointMetadata::Switch(_) => None,
-                    }),
-                    report,
-                }))
-                .await
-            {
+            if let Err(e) = self.emit_event(CollectorEvent::HealthOverride(HealthOverride {
+                machine_id: self.endpoint.metadata.as_ref().and_then(|m| match m {
+                    EndpointMetadata::Machine(machine) => Some(machine.machine_id),
+                    EndpointMetadata::Switch(_) => None,
+                }),
+                report,
+            })) {
                 tracing::warn!(
                 endpoint = %self.endpoint.addr.mac,
                     error = ?e,
@@ -637,7 +632,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
         ),
         HealthError,
     > {
-        if let Err(error) = self.emit_event(CollectorEvent::MetricCollectionStart).await {
+        if let Err(error) = self.emit_event(CollectorEvent::MetricCollectionStart) {
             tracing::warn!(error = ?error, "Failed to emit metric collection start event");
         }
         let futures: Vec<_> = state
@@ -661,7 +656,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                 SensorHealthResult::Alert(a) => alerts.push(a),
             }
         }
-        if let Err(error) = self.emit_event(CollectorEvent::MetricCollectionEnd).await {
+        if let Err(error) = self.emit_event(CollectorEvent::MetricCollectionEnd) {
             tracing::warn!(error = ?error, "Failed to emit metric collection end event");
         }
 
@@ -699,72 +694,67 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             return None;
         };
 
-        let attributes: Vec<_> =
-            std::iter::once(("sensor_name".to_string(), sensor.base.id.clone()))
-                .chain(entity.base_attributes())
-                .chain(
-                    sensor
-                        .thresholds
-                        .as_ref()
-                        .filter(|_| self.include_sensor_thresholds)
-                        .map(|t| {
-                            [
-                                (
-                                    "upper_critical_threshold".to_string(),
-                                    t.upper_critical
-                                        .as_ref()
-                                        .and_then(|th| th.reading.flatten())
-                                        .unwrap_or_default()
-                                        .to_string(),
-                                ),
-                                (
-                                    "lower_critical_threshold".to_string(),
-                                    t.lower_critical
-                                        .as_ref()
-                                        .and_then(|th| th.reading.flatten())
-                                        .unwrap_or_default()
-                                        .to_string(),
-                                ),
-                            ]
-                        })
-                        .into_iter()
-                        .flatten(),
-                )
-                .chain(
-                    sensor
-                        .physical_context
-                        .flatten()
-                        .map(|phc| phc.to_snake_case())
-                        .or({
-                            Some(match entity {
-                                MonitoredEntity::Processor { .. } => "cpu",
-                                MonitoredEntity::Memory { .. } => "memory",
-                                MonitoredEntity::Drive { .. } => "storage_device",
-                                MonitoredEntity::PowerSupply { .. } => "power_supply",
-                                MonitoredEntity::Chassis { .. } => "chassis",
-                            })
-                        })
-                        .map(|phc| ("physical_context".to_string(), phc.to_string())),
-                )
-                .chain(entity.entity_specific_attributes())
-                .collect();
+        let mut attributes = entity.base_attributes();
+        attributes.reserve(6);
+        attributes.push(("sensor_name".to_string(), sensor.base.id.clone()));
 
-        if let Err(error) = self
-            .emit_event(CollectorEvent::Metric(MetricSample {
-                key: sensor.id().to_string(),
-                name: "hw_sensor".to_string(),
-                metric_type: reading_type.to_snake_case().to_string(),
-                unit: sanitize_unit(&unit),
-                value: reading,
-                labels: attributes.clone(),
-            }))
-            .await
+        if let Some(thresholds) = sensor
+            .thresholds
+            .as_ref()
+            .filter(|_| self.include_sensor_thresholds)
         {
+            attributes.push((
+                "upper_critical_threshold".to_string(),
+                thresholds
+                    .upper_critical
+                    .as_ref()
+                    .and_then(|th| th.reading.flatten())
+                    .unwrap_or_default()
+                    .to_string(),
+            ));
+            attributes.push((
+                "lower_critical_threshold".to_string(),
+                thresholds
+                    .lower_critical
+                    .as_ref()
+                    .and_then(|th| th.reading.flatten())
+                    .unwrap_or_default()
+                    .to_string(),
+            ));
+        }
+
+        let physical_context = sensor
+            .physical_context
+            .flatten()
+            .map(|phc| phc.to_snake_case().to_string())
+            .unwrap_or_else(|| {
+                match entity {
+                    MonitoredEntity::Processor { .. } => "cpu",
+                    MonitoredEntity::Memory { .. } => "memory",
+                    MonitoredEntity::Drive { .. } => "storage_device",
+                    MonitoredEntity::PowerSupply { .. } => "power_supply",
+                    MonitoredEntity::Chassis { .. } => "chassis",
+                }
+                .to_string()
+            });
+        attributes.push(("physical_context".to_string(), physical_context));
+        attributes.extend(entity.entity_specific_attributes());
+
+        let derived_metrics = entity.entity_metrics(&attributes);
+        let metric_type = reading_type.to_snake_case().to_string();
+        if let Err(error) = self.emit_event(CollectorEvent::Metric(MetricSample {
+            key: sensor.id().to_string(),
+            name: "hw_sensor".to_string(),
+            metric_type: metric_type.clone(),
+            unit: sanitize_unit(&unit),
+            value: reading,
+            labels: attributes,
+        })) {
             tracing::warn!(error = ?error, "Failed to emit sensor metric event");
         }
 
-        for metric in entity.entity_metrics(&attributes) {
-            if let Err(error) = self.emit_event(CollectorEvent::Metric(metric)).await {
+        for metric in derived_metrics {
+            if let Err(error) = self.emit_event(CollectorEvent::Metric(metric)) {
                 tracing::warn!(error = ?error, "Failed to emit derived sensor metric event");
             }
         }
@@ -802,7 +792,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             entity_type: entity.metric_prefix().replace("hw_", ""),
             sensor_id: sensor.base.id.clone(),
             reading,
-            reading_type: reading_type.to_snake_case().to_string(),
+            reading_type: metric_type,
             unit,
             upper_critical,
             lower_critical,

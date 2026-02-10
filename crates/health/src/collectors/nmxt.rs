@@ -234,11 +234,9 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
 }
 
 impl NmxtCollector {
-    async fn emit_event(&self, event: CollectorEvent) -> Result<(), HealthError> {
+    fn emit_event(&self, event: CollectorEvent) -> Result<(), HealthError> {
         if let Some(data_sink) = &self.data_sink {
-            data_sink
-                .handle_event(self.event_context.clone(), event)
-                .await?;
+            data_sink.handle_event(&self.event_context, &event)?;
         }
         Ok(())
     }
@@ -283,22 +281,26 @@ impl NmxtCollector {
                 _ => continue,
             };
 
-            if let Err(error) = self
-                .emit_event(CollectorEvent::Metric(MetricSample {
-                    key: format!("{}:{}", metric_type, port_num),
-                    name: "switch_nmxt".to_string(),
-                    metric_type: metric_type.to_string(),
-                    unit: "count".to_string(),
-                    value,
-                    labels: vec![
-                        ("switch_id".to_string(), self.switch_id.clone()),
-                        ("switch_ip".to_string(), switch_ip.clone()),
-                        ("node_guid".to_string(), node_guid),
-                        ("port_num".to_string(), port_num),
-                    ],
-                }))
-                .await
-            {
+            let mut metric_key = String::with_capacity(metric_type.len() + 1 + port_num.len());
+            metric_key.push_str(metric_type);
+            metric_key.push(':');
+            metric_key.push_str(&port_num);
+
+            let event_labels = vec![
+                ("switch_id".to_string(), self.switch_id.clone()),
+                ("switch_ip".to_string(), switch_ip.clone()),
+                ("node_guid".to_string(), node_guid),
+                ("port_num".to_string(), port_num),
+            ];
+
+            if let Err(error) = self.emit_event(CollectorEvent::Metric(MetricSample {
+                key: metric_key,
+                name: "switch_nmxt".to_string(),
+                metric_type: metric_type.to_string(),
+                unit: "count".to_string(),
+                value,
+                labels: event_labels,
+            })) {
                 tracing::warn!(error = ?error, "Failed to emit NMX-T metric event");
             }
         }

@@ -17,46 +17,77 @@
 
 use std::sync::Arc;
 
-use super::{BoxFuture, CollectorEvent, DataSink, EventContext};
+use tokio::sync::mpsc;
+
+use super::{CollectorEvent, DataSink, EventContext};
 use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
 use crate::config::CarbideApiConnectionConfig;
 use crate::sink::HealthOverride;
 
+struct HealthOverrideJob {
+    machine_id: carbide_uuid::machine::MachineId,
+    report: health_report::HealthReport,
+}
+
 pub struct HealthOverrideSink {
-    client: Arc<ApiClientWrapper>,
+    sender: mpsc::UnboundedSender<HealthOverrideJob>,
 }
 
 impl HealthOverrideSink {
-    pub fn new(config: &CarbideApiConnectionConfig) -> Self {
-        let client = ApiClientWrapper::new(
+    pub fn new(config: &CarbideApiConnectionConfig) -> Result<Self, HealthError> {
+        let client = Arc::new(ApiClientWrapper::new(
             config.root_ca.clone(),
             config.client_cert.clone(),
             config.client_key.clone(),
             &config.api_url,
             false,
-        );
-        Self {
-            client: Arc::new(client),
-        }
+        ));
+
+        let handle = tokio::runtime::Handle::try_current().map_err(|error| {
+            HealthError::GenericError(format!(
+                "health override sink requires active Tokio runtime: {error}"
+            ))
+        })?;
+        let (sender, mut receiver) = mpsc::unbounded_channel::<HealthOverrideJob>();
+        let worker_client = Arc::clone(&client);
+
+        handle.spawn(async move {
+            while let Some(job) = receiver.recv().await {
+                if let Err(error) = worker_client
+                    .submit_health_report(&job.machine_id, job.report)
+                    .await
+                {
+                    tracing::warn!(error = ?error, "Failed to submit health override report");
+                }
+            }
+        });
+
+        Ok(Self { sender })
     }
 }
 
 impl DataSink for HealthOverrideSink {
-    fn handle_event<'a>(
-        &'a self,
-        _context: EventContext,
-        event: CollectorEvent,
-    ) -> BoxFuture<'a, Result<(), HealthError>> {
-        Box::pin(async move {
-            if let CollectorEvent::HealthOverride(HealthOverride { machine_id, report }) = event {
-                if let Some(ref machine_id) = machine_id {
-                    self.client.submit_health_report(machine_id, report).await?;
-                } else {
-                    tracing::warn!(report = ?report, "Received HealthOverride event without machine_id");
+    fn handle_event(
+        &self,
+        _context: &EventContext,
+        event: &CollectorEvent,
+    ) -> Result<(), HealthError> {
+        if let CollectorEvent::HealthOverride(HealthOverride { machine_id, report }) = event {
+            if let Some(machine_id) = machine_id {
+                if let Err(error) = self.sender.send(HealthOverrideJob {
+                    machine_id: *machine_id,
+                    report: report.clone(),
+                }) {
+                    return Err(HealthError::GenericError(format!(
+                        "failed to enqueue health override report: {error}"
+                    )));
                 }
+            } else {
+                tracing::warn!(report = ?report, "Received HealthOverride event without machine_id");
             }
-            Ok(())
-        })
+        }
+
+        Ok(())
     }
 }

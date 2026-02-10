@@ -61,11 +61,9 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for FirmwareCollector<B> {
 }
 
 impl<B: Bmc + 'static> FirmwareCollector<B> {
-    async fn emit_event(&self, event: CollectorEvent) -> Result<(), HealthError> {
+    fn emit_event(&self, event: CollectorEvent) -> Result<(), HealthError> {
         if let Some(data_sink) = &self.data_sink {
-            data_sink
-                .handle_event(self.event_context.clone(), event)
-                .await?;
+            data_sink.handle_event(&self.event_context, &event)?;
         }
 
         Ok(())
@@ -89,19 +87,17 @@ impl<B: Bmc + 'static> FirmwareCollector<B> {
                 continue;
             };
 
-            let firmware_name = &firmware_data.base.name;
+            let component = firmware_data.base.name.clone();
+            let attributes = vec![
+                ("firmware_name".to_string(), component.clone()),
+                ("version".to_string(), version.clone()),
+            ];
 
-            if let Err(error) = self
-                .emit_event(CollectorEvent::Firmware(FirmwareInfo {
-                    component: firmware_name.clone(),
-                    version: version.clone(),
-                    attributes: vec![
-                        ("firmware_name".to_string(), firmware_name.clone()),
-                        ("version".to_string(), version),
-                    ],
-                }))
-                .await
-            {
+            if let Err(error) = self.emit_event(CollectorEvent::Firmware(FirmwareInfo {
+                component,
+                version,
+                attributes,
+            })) {
                 tracing::warn!(error = ?error, "Failed to emit firmware event");
             }
             firmware_count += 1;

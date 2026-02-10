@@ -19,13 +19,13 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 
-use super::{BoxFuture, CollectorEvent, DataSink, EventContext};
+use super::{CollectorEvent, DataSink, EventContext, MetricSample};
 use crate::HealthError;
 use crate::metrics::{CollectorRegistry, GaugeMetrics, GaugeReading, MetricsManager};
 
 pub struct PrometheusSink {
     collector_registry: Arc<CollectorRegistry>, // Hold onto the registry to ensure it lives as long as the sink
-    stream_metrics: DashMap<String, Arc<GaugeMetrics>>,
+    stream_metrics: DashMap<String, DashMap<&'static str, Arc<GaugeMetrics>>>,
 }
 
 impl PrometheusSink {
@@ -44,10 +44,6 @@ impl PrometheusSink {
         })
     }
 
-    fn stream_key(context: &EventContext) -> String {
-        format!("{}::{}", context.endpoint_key, context.collector_type)
-    }
-
     fn sanitize_id(value: &str) -> String {
         value
             .chars()
@@ -64,24 +60,51 @@ impl PrometheusSink {
     fn stream_metric_id(context: &EventContext) -> String {
         format!(
             "sink_gauge_metrics_{}_{}",
-            Self::sanitize_id(&context.endpoint_key),
-            Self::sanitize_id(&context.collector_type)
+            Self::sanitize_id(context.endpoint_key()),
+            Self::sanitize_id(context.collector_type)
         )
+    }
+
+    fn metric_reading_key(context: &EventContext, sample: &MetricSample) -> String {
+        let endpoint = context.endpoint_key();
+        const KEY_SEPARATOR: &str = "::";
+        let separators_len = KEY_SEPARATOR.len() * 3;
+        let mut key = String::with_capacity(
+            endpoint.len()
+                + sample.key.len()
+                + sample.metric_type.len()
+                + sample.unit.len()
+                + separators_len,
+        );
+        key.push_str(endpoint);
+        key.push_str(KEY_SEPARATOR);
+        key.push_str(&sample.key);
+        key.push_str(KEY_SEPARATOR);
+        key.push_str(&sample.metric_type);
+        key.push_str(KEY_SEPARATOR);
+        key.push_str(&sample.unit);
+        key
     }
 
     fn stream_static_labels(context: &EventContext) -> Vec<(String, String)> {
         let mut labels = vec![
-            ("endpoint_key".to_string(), context.endpoint_key.clone()),
-            ("endpoint_mac".to_string(), context.endpoint_mac.clone()),
-            ("endpoint_ip".to_string(), context.endpoint_ip.clone()),
-            ("collector_type".to_string(), context.collector_type.clone()),
+            (
+                "endpoint_key".to_string(),
+                context.endpoint_key().to_string(),
+            ),
+            ("endpoint_mac".to_string(), context.addr.mac.clone()),
+            ("endpoint_ip".to_string(), context.addr.ip.to_string()),
+            (
+                "collector_type".to_string(),
+                context.collector_type.to_string(),
+            ),
         ];
 
-        if let Some(machine_id) = context.machine_id.clone() {
-            labels.push(("machine_id".to_string(), machine_id));
+        if let Some(machine_id) = context.machine_id() {
+            labels.push(("machine_id".to_string(), machine_id.to_string()));
         }
-        if let Some(serial) = context.switch_serial.clone() {
-            labels.push(("switch_serial".to_string(), serial));
+        if let Some(serial) = context.switch_serial() {
+            labels.push(("switch_serial".to_string(), serial.to_string()));
         }
 
         labels
@@ -91,8 +114,9 @@ impl PrometheusSink {
         &self,
         context: &EventContext,
     ) -> Result<Arc<GaugeMetrics>, HealthError> {
-        let stream_key = Self::stream_key(context);
-        if let Some(entry) = self.stream_metrics.get(&stream_key) {
+        if let Some(endpoint_metrics) = self.stream_metrics.get(context.endpoint_key())
+            && let Some(entry) = endpoint_metrics.get(context.collector_type)
+        {
             return Ok(entry.value().clone());
         }
 
@@ -102,7 +126,12 @@ impl PrometheusSink {
             Self::stream_static_labels(context),
         )?;
 
-        match self.stream_metrics.entry(stream_key) {
+        let endpoint_metrics = self
+            .stream_metrics
+            .entry(context.endpoint_key().to_string())
+            .or_insert_with(DashMap::new);
+
+        match endpoint_metrics.entry(context.collector_type) {
             dashmap::mapref::entry::Entry::Occupied(existing) => Ok(existing.get().clone()),
             dashmap::mapref::entry::Entry::Vacant(vacant) => {
                 vacant.insert(metrics.clone());
@@ -113,46 +142,41 @@ impl PrometheusSink {
 }
 
 impl DataSink for PrometheusSink {
-    fn handle_event<'a>(
-        &'a self,
-        context: EventContext,
-        event: CollectorEvent,
-    ) -> BoxFuture<'a, Result<(), HealthError>> {
-        Box::pin(async move {
-            let stream_key = Self::stream_key(&context);
-
-            match event {
-                CollectorEvent::MetricCollectionStart => {
-                    let stream_metrics = self.get_or_create_stream_metrics(&context)?;
-                    stream_metrics.begin_update();
-                }
-                CollectorEvent::Metric(sample) => {
-                    let stream_metrics = self.get_or_create_stream_metrics(&context)?;
-                    stream_metrics.record(
-                        GaugeReading::new(
-                            format!(
-                                "{}::{}::{}::{}",
-                                context.endpoint_key, sample.key, sample.metric_type, sample.unit
-                            ),
-                            sample.name,
-                            sample.metric_type,
-                            sample.unit,
-                            sample.value,
-                        )
-                        .with_labels(sample.labels),
-                    );
-                }
-                CollectorEvent::MetricCollectionEnd => {
-                    if let Some(entry) = self.stream_metrics.get(&stream_key) {
-                        entry.value().sweep_stale();
-                    }
-                }
-                CollectorEvent::Log(_)
-                | CollectorEvent::Firmware(_)
-                | CollectorEvent::HealthOverride(_) => {}
+    fn handle_event(
+        &self,
+        context: &EventContext,
+        event: &CollectorEvent,
+    ) -> Result<(), HealthError> {
+        match event {
+            CollectorEvent::MetricCollectionStart => {
+                let stream_metrics = self.get_or_create_stream_metrics(context)?;
+                stream_metrics.begin_update();
             }
+            CollectorEvent::Metric(sample) => {
+                let stream_metrics = self.get_or_create_stream_metrics(context)?;
+                stream_metrics.record(
+                    GaugeReading::new(
+                        Self::metric_reading_key(context, sample),
+                        sample.name.clone(),
+                        sample.metric_type.clone(),
+                        sample.unit.clone(),
+                        sample.value,
+                    )
+                    .with_labels(sample.labels.clone()),
+                );
+            }
+            CollectorEvent::MetricCollectionEnd => {
+                if let Some(endpoint_metrics) = self.stream_metrics.get(context.endpoint_key())
+                    && let Some(entry) = endpoint_metrics.get(context.collector_type)
+                {
+                    entry.value().sweep_stale();
+                }
+            }
+            CollectorEvent::Log(_)
+            | CollectorEvent::Firmware(_)
+            | CollectorEvent::HealthOverride(_) => {}
+        }
 
-            Ok(())
-        })
+        Ok(())
     }
 }

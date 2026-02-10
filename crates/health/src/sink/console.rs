@@ -15,74 +15,72 @@
  * limitations under the License.
  */
 
-use super::{BoxFuture, CollectorEvent, DataSink, EventContext};
+use super::{CollectorEvent, DataSink, EventContext};
 use crate::HealthError;
 
 pub struct ConsoleSink;
 
 impl DataSink for ConsoleSink {
-    fn handle_event<'a>(
-        &'a self,
-        context: EventContext,
-        event: CollectorEvent,
-    ) -> BoxFuture<'a, Result<(), HealthError>> {
-        Box::pin(async move {
-            match event {
-                CollectorEvent::MetricCollectionStart => {
-                    tracing::info!(
-                        endpoint = %context.endpoint_key,
-                        collector = %context.collector_type,
-                        "Metric collection start"
-                    );
-                }
-                CollectorEvent::Metric(metric) => {
-                    tracing::info!(
-                        endpoint = %context.endpoint_key,
-                        collector = %context.collector_type,
-                        metric = %metric.name,
-                        metric_type = %metric.metric_type,
-                        unit = %metric.unit,
-                        value = metric.value,
-                        "Metric event"
-                    );
-                }
-                CollectorEvent::MetricCollectionEnd => {
-                    tracing::info!(
-                        endpoint = %context.endpoint_key,
-                        collector = %context.collector_type,
-                        "Metric collection end"
-                    );
-                }
-                CollectorEvent::Log(record) => {
-                    tracing::info!(
-                        endpoint = %context.endpoint_key,
-                        collector = %context.collector_type,
-                        severity = %record.severity,
-                        body = %record.body,
-                        "Log event"
-                    );
-                }
-                CollectorEvent::Firmware(info) => {
-                    tracing::info!(
-                        endpoint = %context.endpoint_key,
-                        collector = %context.collector_type,
-                        component = %info.component,
-                        version = %info.version,
-                        "Firmware info event"
-                    );
-                }
-                CollectorEvent::HealthOverride(override_event) => {
-                    tracing::info!(
-                        endpoint = %context.endpoint_key,
-                        collector = %context.collector_type,
-                        machine_id = ?override_event.machine_id,
-                        success_count = override_event.report.successes.len(),
-                        alert_count = override_event.report.alerts.len(),
-                        "Health override event"
-                    );
-                }
+    fn handle_event(
+        &self,
+        context: &EventContext,
+        event: &CollectorEvent,
+    ) -> Result<(), HealthError> {
+        match event {
+            CollectorEvent::MetricCollectionStart => {
+                tracing::info!(
+                    endpoint = %context.endpoint_key(),
+                    collector = %context.collector_type,
+                    "Metric collection start"
+                );
             }
-            Ok(())
-        })
+            CollectorEvent::Metric(metric) => {
+                tracing::info!(
+                    endpoint = %context.endpoint_key(),
+                    collector = %context.collector_type,
+                    metric = %metric.name,
+                    metric_type = %metric.metric_type,
+                    unit = %metric.unit,
+                    value = metric.value,
+                    "Metric event"
+                );
+            }
+            CollectorEvent::MetricCollectionEnd => {
+                tracing::info!(
+                    endpoint = %context.endpoint_key(),
+                    collector = %context.collector_type,
+                    "Metric collection end"
+                );
+            }
+            CollectorEvent::Log(record) => {
+                tracing::info!(
+                    endpoint = %context.endpoint_key(),
+                    collector = %context.collector_type,
+                    severity = %record.severity,
+                    body = %record.body,
+                    "Log event"
+                );
+            }
+            CollectorEvent::Firmware(info) => {
+                tracing::info!(
+                    endpoint = %context.endpoint_key(),
+                    collector = %context.collector_type,
+                    component = %info.component,
+                    version = %info.version,
+                    "Firmware info event"
+                );
+            }
+            CollectorEvent::HealthOverride(override_event) => {
+                tracing::info!(
+                    endpoint = %context.endpoint_key(),
+                    collector = %context.collector_type,
+                    machine_id = ?override_event.machine_id,
+                    success_count = override_event.report.successes.len(),
+                    alert_count = override_event.report.alerts.len(),
+                    "Health override event"
+                );
+            }
+        }
+        Ok(())
     }
 }

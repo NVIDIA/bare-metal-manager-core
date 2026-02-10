@@ -17,36 +17,40 @@
 
 use carbide_uuid::machine::MachineId;
 
-use crate::endpoint::{BmcEndpoint, EndpointMetadata};
+use crate::endpoint::{BmcAddr, BmcEndpoint, EndpointMetadata};
 use crate::metrics::MetricLabel;
 
 #[derive(Clone, Debug)]
 pub struct EventContext {
-    pub endpoint_key: String,
-    pub endpoint_ip: String,
-    pub endpoint_mac: String,
-    pub collector_type: String,
-    pub machine_id: Option<String>,
-    pub switch_serial: Option<String>,
+    pub addr: BmcAddr,
+    pub collector_type: &'static str,
+    pub metadata: Option<EndpointMetadata>,
 }
 
 impl EventContext {
-    pub fn from_endpoint(endpoint: &BmcEndpoint, collector_type: &str) -> Self {
-        let (machine_id, switch_serial) = match &endpoint.metadata {
-            Some(EndpointMetadata::Machine(machine)) => {
-                (Some(machine.machine_id.to_string()), None)
-            }
-            Some(EndpointMetadata::Switch(switch)) => (None, Some(switch.serial.clone())),
-            None => (None, None),
-        };
-
+    pub fn from_endpoint(endpoint: &BmcEndpoint, collector_type: &'static str) -> Self {
         Self {
-            endpoint_key: endpoint.addr.hash_key().to_string(),
-            endpoint_ip: endpoint.addr.ip.to_string(),
-            endpoint_mac: endpoint.addr.mac.clone(),
-            collector_type: collector_type.to_string(),
-            machine_id,
-            switch_serial,
+            addr: endpoint.addr.clone(),
+            collector_type,
+            metadata: endpoint.metadata.clone(),
+        }
+    }
+
+    pub fn endpoint_key(&self) -> &str {
+        self.addr.hash_key()
+    }
+
+    pub fn machine_id(&self) -> Option<MachineId> {
+        match &self.metadata {
+            Some(EndpointMetadata::Machine(machine)) => Some(machine.machine_id),
+            _ => None,
+        }
+    }
+
+    pub fn switch_serial(&self) -> Option<&str> {
+        match &self.metadata {
+            Some(EndpointMetadata::Switch(switch)) => Some(switch.serial.as_str()),
+            _ => None,
         }
     }
 }

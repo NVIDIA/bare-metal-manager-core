@@ -145,7 +145,7 @@ fn build_data_sink(
     }
 
     if let Configurable::Enabled(ref sink_cfg) = config.sinks.health_override {
-        sinks.push(Arc::new(HealthOverrideSink::new(sink_cfg)));
+        sinks.push(Arc::new(HealthOverrideSink::new(sink_cfg)?));
     }
 
     let data_sink = match sinks.len() {
