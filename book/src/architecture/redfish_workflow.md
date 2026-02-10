@@ -116,7 +116,7 @@ Before accepting a pairing, Carbide validates:
 Once all DPUs are matched and validated, the host enters an "ingestable" state and Site Explorer kickstarts the ingestion process via the ManagedHost state machine.
 
 **Key file:**
-- `crates/api/src/site_explorer/mod.rs` (lines ~1000-1150) — `match_hosts_and_dpus()` with the complete pairing algorithm
+- `crates/api/src/site_explorer/mod.rs` — `identify_managed_hosts()` with the complete pairing algorithm
 
 ## 4. DPU Provisioning
 

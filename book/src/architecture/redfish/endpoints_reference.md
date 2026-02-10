@@ -306,7 +306,7 @@ Field importance levels:
 |-------|-----------|---------------|
 | `Attributes` | Required | BIOS attribute read/write (SR-IOV enablement, machine setup) |
 
-**Vendor-specific paths**: HPE uses `/Bios/settings` (lowercase). Lenovo uses `/Bios/Pending`. Vikings uses `/Bios/SD`. Dell/NVIDIA DPU/GBx00/Supermicro have attribute-specific overrides.
+**Vendor-specific paths**: HPE uses `/Bios/settings` (lowercase). Lenovo uses `/Bios/Pending`. Viking uses `/Bios/SD`. Dell/NVIDIA DPU/GBx00/Supermicro have attribute-specific overrides.
 
 ---
 
@@ -446,7 +446,7 @@ Log collection runs at 5-minute intervals and uses incremental fetching: `?$filt
 |----------|--------|--------|
 | `/redfish/v1/Managers/{id}/LogServices/Sel/Entries` | GET | Dell |
 | `/redfish/v1/Managers/{id}/LogServices/IEL/Entries` | GET | HPE |
-| `/redfish/v1/Managers/{id}/LogServices/SEL/Entries` | GET | Vikings |
+| `/redfish/v1/Managers/{id}/LogServices/SEL/Entries` | GET | Viking |
 | `/redfish/v1/Systems/{id}/LogServices/AuditLog/Entries` | GET | Lenovo |
 
 ### System event log entries (vendor-specific)
