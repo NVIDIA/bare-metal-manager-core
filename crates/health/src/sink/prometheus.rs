@@ -129,7 +129,7 @@ impl PrometheusSink {
         let endpoint_metrics = self
             .stream_metrics
             .entry(context.endpoint_key().to_string())
-            .or_insert_with(DashMap::new);
+            .or_default();
 
         match endpoint_metrics.entry(context.collector_type) {
             dashmap::mapref::entry::Entry::Occupied(existing) => Ok(existing.get().clone()),
