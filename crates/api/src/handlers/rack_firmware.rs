@@ -360,19 +360,9 @@ pub async fn get(
 ) -> Result<Response<RackFirmware>, Status> {
     let req = request.into_inner();
 
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("begin get", e)))?;
-
-    let db_config = DbRackFirmware::find_by_id(&mut txn, &req.id)
+    let db_config = DbRackFirmware::find_by_id(&api.database_connection, &req.id)
         .await
         .map_err(CarbideError::from)?;
-
-    txn.commit()
-        .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("commit get", e)))?;
 
     Ok(Response::new((&db_config).into()))
 }
@@ -931,13 +921,7 @@ pub async fn apply(
     );
 
     // 1. Get the RackFirmware configuration from the database
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
-
-    let fw_config = DbRackFirmware::find_by_id(&mut txn, &req.firmware_id)
+    let fw_config = DbRackFirmware::find_by_id(&api.database_connection, &req.firmware_id)
         .await
         .map_err(|e| Status::internal(format!("Failed to get firmware configuration: {}", e)))?;
 
@@ -957,13 +941,9 @@ pub async fn apply(
             serde_json::json!({})
         });
 
-    let rack = db::rack::get(&mut txn, rack_id)
+    let rack = db::rack::get(&api.database_connection, rack_id)
         .await
         .map_err(|e| Status::internal(format!("Failed to get rack: {}", e)))?;
-
-    txn.commit()
-        .await
-        .map_err(|e| Status::internal(format!("Failed to commit transaction: {}", e)))?;
 
     // Convert rack to proto to get device IDs
     let rack_proto: rpc::forge::Rack = rack.into();

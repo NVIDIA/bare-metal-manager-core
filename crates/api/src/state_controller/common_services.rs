@@ -17,6 +17,7 @@
 
 use std::sync::Arc;
 
+use db::db_read::PgPoolReader;
 use model::resource_pool::common::IbPools;
 use sqlx::PgPool;
 
@@ -32,6 +33,9 @@ use crate::redfish::RedfishClientPool;
 pub struct CommonStateHandlerServices {
     /// Postgres database pool
     pub db_pool: PgPool,
+
+    /// Read-only handle to database pool
+    pub db_reader: PgPoolReader,
 
     /// API for interaction with Libredfish
     pub redfish_client_pool: Arc<dyn RedfishClientPool>,

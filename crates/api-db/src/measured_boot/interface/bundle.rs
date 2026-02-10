@@ -214,7 +214,7 @@ pub async fn get_measurement_bundle_for_name(
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
 pub async fn get_measurement_bundle_records(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
 ) -> Result<Vec<MeasurementBundleRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
@@ -237,7 +237,7 @@ pub async fn get_measurement_bundle_records_for_profile_id(
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
 pub async fn get_measurement_bundles_values(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
 ) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
@@ -252,7 +252,7 @@ pub async fn get_measurement_bundles_values(
 /// of multiple objects matching a given PgUuid, where
 /// the PgUuid is probably a reference/foreign key.
 pub async fn get_measurement_bundle_values_for_bundle_id(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     bundle_id: MeasurementBundleId,
 ) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
     common::get_objects_where_id(txn, bundle_id)

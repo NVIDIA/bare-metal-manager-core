@@ -35,11 +35,87 @@ use crate::{DatabaseError, db_init};
 async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
+    // Create a tenant.
+    let tenant = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "sizzle".to_string(),
+            routing_profile_type: Some(rpc::forge::RoutingProfileType::Internal.into()),
+            metadata: Some(rpc::forge::Metadata {
+                name: "sizzle".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .tenant
+        .unwrap();
+
+    // Try to request a VNI that shouldn't exist
+    // (based on VPC_VNI pool definition in pool_defs in carbide-core/crates/api/src/tests/common/api_fixtures/mod.rs)
+    assert!(
+        env.api
+            .create_vpc(
+                VpcCreationRequest::builder("", &tenant.organization_id)
+                    .metadata(rpc::forge::Metadata {
+                        name: "Forge".to_string(),
+                        description: "".to_string(),
+                        labels: Vec::new(),
+                    })
+                    .vni(100u32)
+                    .tonic_request(),
+            )
+            .await
+            .unwrap_err()
+            .message()
+            .contains("cannot be requested")
+    );
+
+    // Try to request a VNI that shouldn't be available.
+    // This should fail.
+    assert!(
+        env.api
+            .create_vpc(
+                VpcCreationRequest::builder("", &tenant.organization_id)
+                    .metadata(rpc::forge::Metadata {
+                        name: "Forge".to_string(),
+                        description: "".to_string(),
+                        labels: Vec::new(),
+                    })
+                    .vni(20002u32)
+                    .tonic_request(),
+            )
+            .await
+            .unwrap_err()
+            .message()
+            .contains("cannot be requested")
+    );
+
+    // Create another tenant.
+    let tenant = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "fizzle".to_string(),
+            routing_profile_type: Some(rpc::forge::RoutingProfileType::Internal.into()),
+            metadata: Some(rpc::forge::Metadata {
+                name: "fizzle".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .tenant
+        .unwrap();
+
     // No network_virtualization_type, should default
     let forge_vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("", "")
+            VpcCreationRequest::builder("", &tenant.organization_id)
                 .metadata(rpc::forge::Metadata {
                     name: "Forge".to_string(),
                     description: "".to_string(),
@@ -61,7 +137,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let no_org_vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("", "")
+            VpcCreationRequest::builder("", &tenant.organization_id)
                 .network_virtualization_type(rpc::forge::VpcVirtualizationType::from(
                     VpcVirtualizationType::EthernetVirtualizer,
                 ))
@@ -157,7 +233,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     .await?;
 
     let mut vpcs = db::vpc::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(vpc::IdColumn, &no_org_vpc_id),
     )
     .await?;
@@ -180,7 +256,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     .await?;
 
     let mut vpcs = db::vpc::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(vpc::IdColumn, &no_org_vpc_id),
     )
     .await?;
@@ -212,7 +288,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
     // Check that the data was indeed not touched
     let mut vpcs = db::vpc::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(vpc::IdColumn, &no_org_vpc_id),
     )
     .await?;
@@ -239,7 +315,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     assert_eq!(updated_vpc.version.version_nr(), 5);
 
     let mut vpcs = db::vpc::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(vpc::IdColumn, &no_org_vpc_id),
     )
     .await?;
@@ -251,14 +327,18 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
     assert!(vpc.deleted.is_some());
 
-    let vpcs = db::vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc.id)).await?;
+    let vpcs = db::vpc::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(vpc::IdColumn, &vpc.id),
+    )
+    .await?;
 
     txn.commit().await?;
 
     assert!(vpcs.is_empty());
 
     let mut txn = env.pool.begin().await?;
-    let vpcs = db::vpc::find_by(&mut txn, ObjectColumnFilter::<vpc::IdColumn>::All).await?;
+    let vpcs = db::vpc::find_by(txn.as_mut(), ObjectColumnFilter::<vpc::IdColumn>::All).await?;
     assert_eq!(vpcs.len(), 1);
     let forge_vpc_id: VpcId = forge_vpc.id.expect("should have id");
     assert_eq!(vpcs[0].id, forge_vpc_id);
@@ -268,7 +348,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     txn.commit().await?;
 
     let mut txn = env.pool.begin().await?;
-    let vpcs = db::vpc::find_by(&mut txn, ObjectColumnFilter::<vpc::IdColumn>::All).await?;
+    let vpcs = db::vpc::find_by(txn.as_mut(), ObjectColumnFilter::<vpc::IdColumn>::All).await?;
     assert!(vpcs.is_empty());
     txn.commit().await?;
 
@@ -535,8 +615,11 @@ async fn find_vpc_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Er
         INSERT INTO vpcs (id, name, organization_id, version) VALUES ($1, 'test vpc 1', '2829bbe3-c169-4cd9-8b2a-19a8b1618a93', 'V1-T1666644937952267');
     "#).bind(vpc_id).execute(txn.deref_mut()).await?;
 
-    let some_vpc =
-        db::vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
+    let some_vpc = db::vpc::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(vpc::IdColumn, &vpc_id),
+    )
+    .await?;
     assert_eq!(1, some_vpc.len());
 
     let first = some_vpc.first();

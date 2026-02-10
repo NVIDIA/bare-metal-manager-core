@@ -31,6 +31,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
 
+use crate::db_read::DbReader;
 use crate::{
     ColumnInfo, DatabaseError, DatabaseResult, FilterableQueryBuilder, ObjectColumnFilter,
 };
@@ -99,6 +100,7 @@ impl From<IBPartitionConfig> for rpc::IbPartitionConfig {
         rpc::IbPartitionConfig {
             name: conf.name, // Deprecated field
             tenant_organization_id: conf.tenant_organization_id.to_string(),
+            pkey: None,
         }
     }
 }
@@ -362,7 +364,7 @@ pub async fn list_segment_ids(txn: &mut PgConnection) -> Result<Vec<IBPartitionI
 }
 
 pub async fn for_tenant(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     tenant_organization_id: String,
 ) -> Result<Vec<IBPartition>, DatabaseError> {
     let results: Vec<IBPartition> = {
@@ -378,7 +380,7 @@ pub async fn for_tenant(
 }
 
 pub async fn find_ids(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     filter: rpc::IbPartitionSearchFilter,
 ) -> Result<Vec<IBPartitionId>, DatabaseError> {
     // build query
@@ -408,7 +410,7 @@ pub async fn find_ids(
 }
 
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = IBPartition>>(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     filter: ObjectColumnFilter<'a, C>,
 ) -> Result<Vec<IBPartition>, DatabaseError> {
     let mut query = FilterableQueryBuilder::new("SELECT * FROM ib_partitions").filter(&filter);

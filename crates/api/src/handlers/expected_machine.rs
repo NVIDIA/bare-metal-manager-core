@@ -16,8 +16,7 @@
  */
 use ::rpc::forge as rpc;
 use carbide_uuid::rack::RackId;
-use db::{WithTransaction, rack as db_rack};
-use futures_util::FutureExt;
+use db::rack as db_rack;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
@@ -272,9 +271,8 @@ pub(crate) async fn get_all(
 ) -> Result<tonic::Response<rpc::ExpectedMachineList>, tonic::Status> {
     log_request_data(&request);
 
-    let expected_machine_list: Vec<ExpectedMachine> = api
-        .with_txn(|txn| db::expected_machine::find_all(txn).boxed())
-        .await??;
+    let expected_machine_list: Vec<ExpectedMachine> =
+        db::expected_machine::find_all(&api.database_connection).await?;
 
     Ok(tonic::Response::new(rpc::ExpectedMachineList {
         expected_machines: expected_machine_list.into_iter().map(Into::into).collect(),
@@ -287,9 +285,7 @@ pub(crate) async fn get_linked(
 ) -> Result<tonic::Response<rpc::LinkedExpectedMachineList>, tonic::Status> {
     log_request_data(&request);
 
-    let out = api
-        .with_txn(|txn| db::expected_machine::find_all_linked(txn).boxed())
-        .await??;
+    let out = db::expected_machine::find_all_linked(&api.database_connection).await?;
     let list = rpc::LinkedExpectedMachineList {
         expected_machines: out.into_iter().map(|m| m.into()).collect(),
     };
@@ -365,7 +361,7 @@ async fn process_rack_association(
     rack_id: RackId,
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
-    match db_rack::get(txn, rack_id).await {
+    match db_rack::get(&mut *txn, rack_id).await {
         Ok(rack) => {
             let mut config = rack.config.clone();
             if !config.expected_compute_trays.contains(&parsed_mac) {

@@ -3028,6 +3028,7 @@ mod tests {
             pools.get("vlan-id").unwrap(),
             &ResourcePoolDef {
                 ranges: vec![resource_pool::Range {
+                    auto_assign: true,
                     start: "100".to_string(),
                     end: "501".to_string()
                 }],
@@ -3042,6 +3043,7 @@ mod tests {
                 IbFabricDefinition {
                     endpoints: vec!["https://1.2.3.4".to_string()],
                     pkeys: vec![resource_pool::Range {
+                        auto_assign: true,
                         start: "1".to_string(),
                         end: "10".to_string()
                     }]
@@ -3295,6 +3297,8 @@ mod tests {
             pools.get("vlan-id").unwrap(),
             &ResourcePoolDef {
                 ranges: vec![resource_pool::Range {
+                    auto_assign: true,
+
                     start: "100".to_string(),
                     end: "501".to_string()
                 }],
@@ -3309,6 +3313,8 @@ mod tests {
                 IbFabricDefinition {
                     endpoints: vec!["https://1.2.3.4".to_string()],
                     pkeys: vec![resource_pool::Range {
+                        auto_assign: true,
+
                         start: "1".to_string(),
                         end: "10".to_string()
                     }]

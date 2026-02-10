@@ -35,11 +35,25 @@ async fn test_service_health_metrics(pool: PgPool) -> Result<(), Box<dyn std::er
         resource_pool_stats: Arc::new(Mutex::new(HashMap::from([
             (
                 "pool1".to_string(),
-                ResourcePoolStats { used: 10, free: 20 },
+                ResourcePoolStats {
+                    used: 10,
+                    free: 20,
+                    auto_assign_free: 20,
+                    auto_assign_used: 10,
+                    non_auto_assign_free: 0,
+                    non_auto_assign_used: 0,
+                },
             ),
             (
                 "pool2".to_string(),
-                ResourcePoolStats { used: 20, free: 10 },
+                ResourcePoolStats {
+                    used: 20,
+                    free: 10,
+                    auto_assign_free: 10,
+                    auto_assign_used: 20,
+                    non_auto_assign_free: 0,
+                    non_auto_assign_used: 0,
+                },
             ),
         ]))),
     };

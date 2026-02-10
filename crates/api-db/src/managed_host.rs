@@ -28,21 +28,25 @@ use lazy_static::lazy_static;
 use model::machine::{LoadSnapshotOptions, ManagedHostStateSnapshot};
 use sqlx::PgConnection;
 
+use crate::db_read::DbReader;
 use crate::{DatabaseError, queries};
 
 /// Loads a ManagedHost snapshot from the database
-pub async fn load_snapshot(
-    txn: &mut PgConnection,
+pub async fn load_snapshot<DB>(
+    txn: &mut DB,
     machine_id: &MachineId,
     options: LoadSnapshotOptions,
-) -> Result<Option<ManagedHostStateSnapshot>, DatabaseError> {
+) -> Result<Option<ManagedHostStateSnapshot>, DatabaseError>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     let mut snapshots = load_by_machine_ids(txn, &[*machine_id], options).await?;
     Ok(snapshots.remove(machine_id))
 }
 
 /// Loads all ManagedHosts, including predicted hosts
 pub async fn load_all(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     options: LoadSnapshotOptions,
 ) -> Result<Vec<ManagedHostStateSnapshot>, DatabaseError> {
     let query = managed_host_snapshots_query(&options);
@@ -66,11 +70,14 @@ pub async fn load_all(
 /// The method works for Host and DPU Machine IDs
 /// When used for DPU Machine IDs, the returned HashMap will contain an entry
 /// that maps from the DPU Machine ID to the ManagedHost snapshot
-pub async fn load_by_machine_ids(
-    txn: &mut PgConnection,
+pub async fn load_by_machine_ids<DB>(
+    txn: &mut DB,
     requested_machine_ids: &[MachineId],
     options: LoadSnapshotOptions,
-) -> Result<HashMap<MachineId, ManagedHostStateSnapshot>, DatabaseError> {
+) -> Result<HashMap<MachineId, ManagedHostStateSnapshot>, DatabaseError>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     // Partition the ID's by whether or not they're DPU's.
     let (requested_dpu_ids, requested_host_ids): (Vec<MachineId>, Vec<MachineId>) =
         requested_machine_ids
@@ -86,7 +93,7 @@ pub async fn load_by_machine_ids(
     let host_ids = if !requested_dpu_ids.is_empty() {
         [
             requested_host_id_strings,
-            crate::machine::lookup_host_machine_ids_by_dpu_ids(txn, &requested_dpu_ids)
+            crate::machine::lookup_host_machine_ids_by_dpu_ids(&mut *txn, &requested_dpu_ids)
                 .await?
                 .into_iter()
                 .map(|i| i.to_string())

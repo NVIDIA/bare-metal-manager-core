@@ -153,7 +153,7 @@ type Txn<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
 
 impl<'a, 'b> TestInstance<'a, 'b> {
     pub async fn db_instance(&self, txn: &mut Txn<'_>) -> InstanceSnapshot {
-        db::instance::find_by_id(txn, self.id)
+        db::instance::find_by_id(txn.as_mut(), self.id)
             .await
             .unwrap()
             .unwrap()

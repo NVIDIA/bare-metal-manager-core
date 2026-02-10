@@ -19,8 +19,6 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
-use db::WithTransaction;
-use futures_util::FutureExt;
 use tonic::Status;
 
 use crate::api::{Api, log_request_data};
@@ -34,9 +32,7 @@ pub(crate) async fn get(
 ) -> Result<tonic::Response<rpc::RouteServerEntries>, Status> {
     log_request_data(&request);
 
-    let route_servers = api
-        .with_txn(|txn| db::route_servers::get(txn).boxed())
-        .await??;
+    let route_servers = db::route_servers::get(&api.database_connection).await?;
 
     Ok(tonic::Response::new(rpc::RouteServerEntries {
         route_servers: route_servers.into_iter().map(Into::into).collect(),

@@ -30,6 +30,7 @@ use sqlx::query_builder::QueryBuilder;
 use sqlx::{PgConnection, Postgres};
 
 use crate::DatabaseError;
+use crate::db_read::DbReader;
 use crate::measured_boot::interface::common;
 
 /// insert_measurement_profile_record is a very basic insert of a
@@ -126,7 +127,7 @@ pub async fn rename_profile_for_profile_name(
 
 /// get_all_measurement_profile_records gets all system profile records.
 pub async fn get_all_measurement_profile_records(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
 ) -> Result<Vec<MeasurementSystemProfileRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
@@ -279,7 +280,7 @@ fn where_attr_pairs(query: &mut QueryBuilder<'_, Postgres>, values: &HashMap<Str
 /// get_measurement_profile_attrs_for_profile_id returns all profile attribute
 /// records associated with the provided MeasurementSystemProfileId.
 pub async fn get_measurement_profile_attrs_for_profile_id(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     profile_id: MeasurementSystemProfileId,
 ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
     common::get_objects_where_id(txn, profile_id)
@@ -441,7 +442,7 @@ pub async fn import_measurement_system_profiles_attr(
 ///
 /// This is used by the site exporter, as well as for listing all profiles.
 pub async fn export_measurement_profile_records(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
 ) -> Result<Vec<MeasurementSystemProfileRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
@@ -454,7 +455,7 @@ pub async fn export_measurement_profile_records(
 /// This is specifically used by the site exporter, since we simply dump all
 /// attributes when doing a site export.
 pub async fn export_measurement_system_profiles_attrs(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
 ) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await

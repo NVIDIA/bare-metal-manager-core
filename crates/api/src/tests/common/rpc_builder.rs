@@ -43,6 +43,7 @@ pub struct VpcCreationRequest {
     pub id: ::core::option::Option<::carbide_uuid::vpc::VpcId>,
     pub metadata: ::core::option::Option<rpc::forge::Metadata>,
     pub network_security_group_id: ::core::option::Option<::prost::alloc::string::String>,
+    pub vni: ::core::option::Option<u32>,
     pub default_nvlink_logical_partition_id:
         ::core::option::Option<::carbide_uuid::nvlink::NvLinkLogicalPartitionId>,
 }

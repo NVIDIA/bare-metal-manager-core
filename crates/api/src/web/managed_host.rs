@@ -22,8 +22,7 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
-use db::{DatabaseError, managed_host};
-use futures_util::TryFutureExt;
+use db::managed_host;
 use hyper::http::StatusCode;
 use itertools::Itertools;
 use model;
@@ -385,22 +384,15 @@ pub async fn show_html(
     Query(mut params): Query<HashMap<String, String>>,
 ) -> Response {
     let host_health = state.runtime_config.host_health;
-    let managed_hosts = match state
-        .database_connection
-        .acquire()
-        .map_err(|e| DatabaseError::new("begin managed host show_html", e))
-        .and_then(|mut conn| async move {
-            managed_host::load_all(
-                &mut conn,
-                LoadSnapshotOptions {
-                    include_history: false,
-                    include_instance_data: false,
-                    host_health_config: host_health,
-                },
-            )
-            .await
-        })
-        .await
+    let managed_hosts = match managed_host::load_all(
+        &state.database_connection,
+        LoadSnapshotOptions {
+            include_history: false,
+            include_instance_data: false,
+            host_health_config: host_health,
+        },
+    )
+    .await
     {
         Ok(hosts) => hosts,
         Err(err) => {

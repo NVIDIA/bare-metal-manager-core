@@ -36,6 +36,7 @@ use model::metadata::Metadata;
 use model::os::{OperatingSystem, OperatingSystemVariant};
 use sqlx::PgConnection;
 
+use crate::db_read::DbReader;
 use crate::{
     ColumnInfo, DatabaseError, DatabaseResult, FilterableQueryBuilder, ObjectColumnFilter,
     instance_address,
@@ -57,7 +58,7 @@ impl ColumnInfo<'_> for IdColumn {
 pub struct InstanceTable {}
 
 pub async fn find_ids(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     filter: rpc::InstanceSearchFilter,
 ) -> Result<Vec<InstanceId>, DatabaseError> {
     let mut builder = sqlx::QueryBuilder::new("SELECT id FROM instances WHERE TRUE "); // The TRUE will be optimized away.
@@ -137,7 +138,7 @@ pub async fn find(
 }
 
 pub async fn find_by_id(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     id: InstanceId,
 ) -> Result<Option<InstanceSnapshot>, DatabaseError> {
     let query = "SELECT row_to_json(i.*) from instances i WHERE id = $1";

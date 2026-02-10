@@ -25,7 +25,12 @@ use super::args::GrowResourcePool;
 use crate::rpc::ApiClient;
 
 pub async fn list(api_client: &ApiClient) -> CarbideCliResult<()> {
-    let response = api_client.0.admin_list_resource_pools().await?;
+    let response = api_client
+        .0
+        .admin_list_resource_pools(forgerpc::ListResourcePoolsRequest {
+            auto_assignable: None,
+        })
+        .await?;
     if response.pools.is_empty() {
         println!("No resource pools defined");
         return Err(CarbideCliError::Empty);

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use crate::api_client::BmcAddr;
+use crate::endpoint::BmcAddr;
 
 pub struct ShardManager {
     shard: usize,
@@ -32,7 +32,7 @@ impl ShardManager {
 
     /// Check if this shard should monitor a BMC endpoint.
     pub fn should_monitor(&self, endpoint: &BmcAddr) -> bool {
-        self.should_monitor_key(endpoint.hash_key())
+        self.should_monitor_key(&endpoint.hash_key())
     }
 
     pub fn should_monitor_key(&self, key: &str) -> bool {
@@ -62,6 +62,10 @@ impl ShardManager {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
+    use mac_address::MacAddress;
+
     use super::*;
 
     #[test]
@@ -70,7 +74,7 @@ mod tests {
         let endpoint = BmcAddr {
             ip: "10.0.0.1".parse().unwrap(),
             port: Some(443),
-            mac: "42:9e:b1:bd:9d:dd".into(),
+            mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
         };
         assert!(manager.should_monitor(&endpoint));
     }
@@ -80,12 +84,12 @@ mod tests {
         let endpoint1 = BmcAddr {
             ip: "10.0.0.1".parse().unwrap(),
             port: Some(443),
-            mac: "42:9e:b1:bd:9d:dd".into(),
+            mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
         };
         let endpoint2 = BmcAddr {
             ip: "10.0.0.2".parse().unwrap(),
             port: Some(443),
-            mac: "42:9e:b2:bd:9d:dd".into(),
+            mac: MacAddress::from_str("42:9e:b2:bd:9d:dd").unwrap(),
         };
 
         let manager0 = ShardManager::new(0, 3);

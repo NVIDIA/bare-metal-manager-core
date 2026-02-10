@@ -25,6 +25,7 @@ use model::network_devices::{
 use sqlx::{PgConnection, PgTransaction};
 
 use super::{DatabaseError, ObjectFilter};
+use crate::db_read::DbReader;
 
 pub struct NetworkDeviceSearchConfig {
     include_dpus: bool,
@@ -52,11 +53,14 @@ fn get_port_data<'a>(
     Ok(*port_data)
 }
 
-pub async fn find(
-    txn: &mut PgConnection,
+pub async fn find<DB>(
+    txn: &mut DB,
     filter: ObjectFilter<'_, &str>,
     search_config: &NetworkDeviceSearchConfig,
-) -> Result<Vec<NetworkDevice>, DatabaseError> {
+) -> Result<Vec<NetworkDevice>, DatabaseError>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     let base_query = "SELECT * FROM network_devices l {where}".to_owned();
 
     let mut devices = match filter {
@@ -86,7 +90,8 @@ pub async fn find(
     if search_config.include_dpus {
         for device in &mut devices {
             device.dpus =
-                dpu_to_network_device_map::find_by_network_device_id(txn, device.id()).await?;
+                dpu_to_network_device_map::find_by_network_device_id(&mut *txn, device.id())
+                    .await?;
         }
     }
 
@@ -114,7 +119,7 @@ pub async fn get_or_create_network_device(
     data: &LldpSwitchData,
 ) -> Result<NetworkDevice, DatabaseError> {
     let network_device = find(
-        txn,
+        &mut *txn,
         ObjectFilter::One(&data.id),
         &NetworkDeviceSearchConfig::new(false),
     )
@@ -157,10 +162,13 @@ pub async fn cleanup_unused_switches(txn: &mut PgTransaction<'_>) -> Result<(), 
     Ok(())
 }
 
-pub async fn get_topology(
-    txn: &mut PgConnection,
+pub async fn get_topology<DB>(
+    txn: &mut DB,
     filter: ObjectFilter<'_, &str>,
-) -> Result<NetworkTopologyData, DatabaseError> {
+) -> Result<NetworkTopologyData, DatabaseError>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     Ok(NetworkTopologyData {
         network_devices: find(txn, filter, &NetworkDeviceSearchConfig::new(true)).await?,
     })
@@ -168,6 +176,7 @@ pub async fn get_topology(
 
 pub mod dpu_to_network_device_map {
     use super::*;
+    use crate::db_read::DbReader;
 
     pub async fn create(
         txn: &mut PgConnection,
@@ -249,7 +258,7 @@ pub mod dpu_to_network_device_map {
     }
 
     pub async fn find_by_network_device_id(
-        txn: &mut PgConnection,
+        txn: impl DbReader<'_>,
         device_id: &str,
     ) -> Result<Vec<DpuToNetworkDeviceMap>, DatabaseError> {
         let base_query = "SELECT * FROM port_to_network_device_map l WHERE network_device_id=$1";
@@ -262,7 +271,7 @@ pub mod dpu_to_network_device_map {
     }
 
     pub async fn find_by_dpu_ids(
-        txn: &mut PgConnection,
+        txn: impl DbReader<'_>,
         dpu_ids: &[MachineId],
     ) -> Result<Vec<DpuToNetworkDeviceMap>, DatabaseError> {
         let base_query = "SELECT * FROM port_to_network_device_map l WHERE dpu_id=ANY($1)";

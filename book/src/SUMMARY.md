@@ -1,4 +1,4 @@
-# NVIDIA Carbide
+# NVIDIA Bare Metal Manager
 
 - [Introduction](README.md)
 - [Hardware Compatbility List (WIP)](HCL.md)
@@ -28,7 +28,7 @@
 - [Release Instance API Enhancements](manuals/breakfix_integration.md)
 - [Managing VPC Peering](manuals/vpc_peering_management.md)
 - [Metrics]()
-    - [Carbide-core metrics](manuals/metrics/carbide_core_metrics.md)
+    - [Core metrics](manuals/metrics/carbide_core_metrics.md)
 
 # Sites and site access
 
@@ -54,7 +54,7 @@
 
 # Playbooks
 
-- [Azure OIDC for Carbide-Web UI](playbooks/carbide_web_oauth2.md)
+- [Azure OIDC for NVIDIA Bare Metal Manager-Web UI](playbooks/carbide_web_oauth2.md)
 - [Force deleting and rebuilding Forge hosts](playbooks/force_delete.md)
 - [Rebooting a machine](playbooks/machine_reboot.md)
 - [Instance/Subnet/etc is stuck in a state]()

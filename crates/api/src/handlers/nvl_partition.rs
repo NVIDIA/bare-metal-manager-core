@@ -15,10 +15,7 @@
  * limitations under the License.
  */
 use ::rpc::forge as rpc;
-// use db::nvl_logical_partition::{LogicalPartition, LogicalPartitionSearchConfig};
-use db::nvl_partition;
-use db::{ObjectColumnFilter, WithTransaction};
-use futures_util::FutureExt;
+use db::{ObjectColumnFilter, nvl_partition};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -36,9 +33,7 @@ pub(crate) async fn find_ids(
         log_tenant_organization_id(tenant_org_id_str);
     }
 
-    let partition_ids = api
-        .with_txn(|txn| db::nvl_partition::find_ids(txn, filter).boxed())
-        .await??;
+    let partition_ids = db::nvl_partition::find_ids(&api.database_connection, filter).await?;
 
     Ok(Response::new(rpc::NvLinkPartitionIdList { partition_ids }))
 }
@@ -63,15 +58,11 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let partitions = api
-        .with_txn(|txn| {
-            db::nvl_partition::find_by(
-                txn,
-                ObjectColumnFilter::List(nvl_partition::IdColumn, &partition_ids),
-            )
-            .boxed()
-        })
-        .await??;
+    let partitions = db::nvl_partition::find_by(
+        &api.database_connection,
+        ObjectColumnFilter::List(nvl_partition::IdColumn, &partition_ids),
+    )
+    .await?;
 
     let mut result = Vec::with_capacity(partitions.len());
     for ibp in partitions {
@@ -101,9 +92,8 @@ pub(crate) async fn for_tenant(
 
     log_tenant_organization_id(&tenant_org_id_str);
 
-    let results = api
-        .with_txn(|txn| db::nvl_partition::for_tenant(txn, tenant_org_id_str).boxed())
-        .await??;
+    let results =
+        db::nvl_partition::for_tenant(&api.database_connection, tenant_org_id_str).await?;
 
     let mut partitions = Vec::with_capacity(results.len());
 

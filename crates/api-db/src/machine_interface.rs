@@ -206,7 +206,7 @@ pub async fn find_by_mac_address(
 }
 
 pub async fn find_by_ip(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     ip: IpAddr,
 ) -> Result<Option<MachineInterfaceSnapshot>, DatabaseError> {
     lazy_static! {
@@ -512,7 +512,7 @@ pub async fn find_by_ip_or_id(
     interface_id: Option<MachineInterfaceId>,
 ) -> Result<MachineInterfaceSnapshot, DatabaseError> {
     if let Some(remote_ip) = remote_ip
-        && let Some(interface) = find_by_ip(txn, remote_ip).await?
+        && let Some(interface) = find_by_ip(&mut *txn, remote_ip).await?
     {
         // remove debug message by Apr 2024
         tracing::debug!(
@@ -833,7 +833,7 @@ pub async fn delete(
 }
 
 pub async fn delete_by_ip(txn: &mut PgConnection, ip: IpAddr) -> Result<Option<()>, DatabaseError> {
-    let interface = find_by_ip(txn, ip).await?;
+    let interface = find_by_ip(&mut *txn, ip).await?;
 
     let Some(interface) = interface else {
         return Ok(None);

@@ -22,6 +22,7 @@ use model::expected_machine::{ExpectedMachine, ExpectedMachineData, LinkedExpect
 use sqlx::PgConnection;
 use uuid::Uuid;
 
+use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "expected_machines_bmc_mac_address_key";
@@ -123,7 +124,7 @@ FROM expected_machines em
         .map_err(|err| DatabaseError::query(sql, err))
 }
 
-pub async fn find_all(txn: &mut PgConnection) -> DatabaseResult<Vec<ExpectedMachine>> {
+pub async fn find_all(txn: impl DbReader<'_>) -> DatabaseResult<Vec<ExpectedMachine>> {
     let sql = "SELECT * FROM expected_machines";
     sqlx::query_as(sql)
         .fetch_all(txn)
@@ -131,7 +132,7 @@ pub async fn find_all(txn: &mut PgConnection) -> DatabaseResult<Vec<ExpectedMach
         .map_err(|err| DatabaseError::query(sql, err))
 }
 
-pub async fn find_all_linked(txn: &mut PgConnection) -> DatabaseResult<Vec<LinkedExpectedMachine>> {
+pub async fn find_all_linked(txn: impl DbReader<'_>) -> DatabaseResult<Vec<LinkedExpectedMachine>> {
     let sql = r#"
  SELECT
  em.serial_number,
@@ -369,7 +370,7 @@ pub async fn create_missing_from(
     txn: &mut PgConnection,
     expected_machines: &[ExpectedMachine],
 ) -> DatabaseResult<()> {
-    let existing_machines = find_all(txn).await?;
+    let existing_machines = find_all(&mut *txn).await?;
     let existing_map: BTreeMap<String, ExpectedMachine> = existing_machines
         .into_iter()
         .map(|machine| (machine.bmc_mac_address.to_string(), machine))

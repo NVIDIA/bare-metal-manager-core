@@ -113,14 +113,10 @@ pub(crate) async fn list_machines_under_attestation(
 }
 
 #[cfg(feature = "linux-build")]
-#[allow(txn_held_across_await)]
 pub(crate) async fn attest_quote(
     api: &Api,
     request: Request<rpc::AttestQuoteRequest>,
 ) -> std::result::Result<Response<rpc::AttestQuoteResponse>, Status> {
-    use db::WithTransaction;
-    use futures_util::FutureExt;
-
     log_request_data(&request);
 
     let mut request = request.into_inner();
@@ -213,10 +209,12 @@ pub(crate) async fn attest_quote(
     // - if enabled and not successful, send response without certs
     // - else send response with certs
     let attestation_failed = if api.runtime_config.attestation_enabled {
-        !api.with_txn(|txn| {
-            crate::attestation::has_passed_attestation(txn, &machine_id, &report.report_id).boxed()
-        })
-        .await??
+        !crate::attestation::has_passed_attestation(
+            &mut api.db_reader(),
+            &machine_id,
+            &report.report_id,
+        )
+        .await?
     } else {
         false
     };

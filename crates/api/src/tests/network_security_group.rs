@@ -1258,12 +1258,10 @@ async fn test_network_security_group_propagation_impl(
 
     // peek into the db to get the internal id.  note that the state machine has not processed the instance yet
     // so getting the network via the api will not work.
-    let mut txn = pool.clone().begin().await.unwrap();
-    let instance = db::instance::find_by_id(&mut txn, instance_id)
+    let instance = db::instance::find_by_id(&pool, instance_id)
         .await
         .unwrap()
         .unwrap();
-    txn.rollback().await.unwrap();
 
     let internal_interface_ids: Vec<_> = instance
         .config
@@ -1464,12 +1462,10 @@ async fn test_network_security_group_propagation_impl(
 
     // peek into the db to get the internal id.  note that the state machine has not processed the instance yet
     // so getting the network via the api will not work.
-    let mut txn = pool.clone().begin().await.unwrap();
-    let instance = db::instance::find_by_id(&mut txn, instance_id2)
+    let instance = db::instance::find_by_id(&pool, instance_id2)
         .await
         .unwrap()
         .unwrap();
-    txn.rollback().await.unwrap();
 
     let internal_interface_ids2: Vec<_> = instance
         .config

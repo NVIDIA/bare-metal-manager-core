@@ -32,6 +32,7 @@ use model::machine::LoadSnapshotOptions;
 use sqlx::PgConnection;
 
 use super::{DatabaseError, dpa_interface_state_history};
+use crate::db_read::DbReader;
 use crate::managed_host;
 
 pub async fn persist(
@@ -125,7 +126,7 @@ pub async fn update_ip(
         .map_err(|e| DatabaseError::query(builder.sql(), e))
 }
 
-pub async fn find_ids(txn: &mut PgConnection) -> Result<Vec<DpaInterfaceId>, DatabaseError> {
+pub async fn find_ids(txn: impl DbReader<'_>) -> Result<Vec<DpaInterfaceId>, DatabaseError> {
     let query = "SELECT id from dpa_interfaces WHERE deleted is NULL";
 
     let results: Vec<DpaInterfaceId> = {
@@ -389,14 +390,14 @@ pub async fn delete(value: DpaInterface, txn: &mut PgConnection) -> Result<(), D
 // Given the DPA Interface, we know its associated machine ID. From that, we need
 // to find the VPC the machine belongs to. From the VPC, we can find the DPA VNI
 // allocated for that VPC.
-pub async fn get_dpa_vni(
-    state: &mut DpaInterface,
-    txn: &mut PgConnection,
-) -> Result<i32, eyre::Report> {
+pub async fn get_dpa_vni<DB>(state: &mut DpaInterface, txn: &mut DB) -> Result<i32, eyre::Report>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     let machine_id = state.machine_id;
 
     let maybe_snapshot =
-        managed_host::load_snapshot(txn, &machine_id, LoadSnapshotOptions::default()).await?;
+        managed_host::load_snapshot(&mut *txn, &machine_id, LoadSnapshotOptions::default()).await?;
 
     let snapshot = match maybe_snapshot {
         Some(sn) => sn,
@@ -535,7 +536,7 @@ mod test {
 
         let intf = crate::dpa_interface::persist(new_intf, &mut txn).await?;
 
-        let ids = crate::dpa_interface::find_ids(&mut txn).await?;
+        let ids = crate::dpa_interface::find_ids(txn.as_mut()).await?;
 
         assert_eq!(ids.len(), 1);
         assert_eq!(ids[0], intf.id);

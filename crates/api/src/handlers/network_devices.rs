@@ -15,9 +15,8 @@
  * limitations under the License.
  */
 use ::rpc::forge as rpc;
+use db::ObjectFilter;
 use db::network_devices::NetworkDeviceSearchConfig;
-use db::{ObjectFilter, WithTransaction};
-use futures_util::FutureExt;
 use itertools::Itertools;
 use tonic::{Request, Response, Status};
 
@@ -57,12 +56,12 @@ pub(crate) async fn find_network_devices_by_device_ids(
         .map(|d| d.as_str())
         .collect();
     let search_config = NetworkDeviceSearchConfig::new(false);
-    let network_devices = api
-        .with_txn(|txn| {
-            db::network_devices::find(txn, ObjectFilter::List(&network_device_ids), &search_config)
-                .boxed()
-        })
-        .await??;
+    let network_devices = db::network_devices::find(
+        &mut api.db_reader(),
+        ObjectFilter::List(&network_device_ids),
+        &search_config,
+    )
+    .await?;
 
     Ok(Response::new(rpc::NetworkTopologyData {
         network_devices: network_devices.into_iter().map_into().collect(),
@@ -77,11 +76,11 @@ pub(crate) async fn find_connected_devices_by_dpu_machine_ids(
 
     let dpu_ids = request.into_inner().machine_ids;
 
-    let connected_devices = api
-        .with_txn(|txn| {
-            db::network_devices::dpu_to_network_device_map::find_by_dpu_ids(txn, &dpu_ids).boxed()
-        })
-        .await??;
+    let connected_devices = db::network_devices::dpu_to_network_device_map::find_by_dpu_ids(
+        &api.database_connection,
+        &dpu_ids,
+    )
+    .await?;
 
     Ok(Response::new(rpc::ConnectedDeviceList {
         connected_devices: connected_devices.into_iter().map_into().collect(),

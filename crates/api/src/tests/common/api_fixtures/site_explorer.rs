@@ -1153,7 +1153,7 @@ impl<'a> MockExploredHost<'a> {
 
             let mut txn = self.test_env.pool.begin().await.unwrap();
             tracing::info!("generating sku");
-            let sku = db::sku::generate_sku_from_machine(&mut txn, host_machine_id)
+            let sku = db::sku::generate_sku_from_machine(txn.as_mut(), host_machine_id)
                 .await
                 .unwrap();
             tracing::info!("creating sku: {}", sku.id);
@@ -1298,13 +1298,14 @@ pub async fn new_host(
         .await?
         .finish(|mock| async move {
             let machine_id = mock.discovered_machine_id().unwrap();
-            let mut txn = mock.test_env.pool.begin().await.unwrap();
-            Ok(
-                db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
-                    .await
-                    .transpose()
-                    .unwrap()?,
+            Ok(db::managed_host::load_snapshot(
+                &mut env.db_reader(),
+                &machine_id,
+                Default::default(),
             )
+            .await
+            .transpose()
+            .unwrap()?)
         })
         .await
 }
@@ -1368,13 +1369,14 @@ pub async fn new_host_with_machine_validation(
         .await
         .finish(|mock| async move {
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
-            let mut txn = mock.test_env.pool.begin().await.unwrap();
-            Ok(
-                db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
-                    .await
-                    .transpose()
-                    .unwrap()?,
+            Ok(db::managed_host::load_snapshot(
+                &mut env.db_reader(),
+                &machine_id,
+                Default::default(),
             )
+            .await
+            .transpose()
+            .unwrap()?)
         })
         .boxed()
         .await
@@ -1664,14 +1666,15 @@ pub async fn new_mock_host_with_dpf(
         .await
         .finish(|mock| async move {
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
-            let mut txn = mock.test_env.pool.begin().await.unwrap();
-            Ok(
-                db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
-                    .await
-                    .transpose()
-                    .unwrap()
-                    .unwrap(),
+            Ok(db::managed_host::load_snapshot(
+                &mut env.db_reader(),
+                &machine_id,
+                Default::default(),
             )
+            .await
+            .transpose()
+            .unwrap()
+            .unwrap())
         })
         .boxed()
         .await

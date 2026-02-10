@@ -24,6 +24,7 @@ use model::dns::{Domain, NewDomain, SoaSnapshot};
 use sqlx::{FromRow, PgConnection};
 
 use super::super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
+use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
 /// Validates a domain name according to DNS standards
@@ -149,7 +150,7 @@ async fn persist_inner_with_metadata(
 ///
 ///
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Domain>>(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     filter: ObjectColumnFilter<'a, C>,
 ) -> Result<Vec<Domain>, DatabaseError> {
     find_all_by(txn, filter, false).await
@@ -157,7 +158,7 @@ pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Domain>>(
 
 /// Similar to [`Domain::find_by`] but lets you specify whether to include deleted results
 pub async fn find_all_by<'a, C: ColumnInfo<'a, TableType = Domain>>(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     filter: ObjectColumnFilter<'a, C>,
     include_deleted: bool,
 ) -> Result<Vec<Domain>, DatabaseError> {
@@ -174,7 +175,7 @@ pub async fn find_all_by<'a, C: ColumnInfo<'a, TableType = Domain>>(
 }
 
 pub async fn find_by_name(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     name: &str,
 ) -> Result<Vec<Domain>, DatabaseError> {
     find_by(txn, ObjectColumnFilter::One(NameColumn, &name)).await

@@ -24,28 +24,25 @@ use nv_redfish_bmc_http::reqwest::BmcError;
 use prometheus::{Gauge, GaugeVec, Opts};
 
 pub mod api_client;
-pub mod collector;
+pub mod collectors;
 pub mod config;
 pub mod discovery;
-pub mod firmware_collector;
+pub mod endpoint;
 pub mod limiter;
-pub mod logs_collector;
 pub mod metrics;
-pub mod monitor;
-pub mod nmxt_collector;
 pub mod sharding;
+pub mod sink;
 
 pub use config::Config;
 pub use discovery::{DiscoveryIterationStats, DiscoveryLoopContext};
 
-use crate::api_client::{
-    ApiClientWrapper, CompositeEndpointSource, CompositeHealthReportSink, ConsleHealthSink,
-    EndpointSource, HealthReportSink, StaticEndpointSource,
-};
+use crate::api_client::ApiClientWrapper;
 use crate::config::Configurable;
+use crate::endpoint::{CompositeEndpointSource, EndpointSource, StaticEndpointSource};
 use crate::limiter::{BucketLimiter, NoopLimiter, RateLimiter};
 use crate::metrics::{MetricsManager, run_metrics_server};
 use crate::sharding::ShardManager;
+use crate::sink::{CompositeDataSink, DataSink, HealthOverrideSink, PrometheusSink, TracingSink};
 
 #[derive(thiserror::Error, Debug)]
 pub enum HealthError {
@@ -94,7 +91,6 @@ impl<B: nv_redfish_core::Bmc + 'static> From<nv_redfish::Error<B>> for HealthErr
 
 struct EndpointWiring {
     source: Arc<dyn EndpointSource>,
-    report_sink: Option<Arc<dyn HealthReportSink>>,
 }
 
 fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError> {
@@ -118,23 +114,6 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
         sources.push(api_client as Arc<dyn EndpointSource>);
     }
 
-    let mut sinks: Vec<Arc<dyn HealthReportSink>> = Vec::new();
-
-    if let Configurable::Enabled(ref sink_cfg) = config.health_sinks.carbide_api {
-        let api_client = Arc::new(ApiClientWrapper::new(
-            sink_cfg.root_ca.clone(),
-            sink_cfg.client_cert.clone(),
-            sink_cfg.client_key.clone(),
-            &sink_cfg.api_url,
-            false,
-        ));
-        sinks.push(api_client as Arc<dyn HealthReportSink>);
-    }
-
-    if config.health_sinks.console {
-        sinks.push(Arc::new(ConsleHealthSink {}));
-    }
-
     let composite_source = CompositeEndpointSource::new(sources);
 
     if composite_source.is_empty() {
@@ -143,16 +122,39 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
         ));
     }
 
-    let report_sink: Option<Arc<dyn HealthReportSink>> = match sinks.len() {
-        0 => None,
-        1 => Some(sinks.pop().unwrap()),
-        _ => Some(Arc::new(CompositeHealthReportSink::new(sinks))),
-    };
-
     Ok(EndpointWiring {
         source: Arc::new(composite_source),
-        report_sink,
     })
+}
+
+fn build_data_sink(
+    config: &Config,
+    metrics_manager: Arc<MetricsManager>,
+) -> Result<Option<Arc<dyn DataSink>>, HealthError> {
+    let mut sinks: Vec<Arc<dyn DataSink>> = Vec::new();
+
+    if let Configurable::Enabled(_) = &config.sinks.tracing {
+        sinks.push(Arc::new(TracingSink));
+    }
+
+    if let Configurable::Enabled(_) = &config.sinks.prometheus {
+        sinks.push(Arc::new(PrometheusSink::new(
+            metrics_manager,
+            &config.metrics.prefix,
+        )?));
+    }
+
+    if let Configurable::Enabled(ref sink_cfg) = config.sinks.health_override {
+        sinks.push(Arc::new(HealthOverrideSink::new(sink_cfg)?));
+    }
+
+    let data_sink = match sinks.len() {
+        0 => None,
+        1 => Some(sinks.pop().expect("len() == 1 guarantees one element")),
+        _ => Some(Arc::new(CompositeDataSink::new(sinks)) as Arc<dyn DataSink>),
+    };
+
+    Ok(data_sink)
 }
 
 pub async fn run_service(config: Config) -> Result<(), HealthError> {
@@ -188,8 +190,9 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
 
     let EndpointWiring {
         source: endpoint_source,
-        report_sink,
     } = build_endpoint_wiring(&config)?;
+
+    let data_sink = build_data_sink(&config, metrics_manager.clone())?;
 
     let config_arc = Arc::new(config);
 
@@ -210,7 +213,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
         let active_endpoints_gauge = active_endpoints_gauge.clone();
         let discovery_endpoints_gauge = discovery_endpoints_gauge.clone();
         let endpoint_source = endpoint_source.clone();
-        let report_sink = report_sink.clone();
+        let data_sink = data_sink.clone();
 
         let mut ctx = DiscoveryLoopContext::new(limiter, metrics_manager, config.clone())?;
 
@@ -220,7 +223,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
                     endpoint_source.clone(),
                     &shard_manager,
                     &mut ctx,
-                    report_sink.clone(),
+                    data_sink.clone(),
                     &config.metrics.prefix,
                 )
                 .await?;
@@ -236,9 +239,9 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
                 tokio::time::sleep(
                     config
                         .collectors
-                        .health
+                        .sensors
                         .as_option()
-                        .map(|h| h.rediscover_interval)
+                        .map(|s| s.rediscover_interval)
                         .unwrap_or(Duration::from_secs(300)),
                 )
                 .await;

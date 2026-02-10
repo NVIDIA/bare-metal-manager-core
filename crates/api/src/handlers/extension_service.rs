@@ -152,9 +152,9 @@ pub(crate) async fn create(
     };
 
     // Sanity check: A newly created service should have exactly one version
-    let versions = api
-        .with_txn(|txn| extension_service::find_all_versions(txn, service.id).boxed())
-        .await??;
+    let versions = extension_service::find_all_versions(&api.database_connection, service.id)
+        .boxed()
+        .await?;
     if versions.len() != 1 || versions.first().unwrap().version_nr() != 1 {
         return Err(CarbideError::Internal {
             message: "Initial extension service should only have a single version (1)".to_string(),
@@ -404,9 +404,8 @@ pub(crate) async fn update(
     };
 
     // Get all active versions for this service to return in the response
-    let versions = api
-        .with_txn(|txn| extension_service::find_all_versions(txn, service_id).boxed())
-        .await??;
+    let versions =
+        extension_service::find_all_versions(&api.database_connection, service_id).await?;
 
     let response = rpc::DpuExtensionService {
         service_id: service_id.to_string(),

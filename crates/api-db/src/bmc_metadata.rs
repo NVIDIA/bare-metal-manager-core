@@ -69,7 +69,7 @@ pub async fn enrich_mac_address(
     let bmc_ip_address = bmc_info.ip.clone().unwrap().parse()?;
     if bmc_info.mac.is_none() {
         if let Some(bmc_machine_interface) =
-            crate::machine_interface::find_by_ip(txn, bmc_ip_address).await?
+            crate::machine_interface::find_by_ip(&mut *txn, bmc_ip_address).await?
         {
             let bmc_mac_address = bmc_machine_interface.mac_address;
 

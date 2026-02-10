@@ -23,11 +23,10 @@ use ::rpc::errors::RpcDataConversionError;
 use ::rpc::{common as rpc_common, forge as rpc};
 use carbide_uuid::machine::MachineId;
 use db::{
-    DatabaseError, ObjectColumnFilter, WithTransaction, dpu_agent_upgrade_policy,
-    network_security_group, network_segment,
+    DatabaseError, ObjectColumnFilter, dpu_agent_upgrade_policy, network_security_group,
+    network_segment,
 };
 use forge_network::virtualization::VpcVirtualizationType;
-use futures_util::FutureExt;
 use futures_util::future::join_all;
 use itertools::Itertools;
 use model::extension_service::{ExtensionService, ExtensionServiceVersionInfo};
@@ -957,9 +956,8 @@ pub(crate) async fn get_all_managed_host_network_status(
 ) -> Result<Response<rpc::ManagedHostNetworkStatusResponse>, Status> {
     log_request_data(&request);
 
-    let all_status = api
-        .with_txn(|txn| db::machine::get_all_network_status_observation(txn, 2000).boxed())
-        .await??;
+    let all_status =
+        db::machine::get_all_network_status_observation(&api.database_connection, 2000).await?;
 
     let mut out = Vec::with_capacity(all_status.len());
     for machine_network_status in all_status {
@@ -1205,9 +1203,8 @@ pub(crate) async fn list_dpu_waiting_for_reprovisioning(
 ) -> Result<Response<rpc::DpuReprovisioningListResponse>, Status> {
     log_request_data(&request);
 
-    let dpus = api
-        .with_txn(|txn| db::machine::list_machines_requested_for_reprovisioning(txn).boxed())
-        .await??
+    let dpus = db::machine::list_machines_requested_for_reprovisioning(&api.database_connection)
+        .await?
         .into_iter()
         .map(
             |x| rpc::dpu_reprovisioning_list_response::DpuReprovisioningListItem {

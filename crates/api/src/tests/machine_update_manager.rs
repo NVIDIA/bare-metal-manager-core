@@ -190,7 +190,7 @@ async fn test_remove_machine_update_markers(
         .unwrap();
 
     let managed_host =
-        db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
+        db::managed_host::load_snapshot(txn.as_mut(), &host_machine_id, Default::default())
             .await
             .unwrap()
             .unwrap();

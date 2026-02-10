@@ -94,7 +94,9 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
 }
 
 async fn fetch_resource_pools(api: Arc<Api>) -> Result<Vec<forgerpc::ResourcePool>, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::ListResourcePoolsRequest {});
+    let request = tonic::Request::new(forgerpc::ListResourcePoolsRequest {
+        auto_assignable: None,
+    });
     let mut out = api
         .admin_list_resource_pools(request)
         .await

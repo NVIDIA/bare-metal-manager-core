@@ -1170,6 +1170,13 @@ message VpcCreationRequest {
   // The ID of the default NVLink Logical Partition for a VPC
   // This is the NVLink Logical Partition that will be used by default for all instances in the VPC.
   optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 14;
+
+
+  // Desired VNI for this VPC. If the VNI is not provided, Carbide will
+  // auto-allocate one.
+  // The requested VNI must be available in a resource-pool range that is not
+  // marked for auto-assignment; otherwise, the request will be rejected.
+  optional uint32 vni = 15;
 }
 
 enum VpcVirtualizationType {
@@ -1413,6 +1420,11 @@ message IBPartitionConfig {
   // The ID of tenant that IBPartition belong to
   string tenantOrganizationId = 2; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 
+  // Desired PKEY for this IB partition (in hexidecimal format, e.g.: 0x76b).
+  // If the PKEY is not provided, Carbide will auto-allocate one.
+  // The requested PKEY must be available in a resource-pool range that is not
+  // marked for auto-assignment; otherwise, the request will be rejected.
+  optional string pkey = 3;
 }
 
 // Describe the status and applied configuration of an IBPartition
@@ -1460,7 +1472,7 @@ message IBPartitionCreationRequest {
   // a random ID.
   // The Partition ID must be unique within the Forge site.
   optional common.IBPartitionId id = 2;
-
+ 
   Metadata metadata = 3;
 }
 
@@ -4075,6 +4087,7 @@ message ValidateTenantPublicKeyResponse {
 }
 
 message ListResourcePoolsRequest {
+  optional bool auto_assignable = 1;
 }
 message ResourcePools {
   repeated ResourcePool pools = 1;

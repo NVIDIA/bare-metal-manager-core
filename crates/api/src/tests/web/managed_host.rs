@@ -149,7 +149,7 @@ async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
 
     // Load snapshots the way
     let snapshots = managed_host::load_all(
-        &mut env.pool.begin().await.unwrap(),
+        &env.pool,
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,

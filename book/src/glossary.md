@@ -1,5 +1,9 @@
 # Glossary
 
+### Forge & Carbide
+
+You will see references to the name "Forge" and "Carbide". These were names for internal NVIDIA projects that were the precursors to NVIDIA Bare Metal Manager.  Some of the names lives on in the source and docs but references to these things are being removed over time as we try to break as little code and commands as possible.
+
 ### BGP (Border Gateway Protocol)
 
 https://en.wikipedia.org/wiki/Border_Gateway_Protocol

@@ -16,8 +16,7 @@
  */
 use ::rpc::forge::{self as rpc, GetMachineValidationExternalConfigResponse};
 use config_version::ConfigVersion;
-use db::{self, WithTransaction, machine_validation_suites};
-use futures_util::FutureExt;
+use db::{self, machine_validation_suites};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     FailureCause, FailureDetails, FailureSource, MachineValidationFilter, ManagedHostState,
@@ -297,9 +296,9 @@ pub(crate) async fn get_machine_validation_external_config(
     log_request_data(&request);
 
     let req: rpc::GetMachineValidationExternalConfigRequest = request.into_inner();
-    let ret = api
-        .with_txn(|txn| db::machine_validation_config::find_config_by_name(txn, &req.name).boxed())
-        .await??;
+    let ret =
+        db::machine_validation_config::find_config_by_name(&api.database_connection, &req.name)
+            .await?;
 
     Ok(tonic::Response::new(
         GetMachineValidationExternalConfigResponse {
@@ -466,9 +465,7 @@ pub(crate) async fn get_machine_validation_external_configs(
 ) -> Result<tonic::Response<rpc::GetMachineValidationExternalConfigsResponse>, Status> {
     log_request_data(&request);
 
-    let ret = api
-        .with_txn(|txn| db::machine_validation_config::find_configs(txn).boxed())
-        .await??;
+    let ret = db::machine_validation_config::find_configs(&api.database_connection).await?;
     Ok(tonic::Response::new(
         rpc::GetMachineValidationExternalConfigsResponse {
             configs: ret
@@ -566,9 +563,7 @@ pub(crate) async fn get_machine_validation_tests(
     log_request_data(&request);
     let req = request.into_inner();
 
-    let tests = api
-        .with_txn(|txn| machine_validation_suites::find(txn, req).boxed())
-        .await??;
+    let tests = machine_validation_suites::find(&api.database_connection, req).await?;
 
     Ok(tonic::Response::new(
         rpc::MachineValidationTestsGetResponse {

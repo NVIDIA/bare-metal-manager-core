@@ -39,4 +39,4 @@ List any steps you have taken:
 
 
 -----
-By submitting this issue, you agree to follow our [code of conduct](https://github.com/NVIDIA/carbide-core/blob/main/CODE_OF_CONDUCT.md) and our [contributing guidelines](https://github.com/NVIDIA/carbide-core/blob/main/CONTRIBUTING.md).
+By submitting this issue, you agree to follow our [code of conduct](https://github.com/NVIDIA/bare-metal-manager-core/blob/main/CODE_OF_CONDUCT.md) and our [contributing guidelines](https://github.com/NVIDIA/bare-metal-manager-core/blob/main/CONTRIBUTING.md).

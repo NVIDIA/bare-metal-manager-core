@@ -23,9 +23,7 @@ use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
 use carbide_uuid::machine::MachineId;
-use db::WithTransaction;
 use db::measured_boot::interface::machine::get_candidate_machine_records;
-use futures_util::FutureExt;
 use measured_boot::pcr::PcrRegisterValue;
 use rpc::protos::measured_boot::{
     AttestCandidateMachineRequest, AttestCandidateMachineResponse, ListCandidateMachinesRequest,
@@ -94,9 +92,8 @@ pub async fn handle_show_candidate_machines(
     _req: ShowCandidateMachinesRequest,
 ) -> Result<ShowCandidateMachinesResponse, Status> {
     Ok(ShowCandidateMachinesResponse {
-        machines: api
-            .with_txn(|txn| db::measured_boot::machine::get_all(txn).boxed())
-            .await?
+        machines: db::measured_boot::machine::get_all(&mut api.db_reader())
+            .await
             .map_err(|e| Status::internal(format!("{e}")))?
             .into_iter()
             .map(|machine| machine.into())
@@ -110,9 +107,8 @@ pub async fn handle_list_candidate_machines(
     _req: ListCandidateMachinesRequest,
 ) -> Result<ListCandidateMachinesResponse, Status> {
     Ok(ListCandidateMachinesResponse {
-        machines: api
-            .with_txn(|txn| get_candidate_machine_records(txn).boxed())
-            .await?
+        machines: get_candidate_machine_records(&api.database_connection)
+            .await
             .map_err(|e| Status::internal(format!("failed to read records: {e}")))?
             .into_iter()
             .map(|record| record.into())

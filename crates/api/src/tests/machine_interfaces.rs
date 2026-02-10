@@ -176,7 +176,7 @@ async fn find_all_interfaces_test_cases(
 
     let network_segment = db::network_segment::admin(&mut txn).await?;
     let domain_ids = db::dns::domain::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
     )
     .await?;
@@ -258,7 +258,7 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let network_segment = db::network_segment::admin(&mut txn).await?;
     let domain_ids = db::dns::domain::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
     )
     .await?;

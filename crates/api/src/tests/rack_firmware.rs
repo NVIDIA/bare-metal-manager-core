@@ -118,8 +118,7 @@ async fn test_create_rack_firmware(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     assert!(!firmware.updated.is_empty());
 
     // Verify database state
-    let mut txn = env.pool.begin().await?;
-    let db_firmware = DbRackFirmware::find_by_id(&mut txn, firmware_id).await?;
+    let db_firmware = DbRackFirmware::find_by_id(&env.pool, firmware_id).await?;
     assert_eq!(db_firmware.id, firmware_id);
     assert!(!db_firmware.available);
     assert!(db_firmware.parsed_components.is_some());
@@ -246,10 +245,8 @@ async fn test_delete_rack_firmware(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     env.api.create_rack_firmware(create_request).await?;
 
     // Verify it exists
-    let mut txn = env.pool.begin().await?;
-    let firmware = DbRackFirmware::find_by_id(&mut txn, firmware_id).await;
+    let firmware = DbRackFirmware::find_by_id(&env.pool, firmware_id).await;
     assert!(firmware.is_ok());
-    txn.commit().await?;
 
     // Delete it
     let delete_request = tonic::Request::new(RackFirmwareDeleteRequest {
@@ -258,8 +255,7 @@ async fn test_delete_rack_firmware(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     env.api.delete_rack_firmware(delete_request).await?;
 
     // Verify it's gone
-    let mut txn = env.pool.begin().await?;
-    let firmware = DbRackFirmware::find_by_id(&mut txn, firmware_id).await;
+    let firmware = DbRackFirmware::find_by_id(&env.pool, firmware_id).await;
     assert!(firmware.is_err());
 
     Ok(())
@@ -453,8 +449,7 @@ async fn test_rack_firmware_with_multiple_components(
     assert_eq!(firmware.id, firmware_id);
 
     // Verify parsed components
-    let mut txn = env.pool.begin().await?;
-    let db_firmware = DbRackFirmware::find_by_id(&mut txn, firmware_id).await?;
+    let db_firmware = DbRackFirmware::find_by_id(&env.pool, firmware_id).await?;
     assert!(db_firmware.parsed_components.is_some());
 
     let parsed = db_firmware.parsed_components.unwrap();

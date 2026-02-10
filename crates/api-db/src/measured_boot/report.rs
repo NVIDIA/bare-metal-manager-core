@@ -36,6 +36,7 @@ use measured_boot::records::{
 use measured_boot::report::MeasurementReport;
 use sqlx::{PgConnection, PgTransaction};
 
+use crate::db_read::DbReader;
 use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::common::pcr_register_values_to_map;
 use crate::measured_boot::interface::report::{
@@ -94,7 +95,10 @@ pub async fn get_all_for_machine_id(
     get_measurement_reports_for_machine_id(txn, machine_id).await
 }
 
-pub async fn get_all(txn: &mut PgConnection) -> DatabaseResult<Vec<MeasurementReport>> {
+pub async fn get_all<DB>(txn: &mut DB) -> DatabaseResult<Vec<MeasurementReport>>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     get_all_measurement_reports(txn).await
 }
 
@@ -200,10 +204,11 @@ pub async fn create_measurement_report(
 /// get_measurement_reports returns all MeasurementReport
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
-pub async fn get_all_measurement_reports(
-    txn: &mut PgConnection,
-) -> DatabaseResult<Vec<MeasurementReport>> {
-    let report_records: Vec<MeasurementReportRecord> = common::get_all_objects(txn).await?;
+pub async fn get_all_measurement_reports<DB>(txn: &mut DB) -> DatabaseResult<Vec<MeasurementReport>>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
+    let report_records: Vec<MeasurementReportRecord> = common::get_all_objects(&mut *txn).await?;
     let mut report_values: Vec<MeasurementReportValueRecord> = common::get_all_objects(txn).await?;
 
     let mut values_by_report_id: HashMap<MeasurementReportId, Vec<MeasurementReportValueRecord>> =
@@ -262,7 +267,7 @@ pub async fn get_measurement_reports_for_machine_id(
     machine_id: MachineId,
 ) -> DatabaseResult<Vec<MeasurementReport>> {
     let report_records: Vec<MeasurementReportRecord> =
-        common::get_objects_where_id(txn, machine_id).await?;
+        common::get_objects_where_id(&mut *txn, machine_id).await?;
     let mut res = Vec::<MeasurementReport>::new();
     for report_record in report_records.iter() {
         let values =

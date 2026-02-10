@@ -21,10 +21,11 @@ use sqlx::PgConnection;
 use sqlx::types::Json;
 
 use crate::DatabaseError;
+use crate::db_read::DbReader;
 
 pub async fn list_requests(
     request: rpc::forge::RedfishListActionsRequest,
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
 ) -> Result<Vec<ActionRequest>, DatabaseError> {
     let text_query = format!(
         "SELECT
@@ -56,7 +57,7 @@ pub async fn list_requests(
         sqlx::query_as(&text_query)
     };
     let result: Vec<ActionRequest> = query
-        .fetch_all(&mut *txn)
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new(&text_query, e))?;
     Ok(result)
@@ -98,7 +99,7 @@ pub async fn find_serials(
     ips: &[String],
     txn: &mut PgConnection,
 ) -> Result<HashMap<String, String>, DatabaseError> {
-    let pairs = crate::machine_topology::find_machine_bmc_pairs(txn, ips.to_vec()).await?;
+    let pairs = crate::machine_topology::find_machine_bmc_pairs(&mut *txn, ips.to_vec()).await?;
     if pairs.len() != ips.len() {
         let requested_ips: HashSet<_> = ips.iter().cloned().collect();
         let found_ips: HashSet<_> = pairs.into_iter().map(|p| p.1).collect();

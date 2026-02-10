@@ -294,11 +294,10 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
         response.into_inner().machine_ingestion_state()
     );
 
-    let mut txn = env.pool.begin().await?;
     let machine_snapshots =
-        db::managed_host::load_all(&mut txn, LoadSnapshotOptions::default()).await?;
+        db::managed_host::load_all(&env.pool, LoadSnapshotOptions::default()).await?;
     assert_eq!(machine_snapshots.len(), 0);
-    let explored_managed_hosts = db::explored_managed_host::find_all(&mut txn).await?;
+    let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
     assert_eq!(explored_managed_hosts.len(), 0);
 
     // now flip the flag and run another interation
@@ -309,8 +308,6 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
             ip_address: "".to_string(),
         }))
         .await?;
-
-    let mut txn = env.pool.begin().await?;
 
     // run the exploration cycle
     explorer.run_single_iteration().await.unwrap();
@@ -332,10 +329,10 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
         response.into_inner().machine_ingestion_state()
     );
 
-    let explored_managed_hosts = db::explored_managed_host::find_all(&mut txn).await?;
+    let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
     assert_eq!(explored_managed_hosts.len(), 1);
     let machine_snapshots =
-        db::managed_host::load_all(&mut txn, LoadSnapshotOptions::default()).await?;
+        db::managed_host::load_all(&env.pool, LoadSnapshotOptions::default()).await?;
     assert_eq!(machine_snapshots.len(), 1);
 
     Ok(())
@@ -1425,14 +1422,11 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
 
     assert_eq!(explored_endpoints.len(), 2);
 
-    let mut txn = env.pool.begin().await?;
-    let mut explored_managed_hosts = db::explored_managed_host::find_all(&mut txn).await?;
+    let mut explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
     let mut machines =
-        db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
+        db::machine::find(&env.pool, ObjectFilter::All, MachineSearchConfig::default())
             .await
             .unwrap();
-
-    txn.commit().await?;
 
     // There should be no managed host
     assert_eq!(explored_managed_hosts.len(), 0);
@@ -1465,12 +1459,11 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     txn.commit().await?;
 
     explorer.run_single_iteration().await.unwrap();
-    let mut txn = env.pool.begin().await?;
-    explored_managed_hosts = db::explored_managed_host::find_all(&mut txn).await?;
-    machines = db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
+    explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
+    machines = db::machine::find(&env.pool, ObjectFilter::All, MachineSearchConfig::default())
         .await
         .unwrap();
-    txn.commit().await?;
+
     // We should see one explored_managed host && 2 machines
     assert_eq!(
         <Vec<ExploredManagedHost> as AsRef<Vec<ExploredManagedHost>>>::as_ref(
@@ -1801,12 +1794,15 @@ async fn test_site_explorer_fixtures_singledpu(
         .finish(|mock| async move {
             // Get the managed host snapshot from the database
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
-            let mut txn = mock.test_env.pool.begin().await.unwrap();
             Ok::<ManagedHostStateSnapshot, eyre::Report>(
-                db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
-                    .await
-                    .transpose()
-                    .unwrap()?,
+                db::managed_host::load_snapshot(
+                    &mut mock.test_env.db_reader(),
+                    &machine_id,
+                    Default::default(),
+                )
+                .await
+                .transpose()
+                .unwrap()?,
             )
         })
         .await?;
@@ -1874,12 +1870,15 @@ async fn test_site_explorer_fixtures_multidpu(
         .finish(|mock| async move {
             // Get the managed host snapshot from the database
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
-            let mut txn = mock.test_env.pool.begin().await.unwrap();
             Ok::<ManagedHostStateSnapshot, eyre::Report>(
-                db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
-                    .await
-                    .transpose()
-                    .unwrap()?,
+                db::managed_host::load_snapshot(
+                    &mut mock.test_env.db_reader(),
+                    &machine_id,
+                    Default::default(),
+                )
+                .await
+                .transpose()
+                .unwrap()?,
             )
         })
         .await?;
@@ -1956,12 +1955,15 @@ async fn test_site_explorer_fixtures_zerodpu_site_explorer_before_host_dhcp(
         .finish(|mock| async move {
             // Get the managed host snapshot from the database
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
-            let mut txn = mock.test_env.pool.begin().await.unwrap();
             Ok::<ManagedHostStateSnapshot, eyre::Report>(
-                db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
-                    .await
-                    .transpose()
-                    .unwrap()?,
+                db::managed_host::load_snapshot(
+                    &mut mock.test_env.db_reader(),
+                    &machine_id,
+                    Default::default(),
+                )
+                .await
+                .transpose()
+                .unwrap()?,
             )
         })
         .await?;
@@ -2080,12 +2082,15 @@ async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
         .finish(|mock| async move {
             // Get the managed host snapshot from the database
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
-            let mut txn = mock.test_env.pool.begin().await.unwrap();
             Ok::<ManagedHostStateSnapshot, eyre::Report>(
-                db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
-                    .await
-                    .transpose()
-                    .unwrap()?,
+                db::managed_host::load_snapshot(
+                    &mut mock.test_env.db_reader(),
+                    &machine_id,
+                    Default::default(),
+                )
+                .await
+                .transpose()
+                .unwrap()?,
             )
         })
         .await?;
@@ -2422,12 +2427,9 @@ async fn test_machine_creation_with_sku(
 
     assert_eq!(explored_endpoints.len(), 2);
 
-    let mut txn = env.pool.begin().await?;
-    let machines = db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
+    let machines = db::machine::find(&env.pool, ObjectFilter::All, MachineSearchConfig::default())
         .await
         .unwrap();
-
-    txn.commit().await?;
 
     for m in machines {
         if m.is_dpu() {

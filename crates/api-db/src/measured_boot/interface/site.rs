@@ -32,6 +32,7 @@ use measured_boot::site::MachineAttestationSummary;
 use sqlx::PgConnection;
 
 use crate::DatabaseError;
+use crate::db_read::DbReader;
 use crate::measured_boot::interface::common;
 
 pub async fn insert_into_approved_machines(
@@ -77,7 +78,7 @@ pub async fn remove_from_approved_machines_by_machine_id(
 }
 
 pub async fn get_approved_machines(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
 ) -> Result<Vec<MeasurementApprovedMachineRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
@@ -136,7 +137,7 @@ pub async fn remove_from_approved_profiles_by_profile_id(
 }
 
 pub async fn get_approved_profiles(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
 ) -> Result<Vec<MeasurementApprovedProfileRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await
@@ -157,7 +158,7 @@ pub async fn get_approval_for_profile_id(
 }
 
 pub async fn list_attestation_summary(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
 ) -> Result<Vec<MachineAttestationSummary>, DatabaseError> {
     let query = "select distinct on (mj.machine_id) mj.machine_id, mj.ts, msp.name, mj.bundle_id from measurement_journal mj, measurement_system_profiles msp WHERE mj.profile_id = msp.profile_id order by mj.machine_id, mj.ts desc";
 

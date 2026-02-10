@@ -15,14 +15,14 @@
  * limitations under the License.
  */
 use std::net::IpAddr;
-use std::ops::DerefMut;
 
 use carbide_uuid::domain::DomainId;
 use dns_record::SoaRecord;
 use sqlx::postgres::PgRow;
-use sqlx::{Error, FromRow, Postgres, Row, Transaction};
+use sqlx::{Error, FromRow, Row};
 
 use crate::DatabaseError;
+use crate::db_read::DbReader;
 
 #[derive(Debug, Clone)]
 pub struct DbResourceRecord {
@@ -76,20 +76,20 @@ impl<'r> FromRow<'r, PgRow> for DbResourceRecord {
 }
 
 pub async fn get_soa_record(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: impl DbReader<'_>,
     query_name: &str,
 ) -> Result<Option<DbSoaRecord>, DatabaseError> {
     let domain_name = crate::dns::normalize_domain(query_name);
     const QUERY: &str = "SELECT soa from domains WHERE name=$1";
     sqlx::query_as::<_, DbSoaRecord>(QUERY)
         .bind(domain_name)
-        .fetch_optional(txn.deref_mut())
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::query(QUERY, e))
 }
 
 pub async fn find_record(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: impl DbReader<'_>,
     query_name: &str,
 ) -> Result<Vec<DbResourceRecord>, DatabaseError> {
     // TODO: Configurable defaults for TTL
@@ -105,14 +105,14 @@ pub async fn find_record(
     tracing::info!("Looking up record using query_name: {}", query_name);
     let result = sqlx::query_as::<_, DbResourceRecord>(query)
         .bind(query_name)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(result)
 }
 pub async fn get_all_records(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: impl DbReader<'_>,
     query_name: &str,
 ) -> Result<Vec<DbResourceRecord>, DatabaseError> {
     let domain_name = crate::dns::normalize_domain(query_name);
@@ -127,7 +127,7 @@ pub async fn get_all_records(
 
     sqlx::query_as::<_, DbResourceRecord>(query)
         .bind(domain_name)
-        .fetch_all(txn.deref_mut())
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
 }
