@@ -367,6 +367,7 @@ pub async fn advance_created_instance_into_state(
     env.run_ib_fabric_monitor_iteration().await;
     env.run_nvl_partition_monitor_iteration().await;
     env.run_nvl_partition_monitor_iteration().await;
+    env.run_nvl_partition_monitor_iteration().await;
     super::simulate_hardware_health_report(
         env,
         &mh.host().id,

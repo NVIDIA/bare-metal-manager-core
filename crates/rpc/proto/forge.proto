@@ -1639,6 +1639,8 @@ message Switch {
   optional google.protobuf.Timestamp deleted = 4;
 
   string controller_state = 5;
+
+  BmcInfo bmc_info = 6;
 }
 
 message SwitchList {
@@ -5772,6 +5774,8 @@ message NVLinkLogicalPartition {
   string config_version = 3;
 
   NVLinkLogicalPartitionStatus status = 4;
+
+  google.protobuf.Timestamp created = 5;
 }
 
 message NVLinkLogicalPartitionList {
@@ -6447,7 +6451,8 @@ message ModifyDPFStateRequest {
 message DPFStateResponse {
   message DPFState {
     common.MachineId machine_id = 1;
-    bool dpf_enabled = 2;
+    bool enabled = 2;
+    bool used_for_ingestion = 3;
   }
   repeated DPFState dpf_states = 1;
 }

@@ -52,6 +52,7 @@ pub async fn connect(
         // BMS will republish all messages periodically to handle missed messages.
         Some(ClientOptions::default().with_qos(QoS::AtMostOnce)),
     )
+    .await
     .map_err(|e| DsxConsumerError::Mqtt(e.to_string()))?;
 
     // Register message types with distinct suffix patterns.

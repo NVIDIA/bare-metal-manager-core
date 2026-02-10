@@ -93,6 +93,7 @@ impl HostMachine {
             })
             .collect::<Vec<_>>();
         let host_info = HostMachineInfo {
+            hw_type: persisted_host_machine.hw_type.unwrap_or_default(),
             bmc_mac_address: persisted_host_machine.bmc_mac_address,
             serial: persisted_host_machine.serial.clone(),
             dpus: persisted_host_machine
@@ -157,6 +158,7 @@ impl HostMachine {
         let dpu_machines = (1..=config.dpu_per_host_count as u8)
             .map(|index| {
                 DpuMachine::new(
+                    config.hw_type,
                     mat_id,
                     index,
                     app_context.clone(),
@@ -169,8 +171,10 @@ impl HostMachine {
                 )
             })
             .collect::<Vec<_>>();
-        let host_info =
-            HostMachineInfo::new(dpu_machines.iter().map(|d| d.dpu_info().clone()).collect());
+        let host_info = HostMachineInfo::new(
+            config.hw_type,
+            dpu_machines.iter().map(|d| d.dpu_info().clone()).collect(),
+        );
         let dpus = dpu_machines
             .into_iter()
             .map(|d| d.start(true))
@@ -567,6 +571,7 @@ impl HostMachineHandle {
     pub fn persisted(&self) -> PersistedHostMachine {
         let live_state = self.0.live_state.read().unwrap();
         PersistedHostMachine {
+            hw_type: Some(self.0.host_info.hw_type),
             mat_id: self.0.mat_id,
             machine_config_section: self.0.machine_config_section.clone(),
             bmc_mac_address: self.0.host_info.bmc_mac_address,

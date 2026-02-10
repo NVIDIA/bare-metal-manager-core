@@ -1211,7 +1211,7 @@ async fn test_site_explorer_creates_managed_host_with_dpf_disable(
 
     assert_eq!(machines.len(), 2);
     for machine in machines {
-        assert!(!machine.dpf_enabled);
+        assert!(!machine.dpf.enabled);
     }
 
     Ok(())
@@ -1349,7 +1349,7 @@ async fn test_site_explorer_creates_managed_host_with_dpf_enabled(
 
     assert_eq!(machines.len(), 2);
     for machine in machines {
-        assert!(machine.dpf_enabled);
+        assert!(machine.dpf.enabled);
     }
 
     Ok(())

@@ -29,7 +29,7 @@ use nv_redfish::resource::Health as BmcHealth;
 use nv_redfish::sensor::SensorRef;
 use nv_redfish_core::{Bmc, EntityTypeRef, ToSnakeCase};
 
-use crate::api_client::{BmcAddr, BmcEndpoint, HealthReportSink};
+use crate::api_client::{BmcAddr, BmcEndpoint, EndpointMetadata, HealthReportSink};
 use crate::collector::PeriodicCollector;
 use crate::metrics::{CollectorRegistry, GaugeMetrics, GaugeReading, MetricLabel, sanitize_unit};
 use crate::{HealthError, collector};
@@ -63,16 +63,13 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for HealthMonitor<B> {
         endpoint: Arc<BmcEndpoint>,
         config: Self::Config,
     ) -> Result<Self, HealthError> {
-        let serial = endpoint
-            .machine
-            .as_ref()
-            .and_then(|m| m.machine_serial.clone())
-            .unwrap_or_default();
-        let machine_id = endpoint
-            .machine
-            .as_ref()
-            .map(|m| m.machine_id.to_string())
-            .unwrap_or_default();
+        let (serial, machine_id) = match &endpoint.metadata {
+            Some(EndpointMetadata::Machine(m)) => (
+                m.machine_serial.clone().unwrap_or_default(),
+                m.machine_id.to_string(),
+            ),
+            _ => (String::new(), String::new()),
+        };
         let metrics = config.collector_registry.create_gauge_metrics(
             format!("health_gauge_{}", endpoint.addr.hash_key()),
             "BMC Sensor readings",
@@ -497,7 +494,8 @@ impl<B: Bmc + 'static> HealthMonitor<B> {
             let (successes, alerts) = self.fetch_and_update_sensors(state).await?;
             entity_count = Some(successes.len() + alerts.len());
 
-            if let (Some(machine), Some(report_sink)) = (&self.endpoint.machine, &self.report_sink)
+            if let (Some(EndpointMetadata::Machine(machine)), Some(report_sink)) =
+                (&self.endpoint.metadata, &self.report_sink)
             {
                 let machine_id = machine.machine_id;
 

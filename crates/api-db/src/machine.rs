@@ -42,7 +42,7 @@ use model::machine::network::{
 use model::machine::nvlink::MachineNvLinkStatusObservation;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::machine::{
-    FailureDetails, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
+    Dpf, FailureDetails, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
     MachineLastRebootRequestedMode, ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use model::machine_interface_address::MachineInterfaceAssociation;
@@ -1276,7 +1276,7 @@ pub async fn create(
     };
 
     let query = r#"INSERT INTO machines(
-                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels, hw_sku, dpf_enabled)
+                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels, hw_sku, dpf)
                             VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::json, $12, $13) RETURNING id"#;
     let machine_id: MachineId = sqlx::query_as(query)
         .bind(&stable_machine_id_string)
@@ -1291,7 +1291,10 @@ pub async fn create(
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
         .bind(sku_id)
-        .bind(dpf_enabled)
+        .bind(sqlx::types::Json(Dpf {
+            enabled: dpf_enabled,
+            used_for_ingestion: false,
+        }))
         .fetch_one(&mut *txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -2199,11 +2202,25 @@ pub async fn clear_quarantine_state(
 pub async fn modify_dpf_state(
     txn: &mut PgConnection,
     machine_id: &MachineId,
-    state: bool,
+    status: bool,
 ) -> Result<(), DatabaseError> {
-    let query = "UPDATE machines set dpf_enabled=$1 WHERE id=$2";
+    let query = "UPDATE machines set dpf = jsonb_set(dpf, '{enabled}', to_jsonb($1)) WHERE id=$2";
     sqlx::query(query)
-        .bind(state)
+        .bind(status)
+        .bind(machine_id)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(())
+}
+
+pub async fn mark_machine_ingestion_done_with_dpf(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machines set dpf = jsonb_set(dpf, '{used_for_ingestion}', to_jsonb(true)) WHERE id=$1";
+    sqlx::query(query)
         .bind(machine_id)
         .execute(txn)
         .await

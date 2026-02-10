@@ -21,8 +21,11 @@
 /// Description of NIC card.
 pub mod nic;
 
-/// Support of the Bluefield3 DPU.
+/// Support of NVIDIA Bluefield3 DPU.
 pub mod bluefield3;
 
-/// Support of the Dell PowerEdge R750 servers.
+/// Support of Dell PowerEdge R750 servers.
 pub mod dell_poweredge_r750;
+
+/// Support of Wiwynn GB200 NVL servers.
+pub mod wiwynn_gb200_nvl;

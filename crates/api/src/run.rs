@@ -43,14 +43,17 @@ pub async fn run(
 ) -> eyre::Result<()> {
     let carbide_config = setup::parse_carbide_config(config_str, site_config_str)?;
 
-    // Reject config that contains overlaps between deny_prefixes and site_fabric_prefixes
+    // Reject config that contains overlaps between deny_prefixes and site_fabric_prefixes.
+    // deny_prefixes are IPv4-only; only check against IPv4 site fabric prefixes.
     for deny_prefix in carbide_config.deny_prefixes.iter() {
         for site_fabric_prefix in carbide_config.site_fabric_prefixes.iter() {
-            if deny_prefix.overlaps(site_fabric_prefix.to_owned()) {
+            if let ipnetwork::IpNetwork::V4(site_v4) = site_fabric_prefix
+                && deny_prefix.overlaps(*site_v4)
+            {
                 return Err(eyre::eyre!(
                     "overlap found in deny_prefixes `{}` and site_fabric_prefixes `{}`",
-                    deny_prefix.to_owned(),
-                    site_fabric_prefix.to_owned(),
+                    deny_prefix,
+                    site_fabric_prefix,
                 ));
             }
         }

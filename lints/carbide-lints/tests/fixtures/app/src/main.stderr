@@ -153,10 +153,22 @@ error: sqlx::Transaction is dropped by this function without commit()/rollback()
     = note: `-D txn-without-commit` implied by `-D warnings`
     = help: to override `-D warnings` add `#[allow(txn_without_commit)]`
 
+error: A sqlx::Transaction is being held across this 'await' point
+   --> src/main.rs:309:33
+    |
+309 |     unrelated_async_work("bad").await;
+    |                                 ^^^^^
+    |
+note: Transaction declared here
+   --> src/main.rs:305:40
+    |
+305 | async fn bad_takes_db_reader_inner<DB>(_db: &mut DB)
+    |                                        ^^^
+
 error: sqlx::Transaction is dropped by this function without commit()/rollback(), or being moved out
    --> src/main.rs:290:29
     |
 290 | fn bad_missing_commit_param(_txn: PgTransaction<'_>) {
     |                             ^^^^
 
-error: could not compile `sqlx_app` (bin "sqlx_app") due to 14 previous errors
+error: could not compile `sqlx_app` (bin "sqlx_app") due to 15 previous errors

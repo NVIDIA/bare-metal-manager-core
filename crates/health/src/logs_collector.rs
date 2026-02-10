@@ -28,7 +28,7 @@ use serde_json::Value as JsonValue;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
-use crate::api_client::BmcEndpoint;
+use crate::api_client::{BmcEndpoint, EndpointMetadata};
 use crate::collector::PeriodicCollector;
 use crate::{HealthError, collector};
 
@@ -402,7 +402,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
     }
 
     async fn collect_logs_from_services(&mut self) -> Result<usize, HealthError> {
-        let Some(machine) = &self.endpoint.machine else {
+        let Some(EndpointMetadata::Machine(machine)) = &self.endpoint.metadata else {
             return Ok(0);
         };
 

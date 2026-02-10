@@ -36,13 +36,24 @@ type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub struct BmcEndpoint {
     pub addr: BmcAddr,
     pub credentials: BmcCredentials,
-    pub machine: Option<MachineData>,
+    pub metadata: Option<EndpointMetadata>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
+pub enum EndpointMetadata {
+    Machine(MachineData),
+    Switch(SwitchData),
+}
+
+#[derive(Clone, Debug)]
 pub struct MachineData {
     pub machine_id: MachineId,
     pub machine_serial: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SwitchData {
+    pub serial: String,
 }
 
 #[derive(Clone)]
@@ -123,10 +134,17 @@ impl HealthReportSink for CompositeHealthReportSink {
 #[derive(Clone)]
 pub struct ApiClientWrapper {
     client: ForgeApiClient,
+    nmxt_enabled: bool,
 }
 
 impl ApiClientWrapper {
-    pub fn new(root_ca: String, client_cert: String, client_key: String, api_url: &Url) -> Self {
+    pub fn new(
+        root_ca: String,
+        client_cert: String,
+        client_key: String,
+        api_url: &Url,
+        nmxt_enabled: bool,
+    ) -> Self {
         let client_config = ForgeClientConfig::new(
             root_ca,
             Some(ClientCert {
@@ -138,7 +156,10 @@ impl ApiClientWrapper {
 
         let client = ForgeApiClient::new(&api_config);
 
-        Self { client }
+        Self {
+            client,
+            nmxt_enabled,
+        }
     }
 
     pub async fn fetch_bmc_hosts(&self) -> Result<Vec<Arc<BmcEndpoint>>, HealthError> {
@@ -177,6 +198,48 @@ impl ApiClientWrapper {
             }
         }
 
+        // fetch switch endpoints for nmxt collection if enabled
+        if self.nmxt_enabled {
+            let switch_request = rpc::forge::SwitchQuery {
+                name: None,
+                switch_id: None,
+            };
+
+            match self.client.find_switches(switch_request).await {
+                Ok(response) => {
+                    let switch_endpoints: Vec<Arc<BmcEndpoint>> = response
+                        .switches
+                        .into_iter()
+                        .filter_map(|s| {
+                            let bmc = s.bmc_info?;
+                            let ip = bmc.ip.as_ref()?.parse().ok()?;
+                            let mac = bmc.mac?;
+                            let serial = s.config?.name;
+
+                            Some(Arc::new(BmcEndpoint {
+                                addr: BmcAddr {
+                                    ip,
+                                    port: bmc.port.map(|p| p as u16),
+                                    mac,
+                                },
+                                credentials: BmcCredentials {
+                                    username: String::new(),
+                                    password: String::new(),
+                                },
+                                metadata: Some(EndpointMetadata::Switch(SwitchData { serial })),
+                            }))
+                        })
+                        .collect();
+
+                    tracing::debug!(count = switch_endpoints.len(), "Fetched switch endpoints");
+                    endpoints.extend(switch_endpoints);
+                }
+                Err(e) => {
+                    tracing::warn!(error = ?e, "Failed to fetch switch endpoints");
+                }
+            }
+        }
+
         tracing::info!("Prepared total {} endpoints", endpoints.len());
 
         Ok(endpoints)
@@ -195,12 +258,14 @@ impl ApiClientWrapper {
         Some(BmcEndpoint {
             addr,
             credentials,
-            machine: machine
+            metadata: machine
                 .id
                 .zip(machine.discovery_info.clone())
-                .map(|(machine_id, info)| MachineData {
-                    machine_id,
-                    machine_serial: info.dmi_data.map(|dmi| dmi.chassis_serial),
+                .map(|(machine_id, info)| {
+                    EndpointMetadata::Machine(MachineData {
+                        machine_id,
+                        machine_serial: info.dmi_data.map(|dmi| dmi.chassis_serial),
+                    })
                 }),
         })
     }
@@ -316,7 +381,7 @@ impl StaticEndpointSource {
                         username: cfg.username.clone(),
                         password: cfg.password.clone(),
                     },
-                    machine: None,
+                    metadata: None,
                 }))
             })
             .collect();
@@ -375,7 +440,7 @@ mod tests {
                 username: "admin".to_string(),
                 password: "password".to_string(),
             },
-            machine: None,
+            metadata: None,
         }
     }
 

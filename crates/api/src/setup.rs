@@ -322,8 +322,8 @@ pub async fn start_api(
 
     let ib_fabric_manager: Arc<dyn IBFabricManager> = Arc::new(ib_fabric_manager_impl);
 
-    let site_fabric_prefixes = ethernet_virtualization::SiteFabricPrefixList::from_ipv4_slice(
-        carbide_config.site_fabric_prefixes.as_slice(),
+    let site_fabric_prefixes = ethernet_virtualization::SiteFabricPrefixList::from_ipnetwork_vec(
+        carbide_config.site_fabric_prefixes.clone(),
     );
 
     let eth_data = ethernet_virtualization::EthVirtData {
@@ -588,7 +588,8 @@ pub async fn initialize_and_start_controllers(
                 "carbide-dsx-exchange-event-bus",
                 Some(mqttea::client::ClientOptions::default().with_qos(mqttea::QoS::AtMostOnce)),
             )
-            .map_err(|e| eyre::eyre!("Failed to create DSX Exchange Event Bus MQTT client: {e}"))?;
+            .map_err(|e| eyre::eyre!("Failed to create DSX Exchange Event Bus MQTT client: {e}"))
+            .await?;
 
             client.connect().await.map_err(|e| {
                 eyre::eyre!("Failed to connect DSX Exchange Event Bus MQTT client: {e}")

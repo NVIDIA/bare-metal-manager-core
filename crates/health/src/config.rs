@@ -184,6 +184,9 @@ pub struct CollectorsConfig {
 
     /// Logs collector configuration (if present, logs collector is enabled)
     pub logs: Configurable<LogsCollectorConfig>,
+
+    /// Switch NMX-T collector configuration (if present, nmxt collector is enabled)
+    pub nmxt: Configurable<NmxtCollectorConfig>,
 }
 
 impl Default for CollectorsConfig {
@@ -192,6 +195,7 @@ impl Default for CollectorsConfig {
             health: Configurable::Enabled(HealthCollectorConfig::default()),
             firmware: Configurable::Disabled,
             logs: Configurable::Enabled(LogsCollectorConfig::default()),
+            nmxt: Configurable::Disabled,
         }
     }
 }
@@ -274,6 +278,22 @@ impl Default for LogsCollectorConfig {
             logs_output_dir: "/tmp/logs".to_string(),
             logs_max_file_size: 104857600,
             logs_max_backups: 5,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NmxtCollectorConfig {
+    /// Interval between switch NMX-T metric scrapes.
+    #[serde(with = "humantime_serde")]
+    pub scrape_interval: Duration,
+}
+
+impl Default for NmxtCollectorConfig {
+    fn default() -> Self {
+        Self {
+            scrape_interval: Duration::from_secs(60),
         }
     }
 }

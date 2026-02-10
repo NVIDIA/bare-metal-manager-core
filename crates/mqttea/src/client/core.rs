@@ -29,6 +29,7 @@ use rumqttc::{AsyncClient, Event, EventLoop, MqttOptions, Packet, QoS};
 use tokio::sync::{Mutex, RwLock, Semaphore, mpsc};
 use tracing::{debug, error, info, warn};
 
+use crate::auth::CredentialsProvider;
 use crate::client::{ClientOptions, ClosureAdapter, ErasedHandler, ReceivedMessage};
 use crate::errors::MqtteaClientError;
 use crate::registry::MqttRegistry;
@@ -60,6 +61,10 @@ pub struct MqtteaClient {
     // for a given message type or topic pattern. If this is None, then
     // the default consts are used as fallback.
     client_options: Option<ClientOptions>,
+    // credentials_provider is stored to refresh credentials on reconnection.
+    // When the connection drops and needs to reconnect, fresh credentials
+    // will be fetched from this provider (e.g., to get a new OAuth2 token).
+    credentials_provider: Option<Arc<dyn CredentialsProvider>>,
     // handlers stores message-type-specific handlers for processing
     // received messages
     handlers: Arc<RwLock<HashMap<String, ErasedHandler>>>,
@@ -83,7 +88,10 @@ impl MqtteaClient {
     // new creates a new MQTT client with empty client-scoped registry.
     // Each client gets its own independent registry for complete isolation.
     // Call connect() after registering handlers to begin processing messages.
-    pub fn new(
+    //
+    // This is an async function because credentials may need to be fetched
+    // from a credentials provider (e.g., OAuth2 token provider).
+    pub async fn new(
         broker_host: &str,
         broker_port: u16,
         client_id: &str,
@@ -98,12 +106,13 @@ impl MqtteaClient {
         );
         mqtt_options.set_clean_session(false);
 
-        if let Some(credentials) = client_options
+        // Fetch credentials from provider if configured.
+        if let Some(provider) = client_options
             .as_ref()
-            .and_then(|opts| opts.credentials.as_ref())
+            .and_then(|opts| opts.credentials_provider.as_ref())
         {
-            mqtt_options
-                .set_credentials(credentials.username.clone(), credentials.password.clone());
+            let credentials = provider.get_credentials().await?;
+            mqtt_options.set_credentials(credentials.username, credentials.password);
         }
 
         let (client, event_loop) = AsyncClient::new(
@@ -128,6 +137,11 @@ impl MqtteaClient {
             .unwrap_or(1)
             .max(1);
 
+        // Extract credentials_provider for use during reconnection.
+        let credentials_provider = client_options
+            .as_ref()
+            .and_then(|opts| opts.credentials_provider.clone());
+
         info!("Created MQTT client for {}:{}", broker_host, broker_port);
 
         Ok(Arc::new(Self {
@@ -136,6 +150,7 @@ impl MqtteaClient {
             event_loop: Arc::new(Mutex::new(Some(event_loop))),
             concurrency_semaphore: Arc::new(Semaphore::new(concurrency_limit)),
             client_options,
+            credentials_provider,
             handlers,
             queue_stats,
             publish_stats,
@@ -192,6 +207,7 @@ impl MqtteaClient {
         // messages.
         let queue_stats_producer = self.queue_stats.clone();
         let registry_clone = self.registry.clone();
+        let credentials_provider = self.credentials_provider.clone();
         let mut backoff_strategy = SuperBasicBackoff::new();
         tokio::spawn(async move {
             loop {
@@ -239,6 +255,31 @@ impl MqtteaClient {
                     Err(e) => {
                         error!("MQTT event loop connection error: {:?}", e);
                         queue_stats_producer.increment_event_loop_errors();
+
+                        // Refresh credentials before reconnection attempt if a provider is configured.
+                        // This ensures we use fresh tokens (e.g., OAuth2) for the next connection.
+                        //
+                        // NOTE: This credential refresh on reconnection logic requires integration
+                        // testing with a real MQTT broker, as it cannot be easily unit tested
+                        // without mocking the EventLoop and simulating connection failures.
+                        if let Some(ref provider) = credentials_provider {
+                            match provider.get_credentials().await {
+                                Ok(credentials) => {
+                                    debug!("Refreshed credentials for reconnection");
+                                    event_loop.mqtt_options.set_credentials(
+                                        credentials.username,
+                                        credentials.password,
+                                    );
+                                }
+                                Err(cred_err) => {
+                                    error!(
+                                        "Failed to refresh credentials for reconnection: {:?}",
+                                        cred_err
+                                    );
+                                }
+                            }
+                        }
+
                         tokio::time::sleep(backoff_strategy.next_delay()).await;
                     }
                 }

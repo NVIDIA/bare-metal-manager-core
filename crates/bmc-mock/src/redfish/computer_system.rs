@@ -104,19 +104,19 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
 
 pub struct SingleSystemConfig {
     pub id: Cow<'static, str>,
-    pub eth_interfaces: Vec<redfish::ethernet_interface::EthernetInterface>,
-    pub serial_number: Cow<'static, str>,
+    pub eth_interfaces: Option<Vec<redfish::ethernet_interface::EthernetInterface>>,
+    pub serial_number: Option<Cow<'static, str>>,
     pub manufacturer: Option<Cow<'static, str>>,
     pub model: Option<Cow<'static, str>>,
     pub boot_order_mode: BootOrderMode,
     pub power_control: Option<Arc<dyn PowerControl>>,
     pub chassis: Vec<Cow<'static, str>>,
-    pub boot_options: Vec<redfish::boot_option::BootOption>,
+    pub boot_options: Option<Vec<redfish::boot_option::BootOption>>,
     pub bios_mode: BiosMode,
-    pub base_bios: serde_json::Value,
+    pub base_bios: Option<serde_json::Value>,
 }
 
-pub struct SystemConfig {
+pub struct Config {
     pub systems: Vec<SingleSystemConfig>,
 }
 
@@ -135,6 +135,7 @@ pub struct SingleSystemState {
 pub enum BootOrderMode {
     DellOem,
     Generic,
+    ViaSettings, // Set boot order using /Settings resource
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -144,7 +145,7 @@ pub enum BiosMode {
 }
 
 impl SystemState {
-    pub fn from_config(config: SystemConfig) -> Self {
+    pub fn from_config(config: Config) -> Self {
         Self::from_configs(config.systems)
     }
 
@@ -175,7 +176,11 @@ impl SingleSystemState {
     }
 
     pub fn find_boot_option(&self, option_id: &str) -> Option<&redfish::boot_option::BootOption> {
-        self.config.boot_options.iter().find(|v| v.id == option_id)
+        self.config
+            .boot_options
+            .iter()
+            .flatten()
+            .find(|v| v.id == option_id)
     }
 
     fn set_boot_order_override(&self, boot_order: Vec<String>) {
@@ -204,7 +209,6 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
 
     let mut b = builder(&resource(&system_id))
         .ethernet_interfaces(redfish::ethernet_interface::system_collection(&system_id))
-        .serial_number(&system_state.config.serial_number)
         .boot_options(&redfish::boot_option::collection(&system_id))
         .bios(&redfish::bios::resource(&system_id))
         .link_chassis(&system_state.config.chassis);
@@ -226,6 +230,7 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
             &config
                 .boot_options
                 .iter()
+                .flatten()
                 .map(|v| v.id.as_ref())
                 .collect::<Vec<_>>(),
         );
@@ -238,7 +243,8 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
         .flat_map(|chassis| chassis.pcie_devices_resources().into_iter())
         .collect::<Vec<_>>();
 
-    b.maybe_with(SystemBuilder::manufacturer, &config.manufacturer)
+    b.maybe_with(SystemBuilder::serial_number, &config.serial_number)
+        .maybe_with(SystemBuilder::manufacturer, &config.manufacturer)
         .maybe_with(SystemBuilder::model, &config.model)
         .pcie_devices(&pcie_devices)
         .build()
@@ -256,6 +262,7 @@ async fn get_ethernet_interface(
         .config
         .eth_interfaces
         .iter()
+        .flatten()
         .find(|eth| eth.id == interface_id)
         .map(|eth| eth.to_json().into_ok_response())
         .unwrap_or_else(http::not_found)
@@ -272,6 +279,7 @@ async fn get_ethernet_interface_collection(
         .config
         .eth_interfaces
         .iter()
+        .flatten()
         .map(|eth| redfish::ethernet_interface::system_resource(&system_id, &eth.id).entity_ref())
         .collect::<Vec<_>>();
     redfish::ethernet_interface::system_collection(&system_id)
@@ -279,8 +287,36 @@ async fn get_ethernet_interface_collection(
         .into_ok_response()
 }
 
-async fn patch_settings() -> Response {
-    json!({}).into_ok_response()
+async fn patch_settings(
+    State(state): State<BmcState>,
+    Path(system_id): Path<String>,
+    Json(patch_settings): Json<serde_json::Value>,
+) -> Response {
+    let Some(system_state) = state.system_state.find(&system_id) else {
+        return http::not_found();
+    };
+    if let Some(new_boot_order) = patch_settings
+        .get("Boot")
+        .and_then(|obj| obj.get("BootOrder"))
+        .and_then(serde_json::Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(ToString::to_string)
+                .collect()
+        })
+    {
+        match system_state.config.boot_order_mode {
+            BootOrderMode::ViaSettings => {
+                system_state.set_boot_order_override(new_boot_order);
+                json!({}).into_ok_response()
+            }
+            _ => json!("Boot order setup must use ComputerSystem resource")
+                .into_response(StatusCode::BAD_REQUEST),
+        }
+    } else {
+        json!({}).into_ok_response()
+    }
 }
 
 async fn patch_system(
@@ -302,10 +338,17 @@ async fn patch_system(
                 .collect()
         })
     {
-        system_state.set_boot_order_override(new_boot_order);
         match system_state.config.boot_order_mode {
-            BootOrderMode::DellOem => redfish::oem::dell::idrac::create_job_with_location(state),
-            BootOrderMode::Generic => json!({}).into_ok_response(),
+            BootOrderMode::DellOem => {
+                system_state.set_boot_order_override(new_boot_order);
+                redfish::oem::dell::idrac::create_job_with_location(state)
+            }
+            BootOrderMode::ViaSettings => json!("Boot order setup must use Settings resource")
+                .into_response(StatusCode::BAD_REQUEST),
+            BootOrderMode::Generic => {
+                system_state.set_boot_order_override(new_boot_order);
+                json!({}).into_ok_response()
+            }
         }
     } else {
         json!({}).into_ok_response()
@@ -385,7 +428,9 @@ async fn get_boot_options_collection(
     let Some(system_state) = state.system_state.find(&system_id) else {
         return http::not_found();
     };
-    let boot_options = &system_state.config.boot_options;
+    let Some(boot_options) = &system_state.config.boot_options else {
+        return http::not_found();
+    };
     let boot_options_order = match system_state.config.boot_order_mode {
         BootOrderMode::DellOem => {
             // Carbide relies that Dell sorts boot options in according to boot
@@ -405,7 +450,7 @@ async fn get_boot_options_collection(
                 (0..boot_options.len()).collect::<Vec<_>>()
             }
         }
-        BootOrderMode::Generic => (0..boot_options.len()).collect(),
+        BootOrderMode::Generic | BootOrderMode::ViaSettings => (0..boot_options.len()).collect(),
     };
     let members = boot_options_order
         .into_iter()
@@ -432,17 +477,17 @@ async fn get_bios(State(state): State<BmcState>, Path(system_id): Path<String>) 
     state
         .system_state
         .find(&system_id)
-        .map(|system_state| {
-            let overrides = system_state
-                .bios_overrides
-                .lock()
-                .expect("mutex is poisoned");
-            system_state
-                .config
-                .base_bios
-                .clone()
-                .patch(overrides.clone())
-                .into_ok_response()
+        .and_then(|system_state| {
+            system_state.config.base_bios.as_ref().map(|base_bios| {
+                let overrides = system_state
+                    .bios_overrides
+                    .lock()
+                    .expect("mutex is poisoned");
+                base_bios
+                    .clone()
+                    .patch(overrides.clone())
+                    .into_ok_response()
+            })
         })
         .unwrap_or_else(http::not_found)
 }

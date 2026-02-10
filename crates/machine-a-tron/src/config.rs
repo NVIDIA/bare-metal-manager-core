@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use bmc_mock::{DpuMachineInfo, HostMachineInfo};
+use bmc_mock::{DpuMachineInfo, HostHardwareType, HostMachineInfo};
 use carbide_uuid::machine::MachineId;
 use clap::Parser;
 use duration_str::deserialize_duration;
@@ -67,6 +67,8 @@ pub struct MachineATronArgs {
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct MachineConfig {
+    #[serde(default = "default_host_hardware_type")]
+    pub hw_type: HostHardwareType,
     pub host_count: u32,
     pub vpc_count: u32,
     pub subnets_per_vpc: u32,
@@ -302,6 +304,7 @@ impl MachineATronConfig {
 pub struct PersistedHostMachine {
     pub mat_id: Uuid,
     pub machine_config_section: String,
+    pub hw_type: Option<HostHardwareType>,
     pub bmc_mac_address: MacAddress,
     pub serial: String,
     pub dpus: Vec<PersistedDpuMachine>,
@@ -316,6 +319,7 @@ pub struct PersistedHostMachine {
 impl From<PersistedHostMachine> for HostMachineInfo {
     fn from(value: PersistedHostMachine) -> Self {
         Self {
+            hw_type: value.hw_type.unwrap_or_default(),
             bmc_mac_address: value.bmc_mac_address,
             serial: value.serial,
             dpus: value.dpus.into_iter().map(Into::into).collect(),
@@ -327,6 +331,7 @@ impl From<PersistedHostMachine> for HostMachineInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedDpuMachine {
     pub mat_id: Uuid,
+    pub hw_type: Option<HostHardwareType>,
     pub bmc_mac_address: MacAddress,
     pub host_mac_address: MacAddress,
     pub oob_mac_address: MacAddress,
@@ -342,6 +347,7 @@ pub struct PersistedDpuMachine {
 impl From<PersistedDpuMachine> for DpuMachineInfo {
     fn from(value: PersistedDpuMachine) -> Self {
         Self {
+            hw_type: value.hw_type.unwrap_or_default(),
             bmc_mac_address: value.bmc_mac_address,
             host_mac_address: value.host_mac_address,
             oob_mac_address: value.oob_mac_address,
@@ -374,6 +380,10 @@ fn default_api_refresh_interval() -> Duration {
 
 fn default_network_status_run_interval() -> Duration {
     Duration::from_secs(20)
+}
+
+fn default_host_hardware_type() -> HostHardwareType {
+    HostHardwareType::default()
 }
 
 fn default_scout_run_interval() -> Duration {

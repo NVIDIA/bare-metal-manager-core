@@ -26,7 +26,7 @@ use ::utils::HostPortPair;
 use api_test_helper::{
     IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, utils, vpc,
 };
-use bmc_mock::ListenerOrAddress;
+use bmc_mock::{HostHardwareType, ListenerOrAddress};
 use eyre::ContextCompat;
 use futures::FutureExt;
 use futures::future::join_all;
@@ -108,6 +108,16 @@ async fn test_integration() -> eyre::Result<()> {
     // Run several tests in parallel.
     let all_tests = join_all([
         test_machine_a_tron_multidpu(
+            HostHardwareType::DellPowerEdgeR750,
+            &test_env,
+            &bmc_address_registry,
+            &managed_segment_id,
+            // Relay IP in admin net
+            Ipv4Addr::new(172, 20, 0, 2),
+        )
+        .boxed(),
+        test_machine_a_tron_multidpu(
+            HostHardwareType::WiwynnGB200Nvl,
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
@@ -116,6 +126,7 @@ async fn test_integration() -> eyre::Result<()> {
         )
         .boxed(),
         test_machine_a_tron_zerodpu(
+            HostHardwareType::DellPowerEdgeR750,
             &test_env,
             &bmc_address_registry,
             // Relay IP in host-inband net
@@ -123,6 +134,7 @@ async fn test_integration() -> eyre::Result<()> {
         )
         .boxed(),
         test_machine_a_tron_singledpu_nic_mode(
+            HostHardwareType::DellPowerEdgeR750,
             &test_env,
             &bmc_address_registry,
             // Relay IP in host-inband  net
@@ -263,6 +275,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
     assert_eq!(0i64, get_dns_record_count(&db_pool).await);
 
     run_machine_a_tron_test(
+        HostHardwareType::DellPowerEdgeR750,
         1,
         1,
         false,
@@ -399,12 +412,14 @@ async fn test_metrics_integration() -> eyre::Result<()> {
 }
 
 async fn test_machine_a_tron_multidpu(
+    hw_type: HostHardwareType,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     segment_id: &str,
     admin_dhcp_relay_address: Ipv4Addr,
 ) -> eyre::Result<()> {
     run_machine_a_tron_test(
+        hw_type,
         1,
         2,
         false,
@@ -480,11 +495,13 @@ async fn test_machine_a_tron_multidpu(
 }
 
 async fn test_machine_a_tron_zerodpu(
+    hw_type: HostHardwareType,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     admin_dhcp_relay_address: Ipv4Addr,
 ) -> eyre::Result<()> {
     run_machine_a_tron_test(
+        hw_type,
         1,
         0,
         false,
@@ -511,11 +528,13 @@ async fn test_machine_a_tron_zerodpu(
 }
 
 async fn test_machine_a_tron_singledpu_nic_mode(
+    hw_type: HostHardwareType,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     admin_dhcp_relay_address: Ipv4Addr,
 ) -> eyre::Result<()> {
     run_machine_a_tron_test(
+        hw_type,
         1,
         1,
         true,
@@ -541,7 +560,9 @@ async fn test_machine_a_tron_singledpu_nic_mode(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_machine_a_tron_test<F, O>(
+    hw_type: HostHardwareType,
     host_count: u32,
     dpu_per_host_count: u32,
     dpus_in_nic_mode: bool,
@@ -567,6 +588,7 @@ where
         machines: BTreeMap::from([(
             "config".to_string(),
             Arc::new(MachineConfig {
+                hw_type,
                 host_count,
                 dpu_per_host_count,
                 boot_delay: 1,

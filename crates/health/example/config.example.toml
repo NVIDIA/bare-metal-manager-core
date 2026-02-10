@@ -48,7 +48,7 @@ bucket_replenish = "35ms"
 max_jitter = "40ms"
 
 # ==============================================================================
-# Collectors: What data to collect from BMCs
+# Collectors: What data to collect from BMCs and NMX-T enabled switches
 # ==============================================================================
 
 [collectors]
@@ -69,6 +69,9 @@ logs_state_file = "/tmp/logs_collector_{machine_id}.json"
 logs_output_dir = "/tmp/logs"
 logs_max_file_size = 104857600                            # 100MB
 logs_max_backups = 5
+
+[collectors.nmxt]
+scrape_interval = "1m"
 
 # ==============================================================================
 # Metrics

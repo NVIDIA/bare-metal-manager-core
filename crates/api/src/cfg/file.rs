@@ -30,7 +30,7 @@ use arc_swap::ArcSwap;
 use bmc_vendor::BMCVendor;
 use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
-use ipnetwork::Ipv4Network;
+use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
 use mlxconfig_profile::MlxConfigProfile;
 use mlxconfig_profile::serialization::{
@@ -112,13 +112,24 @@ pub struct CarbideConfig {
     pub enable_route_servers: bool,
 
     /// List of IPv4 prefixes (in CIDR notation) that tenant instances are not allowed to talk to.
+    ///
+    /// TODO(chet): For now, this remains `Vec<Ipv4Network>`, because the dpu-agent consumers
+    /// that process deny prefixes are IPv4-only (and I'll do it in another PR):
+    /// - `crates/agent/src/acl_rules.rs` parses rules into `Ipv4Network` and generates
+    ///   iptables DROP rules via `make_deny_prefix_rules(&[Ipv4Network], ...)`
+    /// - nvue templates (in `nvue_startup_fnn.conf` and `nvue_startup_etv.conf`) render these
+    ///   prefixes under a "p0000_deny_prefixes_ipv4" ACL policy with `type: ipv4`.
+    ///
+    /// Updating to support `Vec<IpNetwork>` requires the agent to generate parallel IPv6 deny
+    /// rules (I think via ip6tables / `type: ipv6` ACL policy), similar to how NSG rules already
+    /// handle the `ipv6: bool` split.
     #[serde(default)]
     pub deny_prefixes: Vec<Ipv4Network>,
 
-    /// List of IPv4 prefixes (in CIDR notation) that are assigned for tenant
-    /// use within this site.
+    /// List of IP prefixes (in CIDR notation) that are assigned for tenant
+    /// use within this site. Supports both IPv4 and IPv6 prefixes.
     #[serde(default)]
-    pub site_fabric_prefixes: Vec<Ipv4Network>,
+    pub site_fabric_prefixes: Vec<IpNetwork>,
 
     /// List of aggregate IPv4 prefixes (in CIDR notation) that contain prefixes assigned
     /// to tenants so that they themselves can announce to the DPU.  E.g., BYOIP

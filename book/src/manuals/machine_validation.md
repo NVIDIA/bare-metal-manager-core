@@ -203,48 +203,21 @@ Carbide has a Machine validation feature gate. By default the feature is disable
 To enable add below section in api site config toml [forged/](https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/envs/)<name>/site/site-controller/files/carbide-api/carbide-api-site-config.toml
 
 [machine_validation_config]
-
 enabled = true
-
-Eg - [pdx-dev3](https://gitlab-master.nvidia.com/nvmetal/forged/-/blob/main/envs/pdx-dev3/site/site-controller/files/carbide-api/carbide-api-site-config.toml?ref_type=heads#L191)
-
-Also Add following in version of machine_validation in [forged/](https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/envs/)<name>/site/site-controller/kustomization.yaml
-
-- name: nvcr.io/nvidian/nvforge/nvmetal-scout-burn-in
-
-  newName: nvcr.io/nvidian/nvforge-devel/machine_validation
-
-  newTag: <Version>
 
 Machine Validation allows site operators to configure the NGC container registry.  This allows machine validation to use private container in
 
-Eg :  Store the container registry auth in  `/tmp/config.json`
-
-```
-# cat EOF <<  >/tmp/config.json
-{
-        "auths": {
-                "nvcr.io": {
-                        "auth": "<ADD TOKEN HERE>"
-                }
-        }
-}
-EOF
-```
-
 Finally add the config to site
 
-    root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation external-config    add-update --name container_auth --description "NVCR description"  --file-name /tmp/config.json
+    user:~$ carbide-admin-cli machine-validation external-config    add-update --name container_auth --description "NVCR description"  --file-name /tmp/config.json
 
- Note: One can copy Imagepullsecret  from Site controller  - **kubectl get secrets -n forge-system imagepullsecret -o yaml | awk '$1==".dockerconfigjson:" {print $2}'**
-
-
+ Note: One can copy Imagepullsecret from Kubernetes - **kubectl get secrets -n forge-system imagepullsecret -o yaml | awk '$1==".dockerconfigjson:" {print $2}'**
 
 ### Enable test cases {#enable-test-cases}
 
 By default all the test cases are disabled.
 
-    root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests show
+    user@host:admin$ carbide-admin-cli machine-validation tests show
 
     +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
@@ -266,17 +239,17 @@ By default all the test cases are disabled.
 
 To enable tests
 
-    forge-admin-cli machine-validation tests enable --test-id <test_id> --version  <test version>
+    carbide-admin-cli machine-validation tests enable --test-id <test_id> --version  <test version>
 
-    forge-admin-cli machine-validation tests verify --test-id <test_id> --version  <test version>
+    carbide-admin-cli machine-validation tests verify --test-id <test_id> --version  <test version>
 
     Note: There is a bug, a workaround is to use two commands. Will be fixed in coming releases.
 
     Eg:  To enable forge_CudaSample  execute following steps
 
-    root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests enable --test-id forge_CudaSample  --version  V1-T1734600519831720
+    user@host:admin$ carbide-admin-cli machine-validation tests enable --test-id forge_CudaSample  --version  V1-T1734600519831720
 
-    root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests verify --test-id forge_CudaSample  --version  V1-T1734600519831720
+    user@host:admin$ carbide-admin-cli machine-validation tests verify --test-id forge_CudaSample  --version  V1-T1734600519831720
 
 Enabling different tests cases
 
@@ -284,131 +257,131 @@ CPU Benchmarking test cases
 
 1) forge_CpuBenchmarkingFp
 
-        forge-admin-cli machine-validation tests enable --test-id forge_CpuBenchmarkingFp  --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests enable --test-id forge_CpuBenchmarkingFp  --version  V1-T1734600519831720
 
-        forge-admin-cli machine-validation tests verify --test-id forge_CpuBenchmarkingFp  --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests verify --test-id forge_CpuBenchmarkingFp  --version  V1-T1734600519831720
 
 2) forge_CpuBenchmarkingInt
 
-        forge-admin-cli machine-validation tests enable --test-id forge_CpuBenchmarkingInt --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests enable --test-id forge_CpuBenchmarkingInt --version  V1-T1734600519831720
 
-        forge-admin-cli machine-validation tests verify --test-id forge_CpuBenchmarkingInt --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests verify --test-id forge_CpuBenchmarkingInt --version  V1-T1734600519831720
 
 Cuda sample test cases
 
 3) forge_CudaSample
 
-        forge-admin-cli machine-validation tests enable --test-id forge_CudaSample --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests enable --test-id forge_CudaSample --version  V1-T1734600519831720
 
-        forge-admin-cli machine-validation tests verify --test-id forge_CudaSample --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests verify --test-id forge_CudaSample --version  V1-T1734600519831720
 
 FIO test cases
 
 4) forge_FioFile
 
-        forge-admin-cli machine-validation tests enable --test-id forge_FioFile --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests enable --test-id forge_FioFile --version  V1-T1734600519831720
 
-        forge-admin-cli machine-validation tests verify --test-id forge_FioFile --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests verify --test-id forge_FioFile --version  V1-T1734600519831720
 
 5) forge_FioPath
 
-        forge-admin-cli machine-validation tests enable --test-id forge_FioPath --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests enable --test-id forge_FioPath --version  V1-T1734600519831720
 
-        forge-admin-cli machine-validation tests verify --test-id forge_FioPath --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests verify --test-id forge_FioPath --version  V1-T1734600519831720
 
 6) forge_FioSSD
 
-        forge-admin-cli machine-validation tests enable --test-id forge_FioSSD --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests enable --test-id forge_FioSSD --version  V1-T1734600519831720
 
-        forge-admin-cli machine-validation tests verify --test-id forge_FioSSD --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests verify --test-id forge_FioSSD --version  V1-T1734600519831720
 
 Memory test cases
 
 7) forge_MmMemBandwidth
 
-        forge-admin-cli machine-validation tests enable --test-id forge_MmMemBandwidth --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests enable --test-id forge_MmMemBandwidth --version  V1-T1734600519831720
 
-        forge-admin-cli machine-validation tests verify --test-id forge_MmMemBandwidth --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests verify --test-id forge_MmMemBandwidth --version  V1-T1734600519831720
 
 8) forge_MmMemLatency
 
-        forge-admin-cli machine-validation tests enable --test-id forge_MmMemLatency --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests enable --test-id forge_MmMemLatency --version  V1-T1734600519831720
 
-        forge-admin-cli machine-validation tests verify --test-id forge_MmMemLatency --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests verify --test-id forge_MmMemLatency --version  V1-T1734600519831720
 
 9) forge_MmMemPeakBandwidth
 
-        forge-admin-cli machine-validation tests enable --test-id forge_MmMemPeakBandwidth --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests enable --test-id forge_MmMemPeakBandwidth --version  V1-T1734600519831720
 
-        forge-admin-cli machine-validation tests verify --test-id forge_MmMemPeakBandwidth --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests verify --test-id forge_MmMemPeakBandwidth --version  V1-T1734600519831720
 
 NV test cases
 
 10) forge_Nvbandwidth
 
-        forge-admin-cli machine-validation tests enable --test-id forge_Nvbandwidth --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests enable --test-id forge_Nvbandwidth --version  V1-T1734600519831720
 
-        forge-admin-cli machine-validation tests verify --test-id forge_Nvbandwidth --version  V1-T1734600519831720
+        carbide-admin-cli machine-validation tests verify --test-id forge_Nvbandwidth --version  V1-T1734600519831720
 
 Stress ng test cases
 
 11) forge_CPUTestLong
 
-        forge-admin-cli machine-validation tests enable --test-id forge_CPUTestLong --version  V1-T1731386879991534
+        carbide-admin-cli machine-validation tests enable --test-id forge_CPUTestLong --version  V1-T1731386879991534
 
-        forge-admin-cli machine-validation tests verify --test-id forge_CPUTestLong --version  V1-T1731386879991534
+        carbide-admin-cli machine-validation tests verify --test-id forge_CPUTestLong --version  V1-T1731386879991534
 
 12) forge_CPUTestShort
 
-        forge-admin-cli machine-validation tests enable --test-id forge_CPUTestShort --version  V1-T1731386879991534
+        carbide-admin-cli machine-validation tests enable --test-id forge_CPUTestShort --version  V1-T1731386879991534
 
-        forge-admin-cli machine-validation tests verify --test-id forge_CPUTestShort --version  V1-T1731386879991534
+        carbide-admin-cli machine-validation tests verify --test-id forge_CPUTestShort --version  V1-T1731386879991534
 
 13) forge_MemoryTestLong
 
-        forge-admin-cli machine-validation tests enable --test-id forge_MemoryTestLong  --version  V1-T1731386879991534
+        carbide-admin-cli machine-validation tests enable --test-id forge_MemoryTestLong  --version  V1-T1731386879991534
 
-        forge-admin-cli machine-validation tests verify --test-id forge_MemoryTestLong  --version  V1-T1731386879991534
+        carbide-admin-cli machine-validation tests verify --test-id forge_MemoryTestLong  --version  V1-T1731386879991534
 
 14) forge_MemoryTestShort
 
-        forge-admin-cli machine-validation tests enable --test-id forge_MemoryTestShort  --version  V1-T1731386879991534
+        carbide-admin-cli machine-validation tests enable --test-id forge_MemoryTestShort  --version  V1-T1731386879991534
 
-        forge-admin-cli machine-validation tests verify --test-id forge_MemoryTestShort  --version  V1-T1731386879991534
+        carbide-admin-cli machine-validation tests verify --test-id forge_MemoryTestShort  --version  V1-T1731386879991534
 
 15) forge_MqStresserLong
 
-        forge-admin-cli machine-validation tests enable --test-id forge_MqStresserLong  --version  V1-T1731386879991534
+        carbide-admin-cli machine-validation tests enable --test-id forge_MqStresserLong  --version  V1-T1731386879991534
 
-        forge-admin-cli machine-validation tests verify --test-id forge_MqStresserShort  --version  V1-T1731386879991534
+        carbide-admin-cli machine-validation tests verify --test-id forge_MqStresserShort  --version  V1-T1731386879991534
 
 16) forge_MqStresserShort
 
-        forge-admin-cli machine-validation tests enable --test-id forge_MqStresserShort  --version  V1-T1731386879991534
+        carbide-admin-cli machine-validation tests enable --test-id forge_MqStresserShort  --version  V1-T1731386879991534
 
-        forge-admin-cli machine-validation tests verify --test-id forge_MqStresserShort  --version  V1-T1731386879991534
+        carbide-admin-cli machine-validation tests verify --test-id forge_MqStresserShort  --version  V1-T1731386879991534
 
 DCGMI test cases
 
 17) forge_DcgmFullShort
 
-        forge-admin-cli machine-validation tests enable --test-id forge_DcgmFullShort  --version  V1-T1731384539962561
+        carbide-admin-cli machine-validation tests enable --test-id forge_DcgmFullShort  --version  V1-T1731384539962561
 
-        forge-admin-cli machine-validation tests verify --test-id forge_DcgmFullLong  --version  V1-T1731384539962561
+        carbide-admin-cli machine-validation tests verify --test-id forge_DcgmFullLong  --version  V1-T1731384539962561
 
 18) forge_DcgmFullLong
 
-        forge-admin-cli machine-validation tests enable --test-id forge_DcgmFullLong  --version  V1-T1731383523746813
+        carbide-admin-cli machine-validation tests enable --test-id forge_DcgmFullLong  --version  V1-T1731383523746813
 
-        forge-admin-cli machine-validation tests verify --test-id forge_DcgmFullLong  --version  V1-T1731383523746813
+        carbide-admin-cli machine-validation tests verify --test-id forge_DcgmFullLong  --version  V1-T1731383523746813
 
 Shoreline Agent test case
 
 19) forge_ForgeRunBook
 
-        forge-admin-cli machine-validation tests enable --test-id forge_ForgeRunBook --version  V1-T1731383523746813
+        carbide-admin-cli machine-validation tests enable --test-id forge_ForgeRunBook --version  V1-T1731383523746813
 
-        forge-admin-cli machine-validation tests verify --test-id forge_ForgeRunBook  --version  V1-T1731383523746813
+        carbide-admin-cli machine-validation tests verify --test-id forge_ForgeRunBook  --version  V1-T1731383523746813
 
 ###
 
@@ -416,7 +389,7 @@ Shoreline Agent test case
 
 If a test is modified or added by site admin by default the test case verify flag is set to false
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests show
+        user@host:admin$ carbide-admin-cli machine-validation tests show
 
         +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
@@ -430,11 +403,11 @@ If a test is modified or added by site admin by default the test case verify fla
 
 To mark test as verified
 
-        forge-admin-cli machine-validation tests verify --test-id <test_id> --version  <test version>
+        carbide-admin-cli machine-validation tests verify --test-id <test_id> --version  <test version>
 
 Eg:  To enable forge_CudaSample  execute following steps
 
-    root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests verify --test-id forge_site_admin --version  V1-T1734009539861341
+    user@host:admin$ carbide-admin-cli machine-validation tests verify --test-id forge_site_admin --version  V1-T1734009539861341
 
 ###
 
@@ -442,11 +415,11 @@ Eg:  To enable forge_CudaSample  execute following steps
 
 Site admin can add test cases per site.
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests add  --help
+        user@host:admin$ carbide-admin-cli machine-validation tests add  --help
 
 Add new test case
 
-Usage: forge-admin-cli machine-validation tests add [OPTIONS] --name <NAME> --command <COMMAND> --args <ARGS>
+Usage: carbide-admin-cli machine-validation tests add [OPTIONS] --name <NAME> --command <COMMAND> --args <ARGS>
 
 Options:
 
@@ -532,9 +505,9 @@ Options:
 
 Eg: add test case which prints **‘newtest’**
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests add   --name NewTest --command echo --args newtest
+        user@host:admin$ carbide-admin-cli machine-validation tests add   --name NewTest --command echo --args newtest
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests show --test-id forge_NewTest
+        user@host:admin$ carbide-admin-cli machine-validation tests show --test-id forge_NewTest
 
         +---------------+---------+---------+---------+------------+----------------------+-----------+
 
@@ -548,9 +521,9 @@ Eg: add test case which prints **‘newtest’**
 
 By default the test case’s verify flag is set to false. Set
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests verify  --test-id forge_NewTest --version V1-T1736492939564126
+        user@host:admin$ carbide-admin-cli machine-validation tests verify  --test-id forge_NewTest --version V1-T1736492939564126
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests show --test-id forge_NewTest
+        user@host:admin$ carbide-admin-cli machine-validation tests show --test-id forge_NewTest
 
         +---------------+---------+---------+---------+------------+----------------------+-----------+
 
@@ -568,11 +541,11 @@ By default the test case’s verify flag is set to false. Set
 
 Update existing testcases
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests update --help
+        user@host:admin$ carbide-admin-cli machine-validation tests update --help
 
 Update existing test case
 
-Usage: forge-admin-cli machine-validation tests update [OPTIONS] --test-id <TEST_ID> --version <VERSION>
+Usage: carbide-admin-cli machine-validation tests update [OPTIONS] --test-id <TEST_ID> --version <VERSION>
 
 Options:
 
@@ -658,9 +631,9 @@ Options:
 
 We can selectively update fields of test cases. Once the test case is updated the verify flag is set to false. Site admin hs to explicitly set the flag as verified.
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests update  --test-id forge_NewTest --version V1-T1736492939564126 --args updatenewtest
+        user@host:admin$ carbide-admin-cli machine-validation tests update  --test-id forge_NewTest --version V1-T1736492939564126 --args updatenewtest
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests show --test-id forge_NewTest
+        user@host:admin$ carbide-admin-cli machine-validation tests show --test-id forge_NewTest
 
         +---------------+---------+---------+---------+------------+----------------------+-----------+
 
@@ -672,9 +645,9 @@ We can selectively update fields of test cases. Once the test case is updated th
 
         +---------------+---------+---------+---------+------------+----------------------+-----------+
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests verify  --test-id forge_NewTest --version V1-T1736492939564126
+        user@host:admin$ carbide-admin-cli machine-validation tests verify  --test-id forge_NewTest --version V1-T1736492939564126
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation tests show --test-id forge_NewTest
+        user@host:admin$ carbide-admin-cli machine-validation tests show --test-id forge_NewTest
 
         +---------------+---------+---------+---------+------------+----------------------+-----------+
 
@@ -686,7 +659,7 @@ We can selectively update fields of test cases. Once the test case is updated th
 
         +---------------+---------+---------+---------+------------+----------------------+-----------+
 
-        root@pdx01-m01-h16-cpu-1:~#
+        user@host:admin$
 
 ###
 
@@ -698,11 +671,11 @@ Machine validation has 3 Contexts
 2) Cleanup - Tests cases with context will be executed during node cleanup(between tenants).
 3) On-Demand - Tests cases with context will be executed when on demand machine validation is triggered.
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation on-demand start  --help
+        user@host:admin$ carbide-admin-cli machine-validation on-demand start  --help
 
 Start on demand machine validation
 
-    Usage: forge-admin-cli machine-validation on-demand start [OPTIONS] --machine <MACHINE>
+    Usage: carbide-admin-cli machine-validation on-demand start [OPTIONS] --machine <MACHINE>
 
     Options:
 
@@ -722,29 +695,29 @@ Start on demand machine validation
 
 Usecase 1 - Run tests whose context is on-demand
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg
+        user@host:admin$ carbide-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg
 
 Usecase 2 - Run tests whose context is Discovery
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg --contexts Discovery
+        user@host:admin$ carbide-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg --contexts Discovery
 
 Usecase 3 - Run a specific test case
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg  --allowed-tests  forge_CudaSample
+        user@host:admin$ carbide-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg  --allowed-tests  forge_CudaSample
 
 Usecase 4 - Run un verified forge_CudaSample test case
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg   --run-unverfied-tests  --allowed-tests  forge_CudaSample
+        user@host:admin$ carbide-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg   --run-unverfied-tests  --allowed-tests  forge_CudaSample
 
 ### View results {#view-results}
 
 Feature shows progress of the on-going machine validation
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation runs show --help
+        user@host:admin$ carbide-admin-cli machine-validation runs show --help
 
 Show Runs
 
-        Usage: forge-admin-cli machine-validation runs show [OPTIONS]
+        Usage: carbide-admin-cli machine-validation runs show [OPTIONS]
 
         Options:
 
@@ -756,7 +729,7 @@ Show Runs
 
         -h, --help               Print help
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation runs show   -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg
+        user@host:admin$ carbide-admin-cli machine-validation runs show   -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg
 
         +--------------------------------------+-------------------------------------------------------------+-----------------------------+-----------------------------+-----------+------------------------+
 
@@ -776,11 +749,11 @@ Show Runs
 
 To view individual completed test results, by default the result command shows only last run tests in each individual context**(Discovery,Ondemand, Cleanup)**.
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation results show --help
+        user@host:admin$ carbide-admin-cli machine-validation results show --help
 
 Show results
 
-        Usage: forge-admin-cli machine-validation results show [OPTIONS] <--validation-id <VALIDATION_ID>|--test-name <TEST_NAME>|--machine <MACHINE>>
+        Usage: carbide-admin-cli machine-validation results show [OPTIONS] <--validation-id <VALIDATION_ID>|--test-name <TEST_NAME>|--machine <MACHINE>>
 
         Options:
 
@@ -796,7 +769,7 @@ Show results
 
         -h, --help                           Print help
 
-        root@pdx01-m01-h16-cpu-1:~# forge-admin-cli machine-validation results   show   -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg
+        user@host:admin$ carbide-admin-cli machine-validation results   show   -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg
 
         +--------------------------------------+----------------+-----------+----------+-----------------------------+-----------------------------+
 
@@ -835,9 +808,9 @@ To add a new platform for individual tests
 1) Get system sku id-
         # dmidecode -s system-sku-number | tr "[:upper:]" "[:lower:]"
 2)
-        # forge-admin-cli machine-validation tests update  --test-id  <test_id> --version   <test version> --supported-platforms    <sku>
+        # carbide-admin-cli machine-validation tests update  --test-id  <test_id> --version   <test version> --supported-platforms    <sku>
 
-        Eg: # forge-admin-cli machine-validation tests update  --test-id  forge_default  --version   V1-T1734009539861341   --supported-platforms    7d9ectOlww
+        Eg: # carbide-admin-cli machine-validation tests update  --test-id  forge_default  --version   V1-T1734009539861341   --supported-platforms    7d9ectOlww
 
 # Troubleshooting {#troubleshooting}
 
@@ -848,6 +821,3 @@ To add a new platform for individual tests
 slack #swngc-forge-dev
 
 # References {#references}
-
-[Design doc](https://gitlab-master.nvidia.com/nvmetal/designs/-/blob/vc/burn-in/designs/0000-host-validation.md)
-

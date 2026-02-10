@@ -74,16 +74,15 @@ These components are not required for Carbide setup, but are recommended site me
 
 The following services are installed during the Carbide installation process.
 
-- **Carbide core (forge‑system)**: nvmetal-carbide:v2025.07.04-rc2-0-8-g077781771 (primary
-  Carbide API, plus supporting workloads)
+- **Carbide core (forge‑system)**: nvmetal-carbide:latest
 
-- **cloud‑api**: nvcr.io/nvidian/nvforge-devel/cloud-api:v0.2.72 (two replicas)
+- **cloud‑api**: registry.example.com/carbide/cloud-api:latest
 
-- **cloud‑workflow**: nvcr.io/nvidian/nvforge-devel/cloud-workflow:v0.2.30 (cloud‑worker, site‑worker)
+- **cloud‑workflow**: registry.example.com/carbide/cloud-workflow:latest
 
-- **cloud‑cert‑manager (credsmgr)**: nvcr.io/nvidian/nvforge-devel/cloud-cert-manager:v0.1.16
+- **cloud‑cert‑manager (credsmgr)**: registry.example.com/carbide/cloud-cert-manager:latest
 
-- **elektra-site-agent**: nvcr.io/nvidian/nvforge-devel/forge-elektra:v2025.06.20-rc1-0
+- **elektra-site-agent**: registry.example.com/carbide/forge-elektra:latest
 
 ## Order of Operations
 
@@ -147,7 +146,7 @@ You must provide the following:
   -  DB credentials ExternalSecrets per namespace (e.g `clouddb-db-eso : forge.forge-pg-cluster.credentials`)
 
 -   Ensure an image pull secret (e.g. `imagepullsecret`) exists in the
-    namespaces that pull from nvcr.io.
+    namespaces that pull from your registry.
 
 ### cert‑manager (TLS and Trust)
 

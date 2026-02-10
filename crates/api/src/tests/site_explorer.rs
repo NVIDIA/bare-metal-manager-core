@@ -2434,7 +2434,7 @@ async fn test_machine_creation_with_sku(
             assert_eq!(m.hw_sku, None);
         } else {
             assert_eq!(m.hw_sku, Some("Sku1".to_string()));
-            assert!(m.dpf_enabled);
+            assert!(m.dpf.enabled);
         }
     }
 

@@ -48,7 +48,8 @@ use crate::db_init;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::network_segment::FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS;
 use crate::tests::common::api_fixtures::{
-    TestEnvOverrides, create_test_env, create_test_env_with_overrides, get_vpc_fixture_id,
+    TEST_SITE_PREFIXES, TestEnvOverrides, create_test_env, create_test_env_with_overrides,
+    get_vpc_fixture_id,
 };
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 
@@ -1065,6 +1066,191 @@ async fn test_update_svi_ip_post_instance_allocation(
     assert_eq!(
         segment.prefixes[0].svi_ip.unwrap().to_string(),
         "192.0.4.3".to_string()
+    );
+
+    Ok(())
+}
+
+/// Verify that creating a network segment with an IPv6 prefix succeeds
+/// through the full API handler chain.
+#[crate::sqlx_test]
+async fn test_create_network_segment_with_ipv6_prefix(
+    pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
+
+    let request = rpc::forge::NetworkSegmentCreationRequest {
+        id: None,
+        mtu: Some(1500),
+        name: "IPV6_SEGMENT".to_string(),
+        prefixes: vec![rpc::forge::NetworkPrefix {
+            id: None,
+            prefix: "2001:db8::/64".to_string(),
+            gateway: None,
+            reserve_first: 0,
+            free_ip_count: 0,
+            svi_ip: None,
+        }],
+        subdomain_id: None,
+        vpc_id: None,
+        segment_type: rpc::forge::NetworkSegmentType::Admin as i32,
+    };
+
+    let response = env
+        .api
+        .create_network_segment(Request::new(request))
+        .await?
+        .into_inner();
+
+    assert_eq!(response.name, "IPV6_SEGMENT");
+    assert_eq!(response.prefixes.len(), 1);
+    assert_eq!(response.prefixes[0].prefix, "2001:db8::/64");
+    assert!(response.prefixes[0].gateway.is_none());
+
+    Ok(())
+}
+
+/// Verify that creating a tenant segment with both IPv4 and IPv6 prefixes
+/// succeeds when the site fabric prefixes include both address families.
+#[crate::sqlx_test]
+async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    // Include an IPv6 site fabric prefix so the containment check passes for dual-stack segments
+    let mut site_prefixes = TEST_SITE_PREFIXES.to_vec();
+    site_prefixes.push("2001:db8::/32".parse().unwrap());
+
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            create_network_segments: Some(false),
+            site_prefixes: Some(site_prefixes),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let vpc = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder("dual-stack vpc", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+
+    let request = rpc::forge::NetworkSegmentCreationRequest {
+        id: None,
+        mtu: Some(1500),
+        name: "DUAL_STACK_SEGMENT".to_string(),
+        prefixes: vec![
+            rpc::forge::NetworkPrefix {
+                id: None,
+                prefix: "192.0.2.0/24".to_string(),
+                gateway: Some("192.0.2.1".to_string()),
+                reserve_first: 3,
+                free_ip_count: 0,
+                svi_ip: None,
+            },
+            rpc::forge::NetworkPrefix {
+                id: None,
+                prefix: "2001:db8::/64".to_string(),
+                gateway: None,
+                reserve_first: 0,
+                free_ip_count: 0,
+                svi_ip: None,
+            },
+        ],
+        subdomain_id: None,
+        vpc_id: vpc.id,
+        segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+    };
+
+    let response = env
+        .api
+        .create_network_segment(Request::new(request))
+        .await?
+        .into_inner();
+
+    assert_eq!(response.name, "DUAL_STACK_SEGMENT");
+    assert_eq!(response.prefixes.len(), 2);
+
+    // Verify both prefixes are present (order may vary)
+    let prefix_strs: Vec<&str> = response
+        .prefixes
+        .iter()
+        .map(|p| p.prefix.as_str())
+        .collect();
+    assert!(prefix_strs.contains(&"192.0.2.0/24"), "IPv4 prefix missing");
+    assert!(
+        prefix_strs.contains(&"2001:db8::/64"),
+        "IPv6 prefix missing"
+    );
+
+    Ok(())
+}
+
+/// Verify that an IPv6 tenant segment prefix that is NOT contained in the site
+/// fabric prefixes is correctly rejected, just like an uncontained IPv4 prefix would be.
+#[crate::sqlx_test]
+async fn test_ipv6_tenant_prefix_rejected_when_not_in_site_fabric(
+    pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    // Site fabric prefixes include 2001:db8::/32 but NOT fd00::/8
+    let mut site_prefixes = TEST_SITE_PREFIXES.to_vec();
+    site_prefixes.push("2001:db8::/32".parse().unwrap());
+
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            create_network_segments: Some(false),
+            site_prefixes: Some(site_prefixes),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let vpc = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder(
+                "uncontained-ipv6-vpc",
+                "2829bbe3-c169-4cd9-8b2a-19a8b1618a93",
+            )
+            .tonic_request(),
+        )
+        .await?
+        .into_inner();
+
+    // fd00:abcd::/48 is NOT contained in our site fabric prefixes
+    let request = rpc::forge::NetworkSegmentCreationRequest {
+        id: None,
+        mtu: Some(1500),
+        name: "UNCONTAINED_V6_SEGMENT".to_string(),
+        prefixes: vec![rpc::forge::NetworkPrefix {
+            id: None,
+            prefix: "fd00:abcd::/48".to_string(),
+            gateway: None,
+            reserve_first: 0,
+            free_ip_count: 0,
+            svi_ip: None,
+        }],
+        subdomain_id: None,
+        vpc_id: vpc.id,
+        segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+    };
+
+    let result = env.api.create_network_segment(Request::new(request)).await;
+
+    assert!(
+        result.is_err(),
+        "Expected rejection of uncontained IPv6 prefix"
+    );
+    let status = result.unwrap_err();
+    assert!(
+        status
+            .message()
+            .contains("not contained within the configured site fabric prefixes"),
+        "Error message should mention site fabric prefix containment, got: {}",
+        status.message()
     );
 
     Ok(())

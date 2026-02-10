@@ -209,6 +209,7 @@ impl MachineStateMachine {
                     h.bmc_dhcp_id,
                     h.machine_dhcp_id,
                     MachineInfo::Host(HostMachineInfo {
+                        hw_type: h.hw_type.unwrap_or_default(),
                         bmc_mac_address: h.bmc_mac_address,
                         serial: h.serial,
                         dpus: h.dpus.into_iter().map(Into::into).collect(),

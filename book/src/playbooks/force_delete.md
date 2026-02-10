@@ -21,13 +21,13 @@ Site providers would get a safe version of this workflow later on that moves the
 
 The following steps can be used to force-delete knowledge about a a Carbide host:
 
-### 1. Obtain access to `forge-admin-cli`
+### 1. Obtain access to `carbide-admin-cli`
 
-See [forge-admin-cli access on a Carbide cluster](../sites/forge_admin_cli.md).
+See [carbide-admin-cli access on a Carbide cluster](../sites/forge_admin_cli.md).
 
-### 2. Execute the `forge-admin-cli machine force-delete` command
+### 2. Execute the `carbide-admin-cli machine force-delete` command
 
-Executing `forge-admin-cli machine force-delete` will wipe most knowledge about
+Executing `carbide-admin-cli machine force-delete` will wipe most knowledge about
 machines and instances running on top of them from the database, and clean up associated CRDs.
 It accepts the machine-id, hostname,  MAC or IP of either the managed host or DPU as input,
 and will delete information about both of them (since they are heavily coupled).
@@ -37,7 +37,7 @@ It returns all machine-ids and instance-ids it acted on, as well as the BMC info
 Example:
 
 ```
-/opt/carbide/forge-admin-cli -c https://127.0.0.1:1079 machine force-delete --machine="60cef902-9779-4666-8362-c9bb4b37184f"
+/opt/carbide/carbide-admin-cli -c https://127.0.0.1:1079 machine force-delete --machine="60cef902-9779-4666-8362-c9bb4b37184f"
 ```
 
 ### 3. Use the returned BMP IP/port and machine-id to reboot the host
@@ -61,13 +61,13 @@ instance will stay the same. *This procedure will delete any data on the host!*
 
 The following steps can be used to reinstall the host OS on a Carbide host:
 
-### 1. Obtain access to the `forge-admin-cli` tool
+### 1. Obtain access to the `carbide-admin-cli` tool
 
-See [forge-admin-cli access on a Carbide cluster](../sites/forge_admin_cli.md).
+See [carbide-admin-cli access on a Carbide cluster](../sites/forge_admin_cli.md).
 
-### 3. Execute the `forge-admin-cli instance reboot --custom-pxe` command
+### 3. Execute the `carbide-admin-cli instance reboot --custom-pxe` command
 
 ```
-forge-admin-cli -f json -c https://api-dev4.frg.nvidia.com/ instance reboot --custom-pxe -i 26204c21-83ac-445e-8ea7-b9130deb6315
+carbide-admin-cli -f json -c https://api-dev4.frg.nvidia.com/ instance reboot --custom-pxe -i 26204c21-83ac-445e-8ea7-b9130deb6315
 Reboot for instance 26204c21-83ac-445e-8ea7-b9130deb6315 (machine fm100hti4deucakqqgteo692efnfo7egh7pq1lkl7vkgas4o6e0c42hnb80) is requested successfully!
 ```

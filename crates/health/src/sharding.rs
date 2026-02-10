@@ -30,24 +30,27 @@ impl ShardManager {
         }
     }
 
+    /// Check if this shard should monitor a BMC endpoint.
     pub fn should_monitor(&self, endpoint: &BmcAddr) -> bool {
+        self.should_monitor_key(endpoint.hash_key())
+    }
+
+    pub fn should_monitor_key(&self, key: &str) -> bool {
         if self.shards_count == 1 {
             return true;
         }
 
-        let hash = self.hash_endpoint(endpoint);
-        let assigned_pod = hash % self.shards_count;
-        assigned_pod == self.shard
+        let hash = self.hash_key(key);
+        let assigned_shard = hash % self.shards_count;
+        assigned_shard == self.shard
     }
 
     /// FNV-1a 64-bit
-    fn hash_endpoint(&self, endpoint: &BmcAddr) -> usize {
+    fn hash_key(&self, key: &str) -> usize {
         const FNV_PRIME: u64 = 1099511628211;
         const FNV_OFFSET_BASIS: u64 = 14695981039346656037;
 
         let mut hash = FNV_OFFSET_BASIS;
-        let key = endpoint.hash_key();
-
         for byte in key.as_bytes() {
             hash = hash.wrapping_mul(FNV_PRIME);
             hash ^= *byte as u64;
@@ -118,6 +121,38 @@ mod tests {
         assert_eq!(
             count2, 1,
             "endpoint2 should be monitored by exactly one pod"
+        );
+    }
+
+    #[test]
+    fn test_should_monitor_key_distribution() {
+        let key1 = "AA:BB:CC:DD:EE:FF";
+        let key2 = "11:22:33:44:55:66";
+
+        // Each key should be assigned to exactly one pod/shard
+        for key in [key1, key2] {
+            let mut count = 0;
+            for shard in 0..3 {
+                let manager = ShardManager::new(shard, 3);
+                if manager.should_monitor_key(key) {
+                    count += 1;
+                }
+            }
+            assert_eq!(
+                count, 1,
+                "Key {} should be assigned to exactly one shard",
+                key
+            );
+        }
+    }
+
+    #[test]
+    fn test_should_monitor_key_consistency() {
+        let manager = ShardManager::new(0, 3);
+        let key = "AA:BB:CC:DD:EE:FF";
+        assert_eq!(
+            manager.should_monitor_key(key),
+            manager.should_monitor_key(key)
         );
     }
 }

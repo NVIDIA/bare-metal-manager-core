@@ -28,7 +28,7 @@ use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
 use db::host_machine_update::clear_host_reprovisioning_request;
-use db::machine::update_restart_verification_status;
+use db::machine::{mark_machine_ingestion_done_with_dpf, update_restart_verification_status};
 use db::{self};
 use eyre::eyre;
 use forge_secrets::credentials::{
@@ -3255,7 +3255,11 @@ impl DpuMachineStateHandler {
 
                 // Checking dpf and updating state to start dpf based provisioing in this satte because this state works as a sync state as well.
                 let next_state =
-                    if dpf_based_dpu_provisioning_possible(state, self.dpf_config.enabled) {
+                    if dpf_based_dpu_provisioning_possible(state, self.dpf_config.enabled, false) {
+                        mark_machine_ingestion_done_with_dpf(txn, &state.host_snapshot.id).await?;
+                        for dpu in &state.dpu_snapshots {
+                            mark_machine_ingestion_done_with_dpf(txn, &dpu.id).await?;
+                        }
                         DpuInitState::DpfStates {
                             state: model::machine::DpfState::CreateDpuDevice,
                         }

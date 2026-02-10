@@ -20,7 +20,7 @@ use std::sync::Arc;
 use nv_redfish::ServiceRoot;
 use nv_redfish_core::{Bmc, EntityTypeRef};
 
-use crate::api_client::BmcEndpoint;
+use crate::api_client::{BmcEndpoint, EndpointMetadata};
 use crate::collector::PeriodicCollector;
 use crate::metrics::{CollectorRegistry, GaugeMetrics, GaugeReading};
 use crate::{HealthError, collector};
@@ -42,16 +42,13 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for FirmwareCollector<B> {
         endpoint: Arc<BmcEndpoint>,
         config: Self::Config,
     ) -> Result<Self, HealthError> {
-        let serial = endpoint
-            .machine
-            .as_ref()
-            .and_then(|m| m.machine_serial.clone())
-            .unwrap_or_default();
-        let machine_id = endpoint
-            .machine
-            .as_ref()
-            .map(|m| m.machine_id.to_string())
-            .unwrap_or_default();
+        let (serial, machine_id) = match &endpoint.metadata {
+            Some(EndpointMetadata::Machine(m)) => (
+                m.machine_serial.clone().unwrap_or_default(),
+                m.machine_id.to_string(),
+            ),
+            _ => (String::new(), String::new()),
+        };
 
         let hw_firmware_gauge = config.collector_registry.create_gauge_metrics(
             format!("firmware_gauge_{}", endpoint.addr.hash_key()),

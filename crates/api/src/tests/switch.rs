@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 use carbide_uuid::switch::SwitchId;
 use db::switch as db_switch;
 use model::switch::{NewSwitch, SwitchConfig, SwitchControllerState, SwitchStatus};
@@ -513,6 +512,144 @@ async fn test_new_switch_fixture(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     // Verify the custom switch was created
     assert!(!custom_switch_id.to_string().is_empty());
     assert_ne!(switch_id, custom_switch_id);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_find_switch_bmc_info_no_matching_data(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let switch_id = new_switch(&env, Some("Test Switch No Match".to_string()), None).await?;
+
+    // bmc_info should be None when no expected_switch or machine_interface data exists
+    let find_request = SwitchQuery {
+        name: None,
+        switch_id: Some(switch_id),
+    };
+
+    let find_response = env
+        .api
+        .find_switches(tonic::Request::new(find_request))
+        .await?;
+
+    let switch_list = find_response.into_inner();
+    assert_eq!(switch_list.switches.len(), 1);
+
+    let found_switch = &switch_list.switches[0];
+    assert!(
+        found_switch.bmc_info.is_none(),
+        "bmc_info should be None when no expected switch data exists"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_find_switch_with_bmc_info(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::collections::HashMap;
+
+    use db::{
+        expected_switch as db_expected_switch, machine_interface as db_machine_interface,
+        network_segment as db_network_segment,
+    };
+    use mac_address::MacAddress;
+    use model::address_selection_strategy::AddressSelectionStrategy;
+    use model::metadata::Metadata;
+    use model::network_segment::NetworkSegmentType;
+
+    let env = create_test_env(pool).await;
+
+    let switch_serial = "TestSwitch-001";
+    let switch_id = new_switch(&env, Some(switch_serial.to_string()), None).await?;
+    let bmc_mac: MacAddress = "AA:BB:CC:DD:EE:FF".parse().unwrap();
+    let mut txn = db::Transaction::begin(&env.pool).await?;
+
+    db_expected_switch::create(
+        &mut txn,
+        bmc_mac,
+        "admin".to_string(),
+        "password".to_string(),
+        switch_serial.to_string(),
+        Metadata {
+            name: "Test Expected Switch".to_string(),
+            description: "Test switch for BMC info lookup".to_string(),
+            labels: HashMap::new(),
+        },
+        None,
+        Some("nvos_user".to_string()),
+        Some("nvos_pass".to_string()),
+    )
+    .await?;
+
+    // create switch BMC interface on the underlay segment
+    let underlay_segment_id = env
+        .underlay_segment
+        .expect("Underlay segment should exist in test env");
+
+    let underlay_segments = db_network_segment::find_by(
+        &mut txn,
+        db::ObjectColumnFilter::One(db_network_segment::IdColumn, &underlay_segment_id),
+        Default::default(),
+    )
+    .await?;
+    let underlay_segment = underlay_segments
+        .first()
+        .expect("Should find underlay segment");
+    assert_eq!(underlay_segment.segment_type, NetworkSegmentType::Underlay);
+
+    let machine_interface = db_machine_interface::create(
+        &mut txn,
+        underlay_segment,
+        &bmc_mac,
+        underlay_segment.subdomain_id,
+        false,
+        AddressSelectionStrategy::Automatic,
+    )
+    .await?;
+
+    txn.commit().await?;
+
+    assert!(
+        !machine_interface.addresses.is_empty(),
+        "Machine interface should have at least one address"
+    );
+    let assigned_ip = machine_interface.addresses[0];
+
+    let find_request = SwitchQuery {
+        name: None,
+        switch_id: Some(switch_id),
+    };
+
+    let find_response = env
+        .api
+        .find_switches(tonic::Request::new(find_request))
+        .await?;
+
+    let switch_list = find_response.into_inner();
+    assert_eq!(switch_list.switches.len(), 1);
+
+    let found_switch = &switch_list.switches[0];
+
+    // verify bmc_info is populated with the correct IP and MAC
+    let bmc_info = found_switch
+        .bmc_info
+        .as_ref()
+        .expect("bmc_info should be populated when expected switch data exists");
+
+    assert_eq!(
+        bmc_info.ip.as_ref().unwrap(),
+        &assigned_ip.to_string(),
+        "bmc_info IP should match the assigned address"
+    );
+    assert_eq!(
+        bmc_info.mac.as_ref().unwrap().to_uppercase(),
+        bmc_mac.to_string().to_uppercase(),
+        "bmc_info MAC should match the expected switch's BMC MAC"
+    );
 
     Ok(())
 }

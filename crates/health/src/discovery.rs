@@ -27,17 +27,19 @@ use nv_redfish_bmc_http::reqwest::{
 use prometheus::{Histogram, HistogramOpts};
 
 use crate::HealthError;
-use crate::api_client::{EndpointSource, HealthReportSink};
+use crate::api_client::{EndpointMetadata, EndpointSource, HealthReportSink};
 use crate::collector::Collector;
 use crate::config::{
     Config, Configurable, FirmwareCollectorConfig as FirmwareCollectorOptions,
     HealthCollectorConfig as HealthCollectorOptions, LogsCollectorConfig as LogsCollectorOptions,
+    NmxtCollectorConfig as NmxtCollectorOptions,
 };
 use crate::firmware_collector::{FirmwareCollector, FirmwareCollectorConfig};
 use crate::limiter::RateLimiter;
 use crate::logs_collector::{self, LogsCollector, LogsCollectorConfig};
 use crate::metrics::MetricsManager;
 use crate::monitor::{HealthMonitor, HealthMonitorConfig};
+use crate::nmxt_collector::{NmxtCollector, NmxtCollectorConfig};
 use crate::sharding::ShardManager;
 
 pub(crate) type BmcClient = HttpBmc<ReqwestClient>;
@@ -53,6 +55,7 @@ pub struct DiscoveryLoopContext {
     pub(crate) endpoint_monitors: HashMap<String, Collector>,
     pub(crate) logs_collectors: HashMap<String, Collector>,
     pub(crate) firmware_collectors: HashMap<String, Collector>,
+    pub(crate) nmxt_collectors: HashMap<String, Collector>,
     pub(crate) discovery_iteration_histogram: Histogram,
     pub(crate) discovery_endpoint_fetch_histogram: Histogram,
     pub(crate) client: ReqwestClient,
@@ -62,6 +65,7 @@ pub struct DiscoveryLoopContext {
     pub(crate) health_config: Configurable<HealthCollectorOptions>,
     pub(crate) logs_config: Configurable<LogsCollectorOptions>,
     pub(crate) firmware_config: Configurable<FirmwareCollectorOptions>,
+    pub(crate) nmxt_config: Configurable<NmxtCollectorOptions>,
 }
 
 impl DiscoveryLoopContext {
@@ -93,11 +97,13 @@ impl DiscoveryLoopContext {
         let health_config = config.collectors.health.clone();
         let logs_config = config.collectors.logs.clone();
         let firmware_config = config.collectors.firmware.clone();
+        let nmxt_config = config.collectors.nmxt.clone();
 
         Ok(Self {
             endpoint_monitors: HashMap::new(),
             logs_collectors: HashMap::new(),
             firmware_collectors: HashMap::new(),
+            nmxt_collectors: HashMap::new(),
             discovery_iteration_histogram,
             discovery_endpoint_fetch_histogram,
             client,
@@ -107,6 +113,7 @@ impl DiscoveryLoopContext {
             health_config,
             logs_config,
             firmware_config,
+            nmxt_config,
         })
     }
 }
@@ -191,7 +198,7 @@ pub async fn run_discovery_iteration(
             }
 
             if let Configurable::Enabled(logs_cfg) = &ctx.logs_config
-                && let Some(machne) = &endpoint.machine
+                && let Some(EndpointMetadata::Machine(machne)) = &endpoint.metadata
             {
                 let state_file_path = PathBuf::from(
                     logs_cfg
@@ -262,7 +269,7 @@ pub async fn run_discovery_iteration(
                     metrics_prefix,
                 )?);
                 match Collector::start::<FirmwareCollector<BmcClient>>(
-                    endpoint_arc,
+                    endpoint_arc.clone(),
                     ctx.limiter.clone(),
                     firmware_cfg.firmware_refresh_interval,
                     FirmwareCollectorConfig {
@@ -285,6 +292,44 @@ pub async fn run_discovery_iteration(
                             "Could not start firmware collector for: {:?}",
                             endpoint.addr
                         )
+                    }
+                }
+            }
+
+            if let Configurable::Enabled(nmxt_cfg) = &ctx.nmxt_config
+                && matches!(endpoint.metadata, Some(EndpointMetadata::Switch(_)))
+                && !ctx.nmxt_collectors.contains_key(&key)
+            {
+                let collector_registry = Arc::new(ctx.metrics_manager.create_collector_registry(
+                    format!("nmxt_collector_{}", endpoint.addr.hash_key()),
+                    metrics_prefix,
+                )?);
+                match Collector::start::<NmxtCollector>(
+                    endpoint_arc,
+                    ctx.limiter.clone(),
+                    nmxt_cfg.scrape_interval,
+                    NmxtCollectorConfig {
+                        nmxt_config: nmxt_cfg.clone(),
+                        collector_registry: collector_registry.clone(),
+                    },
+                    collector_registry,
+                    ctx.client.clone(),
+                    &ctx.config,
+                ) {
+                    Ok(handle) => {
+                        ctx.nmxt_collectors.insert(key.clone(), handle);
+                        tracing::info!(
+                            endpoint_key = %key,
+                            total_nmxt_collectors = ctx.nmxt_collectors.len(),
+                            "Started NMX-T collection for switch endpoint"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            error = ?e,
+                            endpoint_key = %key,
+                            "Could not start NMX-T collector for switch"
+                        );
                     }
                 }
             }
@@ -352,6 +397,41 @@ pub async fn run_discovery_iteration(
             remaining_collectors = ctx.logs_collectors.len(),
             remaining_firmware_collectors = ctx.firmware_collectors.len(),
             "Cleaned up removed endpoints"
+        );
+    }
+
+    // Stop NMX-T collectors for switch endpoints no longer in the shard
+    let active_switches: HashSet<_> = sharded_endpoints
+        .iter()
+        .filter(|ep| matches!(ep.metadata, Some(EndpointMetadata::Switch(_))))
+        .map(|e| e.addr.hash_key())
+        .collect();
+
+    let removed_switch_keys: Vec<_> = ctx
+        .nmxt_collectors
+        .keys()
+        .filter(|key| !active_switches.contains(key.as_str()))
+        .cloned()
+        .collect();
+
+    for key in &removed_switch_keys {
+        if let Some(collector) = ctx.nmxt_collectors.remove(key) {
+            tracing::info!(
+                endpoint_key = %key,
+                remaining_nmxt_collectors = ctx.nmxt_collectors.len(),
+                "Stopping NMX-T collector for removed switch endpoint"
+            );
+            tokio::spawn(async move {
+                collector.stop().await;
+            });
+        }
+    }
+
+    if !removed_switch_keys.is_empty() {
+        tracing::info!(
+            removed_count = removed_switch_keys.len(),
+            remaining_nmxt_collectors = ctx.nmxt_collectors.len(),
+            "Cleaned up removed nmxt endpoints"
         );
     }
 

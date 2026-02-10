@@ -32,6 +32,7 @@ pub mod limiter;
 pub mod logs_collector;
 pub mod metrics;
 pub mod monitor;
+pub mod nmxt_collector;
 pub mod sharding;
 
 pub use config::Config;
@@ -112,6 +113,7 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
             source_cfg.client_cert.clone(),
             source_cfg.client_key.clone(),
             &source_cfg.api_url,
+            config.collectors.nmxt.is_enabled(),
         ));
         sources.push(api_client as Arc<dyn EndpointSource>);
     }
@@ -124,6 +126,7 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
             sink_cfg.client_cert.clone(),
             sink_cfg.client_key.clone(),
             &sink_cfg.api_url,
+            false,
         ));
         sinks.push(api_client as Arc<dyn HealthReportSink>);
     }

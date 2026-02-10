@@ -1,15 +1,14 @@
 name: Publish Github Pages Documentation
 
 on:
-  # Force trigger on a non-protected branch. Useful for testing.
-  # push:
-  #   branches:
-  #     - feat/publish-gh-pages
-  #   paths:
-  #     - 'book/**'
-  #     - '.github/workflows/docs.yml'
+  # main: always build and deploy
+  # pull-request/*: only build if book/ changes
+  push:
+    branches:
+      - main
+      - pull-request/[0-9]+
 
-   # Allow manual trigger. It will only works on default branches.
+  # Allow manual trigger
   workflow_dispatch:
     inputs:
       build_container:
@@ -53,7 +52,47 @@ env:
   RUNNER: ${{ inputs.runner || 'linux-amd64-cpu4' }}
 
 jobs:
+  # Determine if we should build based on branch and changed files
+  check:
+    runs-on: linux-amd64-cpu4
+    outputs:
+      should-build: ${{ steps.evaluate.outputs.should-build }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check changed files
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            book:
+              - 'book/**'
+              - '.github/workflows/docs.yml'
+
+      - name: Evaluate build condition
+        id: evaluate
+        run: |
+          # main: always build
+          # pull-request/*: only build if book files changed
+          # workflow_dispatch/workflow_call: always build
+          if [[ "${{ github.event_name }}" != "push" ]]; then
+            echo "should-build=true" >> $GITHUB_OUTPUT
+            echo "Building: manual or workflow_call trigger"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "should-build=true" >> $GITHUB_OUTPUT
+            echo "Building: main branch (always build)"
+          elif [[ "${{ steps.filter.outputs.book }}" == "true" ]]; then
+            echo "should-build=true" >> $GITHUB_OUTPUT
+            echo "Building: book files changed"
+          else
+            echo "should-build=false" >> $GITHUB_OUTPUT
+            echo "Skipping: no book changes on PR branch"
+          fi
+
   build:
+    needs: check
+    if: needs.check.outputs.should-build == 'true'
     runs-on: ${{ inputs.runner || 'linux-amd64-cpu4' }}
 
     steps:
@@ -109,11 +148,13 @@ jobs:
   # Before deploying, make sure the branch is allowed in gh-pages protection rules
   # https://github.com/NVIDIA/carbide-core-snapshot/settings/environments
   deploy:
+    # Only deploy on push to main (pull-request/* branches only run build to test compilation)
+    if: github.ref == 'refs/heads/main' && needs.build.result == 'success'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ${{ inputs.runner || 'linux-amd64-cpu4' }}
-    needs: build
+    needs: [check, build]
 
     steps:
       - name: Deploy to GitHub Pages

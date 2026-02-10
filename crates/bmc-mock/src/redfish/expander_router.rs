@@ -256,7 +256,10 @@ mod tests {
     fn test_host_mock() -> Router {
         let power_control = Arc::new(TestPowerControl {});
         crate::machine_router(
-            MachineInfo::Host(HostMachineInfo::new(vec![DpuMachineInfo::default()])),
+            MachineInfo::Host(HostMachineInfo::new(
+                HostHardwareType::DellPowerEdgeR750,
+                vec![DpuMachineInfo::default()],
+            )),
             power_control,
             String::default(),
         )

@@ -85,10 +85,7 @@ pub(crate) async fn get_dpf_state(
     Ok(Response::new(rpc::DpfStateResponse {
         dpf_states: dpf_states
             .into_iter()
-            .map(|machine| rpc::dpf_state_response::DpfState {
-                machine_id: machine.id.into(),
-                dpf_enabled: machine.dpf_enabled,
-            })
+            .map(|machine| machine.into())
             .collect(),
     }))
 }

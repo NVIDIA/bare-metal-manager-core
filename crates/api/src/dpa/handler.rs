@@ -190,7 +190,8 @@ pub async fn start_dpa_handler(api_service: Arc<Api>) -> Result<Arc<MqtteaClient
         api_service.runtime_config.mqtt_broker_port().unwrap(),
         &client_id,
         Some(ClientOptions::default().with_qos(QoS::AtMostOnce)),
-    )?;
+    )
+    .await?;
 
     client.register_protobuf_message::<SetVni>("SetVni").await?;
 
