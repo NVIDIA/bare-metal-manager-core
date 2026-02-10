@@ -103,6 +103,8 @@ pub(crate) async fn create(
         }
     }
 
+    let requested_vni = vpc_creation_request.vni;
+
     let mut new_vpc = NewVpc::try_from(request.into_inner())?;
 
     // Default to the tenant's routing-profile.
@@ -119,6 +121,7 @@ pub(crate) async fn create(
             &mut txn,
             &vpc.id.to_string(),
             vpc.routing_profile_type.clone(),
+            requested_vni,
         )
         .await?,
     );
@@ -382,6 +385,7 @@ async fn allocate_vpc_vni(
     txn: &mut PgConnection,
     owner_id: &str,
     routing_profile_type: Option<RoutingProfileType>,
+    requested_vni: Option<u32>,
 ) -> Result<i32, CarbideError> {
     // If FNN is not configured, then there is no distinction between internal
     // and external tenants: they're all internal.  This matches how things are
@@ -414,8 +418,22 @@ async fn allocate_vpc_vni(
         &api.common_pools.ethernet.pool_external_vpc_vni
     };
 
-    match db::resource_pool::allocate(source_pool, txn, resource_pool::OwnerType::Vpc, owner_id)
-        .await
+    match db::resource_pool::allocate(
+        source_pool,
+        txn,
+        resource_pool::OwnerType::Vpc,
+        owner_id,
+        requested_vni
+            .map(|v| v.try_into())
+            .transpose()
+            .map_err(|e| {
+                CarbideError::InvalidArgument(format!(
+                    "unable to convert requested value into VNI: {}",
+                    e
+                ))
+            })?,
+    )
+    .await
     {
         Ok(val) => Ok(val),
         Err(ResourcePoolDatabaseError::ResourcePool(resource_pool::ResourcePoolError::Empty)) => {
@@ -429,6 +447,21 @@ async fn allocate_vpc_vni(
                 source_pool.name
             )))
         }
+        Err(ResourcePoolDatabaseError::Database(e)) if requested_vni.is_some() => Err(match *e {
+            db::DatabaseError::FailedPrecondition(_s) => {
+                tracing::error!(
+                    owner_id,
+                    pool = source_pool.name(),
+                    value = requested_vni,
+                    "invalid pool value requested, cannot allocate"
+                );
+                CarbideError::FailedPrecondition(format!(
+                    "VNI `{}` cannot be requested or is already allocated",
+                    requested_vni.unwrap_or_default()
+                ))
+            }
+            e => e.into(),
+        }),
         Err(err) => {
             tracing::error!(owner_id, error = %err, pool = source_pool.name, "Error allocating from resource pool");
             Err(err.into())

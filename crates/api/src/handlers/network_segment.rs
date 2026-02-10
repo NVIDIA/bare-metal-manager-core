@@ -283,6 +283,7 @@ pub async fn allocate_vni(
         txn,
         model::resource_pool::OwnerType::NetworkSegment,
         owner_id,
+        None,
     )
     .await
     {
@@ -313,6 +314,7 @@ pub async fn allocate_vlan_id(
         txn,
         model::resource_pool::OwnerType::NetworkSegment,
         owner_id,
+        None,
     )
     .await
     {

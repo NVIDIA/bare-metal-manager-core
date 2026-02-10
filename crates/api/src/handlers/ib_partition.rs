@@ -34,8 +34,18 @@ pub(crate) async fn create(
     log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
-
-    let mut resp = NewIBPartition::try_from(request.into_inner())?;
+    let req = request.into_inner();
+    let requested_pkey = req
+        .config
+        .as_ref()
+        .and_then(|c| {
+            c.pkey
+                .as_ref()
+                .map(|pkey| u16::from_str_radix(pkey.trim_start_matches("0x"), 16))
+        })
+        .transpose()
+        .map_err(|e| CarbideError::InvalidArgument(format!("invalid pkey value: {}", e)))?;
+    let mut resp = NewIBPartition::try_from(req)?;
     let fabric_config = api.ib_fabric_manager.get_config();
 
     // IB Configurations.
@@ -43,7 +53,7 @@ pub(crate) async fn create(
     resp.config.rate_limit = Some(fabric_config.rate_limit.clone());
     resp.config.service_level = Some(fabric_config.service_level.clone());
 
-    resp.config.pkey = allocate_pkey(api, &mut txn, &resp.metadata.name).await?;
+    resp.config.pkey = allocate_pkey(api, &mut txn, &resp.metadata.name, requested_pkey).await?;
     let resp = db::ib_partition::create(resp, &mut txn, fabric_config.max_partition_per_tenant)
         .await
         .map_err(|e| {
@@ -188,13 +198,14 @@ async fn allocate_pkey(
     api: &Api,
     txn: &mut PgConnection,
     owner_id: &str,
+    requested_pkey: Option<u16>,
 ) -> Result<Option<PartitionKey>, CarbideError> {
     match db::resource_pool::allocate(api
             .common_pools
             .infiniband
             .pkey_pools
             .get(DEFAULT_IB_FABRIC_NAME)
-            .ok_or_else(|| CarbideError::internal("IB fabric is not configured".to_string()))?, txn, resource_pool::OwnerType::IBPartition, owner_id)
+            .ok_or_else(|| CarbideError::internal("IB fabric is not configured".to_string()))?, txn, resource_pool::OwnerType::IBPartition, owner_id, requested_pkey)
             .await
         {
             Ok(val) => Ok(Some(

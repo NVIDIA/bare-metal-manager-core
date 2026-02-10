@@ -45,6 +45,7 @@ async fn create_ib_partition_with_api(
         config: Some(IbPartitionConfig {
             name: name.clone(),
             tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+            pkey: None,
         }),
         metadata: Some(rpc::Metadata {
             name,
@@ -279,6 +280,7 @@ async fn test_reject_create_with_invalid_metadata(
         config: Some(IbPartitionConfig {
             name: "partition1".into(),
             tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+            pkey: None,
         }),
         metadata: Some(rpc::Metadata {
             name: "".into(), // Invalid name
@@ -319,12 +321,89 @@ async fn create_ib_partition_with_api_with_id(
     )
     .await;
 
+    // Try an explicit pkey request with a bad format.
+    // This should fail.
+    let _ = env
+        .api
+        .create_ib_partition(Request::new(rpc::forge::IbPartitionCreationRequest {
+            id: Some(IBPartitionId::new()),
+            config: Some(IbPartitionConfig {
+                name: "partition1".into(),
+                tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+                pkey: Some("ABCDEFG".to_string()),
+            }),
+            metadata: Some(rpc::Metadata {
+                name: "partition1".into(),
+                labels: vec![Label {
+                    key: "example_label".into(),
+                    value: Some("example_value".into()),
+                }],
+                description: "description".into(),
+            }),
+        }))
+        .await
+        .unwrap_err();
+
+    // Try an explicit pkey request with a good format but in the range
+    // that isn't allowed to be explicitly requested.
+    // This should fail.
+    let _ = env
+        .api
+        .create_ib_partition(Request::new(rpc::forge::IbPartitionCreationRequest {
+            id: Some(IBPartitionId::new()),
+            config: Some(IbPartitionConfig {
+                name: "partition1".into(),
+                tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+                pkey: Some("0x05".to_string()),
+            }),
+            metadata: Some(rpc::Metadata {
+                name: "partition1".into(),
+                labels: vec![Label {
+                    key: "example_label".into(),
+                    value: Some("example_value".into()),
+                }],
+                description: "description".into(),
+            }),
+        }))
+        .await
+        .unwrap_err();
+
+    // Now get a partition with a valid PKEY that can be
+    // explicitly requested.
+    // This should pass.
+    let id = IBPartitionId::new();
+
+    let partition = env
+        .api
+        .create_ib_partition(Request::new(rpc::forge::IbPartitionCreationRequest {
+            id: Some(id),
+            config: Some(IbPartitionConfig {
+                name: "partition1".into(),
+                tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+                pkey: Some("0x96".to_string()), // 150
+            }),
+            metadata: Some(rpc::Metadata {
+                name: "partition1".into(),
+                labels: vec![Label {
+                    key: "example_label".into(),
+                    value: Some("example_value".into()),
+                }],
+                description: "description".into(),
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(partition.id, Some(id));
+
     let id = IBPartitionId::new();
     let request = rpc::forge::IbPartitionCreationRequest {
         id: Some(id),
         config: Some(IbPartitionConfig {
             name: "partition1".into(),
             tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+            pkey: None,
         }),
         metadata: Some(rpc::Metadata {
             name: "partition1".into(),

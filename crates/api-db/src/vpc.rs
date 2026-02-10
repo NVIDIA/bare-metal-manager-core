@@ -178,6 +178,7 @@ pub async fn allocate_dpa_vni(
         txn,
         resource_pool::OwnerType::Dpa,
         &value.id.to_string(),
+        None,
     )
     .await
     {

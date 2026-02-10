@@ -36,6 +36,7 @@ pub async fn create_ib_partition(
             config: Some(IbPartitionConfig {
                 name: name.clone(),
                 tenant_organization_id: tenant,
+                pkey: None,
             }),
             metadata: Some(rpc::Metadata {
                 name,

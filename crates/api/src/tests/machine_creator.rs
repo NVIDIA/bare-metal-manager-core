@@ -675,7 +675,11 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
             .await?,
         ResourcePoolStats {
             used: expected_loopback_count,
-            free: initial_loopback_pool_stats.free - expected_loopback_count
+            free: initial_loopback_pool_stats.free - expected_loopback_count,
+            auto_assign_free: initial_loopback_pool_stats.free - expected_loopback_count,
+            auto_assign_used: expected_loopback_count,
+            non_auto_assign_free: 0,
+            non_auto_assign_used: 0
         }
     );
 
@@ -755,7 +759,12 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         .await?,
         ResourcePoolStats {
             used: expected_loopback_count,
-            free: initial_secondary_vtep_pool_stats.free - expected_secondary_vtep_count
+            free: initial_secondary_vtep_pool_stats.free - expected_secondary_vtep_count,
+            auto_assign_free: initial_secondary_vtep_pool_stats.free
+                - expected_secondary_vtep_count,
+            auto_assign_used: expected_loopback_count,
+            non_auto_assign_free: 0,
+            non_auto_assign_used: 0
         }
     );
 

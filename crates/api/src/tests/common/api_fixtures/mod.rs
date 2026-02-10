@@ -80,7 +80,7 @@ use tracing_subscriber::EnvFilter;
 use crate::api::Api;
 use crate::cfg::file::{
     BomValidationConfig, CarbideConfig, DpaConfig, DpaInterfaceStateControllerConfig,
-    DpuConfig as InitialDpuConfig, FirmwareGlobal, IBFabricConfig, IbFabricDefinition,
+    DpuConfig as InitialDpuConfig, FirmwareGlobal, FnnConfig, IBFabricConfig, IbFabricDefinition,
     IbPartitionStateControllerConfig, ListenMode, MachineStateControllerConfig, MachineUpdater,
     MachineValidationConfig, MeasuredBootMetricsCollectorConfig, NetworkSecurityGroupConfig,
     NetworkSegmentStateControllerConfig, NvLinkConfig, PowerManagerOptions,
@@ -256,6 +256,7 @@ pub struct TestEnvOverrides {
     pub network_segments_drain_period: Option<chrono::Duration>,
     pub power_manager_enabled: Option<bool>,
     pub dpf_config: Option<DpfConfig>,
+    pub fnn_config: Option<FnnConfig>,
     pub nmxm_default_partition: Option<bool>,
 }
 
@@ -1023,6 +1024,7 @@ pub fn get_config() -> CarbideConfig {
                 pkeys: vec![resource_pool::Range {
                     start: "1".to_string(),
                     end: "100".to_string(),
+                    auto_assign: true,
                 }],
             },
         )]
@@ -1249,6 +1251,13 @@ pub async fn create_test_env_with_overrides(
             .host_health
             .prevent_allocations_on_stale_dpu_agent_version = prevent;
     }
+
+    config.fnn = if let Some(override_fnn_config) = overrides.fnn_config {
+        Some(override_fnn_config)
+    } else {
+        Default::default()
+    };
+
     let config = Arc::new(config);
 
     let ib_config = config.ib_config.clone().unwrap_or_default();
@@ -1823,10 +1832,18 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
         "ib_fabrics.default.pkey".to_string(),
         resource_pool::ResourcePoolDef {
             pool_type: resource_pool::ResourcePoolType::Integer,
-            ranges: vec![resource_pool::Range {
-                start: "1".to_string(),
-                end: "100".to_string(),
-            }],
+            ranges: vec![
+                resource_pool::Range {
+                    start: "1".to_string(),
+                    end: "100".to_string(),
+                    auto_assign: true,
+                },
+                resource_pool::Range {
+                    start: "101".to_string(),
+                    end: "200".to_string(),
+                    auto_assign: false,
+                },
+            ],
             prefix: None,
         },
     );
@@ -1839,6 +1856,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
             ranges: vec![resource_pool::Range {
                 start: "10.255.255.0".to_string(),
                 end: "10.255.255.127".to_string(),
+                auto_assign: true,
             }],
         },
     );
@@ -1858,6 +1876,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
             ranges: vec![resource_pool::Range {
                 start: 10_001.to_string(),
                 end: (10_001 + fabric_len as u16 - 1).to_string(),
+                auto_assign: true,
             }],
             prefix: None,
         },
@@ -1869,6 +1888,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
             ranges: vec![resource_pool::Range {
                 start: 1.to_string(),
                 end: (1 + fabric_len as u16 - 1).to_string(),
+                auto_assign: true,
             }],
             prefix: None,
         },
@@ -1877,10 +1897,18 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
         model::resource_pool::common::VPC_VNI.to_string(),
         resource_pool::ResourcePoolDef {
             pool_type: resource_pool::ResourcePoolType::Integer,
-            ranges: vec![resource_pool::Range {
-                start: 20001.to_string(),
-                end: (20001 + fabric_len as u16 - 1).to_string(),
-            }],
+            ranges: vec![
+                resource_pool::Range {
+                    start: 20001.to_string(),
+                    end: (20001 + fabric_len as u16 - 1).to_string(),
+                    auto_assign: true,
+                },
+                resource_pool::Range {
+                    start: 60001.to_string(),
+                    end: (60001 + fabric_len as u16 - 1).to_string(),
+                    auto_assign: false,
+                },
+            ],
             prefix: None,
         },
     );
@@ -1892,6 +1920,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
             ranges: vec![resource_pool::Range {
                 start: 50001.to_string(),
                 end: (50001 + fabric_len as u16 - 1).to_string(),
+                auto_assign: true,
             }],
             prefix: None,
         },
@@ -1903,6 +1932,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
             ranges: vec![resource_pool::Range {
                 start: 30001.to_string(),
                 end: (30001 + fabric_len as u16 - 1).to_string(),
+                auto_assign: true,
             }],
             prefix: None,
         },
@@ -1914,6 +1944,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
             ranges: vec![resource_pool::Range {
                 start: "30001".to_string(),
                 end: "30035".to_string(),
+                auto_assign: true,
             }],
             prefix: None,
         },

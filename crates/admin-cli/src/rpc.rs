@@ -777,6 +777,7 @@ impl ApiClient {
                 name: name.to_string(),
                 tenant_organization_id: "devenv_test_org".to_string(),
                 tenant_keyset_id: None,
+                vni: None,
                 network_virtualization_type: Some(
                     VpcVirtualizationType::EthernetVirtualizerWithNvue as i32,
                 ),

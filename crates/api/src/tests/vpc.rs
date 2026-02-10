@@ -35,11 +35,87 @@ use crate::{DatabaseError, db_init};
 async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
+    // Create a tenant.
+    let tenant = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "sizzle".to_string(),
+            routing_profile_type: Some(rpc::forge::RoutingProfileType::Internal.into()),
+            metadata: Some(rpc::forge::Metadata {
+                name: "sizzle".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .tenant
+        .unwrap();
+
+    // Try to request a VNI that shouldn't exist
+    // (based on VPC_VNI pool definition in pool_defs in carbide-core/crates/api/src/tests/common/api_fixtures/mod.rs)
+    assert!(
+        env.api
+            .create_vpc(
+                VpcCreationRequest::builder("", &tenant.organization_id)
+                    .metadata(rpc::forge::Metadata {
+                        name: "Forge".to_string(),
+                        description: "".to_string(),
+                        labels: Vec::new(),
+                    })
+                    .vni(100u32)
+                    .tonic_request(),
+            )
+            .await
+            .unwrap_err()
+            .message()
+            .contains("cannot be requested")
+    );
+
+    // Try to request a VNI that shouldn't be available.
+    // This should fail.
+    assert!(
+        env.api
+            .create_vpc(
+                VpcCreationRequest::builder("", &tenant.organization_id)
+                    .metadata(rpc::forge::Metadata {
+                        name: "Forge".to_string(),
+                        description: "".to_string(),
+                        labels: Vec::new(),
+                    })
+                    .vni(20002u32)
+                    .tonic_request(),
+            )
+            .await
+            .unwrap_err()
+            .message()
+            .contains("cannot be requested")
+    );
+
+    // Create another tenant.
+    let tenant = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "fizzle".to_string(),
+            routing_profile_type: Some(rpc::forge::RoutingProfileType::Internal.into()),
+            metadata: Some(rpc::forge::Metadata {
+                name: "fizzle".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .tenant
+        .unwrap();
+
     // No network_virtualization_type, should default
     let forge_vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("", "")
+            VpcCreationRequest::builder("", &tenant.organization_id)
                 .metadata(rpc::forge::Metadata {
                     name: "Forge".to_string(),
                     description: "".to_string(),
@@ -61,7 +137,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let no_org_vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("", "")
+            VpcCreationRequest::builder("", &tenant.organization_id)
                 .network_virtualization_type(rpc::forge::VpcVirtualizationType::from(
                     VpcVirtualizationType::EthernetVirtualizer,
                 ))

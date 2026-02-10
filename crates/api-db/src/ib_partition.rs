@@ -100,6 +100,7 @@ impl From<IBPartitionConfig> for rpc::IbPartitionConfig {
         rpc::IbPartitionConfig {
             name: conf.name, // Deprecated field
             tenant_organization_id: conf.tenant_organization_id.to_string(),
+            pkey: None,
         }
     }
 }

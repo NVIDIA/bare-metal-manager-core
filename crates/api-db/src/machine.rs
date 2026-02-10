@@ -1259,6 +1259,7 @@ pub async fn create(
                 txn,
                 resource_pool::OwnerType::Machine,
                 &stable_machine_id_string,
+                None,
             )
             .await
             {
@@ -1833,6 +1834,7 @@ pub async fn allocate_loopback_ip(
         txn,
         resource_pool::OwnerType::Machine,
         owner_id,
+        None,
     )
     .await
     {
@@ -1863,6 +1865,7 @@ pub async fn allocate_vpc_dpu_loopback(
         txn,
         resource_pool::OwnerType::Machine,
         owner_id,
+        None,
     )
     .await
     {
@@ -1897,6 +1900,7 @@ pub async fn allocate_secondary_vtep_ip(
         txn,
         resource_pool::OwnerType::Machine,
         owner_id,
+        None,
     )
     .await
     {
@@ -2012,6 +2016,7 @@ pub async fn update_dpu_asns(
             &mut txn,
             resource_pool::OwnerType::Machine,
             &dpu_machine_id.to_string(),
+            None,
         )
         .await? as i64;
 
