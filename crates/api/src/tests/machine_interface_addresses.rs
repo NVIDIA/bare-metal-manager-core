@@ -32,7 +32,7 @@ use crate::tests::common::api_fixtures::create_test_env;
 async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
-    let domain = db::dns::domain::find_by_name(&mut txn, "dwrt1.com")
+    let domain = db::dns::domain::find_by_name(txn.as_mut(), "dwrt1.com")
         .await?
         .into_iter()
         .next()

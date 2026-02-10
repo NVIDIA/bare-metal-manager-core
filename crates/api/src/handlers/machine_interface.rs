@@ -20,8 +20,6 @@ use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use carbide_uuid::machine::MachineType;
-use db::WithTransaction;
-use futures_util::FutureExt;
 use itertools::Itertools;
 use tonic::{Request, Response, Status};
 
@@ -152,13 +150,13 @@ pub(crate) async fn find_mac_address_by_bmc_ip(
     let req = request.into_inner();
     let bmc_ip = req.bmc_ip;
 
-    let interface = api
-        .with_txn(|txn| db::machine_interface::find_by_ip(txn, bmc_ip.parse().unwrap()).boxed())
-        .await??
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "machine_interface",
-            id: bmc_ip.clone(),
-        })?;
+    let interface =
+        db::machine_interface::find_by_ip(&api.database_connection, bmc_ip.parse().unwrap())
+            .await?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "machine_interface",
+                id: bmc_ip.clone(),
+            })?;
 
     Ok(Response::new(rpc::MacAddressBmcIp {
         bmc_ip,

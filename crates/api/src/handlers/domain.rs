@@ -19,8 +19,7 @@ use ::rpc::protos::dns::{
     DomainSearchQuery, UpdateDomainRequest,
 };
 use db::dns::domain;
-use db::{self, ObjectColumnFilter, WithTransaction};
-use futures_util::FutureExt;
+use db::{self, ObjectColumnFilter};
 use model::dns::NewDomain;
 use tonic::{Request, Response, Status};
 
@@ -118,22 +117,23 @@ pub(crate) async fn find(
 
     let DomainSearchQuery { id, name, .. } = request.into_inner();
 
-    let domains = api
-        .with_txn(|txn| {
-            async move {
-                match (id, name) {
-                    (Some(id), _) => {
-                        domain::find_by(txn, ObjectColumnFilter::One(domain::IdColumn, &id)).await
-                    }
-                    (None, Some(name)) => domain::find_by_name(txn, &name).await,
-                    (None, None) => {
-                        domain::find_by(txn, ObjectColumnFilter::<domain::IdColumn>::All).await
-                    }
-                }
-            }
-            .boxed()
-        })
-        .await?;
+    let domains = match (id, name) {
+        (Some(id), _) => {
+            domain::find_by(
+                &api.database_connection,
+                ObjectColumnFilter::One(domain::IdColumn, &id),
+            )
+            .await
+        }
+        (None, Some(name)) => domain::find_by_name(&api.database_connection, &name).await,
+        (None, None) => {
+            domain::find_by(
+                &api.database_connection,
+                ObjectColumnFilter::<domain::IdColumn>::All,
+            )
+            .await
+        }
+    };
 
     let result = domains
         .map(|domain| ::rpc::protos::dns::DomainList {

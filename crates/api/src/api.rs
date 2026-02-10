@@ -31,6 +31,7 @@ use ::rpc::protos::dns::{
 use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
 use carbide_dpf::KubeImpl;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, DatabaseResult, WithTransaction};
 use forge_secrets::certificates::CertificateProvider;
@@ -2889,6 +2890,10 @@ impl Api {
     pub fn txn_begin(&self) -> impl Future<Output = Result<db::Transaction<'_>, DatabaseError>> {
         let loc = Location::caller();
         db::Transaction::begin_with_location(&self.database_connection, loc)
+    }
+
+    pub fn db_reader(&self) -> PgPoolReader {
+        self.database_connection.clone().into()
     }
 
     // This function can just async when

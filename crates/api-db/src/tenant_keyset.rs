@@ -17,6 +17,7 @@
 use model::tenant::{TenantKeyset, TenantKeysetId, TenantKeysetIdentifier, UpdateTenantKeyset};
 use sqlx::PgConnection;
 
+use crate::db_read::DbReader;
 use crate::{DatabaseError, ObjectFilter};
 
 pub async fn create(
@@ -36,7 +37,7 @@ pub async fn create(
 }
 
 pub async fn find_ids(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     filter: rpc::forge::TenantKeysetSearchFilter,
 ) -> Result<Vec<TenantKeysetId>, DatabaseError> {
     // build query
@@ -57,7 +58,7 @@ pub async fn find_ids(
 }
 
 pub async fn find_by_ids(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     ids: Vec<rpc::forge::TenantKeysetIdentifier>,
     include_key_data: bool,
 ) -> Result<Vec<TenantKeyset>, DatabaseError> {

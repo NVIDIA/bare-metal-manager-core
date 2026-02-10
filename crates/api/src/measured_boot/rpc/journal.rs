@@ -22,11 +22,9 @@
 use std::str::FromStr;
 
 use carbide_uuid::machine::MachineId;
-use db::WithTransaction;
 use db::measured_boot::interface::journal::{
     get_measurement_journal_records, get_measurement_journal_records_for_machine_id,
 };
-use futures_util::FutureExt;
 use rpc::protos::measured_boot::{
     DeleteMeasurementJournalRequest, DeleteMeasurementJournalResponse,
     ListMeasurementJournalRequest, ListMeasurementJournalResponse, MeasurementJournalRecordPb,
@@ -109,9 +107,8 @@ pub async fn handle_show_measurement_journals(
     _req: ShowMeasurementJournalsRequest,
 ) -> Result<ShowMeasurementJournalsResponse, Status> {
     Ok(ShowMeasurementJournalsResponse {
-        journals: api
-            .with_txn(|txn| db::measured_boot::journal::get_all(txn).boxed())
-            .await?
+        journals: db::measured_boot::journal::get_all(&api.database_connection)
+            .await
             .map_err(|e| Status::internal(format!("failed to fetch journals: {e}")))?
             .drain(..)
             .map(|journal| journal.into())

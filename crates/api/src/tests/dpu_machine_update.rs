@@ -67,10 +67,8 @@ async fn create_machines(
     }
     txn.commit().await.unwrap();
 
-    let mut txn = test_env.pool.begin().await.unwrap();
-
     db::managed_host::load_by_machine_ids(
-        &mut txn,
+        &mut test_env.db_reader(),
         &machines.iter().map(|m| m.id).collect::<Vec<_>>(),
         LoadSnapshotOptions {
             include_history: false,
@@ -95,7 +93,7 @@ pub async fn get_all_snapshots(test_env: &TestEnv) -> HashMap<MachineId, Managed
     .unwrap();
 
     db::managed_host::load_by_machine_ids(
-        &mut txn,
+        txn.as_mut(),
         &machine_ids,
         LoadSnapshotOptions {
             include_history: false,
@@ -256,7 +254,7 @@ async fn test_find_available_outdated_dpus_multidpu(
     }
 
     let snapshots = db::managed_host::load_by_machine_ids(
-        &mut txn,
+        txn.as_mut(),
         &[mh.host().id],
         LoadSnapshotOptions {
             include_history: false,
@@ -302,7 +300,7 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
 
     let mut txn = env.pool.begin().await?;
     let snapshots = db::managed_host::load_by_machine_ids(
-        &mut txn,
+        txn.as_mut(),
         &[mh.host().id],
         LoadSnapshotOptions {
             include_history: false,
@@ -365,7 +363,7 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
 
     let mut txn = env.pool.begin().await?;
     let snapshots = db::managed_host::load_by_machine_ids(
-        &mut txn,
+        txn.as_mut(),
         &[mh.host().id],
         LoadSnapshotOptions {
             include_history: false,

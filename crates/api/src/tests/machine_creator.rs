@@ -1197,9 +1197,8 @@ async fn test_site_explorer_creates_managed_host_with_dpf_disable(
             .await?
     );
 
-    let mut txn = env.pool.begin().await.unwrap();
     let machines = db::machine::find(
-        &mut txn,
+        &env.pool,
         db::ObjectFilter::All,
         MachineSearchConfig {
             include_predicted_host: true,
@@ -1335,9 +1334,8 @@ async fn test_site_explorer_creates_managed_host_with_dpf_enabled(
             .await?
     );
 
-    let mut txn = env.pool.begin().await.unwrap();
     let machines = db::machine::find(
-        &mut txn,
+        &env.pool,
         db::ObjectFilter::All,
         MachineSearchConfig {
             include_predicted_host: true,

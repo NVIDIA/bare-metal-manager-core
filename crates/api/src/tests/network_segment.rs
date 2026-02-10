@@ -972,7 +972,7 @@ async fn test_update_svi_ip_admin_segment(
     let admin_segment = db::network_segment::admin(&mut txn).await?;
     assert!(admin_segment.vpc_id.is_some());
     let admin_vpc = db::vpc::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(IdColumn, &admin_segment.vpc_id.unwrap()),
     )
     .await?;

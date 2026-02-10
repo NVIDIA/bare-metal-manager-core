@@ -23,6 +23,7 @@ use std::process::Command;
 use byteorder::{BigEndian, ByteOrder};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::measured_boot::MeasurementReportId;
+use db::db_read::DbReader;
 use model::hardware_info::TpmEkCertificate;
 use model::machine::MeasuringState;
 use num_bigint_dig::BigUint;
@@ -398,15 +399,18 @@ pub fn do_compare_pub_key_against_cert(
     Ok((pub_key_ek == pub_key_cert, pub_key_ek))
 }
 
-pub async fn has_passed_attestation(
-    txn: &mut PgConnection,
+pub async fn has_passed_attestation<DB>(
+    db: &mut DB,
     machine_id: &MachineId,
     _report_id: &MeasurementReportId,
-) -> CarbideResult<bool> {
+) -> CarbideResult<bool>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     let measuring_outcome = handle_measuring_state(
         &MeasuringState::WaitingForMeasurements,
         machine_id,
-        txn,
+        db,
         true,
     )
     .await

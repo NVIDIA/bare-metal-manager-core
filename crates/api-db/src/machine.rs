@@ -232,7 +232,7 @@ pub async fn advance(
 /// * `search_config` - A MachineSearchConfig with search options to control the
 ///   records selected
 pub async fn find(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     filter: ObjectFilter<'_, MachineId>,
     search_config: MachineSearchConfig,
 ) -> Result<Vec<Machine>, DatabaseError> {
@@ -664,7 +664,7 @@ pub async fn find_host_by_dpu_machine_id(
 }
 
 pub async fn lookup_host_machine_ids_by_dpu_ids(
-    conn: &mut PgConnection,
+    conn: impl DbReader<'_>,
     dpu_machine_ids: &[MachineId],
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query = r#"SELECT mi.machine_id
@@ -1060,7 +1060,7 @@ pub async fn update_agent_reported_inventory(
 }
 
 pub async fn get_all_network_status_observation(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     limit: i64, // return at most this many rows
 ) -> Result<Vec<MachineNetworkStatusObservation>, DatabaseError> {
     let query = "SELECT network_status_observation FROM machines
@@ -1553,7 +1553,7 @@ pub async fn clear_dpu_reprovisioning_request(
 }
 
 pub async fn list_machines_requested_for_reprovisioning(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
 ) -> Result<Vec<Machine>, DatabaseError> {
     lazy_static! {
         static ref query: String = format!(
@@ -1568,7 +1568,7 @@ pub async fn list_machines_requested_for_reprovisioning(
 }
 
 pub async fn list_machines_requested_for_host_reprovisioning(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
 ) -> Result<Vec<Machine>, DatabaseError> {
     lazy_static! {
         static ref query: String = format!(

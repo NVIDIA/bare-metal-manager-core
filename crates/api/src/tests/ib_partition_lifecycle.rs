@@ -18,6 +18,7 @@
 use std::collections::HashMap;
 
 use carbide_uuid::infiniband::IBPartitionId;
+use db::db_read::PgPoolReader;
 use db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionStatus, NewIBPartition};
 use db::{self, ObjectColumnFilter};
 use model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
@@ -369,8 +370,7 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     let mut partition: IBPartition = db::ib_partition::create(new_partition, &mut txn, 10).await?;
     txn.commit().await?;
 
-    let mut txn = pool.begin().await?;
-    let results = db::ib_partition::for_tenant(&mut txn, FIXTURE_TENANT_ORG_ID.to_string()).await?;
+    let results = db::ib_partition::for_tenant(&pool, FIXTURE_TENANT_ORG_ID.to_string()).await?;
 
     assert_eq!(results.len(), 1);
     assert_eq!(partition.config, results[0].config);
@@ -402,15 +402,13 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     db::ib_partition::update(&partition, &mut txn).await?;
     txn.commit().await?;
 
-    let mut txn = pool.begin().await?;
     let partition2 = db::ib_partition::find_by(
-        &mut txn,
+        &mut PgPoolReader::from(pool.clone()),
         ObjectColumnFilter::One(db::ib_partition::IdColumn, &partition.id),
     )
     .await?
     .remove(0);
     assert_eq!(IBNetwork::from(&partition), IBNetwork::from(&partition2));
-    txn.commit().await?;
 
     Ok(())
 }

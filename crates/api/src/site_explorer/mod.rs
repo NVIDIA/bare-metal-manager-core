@@ -738,7 +738,7 @@ impl SiteExplorer {
         }
 
         if let Some(rack_id) = expected_shelf.rack_id {
-            let rack = match db::rack::get(&mut txn, rack_id).await {
+            let rack = match db::rack::get(txn.as_mut(), rack_id).await {
                 Ok(rack) => rack,
                 Err(_) => db::rack::create(
                     &mut txn,

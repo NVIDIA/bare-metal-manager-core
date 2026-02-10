@@ -15,10 +15,9 @@
  * limitations under the License.
  */
 use ::rpc::forge as rpc;
+use db::ObjectColumnFilter;
 use db::ib_partition::{self, NewIBPartition};
 use db::resource_pool::ResourcePoolDatabaseError;
-use db::{ObjectColumnFilter, WithTransaction};
-use futures_util::FutureExt;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
 use model::ib_partition::PartitionKey;
 use model::resource_pool;
@@ -71,9 +70,7 @@ pub(crate) async fn find_ids(
 
     let filter: rpc::IbPartitionSearchFilter = request.into_inner();
 
-    let ib_partition_ids = api
-        .with_txn(|txn| db::ib_partition::find_ids(txn, filter).boxed())
-        .await??;
+    let ib_partition_ids = db::ib_partition::find_ids(&api.database_connection, filter).await?;
 
     Ok(Response::new(rpc::IbPartitionIdList { ib_partition_ids }))
 }
@@ -100,15 +97,11 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let partitions = api
-        .with_txn(|txn| {
-            db::ib_partition::find_by(
-                txn,
-                ObjectColumnFilter::List(ib_partition::IdColumn, &ib_partition_ids),
-            )
-            .boxed()
-        })
-        .await??;
+    let partitions = db::ib_partition::find_by(
+        &api.database_connection,
+        ObjectColumnFilter::List(ib_partition::IdColumn, &ib_partition_ids),
+    )
+    .await?;
 
     let mut result = Vec::with_capacity(partitions.len());
     for ibp in partitions {
@@ -175,9 +168,8 @@ pub(crate) async fn for_tenant(
         }
     };
 
-    let results = api
-        .with_txn(|txn| db::ib_partition::for_tenant(txn, _tenant_organization_id).boxed())
-        .await??;
+    let results =
+        db::ib_partition::for_tenant(&api.database_connection, _tenant_organization_id).await?;
 
     let mut ib_partitions = Vec::with_capacity(results.len());
 

@@ -22,6 +22,7 @@ use model::tenant::{RoutingProfileType, Tenant, TenantPublicKeyValidationRequest
 use sqlx::PgConnection;
 
 use super::ObjectFilter;
+use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
 type OrganizationID = String;
@@ -104,7 +105,7 @@ pub async fn update(
 }
 
 pub async fn find_tenant_organization_ids(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     search_config: rpc::TenantSearchFilter,
 ) -> Result<Vec<OrganizationID>, DatabaseError> {
     let mut qb = sqlx::QueryBuilder::new("SELECT organization_id FROM tenants");
@@ -130,7 +131,7 @@ pub async fn validate_public_key(
     request: &TenantPublicKeyValidationRequest,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
-    let instance = crate::instance::find_by_id(txn, request.instance_id)
+    let instance = crate::instance::find_by_id(&mut *txn, request.instance_id)
         .await?
         .ok_or_else(|| DatabaseError::NotFoundError {
             kind: "instance",

@@ -19,12 +19,10 @@
  * gRPC handlers for measurement bundle related API calls.
  */
 
-use db::WithTransaction;
 use db::measured_boot::bundle;
 use db::measured_boot::interface::bundle::{
     get_machines_for_bundle_id, get_machines_for_bundle_name, get_measurement_bundle_records,
 };
-use futures_util::FutureExt;
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::MeasurementBundleState;
 use rpc::protos::measured_boot::{
@@ -206,9 +204,8 @@ pub async fn handle_show_measurement_bundles(
     _req: ShowMeasurementBundlesRequest,
 ) -> Result<ShowMeasurementBundlesResponse, Status> {
     Ok(ShowMeasurementBundlesResponse {
-        bundles: api
-            .with_txn(|txn| db::measured_boot::bundle::get_all(txn).boxed())
-            .await?
+        bundles: db::measured_boot::bundle::get_all(&mut api.db_reader())
+            .await
             .map_err(|e| Status::internal(format!("{e}")))?
             .into_iter()
             .map(|bundle| bundle.into())
@@ -222,13 +219,13 @@ pub async fn handle_list_measurement_bundles(
     api: &Api,
     _req: ListMeasurementBundlesRequest,
 ) -> Result<ListMeasurementBundlesResponse, Status> {
-    let bundles: Vec<MeasurementBundleRecordPb> = api
-        .with_txn(|txn| get_measurement_bundle_records(txn).boxed())
-        .await?
-        .map_err(|e| Status::internal(format!("{e}")))?
-        .into_iter()
-        .map(|record| record.into())
-        .collect();
+    let bundles: Vec<MeasurementBundleRecordPb> =
+        get_measurement_bundle_records(&api.database_connection)
+            .await
+            .map_err(|e| Status::internal(format!("{e}")))?
+            .into_iter()
+            .map(|record| record.into())
+            .collect();
 
     Ok(ListMeasurementBundlesResponse { bundles })
 }

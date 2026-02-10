@@ -16,8 +16,6 @@
  */
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
-use db::WithTransaction;
-use futures_util::FutureExt;
 use model::ConfigValidationError;
 use model::metadata::Metadata;
 use model::tenant::RoutingProfileType;
@@ -269,9 +267,8 @@ pub(crate) async fn find_tenant_organization_ids(
 ) -> Result<Response<rpc::TenantOrganizationIdList>, Status> {
     crate::api::log_request_data(&request);
     let search_config = request.into_inner();
-    let tenant_org_ids = api
-        .with_txn(|txn| db::tenant::find_tenant_organization_ids(txn, search_config).boxed())
-        .await??;
+    let tenant_org_ids =
+        db::tenant::find_tenant_organization_ids(&api.database_connection, search_config).await?;
     Ok(tonic::Response::new(rpc::TenantOrganizationIdList {
         tenant_organization_ids: tenant_org_ids.into_iter().collect(),
     }))

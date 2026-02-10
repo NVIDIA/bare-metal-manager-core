@@ -16,9 +16,8 @@
  */
 use ::rpc::forge as rpc;
 use db::resource_pool::ResourcePoolDatabaseError;
-use db::{AnnotatedSqlxError, DatabaseError, ObjectColumnFilter, WithTransaction, network_segment};
+use db::{AnnotatedSqlxError, DatabaseError, ObjectColumnFilter, network_segment};
 use forge_network::virtualization::VpcVirtualizationType;
-use futures_util::FutureExt;
 use model::network_segment::{
     NetworkSegment, NetworkSegmentControllerState, NetworkSegmentSearchConfig, NetworkSegmentType,
     NewNetworkSegment,
@@ -37,9 +36,8 @@ pub(crate) async fn find_ids(
 
     let filter: rpc::NetworkSegmentSearchFilter = request.into_inner();
 
-    let network_segments_ids = api
-        .with_txn(|txn| db::network_segment::find_ids(txn, filter).boxed())
-        .await??;
+    let network_segments_ids =
+        db::network_segment::find_ids(&api.database_connection, filter).await?;
 
     Ok(Response::new(rpc::NetworkSegmentIdList {
         network_segments_ids,
@@ -70,19 +68,15 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let segments = api
-        .with_txn(|txn| {
-            db::network_segment::find_by(
-                txn.as_mut(),
-                ObjectColumnFilter::List(network_segment::IdColumn, &network_segments_ids),
-                NetworkSegmentSearchConfig {
-                    include_history,
-                    include_num_free_ips,
-                },
-            )
-            .boxed()
-        })
-        .await??;
+    let segments = db::network_segment::find_by(
+        &mut api.db_reader(),
+        ObjectColumnFilter::List(network_segment::IdColumn, &network_segments_ids),
+        NetworkSegmentSearchConfig {
+            include_history,
+            include_num_free_ips,
+        },
+    )
+    .await?;
 
     let mut result = Vec::with_capacity(segments.len());
     for seg in segments {
@@ -210,9 +204,7 @@ pub(crate) async fn for_vpc(
 
     let uuid = id.ok_or_else(|| CarbideError::InvalidArgument("id".to_string()))?;
 
-    let results = api
-        .with_txn(|txn| db::network_segment::for_vpc(txn, uuid).boxed())
-        .await??;
+    let results = db::network_segment::for_vpc(&api.database_connection, uuid).await?;
 
     let mut network_segments = Vec::with_capacity(results.len());
 

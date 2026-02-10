@@ -649,12 +649,15 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
         .await?
         .finish(|mock| async move {
             let machine_id = mock.discovered_machine_id().unwrap();
-            let mut txn = mock.test_env.pool.begin().await.unwrap();
             Ok::<ManagedHostStateSnapshot, eyre::Report>(
-                db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
-                    .await
-                    .transpose()
-                    .unwrap()?,
+                db::managed_host::load_snapshot(
+                    &mut mock.test_env.db_reader(),
+                    &machine_id,
+                    Default::default(),
+                )
+                .await
+                .transpose()
+                .unwrap()?,
             )
         })
         .await?;

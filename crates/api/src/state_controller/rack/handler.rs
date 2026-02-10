@@ -139,7 +139,7 @@ impl StateHandler for RackStateHandler {
                 let mut txn = ctx.services.db_pool.begin().await?;
                 for machine_id in config.compute_trays.iter() {
                     let mh_snapshot = db::managed_host::load_snapshot(
-                        &mut txn,
+                        txn.as_mut(),
                         machine_id,
                         LoadSnapshotOptions {
                             include_history: false,

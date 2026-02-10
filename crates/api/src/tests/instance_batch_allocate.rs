@@ -69,7 +69,7 @@ async fn test_batch_allocate_instances_success(_: PgPoolOptions, options: PgConn
     for instance in &response.instances {
         let machine_id = *instance.machine_id.as_ref().unwrap();
         let snapshot = db::managed_host::load_snapshot(
-            &mut txn,
+            txn.as_mut(),
             &machine_id,
             model::machine::LoadSnapshotOptions::default(),
         )
@@ -149,7 +149,7 @@ async fn test_batch_allocate_instances_rollback_on_failure(
     // Verify that the first instance was NOT created (transaction rolled back)
     let mut txn = env.db_txn().await;
     let snapshot1 = db::managed_host::load_snapshot(
-        &mut txn,
+        txn.as_mut(),
         &mh1.host().id,
         model::machine::LoadSnapshotOptions::default(),
     )
@@ -164,7 +164,7 @@ async fn test_batch_allocate_instances_rollback_on_failure(
 
     // Verify that the third instance was also NOT created
     let snapshot2 = db::managed_host::load_snapshot(
-        &mut txn,
+        txn.as_mut(),
         &mh2.host().id,
         model::machine::LoadSnapshotOptions::default(),
     )

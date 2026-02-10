@@ -26,6 +26,7 @@ use measured_boot::site::SiteModel;
 use sqlx::PgConnection;
 
 use crate::DatabaseResult;
+use crate::db_read::DbReader;
 use crate::measured_boot::interface::bundle::{
     get_measurement_bundle_records, get_measurement_bundles_values, import_measurement_bundles,
     import_measurement_bundles_values,
@@ -47,11 +48,15 @@ pub async fn import(txn: &mut PgConnection, model: &SiteModel) -> DatabaseResult
 }
 
 /// export builds a SiteModel from the records in the database.
-pub async fn export(txn: &mut PgConnection) -> DatabaseResult<SiteModel> {
-    let measurement_system_profiles = export_measurement_profile_records(txn).await?;
-    let measurement_system_profiles_attrs = export_measurement_system_profiles_attrs(txn).await?;
-    let measurement_bundles = get_measurement_bundle_records(txn).await?;
-    let measurement_bundles_values = get_measurement_bundles_values(txn).await?;
+pub async fn export<DB>(txn: &mut DB) -> DatabaseResult<SiteModel>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
+    let measurement_system_profiles = export_measurement_profile_records(&mut *txn).await?;
+    let measurement_system_profiles_attrs =
+        export_measurement_system_profiles_attrs(&mut *txn).await?;
+    let measurement_bundles = get_measurement_bundle_records(&mut *txn).await?;
+    let measurement_bundles_values = get_measurement_bundles_values(&mut *txn).await?;
 
     Ok(SiteModel {
         measurement_system_profiles,

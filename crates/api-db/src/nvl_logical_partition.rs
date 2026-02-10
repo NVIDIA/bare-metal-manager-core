@@ -26,6 +26,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
 
+use crate::db_read::DbReader;
 use crate::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
 
 #[derive(Copy, Clone)]
@@ -261,7 +262,7 @@ impl NewLogicalPartition {
 /// * `txn` - A reference to a currently open database transaction
 ///
 pub async fn for_tenant(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     tenant_organization_id: String,
 ) -> Result<Vec<LogicalPartition>, DatabaseError> {
     let results: Vec<LogicalPartition> = {
@@ -283,7 +284,7 @@ pub async fn for_tenant(
 }
 
 pub async fn find_ids(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     filter: rpc::NvLinkLogicalPartitionSearchFilter,
 ) -> Result<Vec<NvLinkLogicalPartitionId>, DatabaseError> {
     // build query
@@ -303,7 +304,7 @@ pub async fn find_ids(
 }
 
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = LogicalPartition>>(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     filter: ObjectColumnFilter<'a, C>,
 ) -> Result<Vec<LogicalPartition>, DatabaseError> {
     let mut query = FilterableQueryBuilder::new(

@@ -28,6 +28,7 @@ use sqlx::PgConnection;
 
 use super::DatabaseError;
 use crate::DatabaseResult;
+use crate::db_read::DbReader;
 
 async fn update(
     txn: &mut PgConnection,
@@ -207,7 +208,7 @@ pub async fn find_machine_id_by_bmc_ip(
 }
 
 pub async fn find_machine_bmc_pairs(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     bmc_ips: Vec<String>,
 ) -> Result<Vec<(MachineId, String)>, DatabaseError> {
     let query = r#"SELECT machine_id, topology->'bmc_info'->>'ip'
@@ -259,7 +260,7 @@ pub async fn find_machine_bmc_pairs_by_machine_id(
 /// will make this a fast operation that doesn't need to sequentially scan. DO NOT change this
 /// query without also changing the index!
 pub async fn find_by_serial(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     to_find: &str,
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query = r#"
@@ -287,7 +288,7 @@ pub async fn find_by_serial(
 /// Search the topologyfor a string anywhere in the JSON.
 /// Used by the serial number finder for non-exact matches
 pub async fn find_freetext(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     to_find: &str,
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query =

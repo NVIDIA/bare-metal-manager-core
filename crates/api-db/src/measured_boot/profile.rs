@@ -28,6 +28,7 @@ use measured_boot::profile::MeasurementSystemProfile;
 use measured_boot::records::{MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord};
 use sqlx::{PgConnection, PgTransaction};
 
+use crate::db_read::DbReader;
 use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::common::acquire_advisory_txn_lock;
 use crate::measured_boot::interface::profile::{
@@ -70,7 +71,7 @@ pub async fn match_from_attrs_or_new(
     txn: &mut PgTransaction<'_>,
     attrs: &HashMap<String, String>,
 ) -> DatabaseResult<MeasurementSystemProfile> {
-    match match_profile(txn, attrs).await? {
+    match match_profile(txn.as_mut(), attrs).await? {
         Some(profile_id) => Ok(load_from_id(txn, profile_id).await?),
         None => Ok(new(txn, None, attrs).await?),
     }
@@ -180,7 +181,10 @@ pub async fn rename_for_name(
     from_info_and_attrs(info, attrs)
 }
 
-pub async fn get_all(txn: &mut PgConnection) -> DatabaseResult<Vec<MeasurementSystemProfile>> {
+pub async fn get_all<DB>(txn: &mut DB) -> DatabaseResult<Vec<MeasurementSystemProfile>>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     get_all_profiles(txn).await
 }
 
@@ -200,10 +204,13 @@ pub async fn get_machines(
 /// The code is written as such to only allow one profile with the same set
 /// of attributes, so if two matching profiles end up existing, it's because
 /// someone was messing around in the tables (or there's a bug).
-async fn match_profile(
-    txn: &mut PgConnection,
+async fn match_profile<DB>(
+    txn: &mut DB,
     attrs: &HashMap<String, String>,
-) -> DatabaseResult<Option<MeasurementSystemProfileId>> {
+) -> DatabaseResult<Option<MeasurementSystemProfileId>>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     // Get all profiles, and figure out which one intersects
     // with the provided attrs. After that, we'll attempt to find the
     // most specific match (if there are multiple matches).
@@ -371,13 +378,15 @@ pub async fn delete_profile_for_name(
     delete_profile_for_id(txn, profile.profile_id).await
 }
 
-pub async fn get_all_profiles(
-    txn: &mut PgConnection,
-) -> DatabaseResult<Vec<MeasurementSystemProfile>> {
+pub async fn get_all_profiles<DB>(txn: &mut DB) -> DatabaseResult<Vec<MeasurementSystemProfile>>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     let mut res: Vec<MeasurementSystemProfile> = Vec::new();
-    let mut infos = get_all_measurement_profile_records(txn).await?;
+    let mut infos = get_all_measurement_profile_records(&mut *txn).await?;
     for info in infos.drain(..) {
-        let attrs = get_measurement_profile_attrs_for_profile_id(txn, info.profile_id).await?;
+        let attrs =
+            get_measurement_profile_attrs_for_profile_id(&mut *txn, info.profile_id).await?;
         res.push(MeasurementSystemProfile {
             profile_id: info.profile_id,
             name: info.name,
@@ -416,7 +425,7 @@ pub async fn match_from_attrs(
     txn: &mut PgConnection,
     attrs: &HashMap<String, String>,
 ) -> DatabaseResult<Option<MeasurementSystemProfile>> {
-    match match_profile(txn, attrs).await? {
+    match match_profile(&mut *txn, attrs).await? {
         Some(info) => Ok(Some(load_from_id(txn, info).await?)),
         None => Ok(None),
     }

@@ -180,10 +180,9 @@ async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         config: env.config.clone(),
     };
 
-    let mut txn = env.pool.begin().await?;
     let snapshots = machines
         .snapshots(
-            &mut txn,
+            &mut env.db_reader(),
             LoadSnapshotOptions {
                 include_history: false,
                 include_instance_data: false,

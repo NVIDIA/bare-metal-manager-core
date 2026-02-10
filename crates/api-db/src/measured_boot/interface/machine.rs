@@ -69,7 +69,7 @@ pub async fn get_candidate_machine_record_by_id(
 /// get_candidate_machine_records returns all MockMachineRecord rows,
 /// primarily for the purpose of `mock-machine list`.
 pub async fn get_candidate_machine_records(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
 ) -> Result<Vec<CandidateMachineRecord>, DatabaseError> {
     common::get_all_objects(txn)
         .await

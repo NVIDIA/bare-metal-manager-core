@@ -26,6 +26,7 @@ use model::extension_service::{
 use model::tenant::TenantOrganizationId;
 use sqlx::PgConnection;
 
+use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
 /// Creates a new extension service and creates its initial extension service version.
@@ -501,7 +502,7 @@ pub async fn find_versions_info(
 /// * `service_id` - The ID of the extension service
 ///
 pub async fn find_all_versions(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     service_id: ExtensionServiceId,
 ) -> DatabaseResult<Vec<ConfigVersion>> {
     let query = "SELECT version FROM extension_service_versions WHERE deleted IS NULL AND service_id = $1 ORDER BY (split_part(split_part(version, '-', 1), 'V', 2))::integer DESC";

@@ -16,11 +16,8 @@
  */
 use ::rpc::protos;
 use db::dns::resource_record;
-use db::{self, DatabaseError, WithTransaction};
 use dns_record::constants::*;
 use dns_record::{DnsResourceRecordReply, DnsResourceRecordType};
-use futures_util::FutureExt;
-use sqlx::{Postgres, Transaction};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -40,11 +37,11 @@ impl From<DnsResourceRecordLookupResponse> for protos::dns::DnsResourceRecordLoo
 }
 
 async fn lookup_soa_record(
-    txn: &mut Transaction<'_, Postgres>,
+    db: impl DbReader<'_>,
     query_name: &str,
 ) -> Result<DnsResourceRecordReply, tonic::Status> {
     tracing::debug!("Looking up SOA record for {}", query_name);
-    let record = resource_record::get_soa_record(txn, query_name)
+    let record = resource_record::get_soa_record(db, query_name)
         .await
         .map_err(CarbideError::from)?
         .ok_or_else(|| CarbideError::NotFoundError {
@@ -64,7 +61,7 @@ async fn lookup_soa_record(
 
 /// Returns ALL record types (A, AAAA, CNAME, etc.) - PowerDNS filters to requested type
 async fn lookup_records_by_qname(
-    txn: &mut Transaction<'_, Postgres>,
+    txn: impl DbReader<'_>,
     query_name: &str,
 ) -> Result<Vec<DnsResourceRecordReply>, tonic::Status> {
     tracing::debug!("Looking up records for {}", query_name);
@@ -117,23 +114,26 @@ async fn lookup_records_by_qname(
 /// 2. If the qname matches a domain we're authoritative for, includes the SOA record
 /// 3. Returns everything - PowerDNS decides what to include in the final packet
 ///
-async fn lookup_any_record(
-    txn: &mut Transaction<'_, Postgres>,
+async fn lookup_any_record<DB>(
+    txn: &mut DB,
     query_name: &str,
-) -> Result<Vec<DnsResourceRecordReply>, Status> {
+) -> Result<Vec<DnsResourceRecordReply>, Status>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     let mut dns_records: Vec<DnsResourceRecordReply> = Vec::new();
 
     tracing::debug!("Looking up ANY records for {}", query_name);
 
     // 1. Look up all matching records from dns_records view
     //    (Returns A, AAAA, CNAME, etc. - PowerDNS will filter if needed)
-    let records = lookup_records_by_qname(txn, query_name).await?;
+    let records = lookup_records_by_qname(&mut *txn, query_name).await?;
     dns_records.extend(records);
 
     // 2. If this query is for a domain we're authoritative for, also include SOA
     //    domains table stores names without trailing dots
     let domain_name = db::dns::normalize_domain(query_name);
-    match db::dns::domain::find_by_name(txn, &domain_name).await {
+    match db::dns::domain::find_by_name(&mut *txn, &domain_name).await {
         Ok(domains) if !domains.is_empty() => {
             let domain = &domains[0];
             tracing::debug!(
@@ -193,18 +193,11 @@ pub async fn get_all_domains(
 ) -> Result<Response<protos::dns::GetAllDomainsResponse>, Status> {
     log_request_data(&_request);
 
-    let domains = api
-        .with_txn(|txn| {
-            async move {
-                db::dns::domain::find_by(
-                    txn,
-                    db::ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
-                )
-                .await
-            }
-            .boxed()
-        })
-        .await??;
+    let domains = db::dns::domain::find_by(
+        &api.database_connection,
+        db::ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
+    )
+    .await?;
 
     tracing::debug!(count = domains.len(), "Found domains");
     for domain in &domains {
@@ -240,21 +233,14 @@ pub async fn get_all_domain_metadata(
 
     let domain_name = db::dns::normalize_domain(&metadata_request.domain);
 
-    let domains = api
-        .with_txn(|txn| {
-            async move {
-                db::dns::domain::find_by(
-                    txn,
-                    db::ObjectColumnFilter::<db::dns::domain::NameColumn>::One(
-                        db::dns::domain::NameColumn,
-                        &domain_name.as_str(),
-                    ),
-                )
-                .await
-            }
-            .boxed()
-        })
-        .await??;
+    let domains = db::dns::domain::find_by(
+        &api.database_connection,
+        db::ObjectColumnFilter::<db::dns::domain::NameColumn>::One(
+            db::dns::domain::NameColumn,
+            &domain_name.as_str(),
+        ),
+    )
+    .await?;
 
     let domain = domains.first().ok_or_else(|| CarbideError::NotFoundError {
         kind: "domain",
@@ -299,21 +285,17 @@ pub async fn lookup_record(
         DnsResourceRecordType::ANY => {
             // Return ALL records for this qname
             let normalized = db::dns::normalize_domain(&qname);
-            api.with_txn(|txn| async move { lookup_any_record(txn, &normalized).await }.boxed())
-                .await??
+            lookup_any_record(&mut api.db_reader(), &normalized).await?
         }
         DnsResourceRecordType::SOA => {
             // SOA queries: only return SOA record for the domain
             let normalized = db::dns::normalize_domain(&qname);
-            let record = api
-                .with_txn(|txn| async move { lookup_soa_record(txn, &normalized).await }.boxed())
-                .await??;
+            let record = lookup_soa_record(&api.database_connection, &normalized).await?;
             vec![record]
         }
         _ => {
             // For all other types (A, AAAA, MX, CNAME, etc.):
-            api.with_txn(|txn| async move { lookup_records_by_qname(txn, &qname).await }.boxed())
-                .await??
+            lookup_records_by_qname(&api.database_connection, &qname).await?
         }
     };
 
@@ -332,6 +314,7 @@ pub async fn lookup_record(
 
 use ::rpc::forge::dns_message::dns_response::Dnsrr;
 use ::rpc::forge::dns_message::{DnsQuestion, DnsResponse};
+use db::db_read::DbReader;
 
 /// Compatibility adapter for legacy lookup_record RPC
 pub async fn lookup_record_legacy_compat(
@@ -403,15 +386,9 @@ pub async fn lookup_record_legacy_compat(
     };
 
     // Try to find the domain this record belongs to
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("begin lookup_record_legacy", e)))?;
-
     // Find all domains and match the longest suffix
     let domains = db::dns::domain::find_by(
-        &mut txn,
+        &api.database_connection,
         db::ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
     )
     .await?;
@@ -421,10 +398,6 @@ pub async fn lookup_record_legacy_compat(
         .filter(|d| domain_name.ends_with(&d.name))
         .max_by_key(|d| d.name.len())
         .ok_or_else(|| Status::not_found(format!("No domain found for qname: {}", qname)))?;
-
-    txn.commit()
-        .await
-        .map_err(|e| CarbideError::from(DatabaseError::new("commit lookup_record_legacy", e)))?;
 
     // Convert to new request format
     let lookup_request = protos::dns::DnsResourceRecordLookupRequest {

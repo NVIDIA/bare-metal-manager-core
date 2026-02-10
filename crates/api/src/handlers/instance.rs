@@ -185,9 +185,7 @@ pub(crate) async fn find_ids(
 
     let filter: rpc::InstanceSearchFilter = request.into_inner();
 
-    let instance_ids = api
-        .with_txn(|txn| db::instance::find_ids(txn, filter).boxed())
-        .await??;
+    let instance_ids = db::instance::find_ids(&api.database_connection, filter).await?;
 
     Ok(tonic::Response::new(rpc::InstanceIdList { instance_ids }))
 }
@@ -1309,13 +1307,16 @@ async fn update_instance_network_config(
         .validate(allow_instance_vf)
         .map_err(CarbideError::from)?;
 
-    let mh_snapshot =
-        db::managed_host::load_snapshot(txn, &instance.machine_id, LoadSnapshotOptions::default())
-            .await?
-            .ok_or(CarbideError::NotFoundError {
-                kind: "machine",
-                id: instance.machine_id.to_string(),
-            })?;
+    let mh_snapshot = db::managed_host::load_snapshot(
+        txn.as_mut(),
+        &instance.machine_id,
+        LoadSnapshotOptions::default(),
+    )
+    .await?
+    .ok_or(CarbideError::NotFoundError {
+        kind: "machine",
+        id: instance.machine_id.to_string(),
+    })?;
 
     // Allocate IPs and add them to the network config
     let updated_network_config = db::instance_network_config::with_allocated_ips(
@@ -1460,9 +1461,8 @@ pub async fn force_delete_instance(
     api: &Api,
     response: &mut AdminForceDeleteMachineResponse,
 ) -> CarbideResult<()> {
-    let instance = api
-        .with_txn(|txn| db::instance::find_by_id(txn, instance_id).boxed())
-        .await??
+    let instance = db::instance::find_by_id(&api.database_connection, instance_id)
+        .await?
         .ok_or_else(|| {
             CarbideError::internal(format!("Could not find an instance for {instance_id}"))
         })?

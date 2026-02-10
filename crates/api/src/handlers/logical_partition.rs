@@ -59,9 +59,8 @@ pub(crate) async fn find_ids(
 
     let filter: rpc::NvLinkLogicalPartitionSearchFilter = request.into_inner();
 
-    let partition_ids = api
-        .with_txn(|txn| db::nvl_logical_partition::find_ids(txn, filter).boxed())
-        .await??;
+    let partition_ids =
+        db::nvl_logical_partition::find_ids(&api.database_connection, filter).await?;
 
     Ok(Response::new(rpc::NvLinkLogicalPartitionIdList {
         partition_ids,
@@ -88,16 +87,12 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let partitions = api
-        .with_txn(|txn| {
-            db::nvl_logical_partition::find_by(
-                txn,
-                ObjectColumnFilter::List(nvl_logical_partition::IdColumn, &partition_ids),
-            )
-            .boxed()
-        })
-        .await?
-        .map_err(CarbideError::from)?;
+    let partitions = db::nvl_logical_partition::find_by(
+        &api.database_connection,
+        ObjectColumnFilter::List(nvl_logical_partition::IdColumn, &partition_ids),
+    )
+    .await
+    .map_err(CarbideError::from)?;
 
     let mut result = Vec::with_capacity(partitions.len());
     for lp in partitions {
@@ -120,10 +115,8 @@ pub(crate) async fn delete(
         .id
         .ok_or_else(|| CarbideError::MissingArgument("id"))?;
 
-    let mut txn = api.txn_begin().await?;
-
     let mut partitions = db::nvl_logical_partition::find_by(
-        &mut txn,
+        &api.database_connection,
         ObjectColumnFilter::One(nvl_logical_partition::IdColumn, &id),
     )
     .await
@@ -141,9 +134,11 @@ pub(crate) async fn delete(
     };
 
     // check if there any physical partitions already part of this logical partition
-    let db_nvl_partitions =
-        db::nvl_partition::find_by(&mut txn, ObjectColumnFilter::<nvl_partition::IdColumn>::All)
-            .await?;
+    let db_nvl_partitions = db::nvl_partition::find_by(
+        &api.database_connection,
+        ObjectColumnFilter::<nvl_partition::IdColumn>::All,
+    )
+    .await?;
     if db_nvl_partitions
         .iter()
         .any(|p| p.logical_partition_id == Some(id))
@@ -154,12 +149,11 @@ pub(crate) async fn delete(
         .into());
     }
 
-    let resp = db::nvl_logical_partition::mark_as_deleted(&partition, &mut txn)
-        .await
+    let resp = api
+        .with_txn(|txn| db::nvl_logical_partition::mark_as_deleted(&partition, txn).boxed())
+        .await?
         .map(|_| rpc::NvLinkLogicalPartitionDeletionResult {})
         .map(Response::new)?;
-
-    txn.commit().await?;
 
     Ok(resp)
 }
@@ -183,10 +177,10 @@ pub(crate) async fn for_tenant(
 
     log_tenant_organization_id(&tenant_org_id_str);
 
-    let results = api
-        .with_txn(|txn| db::nvl_logical_partition::for_tenant(txn, tenant_org_id_str).boxed())
-        .await?
-        .map_err(CarbideError::from)?;
+    let results =
+        db::nvl_logical_partition::for_tenant(&api.database_connection, tenant_org_id_str)
+            .await
+            .map_err(CarbideError::from)?;
 
     let mut partitions = Vec::with_capacity(results.len());
 

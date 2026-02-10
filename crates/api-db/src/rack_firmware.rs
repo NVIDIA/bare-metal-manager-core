@@ -22,6 +22,7 @@ use sqlx::postgres::PgRow;
 use sqlx::types::Json;
 use sqlx::{FromRow, PgConnection, Row};
 
+use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,7 +86,7 @@ impl RackFirmware {
     }
 
     /// Find a Rack firmware configuration by ID
-    pub async fn find_by_id(txn: &mut PgConnection, id: &str) -> DatabaseResult<Self> {
+    pub async fn find_by_id(txn: impl DbReader<'_>, id: &str) -> DatabaseResult<Self> {
         let query = "SELECT * FROM rack_firmware WHERE id = $1";
         let ret = sqlx::query_as(query).bind(id).fetch_one(txn).await;
         ret.map_err(|e| match e {

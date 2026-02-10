@@ -20,8 +20,7 @@ use carbide_uuid::network_security_group::NetworkSecurityGroupId;
 use carbide_uuid::vpc::VpcId;
 use db::resource_pool::ResourcePoolDatabaseError;
 use db::vpc::{self};
-use db::{self, ObjectColumnFilter, WithTransaction, network_security_group};
-use futures_util::FutureExt;
+use db::{self, ObjectColumnFilter, network_security_group};
 use model::resource_pool;
 use model::tenant::{InvalidTenantOrg, RoutingProfileType};
 use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization};
@@ -335,9 +334,7 @@ pub(crate) async fn find_ids(
 
     let filter: rpc::VpcSearchFilter = request.into_inner();
 
-    let vpc_ids = api
-        .with_txn(|txn| db::vpc::find_ids(txn, filter).boxed())
-        .await??;
+    let vpc_ids = db::vpc::find_ids(&api.database_connection, filter).await?;
 
     Ok(Response::new(rpc::VpcIdList { vpc_ids }))
 }
@@ -362,11 +359,11 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let db_vpcs = api
-        .with_txn(|txn| {
-            db::vpc::find_by(txn, ObjectColumnFilter::List(vpc::IdColumn, &vpc_ids)).boxed()
-        })
-        .await?;
+    let db_vpcs = db::vpc::find_by(
+        &api.database_connection,
+        ObjectColumnFilter::List(vpc::IdColumn, &vpc_ids),
+    )
+    .await;
 
     let result = db_vpcs
         .map(|vpc| rpc::VpcList {

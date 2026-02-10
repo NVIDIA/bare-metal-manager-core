@@ -26,8 +26,7 @@ use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineInterfaceId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
-use db::{DatabaseError, ObjectColumnFilter, WithTransaction, instance, network_segment, vpc};
-use futures_util::FutureExt;
+use db::{DatabaseError, ObjectColumnFilter, instance, network_segment, vpc};
 use model::network_segment::NetworkSegmentSearchConfig;
 use model::resource_pool::ResourcePoolEntryState;
 use model::route_server::RouteServerSourceType;
@@ -121,15 +120,11 @@ pub(crate) async fn identify_serial(
     crate::api::log_request_data(&request);
     let req = request.into_inner();
 
-    let machine_ids = api
-        .with_txn(|txn| {
-            if req.exact {
-                db::machine_topology::find_by_serial(txn, &req.serial_number).boxed()
-            } else {
-                db::machine_topology::find_freetext(txn, &req.serial_number).boxed()
-            }
-        })
-        .await??;
+    let machine_ids = if req.exact {
+        db::machine_topology::find_by_serial(&api.database_connection, &req.serial_number).await?
+    } else {
+        db::machine_topology::find_freetext(&api.database_connection, &req.serial_number).await?
+    };
 
     if machine_ids.len() > 1 {
         tracing::warn!(

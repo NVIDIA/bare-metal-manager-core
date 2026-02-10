@@ -104,6 +104,7 @@ async fn test_switch_state_transitions(
 
     let handler_services = Arc::new(CommonStateHandlerServices {
         db_pool: pool.clone(),
+        db_reader: pool.clone().into(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),
@@ -172,6 +173,7 @@ async fn test_switch_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     let handler_services = Arc::new(CommonStateHandlerServices {
         db_pool: pool.clone(),
+        db_reader: pool.clone().into(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),
@@ -263,6 +265,7 @@ async fn test_switch_error_state_handling(
 
     let handler_services = Arc::new(CommonStateHandlerServices {
         db_pool: pool.clone(),
+        db_reader: pool.clone().into(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),
@@ -382,6 +385,7 @@ async fn test_switch_deletion_with_state_controller(
 
     let handler_services = Arc::new(CommonStateHandlerServices {
         db_pool: pool.clone(),
+        db_reader: pool.clone().into(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),

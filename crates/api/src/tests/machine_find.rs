@@ -255,13 +255,8 @@ async fn test_find_machine_ids_with_and_without_dpus(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_find_all_machines_when_there_arent_any(pool: sqlx::PgPool) {
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("Could create a transaction on database pool");
-
     let machines = db::machine::find(
-        &mut txn,
+        &pool,
         ObjectFilter::All,
         crate::tests::machine_find::MachineSearchConfig {
             include_history: true,

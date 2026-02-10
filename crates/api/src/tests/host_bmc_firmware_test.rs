@@ -94,7 +94,7 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
     let mut txn = pool.begin().await.unwrap();
     assert!(
-        db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn)
+        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut())
             .await?
             .is_empty()
     );
@@ -114,7 +114,7 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
 
     assert!(
-        db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn)
+        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut())
             .await?
             .is_empty()
     );
@@ -136,7 +136,8 @@ async fn test_preingestion_bmc_upgrade(
     // At this point, we expect that it shows as having completed upload
     let mut txn = pool.begin().await.unwrap();
 
-    let endpoints = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;
+    let endpoints =
+        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
@@ -229,7 +230,7 @@ async fn test_preingestion_bmc_upgrade(
 
     let mut txn = pool.begin().await.unwrap();
     assert!(
-        db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn)
+        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut())
             .await?
             .is_empty()
     );
@@ -282,7 +283,8 @@ async fn test_preingestion_upgrade_script(
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;
+    let endpoints =
+        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
@@ -299,7 +301,8 @@ async fn test_preingestion_upgrade_script(
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;
+    let endpoints =
+        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
@@ -981,7 +984,8 @@ async fn test_preingestion_preupdate_powercycling(
 
     // Expect "reset" the BMC
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;
+    let endpoints =
+        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
         PreingestionState::InitialReset { phase, .. } => {
@@ -996,7 +1000,8 @@ async fn test_preingestion_preupdate_powercycling(
 
     // Expect WaitHostBoot
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;
+    let endpoints =
+        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
         PreingestionState::InitialReset { phase, .. } => {
@@ -1017,7 +1022,8 @@ async fn test_preingestion_preupdate_powercycling(
 
     // Recheck versions
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;
+    let endpoints =
+        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
     let endpoint = endpoints.first().unwrap();
     assert_eq!(
         endpoint.preingestion_state,
@@ -1029,7 +1035,8 @@ async fn test_preingestion_preupdate_powercycling(
     // At this point, we expect that it shows as having completed upload
     let mut txn = pool.begin().await.unwrap();
 
-    let endpoints = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;
+    let endpoints =
+        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
     assert!(endpoints.len() == 1);
     let mut endpoint = endpoints.into_iter().next().unwrap();
     match &endpoint.preingestion_state {
@@ -1122,7 +1129,7 @@ async fn test_preingestion_preupdate_powercycling(
     mgr.run_single_iteration().await?;
     let mut txn = pool.begin().await.unwrap();
     assert!(
-        db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn)
+        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut())
             .await?
             .is_empty()
     );
@@ -2254,7 +2261,8 @@ async fn test_preingestion_time_sync_reset_flow(
     );
 
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;
+    let endpoints =
+        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
     assert_eq!(endpoints.len(), 1);
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
@@ -2274,7 +2282,8 @@ async fn test_preingestion_time_sync_reset_flow(
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_preingest_not_waiting_not_error(&mut txn).await?;
+    let endpoints =
+        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
         PreingestionState::TimeSyncReset { phase, .. } => {
