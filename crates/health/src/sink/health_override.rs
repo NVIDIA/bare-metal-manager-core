@@ -27,7 +27,7 @@ use crate::sink::HealthOverride;
 
 struct HealthOverrideJob {
     machine_id: carbide_uuid::machine::MachineId,
-    report: health_report::HealthReport,
+    report: Arc<health_report::HealthReport>,
 }
 
 pub struct HealthOverrideSink {
@@ -36,6 +36,12 @@ pub struct HealthOverrideSink {
 
 impl HealthOverrideSink {
     pub fn new(config: &CarbideApiConnectionConfig) -> Result<Self, HealthError> {
+        let handle = tokio::runtime::Handle::try_current().map_err(|error| {
+            HealthError::GenericError(format!(
+                "health override sink requires active Tokio runtime: {error}"
+            ))
+        })?;
+
         let client = Arc::new(ApiClientWrapper::new(
             config.root_ca.clone(),
             config.client_cert.clone(),
@@ -44,24 +50,34 @@ impl HealthOverrideSink {
             false,
         ));
 
-        let handle = tokio::runtime::Handle::try_current().map_err(|error| {
-            HealthError::GenericError(format!(
-                "health override sink requires active Tokio runtime: {error}"
-            ))
-        })?;
         let (sender, mut receiver) = mpsc::unbounded_channel::<HealthOverrideJob>();
         let worker_client = Arc::clone(&client);
 
         handle.spawn(async move {
             while let Some(job) = receiver.recv().await {
+                let report = Arc::unwrap_or_clone(job.report);
                 if let Err(error) = worker_client
-                    .submit_health_report(&job.machine_id, job.report)
+                    .submit_health_report(&job.machine_id, report)
                     .await
                 {
                     tracing::warn!(error = ?error, "Failed to submit health override report");
                 }
             }
         });
+
+        Ok(Self { sender })
+    }
+
+    #[cfg(feature = "bench-hooks")]
+    pub fn new_for_bench() -> Result<Self, HealthError> {
+        let handle = tokio::runtime::Handle::try_current().map_err(|error| {
+            HealthError::GenericError(format!(
+                "health override sink requires active Tokio runtime: {error}"
+            ))
+        })?;
+
+        let (sender, mut receiver) = mpsc::unbounded_channel::<HealthOverrideJob>();
+        handle.spawn(async move { while receiver.recv().await.is_some() {} });
 
         Ok(Self { sender })
     }

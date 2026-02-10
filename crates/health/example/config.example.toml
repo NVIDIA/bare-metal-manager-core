@@ -52,7 +52,7 @@ max_jitter = "40ms"
 # Collectors: What data to collect from BMCs and NMX-T enabled switches
 # ==============================================================================
 
-[collectors.health]
+[collectors.sensors]
 rediscover_interval = "5m"
 state_refresh_interval = "30m"
 sensor_fetch_interval = "1m"

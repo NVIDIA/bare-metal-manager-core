@@ -23,9 +23,11 @@ use std::time::{Duration, Instant};
 use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
 use carbide_health::metrics::MetricsManager;
 use carbide_health::sink::{
-    CollectorEvent, CompositeDataSink, DataSink, EventContext, MetricSample, PrometheusSink,
+    CollectorEvent, CompositeDataSink, DataSink, EventContext, HealthOverride, HealthOverrideSink,
+    MetricSample, PrometheusSink,
 };
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use health_report::{HealthProbeAlert, HealthReport};
 
 const MACHINE_ID: &str = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
 
@@ -215,5 +217,104 @@ fn bench_composite_sink(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_prometheus_sink, bench_composite_sink);
+fn health_report_with_alerts(alert_count: usize) -> HealthReport {
+    let mut report = HealthReport::empty("bench-health-override".to_string());
+    report.alerts.reserve(alert_count);
+    for idx in 0..alert_count {
+        report.alerts.push(HealthProbeAlert::heartbeat_timeout(
+            format!("target-{idx}"),
+            format!("alert message #{idx}"),
+        ));
+    }
+    report
+}
+
+struct HealthOverrideBenchState {
+    _runtime: tokio::runtime::Runtime,
+    sink: HealthOverrideSink,
+    context: EventContext,
+    small_event: CollectorEvent,
+    large_event: CollectorEvent,
+}
+
+impl HealthOverrideBenchState {
+    fn new() -> Self {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+
+        let sink = {
+            let _guard = runtime.enter();
+            HealthOverrideSink::new_for_bench().expect("bench sink should initialize")
+        };
+        let context = event_context();
+        let machine_id = MACHINE_ID.parse().expect("valid machine id");
+
+        let small_event = CollectorEvent::HealthOverride(HealthOverride {
+            machine_id: Some(machine_id),
+            report: Arc::new(health_report_with_alerts(1)),
+        });
+        let large_event = CollectorEvent::HealthOverride(HealthOverride {
+            machine_id: Some(machine_id),
+            report: Arc::new(health_report_with_alerts(64)),
+        });
+
+        Self {
+            _runtime: runtime,
+            sink,
+            context,
+            small_event,
+            large_event,
+        }
+    }
+}
+
+fn bench_health_override_sink(c: &mut Criterion) {
+    let mut group = c.benchmark_group("sink_health_override");
+    let batch_size = 20_000usize;
+    group.throughput(Throughput::Elements(batch_size as u64));
+
+    let state = HealthOverrideBenchState::new();
+
+    group.bench_with_input(
+        BenchmarkId::new("enqueue", "small_report"),
+        &state,
+        |b, state| {
+            b.iter(|| {
+                for _ in 0..batch_size {
+                    state
+                        .sink
+                        .handle_event(&state.context, &state.small_event)
+                        .expect("enqueue should succeed");
+                }
+            });
+        },
+    );
+
+    group.bench_with_input(
+        BenchmarkId::new("enqueue", "large_report"),
+        &state,
+        |b, state| {
+            b.iter(|| {
+                for _ in 0..batch_size {
+                    state
+                        .sink
+                        .handle_event(&state.context, &state.large_event)
+                        .expect("enqueue should succeed");
+                }
+            });
+        },
+    );
+
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_prometheus_sink,
+    bench_composite_sink,
+    bench_health_override_sink
+);
 criterion_main!(benches);

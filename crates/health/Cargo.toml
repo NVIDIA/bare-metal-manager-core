@@ -53,12 +53,16 @@ logfmt = { path = "../logfmt" }
 [build-dependencies]
 carbide-version = { path = "../version" }
 
+[features]
+bench-hooks = []
+
 [dev-dependencies]
 criterion = { workspace = true }
 
 [[bench]]
 name = "sink_pipeline"
 harness = false
+required-features = ["bench-hooks"]
 
 [[bench]]
 name = "collector_pipeline"

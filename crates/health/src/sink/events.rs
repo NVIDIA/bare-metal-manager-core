@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::sync::Arc;
+
 use carbide_uuid::machine::MachineId;
 
 use crate::endpoint::{BmcAddr, BmcEndpoint, EndpointMetadata};
@@ -82,7 +84,7 @@ pub struct FirmwareInfo {
 #[derive(Clone, Debug)]
 pub struct HealthOverride {
     pub machine_id: Option<MachineId>,
-    pub report: health_report::HealthReport,
+    pub report: Arc<health_report::HealthReport>,
 }
 
 #[derive(Clone, Debug)]

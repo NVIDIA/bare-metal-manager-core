@@ -343,7 +343,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                     EndpointMetadata::Machine(machine) => Some(machine.machine_id),
                     EndpointMetadata::Switch(_) => None,
                 }),
-                report,
+                report: Arc::new(report),
             })) {
                 tracing::warn!(
                 endpoint = %self.endpoint.addr.mac,
