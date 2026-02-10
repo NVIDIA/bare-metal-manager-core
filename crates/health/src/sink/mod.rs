@@ -113,14 +113,6 @@ mod tests {
             .handle_event(&context, &event)
             .expect("composite sink should isolate downstream sink failures");
 
-        tokio::time::timeout(std::time::Duration::from_secs(1), async {
-            while success_counter.load(Ordering::SeqCst) < 2 {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("composite sink workers should process queued events");
-
         assert_eq!(success_counter.load(Ordering::SeqCst), 2);
     }
 
