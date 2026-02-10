@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use crate::api_client::BmcAddr;
+use crate::endpoint::BmcAddr;
 
 pub struct ShardManager {
     shard: usize,

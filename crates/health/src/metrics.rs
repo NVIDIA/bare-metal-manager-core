@@ -38,6 +38,12 @@ use crate::HealthError;
 pub type MetricLabel = (String, String);
 type BoxedErr = Box<dyn std::error::Error + Send + Sync + 'static>;
 
+pub fn operation_duration_buckets_seconds() -> Vec<f64> {
+    vec![
+        1.0, 2.0, 5.0, 10.0, 15.0, 20.0, 30.0, 45.0, 60.0, 90.0, 120.0, 180.0, 240.0, 300.0,
+    ]
+}
+
 pub struct MetricsManager {
     global_registry: Registry,
 }

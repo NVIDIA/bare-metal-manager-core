@@ -7,14 +7,14 @@ mac = "aa:bb:cc:dd:ee:ff"
 username = "admin"
 password = "secret"
 
-
 [endpoint_sources.carbide_api]
 enabled = false
 
+[sinks.console]
+enabled = true
 
-[health_sinks.carbide_api]
+[sinks.prometheus]
+enabled = true
+
+[sinks.health_override]
 enabled = false
-
-
-[health_sinks]
-console = true

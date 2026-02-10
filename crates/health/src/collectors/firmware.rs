@@ -18,20 +18,21 @@
 use std::sync::Arc;
 
 use nv_redfish::ServiceRoot;
-use nv_redfish_core::{Bmc, EntityTypeRef};
+use nv_redfish_core::Bmc;
 
-use crate::api_client::{BmcEndpoint, EndpointMetadata};
-use crate::collector::PeriodicCollector;
-use crate::metrics::{CollectorRegistry, GaugeMetrics, GaugeReading};
-use crate::{HealthError, collector};
+use crate::HealthError;
+use crate::collectors::{IterationResult, PeriodicCollector};
+use crate::endpoint::BmcEndpoint;
+use crate::sink::{CollectorEvent, DataSink, EventContext, FirmwareInfo};
 
 pub struct FirmwareCollectorConfig {
-    pub collector_registry: Arc<CollectorRegistry>,
+    pub data_sink: Option<Arc<dyn DataSink>>,
 }
 
 pub struct FirmwareCollector<B: Bmc> {
     bmc: Arc<B>,
-    hw_firmware_gauge: Arc<GaugeMetrics>,
+    event_context: EventContext,
+    data_sink: Option<Arc<dyn DataSink>>,
 }
 
 impl<B: Bmc + 'static> PeriodicCollector<B> for FirmwareCollector<B> {
@@ -42,31 +43,15 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for FirmwareCollector<B> {
         endpoint: Arc<BmcEndpoint>,
         config: Self::Config,
     ) -> Result<Self, HealthError> {
-        let (serial, machine_id) = match &endpoint.metadata {
-            Some(EndpointMetadata::Machine(m)) => (
-                m.machine_serial.clone().unwrap_or_default(),
-                m.machine_id.to_string(),
-            ),
-            _ => (String::new(), String::new()),
-        };
-
-        let hw_firmware_gauge = config.collector_registry.create_gauge_metrics(
-            format!("firmware_gauge_{}", endpoint.addr.hash_key()),
-            "Firmware inventory information",
-            vec![
-                ("serial_number".to_string(), serial),
-                ("machine_id".to_string(), machine_id),
-                ("bmc_mac".to_string(), endpoint.addr.mac.clone()),
-            ],
-        )?;
-
+        let event_context = EventContext::from_endpoint(endpoint.as_ref(), "firmware_collector");
         Ok(Self {
             bmc,
-            hw_firmware_gauge,
+            event_context,
+            data_sink: config.data_sink,
         })
     }
 
-    async fn run_iteration(&mut self) -> Result<collector::IterationResult, HealthError> {
+    async fn run_iteration(&mut self) -> Result<IterationResult, HealthError> {
         self.run_firmware_iteration().await
     }
 
@@ -76,11 +61,20 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for FirmwareCollector<B> {
 }
 
 impl<B: Bmc + 'static> FirmwareCollector<B> {
-    async fn run_firmware_iteration(&self) -> Result<collector::IterationResult, HealthError> {
+    async fn emit_event(&self, event: CollectorEvent) -> Result<(), HealthError> {
+        if let Some(data_sink) = &self.data_sink {
+            data_sink
+                .handle_event(self.event_context.clone(), event)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn run_firmware_iteration(&self) -> Result<IterationResult, HealthError> {
         let service_root = ServiceRoot::new(self.bmc.clone()).await?;
         let update_service = service_root.update_service().await?;
         let firmware_inventories = update_service.firmware_inventories().await?;
-        self.hw_firmware_gauge.begin_update();
 
         let mut firmware_count = 0;
 
@@ -97,26 +91,23 @@ impl<B: Bmc + 'static> FirmwareCollector<B> {
 
             let firmware_name = &firmware_data.base.name;
 
-            let labels = vec![
-                ("firmware_name".to_string(), firmware_name.clone()),
-                ("version".to_string(), version.clone()),
-            ];
-
-            self.hw_firmware_gauge.record(
-                GaugeReading::new(
-                    firmware_data.id().to_string(),
-                    "hw",
-                    "firmware",
-                    "info",
-                    1.0,
-                )
-                .with_labels(labels),
-            );
+            if let Err(error) = self
+                .emit_event(CollectorEvent::Firmware(FirmwareInfo {
+                    component: firmware_name.clone(),
+                    version: version.clone(),
+                    attributes: vec![
+                        ("firmware_name".to_string(), firmware_name.clone()),
+                        ("version".to_string(), version),
+                    ],
+                }))
+                .await
+            {
+                tracing::warn!(error = ?error, "Failed to emit firmware event");
+            }
             firmware_count += 1;
         }
 
-        self.hw_firmware_gauge.sweep_stale();
-        Ok(collector::IterationResult {
+        Ok(IterationResult {
             refresh_triggered: true,
             entity_count: Some(firmware_count),
         })

@@ -24,13 +24,16 @@ username = "admin"
 password = "secret"
 
 # ==============================================================================
-# Health Report Sinks: Where to send health reports
+# Sinks: Where collector events are sent
 # ==============================================================================
 
-[health_sinks]
-console = true
+[sinks.console]
+enabled = false
 
-[health_sinks.carbide_api]
+[sinks.prometheus]
+enabled = true
+
+[sinks.health_override]
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
@@ -61,6 +64,7 @@ firmware_refresh_interval = "30m"
 
 [collectors.logs]
 logs_collection_interval = "5m"
+state_refresh_interval = "30m"
 logs_state_file = "/tmp/logs_collector_{machine_id}.json"
 logs_output_dir = "/tmp/logs"
 logs_max_file_size = 104857600                            # 100MB

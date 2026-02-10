@@ -16,88 +16,73 @@
  */
 
 use std::collections::HashSet;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures::{StreamExt, stream};
-use health_report::{HealthAlertClassification, HealthProbeId};
 use nv_redfish::ServiceRoot;
 use nv_redfish::chassis::{Chassis, PowerSupply};
 use nv_redfish::computer_system::{ComputerSystem, Drive, Memory, Processor, Storage};
-use nv_redfish::resource::Health as BmcHealth;
 use nv_redfish::sensor::SensorRef;
 use nv_redfish_core::{Bmc, EntityTypeRef, ToSnakeCase};
 
-use crate::api_client::{BmcAddr, BmcEndpoint, EndpointMetadata, HealthReportSink};
-use crate::collector::PeriodicCollector;
-use crate::metrics::{CollectorRegistry, GaugeMetrics, GaugeReading, MetricLabel, sanitize_unit};
-use crate::{HealthError, collector};
+use crate::HealthError;
+use crate::collectors::{IterationResult, PeriodicCollector};
+use crate::endpoint::{BmcAddr, BmcEndpoint, EndpointMetadata};
+use crate::metrics::{MetricLabel, sanitize_unit};
+use crate::sink::{CollectorEvent, DataSink, EventContext, HealthOverride, MetricSample};
 
-/// Configuration for health monitor
-pub struct HealthMonitorConfig {
-    pub report_sink: Option<Arc<dyn HealthReportSink>>,
+mod monitor_health;
+
+use monitor_health::{SensorHealthData, SensorHealthResult};
+
+/// Configuration for sensor collector
+pub struct SensorCollectorConfig {
+    pub data_sink: Option<Arc<dyn DataSink>>,
     pub state_refresh_interval: Duration,
     pub sensor_fetch_concurrency: usize,
-    pub collector_registry: Arc<CollectorRegistry>,
     pub include_sensor_thresholds: bool,
 }
 
-/// Health monitor for a single BMC endpoint
-pub struct HealthMonitor<B: Bmc> {
+/// Sensor collector for a single BMC endpoint
+pub struct SensorCollector<B: Bmc> {
     endpoint: Arc<BmcEndpoint>,
     bmc: Arc<B>,
-    state: Option<HealthMonitorState<B>>,
-    report_sink: Option<Arc<dyn HealthReportSink>>,
+    event_context: EventContext,
+    state: Option<SensorCollectorState<B>>,
+    data_sink: Option<Arc<dyn DataSink>>,
     state_refresh_interval: Duration,
     sensor_fetch_concurrency: usize,
     include_sensor_thresholds: bool,
-    metrics: Arc<GaugeMetrics>,
 }
 
-impl<B: Bmc + 'static> PeriodicCollector<B> for HealthMonitor<B> {
-    type Config = HealthMonitorConfig;
+impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
+    type Config = SensorCollectorConfig;
 
     fn new_runner(
         bmc: Arc<B>,
         endpoint: Arc<BmcEndpoint>,
         config: Self::Config,
     ) -> Result<Self, HealthError> {
-        let (serial, machine_id) = match &endpoint.metadata {
-            Some(EndpointMetadata::Machine(m)) => (
-                m.machine_serial.clone().unwrap_or_default(),
-                m.machine_id.to_string(),
-            ),
-            _ => (String::new(), String::new()),
-        };
-        let metrics = config.collector_registry.create_gauge_metrics(
-            format!("health_gauge_{}", endpoint.addr.hash_key()),
-            "BMC Sensor readings",
-            vec![
-                ("serial_number".to_string(), serial),
-                ("machine_id".to_string(), machine_id),
-                ("bmc_mac".to_string(), endpoint.addr.mac.clone()),
-            ],
-        )?;
-
+        let event_context = EventContext::from_endpoint(endpoint.as_ref(), "sensor_collector");
         Ok(Self {
             bmc,
             endpoint,
+            event_context,
             state: None,
-            report_sink: config.report_sink,
+            data_sink: config.data_sink,
             state_refresh_interval: config.state_refresh_interval,
             sensor_fetch_concurrency: config.sensor_fetch_concurrency,
             include_sensor_thresholds: config.include_sensor_thresholds,
-            metrics,
         })
     }
 
-    async fn run_iteration(&mut self) -> Result<collector::IterationResult, HealthError> {
+    async fn run_iteration(&mut self) -> Result<IterationResult, HealthError> {
         self.run_monitor_iteration().await
     }
 
     fn collector_type(&self) -> &'static str {
-        "health_monitor"
+        "sensor_collector"
     }
 }
 
@@ -130,176 +115,13 @@ enum MonitoredEntity<B: Bmc> {
     },
 }
 
-#[derive(Debug, Clone, Copy)]
-enum SensorHealth {
-    Ok,
-    Warning,
-    Critical,
-    SensorFailure,
-}
-
-impl SensorHealth {
-    fn to_classification(self) -> &'static str {
-        match self {
-            Self::Ok => "SensorOk",
-            Self::Warning => "SensorWarning",
-            Self::Critical => "SensorCritical",
-            Self::SensorFailure => "SensorFailure",
-        }
-    }
-}
-
-#[derive(Debug)]
-struct SensorHealthData {
-    entity_type: String,
-    sensor_id: String,
-    reading: f64,
-    reading_type: String,
-    unit: String,
-    upper_critical: Option<f64>,
-    lower_critical: Option<f64>,
-    upper_caution: Option<f64>,
-    lower_caution: Option<f64>,
-    range_max: Option<f64>,
-    range_min: Option<f64>,
-    bmc_health: Option<BmcHealth>,
-}
-
-impl SensorHealthData {
-    fn fmt_range(low: Option<f64>, high: Option<f64>) -> String {
-        match (low, high) {
-            (None, None) => "not set".to_string(),
-            (Some(l), Some(h)) => format!("{:.1} to {:.1}", l, h),
-            (Some(l), None) => format!("min {:.1}", l),
-            (None, Some(h)) => format!("max {:.1}", h),
-        }
-    }
-
-    fn classify(&self) -> SensorHealth {
-        if let Some(max) = self.range_max
-            && self.reading > max
-            && self.range_max > self.range_min
-        {
-            return SensorHealth::SensorFailure;
-        }
-
-        if let Some(min) = self.range_min
-            && self.reading < min
-            && self.range_max > self.range_min
-        {
-            return SensorHealth::SensorFailure;
-        }
-
-        if let Some(upper_critical) = self.upper_critical
-            && self.reading >= upper_critical
-            && self.upper_critical > self.lower_critical
-        {
-            return SensorHealth::Critical;
-        }
-
-        if let Some(lower_critical) = self.lower_critical
-            && self.reading <= lower_critical
-            && self.upper_critical > self.lower_critical
-        {
-            return SensorHealth::Critical;
-        }
-
-        if let Some(upper_caution) = self.upper_caution
-            && self.reading >= upper_caution
-            && self.upper_caution > self.lower_caution
-        {
-            return SensorHealth::Warning;
-        }
-        if let Some(lower_caution) = self.lower_caution
-            && self.reading <= lower_caution
-            && self.upper_caution > self.lower_caution
-        {
-            return SensorHealth::Warning;
-        }
-
-        SensorHealth::Ok
-    }
-
-    fn to_health_result(&self, health: SensorHealth) -> SensorHealthResult {
-        let probe_id = HealthProbeId::from_str("BMC_Sensor").expect("cannot fail");
-
-        let bmc_reports_ok = matches!(self.bmc_health, Some(BmcHealth::Ok));
-
-        match health {
-            SensorHealth::Ok => SensorHealthResult::Success(health_report::HealthProbeSuccess {
-                id: probe_id,
-                target: Some(self.sensor_id.clone()),
-            }),
-            health => {
-                if bmc_reports_ok {
-                    tracing::warn!(
-                        sensor_id = %self.sensor_id,
-                        entity_type = %self.entity_type,
-                        reading = self.reading,
-                        unit = %self.unit,
-                        reading_type = %self.reading_type,
-                        valid_range = %Self::fmt_range(self.range_min, self.range_max),
-                        caution_range = %Self::fmt_range(self.lower_caution, self.upper_caution),
-                        critical_range = %Self::fmt_range(self.lower_critical, self.upper_critical),
-                        calculated_status = ?health,
-                        "Threshold check indicates issue but BMC reports sensor as OK - likely incorrect thresholds, reporting OK"
-                    );
-                    return SensorHealthResult::Success(health_report::HealthProbeSuccess {
-                        id: probe_id,
-                        target: Some(self.sensor_id.clone()),
-                    });
-                }
-
-                let status = match health {
-                    SensorHealth::Warning => "Warning",
-                    SensorHealth::Critical => "Critical",
-                    SensorHealth::SensorFailure => "Sensor Failure",
-                    SensorHealth::Ok => "Ok",
-                };
-
-                let message = format!(
-                    "{} '{}': {} - reading {:.2}{} ({}), valid range: {}, caution: {}, critical: {}",
-                    self.entity_type,
-                    self.sensor_id,
-                    status,
-                    self.reading,
-                    self.unit,
-                    self.reading_type,
-                    Self::fmt_range(self.range_min, self.range_max),
-                    Self::fmt_range(self.lower_caution, self.upper_caution),
-                    Self::fmt_range(self.lower_critical, self.upper_critical),
-                );
-                let classifications = if let Ok(classification) = health.to_classification().parse()
-                {
-                    vec![classification, HealthAlertClassification::hardware()]
-                } else {
-                    vec![HealthAlertClassification::hardware()]
-                };
-                SensorHealthResult::Alert(health_report::HealthProbeAlert {
-                    id: probe_id,
-                    target: Some(self.sensor_id.clone()),
-                    in_alert_since: None,
-                    message,
-                    tenant_message: None,
-                    classifications,
-                })
-            }
-        }
-    }
-}
-
-enum SensorHealthResult {
-    Success(health_report::HealthProbeSuccess),
-    Alert(health_report::HealthProbeAlert),
-}
-
 /// Trait for entities that can record sensor metrics
 trait SensorRecordable<B: Bmc> {
     fn metric_prefix(&self) -> &'static str;
     fn sensor(&self) -> &SensorRef<B>;
     fn base_attributes(&self) -> Vec<MetricLabel>;
     fn entity_specific_attributes(&self) -> Vec<MetricLabel>;
-    fn record_entity_metrics(&self, gauge: &GaugeMetrics, attributes: Vec<MetricLabel>);
+    fn entity_metrics(&self, attributes: &[MetricLabel]) -> Vec<MetricSample>;
 }
 
 impl<B: Bmc> SensorRecordable<B> for MonitoredEntity<B> {
@@ -395,37 +217,37 @@ impl<B: Bmc> SensorRecordable<B> for MonitoredEntity<B> {
         attrs
     }
 
-    fn record_entity_metrics(&self, metrics: &GaugeMetrics, attributes: Vec<MetricLabel>) {
+    fn entity_metrics(&self, attributes: &[MetricLabel]) -> Vec<MetricSample> {
         match self {
             MonitoredEntity::Drive { entity, .. } => {
                 if let Some(lifetime) = entity.raw().predicted_media_life_left_percent.flatten() {
-                    metrics.record(
-                        GaugeReading::new(
-                            entity.raw().id().to_string(),
-                            "hw",
-                            "drive_predicted_media_life_left",
-                            "percentage",
-                            lifetime,
-                        )
-                        .with_labels(attributes),
-                    );
+                    vec![MetricSample {
+                        key: entity.raw().id().to_string(),
+                        name: "hw".to_string(),
+                        metric_type: "drive_predicted_media_life_left".to_string(),
+                        unit: "percentage".to_string(),
+                        value: lifetime,
+                        labels: attributes.to_vec(),
+                    }]
+                } else {
+                    Vec::new()
                 }
             }
             MonitoredEntity::PowerSupply { entity, .. } => {
                 if let Some(capacity) = entity.raw().power_capacity_watts.flatten() {
-                    metrics.record(
-                        GaugeReading::new(
-                            entity.raw().id().to_string(),
-                            "hw",
-                            "powersupply_capacity",
-                            "watts",
-                            capacity,
-                        )
-                        .with_labels(attributes),
-                    );
+                    vec![MetricSample {
+                        key: entity.raw().id().to_string(),
+                        name: "hw".to_string(),
+                        metric_type: "powersupply_capacity".to_string(),
+                        unit: "watts".to_string(),
+                        value: capacity,
+                        labels: attributes.to_vec(),
+                    }]
+                } else {
+                    Vec::new()
                 }
             }
-            _ => {}
+            _ => Vec::new(),
         }
     }
 }
@@ -451,13 +273,23 @@ impl<T, E> ResultExt<T, E> for Result<T, E> {
     }
 }
 
-struct HealthMonitorState<B: Bmc> {
+struct SensorCollectorState<B: Bmc> {
     entities: Vec<MonitoredEntity<B>>,
     last_entity_refresh: Instant,
 }
 
-impl<B: Bmc + 'static> HealthMonitor<B> {
-    async fn run_monitor_iteration(&mut self) -> Result<collector::IterationResult, HealthError> {
+impl<B: Bmc + 'static> SensorCollector<B> {
+    async fn emit_event(&self, event: CollectorEvent) -> Result<(), HealthError> {
+        if let Some(data_sink) = &self.data_sink {
+            data_sink
+                .handle_event(self.event_context.clone(), event)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn run_monitor_iteration(&mut self) -> Result<IterationResult, HealthError> {
         let needs_entity_refresh = self
             .state
             .as_ref()
@@ -474,7 +306,7 @@ impl<B: Bmc + 'static> HealthMonitor<B> {
                     let count = entities.len();
                     tracing::info!("Entity refresh complete. Found {} entities", count);
 
-                    self.state = Some(HealthMonitorState {
+                    self.state = Some(SensorCollectorState {
                         entities,
                         last_entity_refresh: Instant::now(),
                     });
@@ -494,36 +326,39 @@ impl<B: Bmc + 'static> HealthMonitor<B> {
             let (successes, alerts) = self.fetch_and_update_sensors(state).await?;
             entity_count = Some(successes.len() + alerts.len());
 
-            if let (Some(EndpointMetadata::Machine(machine)), Some(report_sink)) =
-                (&self.endpoint.metadata, &self.report_sink)
+            let report = health_report::HealthReport {
+                source: "hardware-health".to_string(),
+                observed_at: Some(chrono::Utc::now()),
+                successes,
+                alerts,
+            };
+
+            tracing::info!(
+                endpoint = %self.endpoint.addr.mac,
+                success_count = report.successes.len(),
+                alert_count = report.alerts.len(),
+                "Sending hardware health report"
+            );
+
+            if let Err(e) = self
+                .emit_event(CollectorEvent::HealthOverride(HealthOverride {
+                    machine_id: self.endpoint.metadata.as_ref().and_then(|m| match m {
+                        EndpointMetadata::Machine(machine) => Some(machine.machine_id),
+                        EndpointMetadata::Switch(_) => None,
+                    }),
+                    report,
+                }))
+                .await
             {
-                let machine_id = machine.machine_id;
-
-                let report = health_report::HealthReport {
-                    source: "hardware-health".to_string(),
-                    observed_at: Some(chrono::Utc::now()),
-                    successes,
-                    alerts,
-                };
-
-                tracing::info!(
-                    machine_id = %machine_id,
-                    success_count = report.successes.len(),
-                    alert_count = report.alerts.len(),
-                    "Sending hardware health report"
+                tracing::warn!(
+                endpoint = %self.endpoint.addr.mac,
+                    error = ?e,
+                    "Failed to emit health override event"
                 );
-
-                if let Err(e) = report_sink.submit_health_report(&machine_id, report).await {
-                    tracing::warn!(
-                        machine_id = %machine_id,
-                        error = ?e,
-                        "Failed to submit health report"
-                    );
-                }
             }
         }
 
-        Ok(collector::IterationResult {
+        Ok(IterationResult {
             refresh_triggered,
             entity_count,
         })
@@ -794,7 +629,7 @@ impl<B: Bmc + 'static> HealthMonitor<B> {
 
     async fn fetch_and_update_sensors(
         &self,
-        state: &HealthMonitorState<B>,
+        state: &SensorCollectorState<B>,
     ) -> Result<
         (
             Vec<health_report::HealthProbeSuccess>,
@@ -802,7 +637,9 @@ impl<B: Bmc + 'static> HealthMonitor<B> {
         ),
         HealthError,
     > {
-        self.metrics.begin_update();
+        if let Err(error) = self.emit_event(CollectorEvent::MetricCollectionStart).await {
+            tracing::warn!(error = ?error, "Failed to emit metric collection start event");
+        }
         let futures: Vec<_> = state
             .entities
             .iter()
@@ -819,13 +656,14 @@ impl<B: Bmc + 'static> HealthMonitor<B> {
         let mut alerts = Vec::new();
 
         for data in health_data {
-            let health = data.classify();
-            match data.to_health_result(health) {
+            match data.to_health_result() {
                 SensorHealthResult::Success(s) => successes.push(s),
                 SensorHealthResult::Alert(a) => alerts.push(a),
             }
         }
-        self.metrics.sweep_stale();
+        if let Err(error) = self.emit_event(CollectorEvent::MetricCollectionEnd).await {
+            tracing::warn!(error = ?error, "Failed to emit metric collection end event");
+        }
 
         Ok((successes, alerts))
     }
@@ -911,17 +749,25 @@ impl<B: Bmc + 'static> HealthMonitor<B> {
                 .chain(entity.entity_specific_attributes())
                 .collect();
 
-        self.metrics.record(
-            GaugeReading::new(
-                sensor.id().to_string(),
-                "hw_sensor",
-                reading_type.to_snake_case(),
-                sanitize_unit(&unit),
-                reading,
-            )
-            .with_labels(attributes.clone()),
-        );
-        entity.record_entity_metrics(&self.metrics, attributes);
+        if let Err(error) = self
+            .emit_event(CollectorEvent::Metric(MetricSample {
+                key: sensor.id().to_string(),
+                name: "hw_sensor".to_string(),
+                metric_type: reading_type.to_snake_case().to_string(),
+                unit: sanitize_unit(&unit),
+                value: reading,
+                labels: attributes.clone(),
+            }))
+            .await
+        {
+            tracing::warn!(error = ?error, "Failed to emit sensor metric event");
+        }
+
+        for metric in entity.entity_metrics(&attributes) {
+            if let Err(error) = self.emit_event(CollectorEvent::Metric(metric)).await {
+                tracing::warn!(error = ?error, "Failed to emit derived sensor metric event");
+            }
+        }
 
         let (upper_critical, lower_critical, upper_caution, lower_caution) =
             if let Some(thresholds) = &sensor.thresholds {

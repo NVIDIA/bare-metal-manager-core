@@ -30,7 +30,7 @@ use url::Url;
 pub struct Config {
     pub endpoint_sources: EndpointSourcesConfig,
 
-    pub health_sinks: HealthSinksConfig,
+    pub sinks: SinksConfig,
 
     pub rate_limit: Configurable<RateLimitConfig>,
 
@@ -55,7 +55,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             endpoint_sources: EndpointSourcesConfig::default(),
-            health_sinks: HealthSinksConfig::default(),
+            sinks: SinksConfig::default(),
             rate_limit: Configurable::Enabled(RateLimitConfig::default()),
             collectors: CollectorsConfig::default(),
             metrics: MetricsConfig::default(),
@@ -109,25 +109,38 @@ impl Debug for StaticBmcEndpoint {
     }
 }
 
-/// Configuration for where health reports are sent to.
+/// Configuration for output sinks.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct HealthSinksConfig {
-    /// Carbide API connection settings for reporting (if present, Carbide API sink is enabled)
-    pub carbide_api: Configurable<CarbideApiConnectionConfig>,
+pub struct SinksConfig {
+    /// Console sink: logs all collector events.
+    pub console: Configurable<ConsoleSinkConfig>,
 
-    /// Represents console health report sink, will write reports to the console
-    pub console: bool,
+    /// Prometheus sink: stores metric events in Prometheus exporter format.
+    pub prometheus: Configurable<PrometheusSinkConfig>,
+
+    /// Health override sink: sends health override events to Carbide API.
+    #[serde(alias = "carbide_override")]
+    pub health_override: Configurable<CarbideApiConnectionConfig>,
 }
 
-impl Default for HealthSinksConfig {
+impl Default for SinksConfig {
     fn default() -> Self {
         Self {
-            carbide_api: Configurable::Enabled(CarbideApiConnectionConfig::default()),
-            console: false,
+            console: Configurable::Enabled(ConsoleSinkConfig::default()),
+            prometheus: Configurable::Enabled(PrometheusSinkConfig::default()),
+            health_override: Configurable::Enabled(CarbideApiConnectionConfig::default()),
         }
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct ConsoleSinkConfig {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct PrometheusSinkConfig {}
 
 /// Shared Carbide API connection configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -176,8 +189,9 @@ pub struct RateLimitConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CollectorsConfig {
-    /// Health collector configuration (if present, health collector is enabled)
-    pub health: Configurable<HealthCollectorConfig>,
+    /// Sensor collector configuration (if present, sensor collector is enabled)
+    #[serde(alias = "health")]
+    pub sensors: Configurable<SensorCollectorConfig>,
 
     /// Firmware collector configuration (if present, firmware collector is enabled)
     pub firmware: Configurable<FirmwareCollectorConfig>,
@@ -192,9 +206,9 @@ pub struct CollectorsConfig {
 impl Default for CollectorsConfig {
     fn default() -> Self {
         Self {
-            health: Configurable::Enabled(HealthCollectorConfig::default()),
+            sensors: Configurable::Enabled(SensorCollectorConfig::default()),
             firmware: Configurable::Disabled,
-            logs: Configurable::Enabled(LogsCollectorConfig::default()),
+            logs: Configurable::Disabled,
             nmxt: Configurable::Disabled,
         }
     }
@@ -202,7 +216,7 @@ impl Default for CollectorsConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct HealthCollectorConfig {
+pub struct SensorCollectorConfig {
     /// Interval between BMC endpoint rediscovery.
     #[serde(with = "humantime_serde")]
     pub rediscover_interval: Duration,
@@ -222,7 +236,7 @@ pub struct HealthCollectorConfig {
     pub include_sensor_thresholds: bool,
 }
 
-impl Default for HealthCollectorConfig {
+impl Default for SensorCollectorConfig {
     fn default() -> Self {
         Self {
             rediscover_interval: Duration::from_secs(300),
@@ -257,6 +271,10 @@ pub struct LogsCollectorConfig {
     #[serde(with = "humantime_serde")]
     pub logs_collection_interval: Duration,
 
+    /// Interval between log service state refresh.
+    #[serde(with = "humantime_serde")]
+    pub state_refresh_interval: Duration,
+
     /// Path to logs collector state file (supports {machine_id} placeholder).
     pub logs_state_file: String,
 
@@ -274,6 +292,7 @@ impl Default for LogsCollectorConfig {
     fn default() -> Self {
         Self {
             logs_collection_interval: Duration::from_secs(300),
+            state_refresh_interval: Duration::from_secs(1800),
             logs_state_file: "/tmp/logs_collector_{machine_id}.json".to_string(),
             logs_output_dir: "/tmp/logs".to_string(),
             logs_max_file_size: 104857600,
@@ -462,10 +481,10 @@ mod tests {
             panic!("carbide api empty for sources")
         }
 
-        if let Configurable::Enabled(ref carbide_api) = config.health_sinks.carbide_api {
+        if let Configurable::Enabled(ref carbide_api) = config.sinks.health_override {
             assert_eq!(carbide_api.root_ca, "/var/run/secrets/spiffe.io/ca.crt");
         } else {
-            panic!("carbide api empty for sinks")
+            panic!("health override sink is disabled")
         }
 
         if let Configurable::Enabled(ref rate_limit) = config.rate_limit {
@@ -476,16 +495,23 @@ mod tests {
             panic!("rate limit empty")
         }
 
-        assert!(config.collectors.health.is_enabled());
+        assert!(config.collectors.sensors.is_enabled());
         assert!(config.collectors.firmware.is_enabled());
         assert!(config.collectors.logs.is_enabled());
-        assert!(config.health_sinks.console);
+        assert!(!config.sinks.console.is_enabled());
+        assert!(config.sinks.prometheus.is_enabled());
 
-        if let Configurable::Enabled(ref health) = config.collectors.health {
-            assert_eq!(health.rediscover_interval, Duration::from_secs(300));
-            assert_eq!(health.sensor_fetch_concurrency, 10);
+        if let Configurable::Enabled(ref sensors) = config.collectors.sensors {
+            assert_eq!(sensors.rediscover_interval, Duration::from_secs(300));
+            assert_eq!(sensors.sensor_fetch_concurrency, 10);
         } else {
-            panic!("health empty")
+            panic!("sensors empty")
+        }
+
+        if let Configurable::Enabled(ref logs) = config.collectors.logs {
+            assert_eq!(logs.state_refresh_interval, Duration::from_secs(1800));
+        } else {
+            panic!("logs empty")
         }
 
         assert_eq!(config.metrics.endpoint, "0.0.0.0:9009");
@@ -508,10 +534,10 @@ password = "pass"
 [endpoint_sources.carbide_api]
 enabled = false
 
-[health_sinks.carbide_api]
+[sinks.health_override]
 enabled = false
 
-[collectors.health]
+[collectors.sensors]
 rediscover_interval = "1m"
 sensor_fetch_interval = "30s"
 state_refresh_interval = "10m"
@@ -533,7 +559,7 @@ cache_size = 50
             .expect("failed to parse");
 
         assert!(!config.endpoint_sources.carbide_api.is_enabled());
-        assert!(!config.health_sinks.carbide_api.is_enabled());
+        assert!(!config.sinks.health_override.is_enabled());
 
         assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 1);
         assert_eq!(
@@ -555,17 +581,17 @@ cache_size = 50
             panic!("rate limit empty")
         }
 
-        assert!(config.collectors.health.is_enabled());
-        if let Configurable::Enabled(ref health) = config.collectors.health {
-            assert_eq!(health.rediscover_interval, Duration::from_secs(60));
-            assert_eq!(health.sensor_fetch_interval, Duration::from_secs(30));
-            assert!(!health.include_sensor_thresholds);
+        assert!(config.collectors.sensors.is_enabled());
+        if let Configurable::Enabled(ref sensors) = config.collectors.sensors {
+            assert_eq!(sensors.rediscover_interval, Duration::from_secs(60));
+            assert_eq!(sensors.sensor_fetch_interval, Duration::from_secs(30));
+            assert!(!sensors.include_sensor_thresholds);
         } else {
-            panic!("health empty")
+            panic!("sensors empty")
         }
 
         assert!(!config.collectors.firmware.is_enabled());
-        assert!(config.collectors.logs.is_enabled());
+        assert!(!config.collectors.logs.is_enabled());
 
         config.validate().expect("config should be valid");
     }
