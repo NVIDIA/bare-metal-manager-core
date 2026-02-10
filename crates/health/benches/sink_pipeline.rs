@@ -17,8 +17,6 @@
 
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
 
 use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
 use carbide_health::metrics::MetricsManager;
@@ -31,17 +29,16 @@ use health_report::{HealthProbeAlert, HealthReport};
 
 const MACHINE_ID: &str = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
 
-struct CountingSink {
-    counter: Arc<AtomicU64>,
-}
+struct CountingSink;
 
 impl DataSink for CountingSink {
     fn handle_event(
         &self,
-        _context: &EventContext,
-        _event: &CollectorEvent,
+        context: &EventContext,
+        event: &CollectorEvent,
     ) -> Result<(), carbide_health::HealthError> {
-        self.counter.fetch_add(1, Ordering::Relaxed);
+        std::hint::black_box(context);
+        std::hint::black_box(event);
         Ok(())
     }
 }
@@ -119,58 +116,24 @@ fn bench_prometheus_sink(c: &mut Criterion) {
 }
 
 struct CompositeBenchState {
-    _runtime: tokio::runtime::Runtime,
     sink: CompositeDataSink,
     context: EventContext,
     events: Vec<CollectorEvent>,
-    counters: Vec<Arc<AtomicU64>>,
 }
 
 impl CompositeBenchState {
     fn new(sink_count: usize, batch_size: usize) -> Self {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .build()
-            .expect("runtime should build");
-
         let mut sinks: Vec<Arc<dyn DataSink>> = Vec::with_capacity(sink_count);
-        let mut counters = Vec::with_capacity(sink_count);
         for _ in 0..sink_count {
-            let counter = Arc::new(AtomicU64::new(0));
-            counters.push(counter.clone());
-            sinks.push(Arc::new(CountingSink { counter }));
+            sinks.push(Arc::new(CountingSink));
         }
 
-        let sink = {
-            let _guard = runtime.enter();
-            CompositeDataSink::new(sinks)
-        };
+        let sink = CompositeDataSink::new(sinks);
 
         Self {
-            _runtime: runtime,
             sink,
             context: event_context(),
             events: metric_events(batch_size, 64),
-            counters,
-        }
-    }
-
-    fn total_processed(&self) -> u64 {
-        self.counters
-            .iter()
-            .map(|counter| counter.load(Ordering::Relaxed))
-            .sum()
-    }
-
-    fn wait_until_processed(&self, expected_total: u64) {
-        let timeout_at = Instant::now() + Duration::from_secs(5);
-        while self.total_processed() < expected_total {
-            assert!(
-                Instant::now() < timeout_at,
-                "timed out waiting for composite sink workers to drain"
-            );
-            std::thread::yield_now();
         }
     }
 }
@@ -190,28 +153,6 @@ fn bench_composite_sink(c: &mut Criterion) {
                 b.iter(|| emit_metric_batch(&state.sink, &state.context, &state.events));
             },
         );
-
-        group.bench_with_input(
-            BenchmarkId::new("emit_and_drain", sink_count),
-            &state,
-            |b, state| {
-                let events_per_sink = (state.events.len() + 2) as u64;
-                let sinks = state.counters.len() as u64;
-
-                b.iter_custom(|iters| {
-                    let mut total = Duration::ZERO;
-                    for _ in 0..iters {
-                        let before = state.total_processed();
-                        let expected = before + (events_per_sink * sinks);
-                        let start = Instant::now();
-                        emit_metric_batch(&state.sink, &state.context, &state.events);
-                        state.wait_until_processed(expected);
-                        total += start.elapsed();
-                    }
-                    total
-                });
-            },
-        );
     }
 
     group.finish();
@@ -219,7 +160,6 @@ fn bench_composite_sink(c: &mut Criterion) {
 
 fn health_report_with_alerts(alert_count: usize) -> HealthReport {
     let mut report = HealthReport::empty("bench-health-override".to_string());
-    report.alerts.reserve(alert_count);
     for idx in 0..alert_count {
         report.alerts.push(HealthProbeAlert::heartbeat_timeout(
             format!("target-{idx}"),
