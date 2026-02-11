@@ -49,38 +49,43 @@ Indicates that the serial number on a host does not match the serial number in t
 
 ## Hardware/BMC health probe identifiers
 
-### `Thermal`
+`carbide-hardware-health` currently reports sensor-based hardware health with a single probe ID:
 
-Indicates that the overall thermal subsystem (fans & temperature sensors) of the BMC reports an abnormal value.
+### `BMC_Sensor`
 
-### `Power`
+Indicates that a BMC sensor reported a warning/critical/failure condition.
 
-Indicates that the overall power subsystem (power supplies, voltages, etc) of the BMC reports an abnormal value.
+Details:
+- `target` is set to the BMC sensor ID (for example, a fan/temperature/power sensor name).
+- The alert `message` contains the entity type, reading, unit, and threshold ranges used for evaluation.
+- Classifications include `Hardware` and (when available) one of `SensorWarning`, `SensorCritical`, or `SensorFailure`.
 
-### `Voltage`
+Status semantics:
+- `SensorFailure`:
+  the reading is outside the sensor's advertised valid range (`range_min`/`range_max`), if that range is well-formed.
+- `SensorCritical`:
+  the reading violates critical thresholds (`lower_critical`/`upper_critical`), if those thresholds are well-formed.
+- `SensorWarning`:
+  the reading violates caution thresholds (`lower_caution`/`upper_caution`), if those thresholds are well-formed.
 
-Indicates that a voltage is out of range according to the BMC
+Evaluation order (highest severity first):
+`SensorFailure` -> `SensorCritical` -> `SensorWarning` -> success.
 
-### `Temperature`
+Special case:
+if threshold evaluation indicates warning/critical/failure but the BMC explicitly reports the sensor health as `Ok`,
+the service treats the probe as success (to avoid false alerts from incorrect threshold metadata).
 
-Indicates that a temperature is out of range according to the BMC
+`message` format:
 
-### `FanSpeed`
+```text
+<entity_type> '<sensor_id>': <status> - reading <value><unit> (<reading_type>), valid range: <range>, caution: <range>, critical: <range>
+```
 
-Indicates that a fan speed is out of range according to the BMC
+Example:
 
-### `PowerSupply`
-
-Indicates a power supply problem reported by the BMC
-
-### `PoweredOff`
-
-Indicates that the host is powered off according to the BMC
-
-### `Leak`
-
-Indicates a leak reported according to the BMC
-
+```text
+power_supply 'PSU0_OutputPower': Critical - reading 1320.00W (power), valid range: 0.0 to 1500.0, caution: 1200.0 to 1300.0, critical: 0.0 to 1310.0
+```
 
 ## DPU related health probe identifiers
 
