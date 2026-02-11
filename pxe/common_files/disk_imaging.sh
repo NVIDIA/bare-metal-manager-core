@@ -1,4 +1,20 @@
 #!/bin/bash
+#
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 file=
 root_dev=
 rootfs_uuid=
@@ -191,7 +207,7 @@ function get_serial_port() {
 	done
 	working_serial_ports=$(echo "$working_serial_ports" | sed -e 's/^ *//g' -e 's/ *$//g')
 	echo "Working serial ports = [${working_serial_ports}]"
-	
+
 	preferred_port=$default_port
 	if [ "$my_arch" == "aarch64" ]; then
 		preferred_port=$preferred_port_arm
@@ -239,7 +255,7 @@ function modify_grub_cfg() {
 				boot_part="$image_disk"1
 			fi
 		fi
-		
+
 		if [ ! -b "$boot_part" ]; then
 			# This is not error, as CentOS, for example, does not have dedicated /boot partition
 			echo "Boot partition $boot_part not found or is not a block device" | tee $log_output
@@ -477,7 +493,7 @@ function main() {
 		if [ ! -z "$line" ]; then
 			update_grub_cfg=$(echo $line|cut -d'=' -f2)
 		fi
-		
+
 	done
 
 	if [ ! -z "$distro_name" ]; then

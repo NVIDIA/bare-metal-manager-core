@@ -1,5 +1,21 @@
 #!/bin/bash
 #
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+#
 # Carbide UI development
 #
 # Usage: ./run-env.sh /path/to/pg_dump.sql
@@ -33,7 +49,7 @@ if ! docker ps --filter name=vault-webdev --format '{{.Names}}' | grep -q vault-
    ! docker ps --filter name=pg-webdev --format '{{.Names}}' | grep -q pg-webdev; then
     echo "Setting up containers..."
     docker rm -f vault-webdev pg-webdev >/dev/null 2>&1 || true
-    
+
     # Vault
     docker run --rm -d --name vault-webdev --cap-add=IPC_LOCK \
         -e 'VAULT_LOCAL_CONFIG={"storage": {"file": {"path": "/vault/file"}}, "listener": [{"tcp": { "address": "0.0.0.0:8200", "tls_disable": true}}], "default_lease_ttl": "168h", "max_lease_ttl": "720h", "ui": true}' \
@@ -44,7 +60,7 @@ if ! docker ps --filter name=vault-webdev --format '{{.Names}}' | grep -q vault-
     export VAULT_ADDR="http://127.0.0.1:8200"
     vault operator unseal "$(echo "$VAULT_INIT" | jq -r '.unseal_keys_b64[0]')" >/dev/null
     vault login $VAULT_TOKEN >/dev/null 2>&1
-    
+
     # Postgres
     docker run --rm -d --name pg-webdev -p ${PG_PORT}:5432 \
         -e POSTGRES_PASSWORD=admin -e POSTGRES_HOST_AUTH_METHOD=trust \

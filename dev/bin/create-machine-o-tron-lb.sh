@@ -1,4 +1,20 @@
 #!/usr/bin/env bash
+#
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 
 set -euo pipefail
 
@@ -24,16 +40,16 @@ generate_loadbalancer_services() {
     local ip_range="$1"
     local start_ip=$(echo "$ip_range" | cut -d'-' -f1)
     local end_ip=$(echo "$ip_range" | cut -d'-' -f2)
-    
+
     # Convert IPs to integers for comparison
     local start_int=$(ip_to_int "$start_ip")
     local end_int=$(ip_to_int "$end_ip")
-    
+
     # Generate LoadBalancer service for each IP
     for ((i=start_int; i<=end_int; i++)); do
         local current_ip=$(int_to_ip $i)
         local service_name="machine-a-tron-bmc-mock-$(echo "$current_ip" | tr '.' '-')"
-        
+
         cat << EOF
 ---
 apiVersion: v1
@@ -77,9 +93,9 @@ main() {
     if [[ $# -ne 1 ]]; then
         usage
     fi
-    
+
     local ip_range="$1"
-    
+
     # Generate MetalLB IP pool
     cat << EOF
 ---
@@ -172,7 +188,7 @@ spec:
           - key: tls.key
             path: tls.key
 EOF
-    
+
     # Generate individual LoadBalancer services
     generate_loadbalancer_services "$ip_range"
 }
