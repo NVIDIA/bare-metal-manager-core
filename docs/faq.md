@@ -41,7 +41,7 @@ Yes, BMM will support NVLink partitioning as part of a future release.
 * **Ethernet**: VXLAN with EVPN for VPC creation on DPU
 * **E/W Ethernet (Spectrum-X)**: CX-based FW called DPA to do VXLan on CX (as part of future release)
 * **Infiniband**: UFM-based partition key (P_Key) assignment
-* **NVLInk**: NMX-M based partition management (as part of future release)
+* **NVLInk**: NMX-M based partition management
 
 DPUs enforce Ethernet isolation in hardware, UFM enforces IB isolation, and NMX-M enforces NVLink isolation--all coordinated by BMM.
 
