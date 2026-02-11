@@ -2,7 +2,7 @@
 
 This document contains release notes for the Bare Metal Manager (BMM) project.
 
-## Bare Metal Manager 1.0.0
+## Bare Metal Manager 0.2.0
 
 ### Improvements
 
