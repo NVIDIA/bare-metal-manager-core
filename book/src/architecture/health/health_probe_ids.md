@@ -51,7 +51,7 @@ Indicates that the serial number on a host does not match the serial number in t
 
 `carbide-hardware-health` currently reports sensor-based hardware health with a single probe ID:
 
-### `BMC_Sensor`
+### `BmcSensor`
 
 Indicates that a BMC sensor reported a warning/critical/failure condition.
 

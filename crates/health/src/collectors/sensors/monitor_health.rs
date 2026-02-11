@@ -112,7 +112,7 @@ impl SensorHealthData {
 
     pub(crate) fn to_health_result(&self) -> SensorHealthResult {
         let health = self.classify();
-        let probe_id = HealthProbeId::from_str("BMC_Sensor").expect("cannot fail");
+        let probe_id = HealthProbeId::from_str("BmcSensor").expect("cannot fail");
 
         let bmc_reports_ok = matches!(self.bmc_health, Some(BmcHealth::Ok));
 
