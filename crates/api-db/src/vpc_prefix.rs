@@ -33,8 +33,12 @@ async fn update_stats(
     let sub_prefixes = crate::network_prefix::containing_prefixes(txn, &nw_prefixes).await?;
 
     for vpc_prefix in prefixes {
+        let used_prefixes = sub_prefixes.get(&vpc_prefix.config.prefix);
+        let used_count = used_prefixes.map(|v| v.len() as u64).unwrap_or(0);
+
+        // Legacy IPv4-only stats (kept for backwards compatibility).
         if let IpNetwork::V4(ipv4_network) = vpc_prefix.config.prefix
-            && let Some(used_prefixes) = sub_prefixes.get(&vpc_prefix.config.prefix)
+            && let Some(used_prefixes) = used_prefixes
         {
             let ip_net = forge_network::ip::prefix::Ipv4Net::new(
                 ipv4_network.network(),
@@ -59,6 +63,29 @@ async fn update_stats(
             vpc_prefix.status.total_31_segments = total_31_segments.len() as u32;
             vpc_prefix.status.available_31_segments =
                 vpc_prefix.status.total_31_segments - used_prefixes.len() as u32;
+        }
+
+        // Family-aware linknet stats: /31 for IPv4 (RFC 3021), /127 for IPv6 (RFC 6164).
+        let linknet_prefix: u8 = if vpc_prefix.config.prefix.is_ipv4() {
+            31
+        } else {
+            127
+        };
+        // Compute total and available linknet segments using math rather than
+        // enumeration. A VPC prefix of length L can hold 2^(linknet_prefix - L)
+        // linknets. For example, a /24 VPC holds 2^(31-24) = 128 possible /31
+        // subnets, and a /120 IPv6 VPC holds 2^(127-120) = 128 possible /127
+        // subnets. For very large IPv6 prefixes (e.g. /48 → 2^79 linknets),
+        // the result exceeds u64, so we cap at u64::MAX -- this is purely
+        // because we're building these values for metrics/display purposes,
+        // and these values get packed into a protobuf, which only supports
+        // u64. If it's a problem, we can split it over two u64.
+        let vpc_prefix_len = vpc_prefix.config.prefix.prefix();
+        if linknet_prefix > vpc_prefix_len {
+            let shift = (linknet_prefix - vpc_prefix_len) as u64;
+            let total = if shift >= 64 { u64::MAX } else { 1u64 << shift };
+            vpc_prefix.status.total_linknet_segments = total;
+            vpc_prefix.status.available_linknet_segments = total.saturating_sub(used_count);
         }
     }
 

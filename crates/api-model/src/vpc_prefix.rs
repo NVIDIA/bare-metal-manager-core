@@ -43,6 +43,8 @@ pub struct VpcPrefixStatus {
     pub last_used_prefix: Option<IpNetwork>,
     pub total_31_segments: u32,
     pub available_31_segments: u32,
+    pub total_linknet_segments: u64,
+    pub available_linknet_segments: u64,
 }
 
 impl<'r> sqlx::FromRow<'r, PgRow> for VpcPrefix {
@@ -68,6 +70,8 @@ impl<'r> sqlx::FromRow<'r, PgRow> for VpcPrefix {
                 last_used_prefix,
                 total_31_segments: 0,
                 available_31_segments: 0,
+                total_linknet_segments: 0,
+                available_linknet_segments: 0,
             },
         })
     }
@@ -217,12 +221,16 @@ impl From<VpcPrefixStatus> for rpc::forge::VpcPrefixStatus {
         let VpcPrefixStatus {
             total_31_segments,
             available_31_segments,
+            total_linknet_segments,
+            available_linknet_segments,
             ..
         } = db_status;
 
         Self {
             total_31_segments,
             available_31_segments,
+            total_linknet_segments,
+            available_linknet_segments,
         }
     }
 }

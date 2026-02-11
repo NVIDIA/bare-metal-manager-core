@@ -6,6 +6,8 @@
 # Architecture
 
 - [Overview and components](architecture/overview.md)
+- [Redfish Workflow](architecture/redfish_workflow.md)
+    - [Redfish Endpoints Reference](architecture/redfish/endpoints_reference.md)
 - [Reliable state handling](architecture/state_handling.md)
 - [DPU configuration](architecture/dpu_configuration.md)
 - [Health checks and health aggregation](architecture/health_aggregation.md)

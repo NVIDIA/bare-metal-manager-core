@@ -333,8 +333,8 @@ impl IntoTable for ShowOutput {
             "VpcId",
             "Prefix",
             "Name",
-            "Total 31 Segments",
-            "Available 31 Segments",
+            "Total Linknets",
+            "Available Linknets",
         ]
     }
 
@@ -353,11 +353,10 @@ impl IntoTable for ShowOutput {
         let name = row.name.as_str();
         let mut r = vec![vpc_prefix_id, vpc_id, prefix.into(), name.into()];
 
-        if row.total_31_segments != 0 {
-            r.push(row.total_31_segments.to_string().into());
-            r.push(row.available_31_segments.to_string().into());
+        if let Some(status) = &row.status {
+            r.push(status.total_linknet_segments.to_string().into());
+            r.push(status.available_linknet_segments.to_string().into());
         } else {
-            // Total 31 segments can not be 0. This means logic is not yet implemented on server.
             r.push("NA".into());
             r.push("NA".into());
         }

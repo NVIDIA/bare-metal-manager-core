@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use std::collections::HashMap;
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::ops::DerefMut;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
@@ -75,7 +75,7 @@ use tonic::Request;
 
 use crate::cfg::file::VmaasConfig;
 use crate::instance::{allocate_instance, allocate_network};
-use crate::network_segment::allocate::Ipv4PrefixAllocator;
+use crate::network_segment::allocate::PrefixAllocator;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::instance::{
     advance_created_instance_into_state, single_interface_network_config_with_vfs,
@@ -2612,13 +2612,14 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     let vpc_prefix_id = create_tenant_overlay_prefix(&env, vpc_id).await;
 
     let mut txn = env.db_txn().await;
-    let allocator = Ipv4PrefixAllocator::new(
+    let allocator = PrefixAllocator::new(
         // 15 IPs
         vpc_prefix_id,
-        Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap(),
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap()),
         None,
         31,
-    );
+    )
+    .unwrap();
 
     let (ns_id, _prefix) = allocator
         .allocate_network_segment(&mut txn, vpc_id)
@@ -2633,21 +2634,19 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     .await
     .unwrap();
 
-    let address1 = match ns1[0].prefixes[0].prefix {
-        IpNetwork::V4(ipv4_network) => ipv4_network.network(),
-        IpNetwork::V6(_) => panic!("cant be ipv6"),
-    };
+    let address1 = ns1[0].prefixes[0].prefix.network();
 
     txn.commit().await.unwrap();
 
     let mut txn = env.db_txn().await;
 
-    let allocator = Ipv4PrefixAllocator::new(
+    let allocator = PrefixAllocator::new(
         vpc_prefix_id,
-        Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap(),
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap()),
         None,
         31,
-    );
+    )
+    .unwrap();
 
     let (ns_id, _prefix) = allocator
         .allocate_network_segment(&mut txn, vpc_id)
@@ -2662,20 +2661,18 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     .await
     .unwrap();
 
-    let address2 = match ns2[0].prefixes[0].prefix {
-        IpNetwork::V4(ipv4_network) => ipv4_network.network(),
-        IpNetwork::V6(_) => panic!("cant be ipv6"),
-    };
+    let address2 = ns2[0].prefixes[0].prefix.network();
 
     txn.commit().await.unwrap();
 
     let mut txn = env.db_txn().await;
-    let allocator = Ipv4PrefixAllocator::new(
+    let allocator = PrefixAllocator::new(
         vpc_prefix_id,
-        Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap(),
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap()),
         None,
         31,
-    );
+    )
+    .unwrap();
 
     let (ns_id, _prefix) = allocator
         .allocate_network_segment(&mut txn, vpc_id)
@@ -2690,27 +2687,27 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     .await
     .unwrap();
 
-    let address3 = match ns3[0].prefixes[0].prefix {
-        IpNetwork::V4(ipv4_network) => ipv4_network.network(),
-        IpNetwork::V6(_) => panic!("cant be ipv6"),
-    };
+    let address3 = ns3[0].prefixes[0].prefix.network();
 
     txn.commit().await.unwrap();
     // The allocation should take care of already assigned prefixes and should not allocate twice.
-    assert_eq!(Ipv4Addr::new(10, 217, 5, 224), address1);
-    assert_eq!(Ipv4Addr::new(10, 217, 5, 226), address2);
-    assert_eq!(Ipv4Addr::new(10, 217, 5, 228), address3);
+    assert_eq!(IpAddr::from(Ipv4Addr::new(10, 217, 5, 224)), address1);
+    assert_eq!(IpAddr::from(Ipv4Addr::new(10, 217, 5, 226)), address2);
+    assert_eq!(IpAddr::from(Ipv4Addr::new(10, 217, 5, 228)), address3);
     assert_ne!(address1, address2);
     assert_ne!(address1, address3);
     assert_ne!(address2, address3);
 
     let mut txn = env.db_txn().await;
-    let allocator = Ipv4PrefixAllocator::new(
+    let allocator = PrefixAllocator::new(
         vpc_prefix_id,
-        Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap(),
-        Some(Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 234), 31).unwrap()),
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap()),
+        Some(IpNetwork::V4(
+            Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 234), 31).unwrap(),
+        )),
         31,
-    );
+    )
+    .unwrap();
 
     let (ns_id, _prefix) = allocator
         .allocate_network_segment(&mut txn, vpc_id)
@@ -2725,14 +2722,11 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     .await
     .unwrap();
 
-    let address4 = match ns4[0].prefixes[0].prefix {
-        IpNetwork::V4(ipv4_network) => ipv4_network.network(),
-        IpNetwork::V6(_) => panic!("cant be ipv6"),
-    };
+    let address4 = ns4[0].prefixes[0].prefix.network();
 
     txn.commit().await.unwrap();
 
-    assert_eq!(Ipv4Addr::new(10, 217, 5, 236), address4);
+    assert_eq!(IpAddr::from(Ipv4Addr::new(10, 217, 5, 236)), address4);
 }
 
 async fn create_tenant_overlay_prefix(
