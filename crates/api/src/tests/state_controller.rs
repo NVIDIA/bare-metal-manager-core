@@ -40,6 +40,7 @@ use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerContextObjects, StateHandlerError,
     StateHandlerOutcome, StateHandlerOutcomeWithTransaction,
 };
+use crate::tests::common::test_meter::TestMeter;
 
 #[crate::sqlx_test]
 async fn test_start_iteration(pool: sqlx::PgPool) -> eyre::Result<()> {
@@ -595,8 +596,12 @@ impl StateControllerIO for TestStateControllerIO {
         Ok(())
     }
 
-    fn metric_state_names(_state: &TestObjectControllerState) -> (&'static str, &'static str) {
-        ("a", "b")
+    fn metric_state_names(state: &TestObjectControllerState) -> (&'static str, &'static str) {
+        match state {
+            TestObjectControllerState::A => ("a", ""),
+            TestObjectControllerState::B => ("b", ""),
+            TestObjectControllerState::C => ("c", ""),
+        }
     }
 
     fn state_sla(_state: &Versioned<Self::ControllerState>) -> StateSla {
@@ -738,6 +743,91 @@ impl StateHandler for TestTransitionStateHandler {
             TestObjectControllerState::C => Ok(StateHandlerOutcome::do_nothing().with_txn(None)),
         }
     }
+}
+
+/// A state handler that transitions from A -> B -> A
+#[derive(Debug, Default, Clone)]
+pub struct CyclicTransitionStateHandler;
+
+#[async_trait::async_trait]
+impl StateHandler for CyclicTransitionStateHandler {
+    type State = TestObject;
+    type ControllerState = TestObjectControllerState;
+    type ObjectId = String;
+    type ContextObjects = TestStateControllerContextObjects;
+
+    async fn handle_object_state(
+        &self,
+        _object_id: &String,
+        _state: &mut TestObject,
+        controller_state: &Self::ControllerState,
+        _ctx: &mut StateHandlerContext<Self::ContextObjects>,
+    ) -> Result<StateHandlerOutcomeWithTransaction<Self::ControllerState>, StateHandlerError> {
+        match controller_state {
+            TestObjectControllerState::A => {
+                Ok(StateHandlerOutcome::transition(TestObjectControllerState::B).with_txn(None))
+            }
+            TestObjectControllerState::B => {
+                Ok(StateHandlerOutcome::transition(TestObjectControllerState::A).with_txn(None))
+            }
+            TestObjectControllerState::C => Err(StateHandlerError::InvalidState("C".to_string())),
+        }
+    }
+}
+
+/// Tests whether the amount of emitted metrics is stable
+/// The test as checked in is mostly a smoke test
+/// To get better test coverage, extend `TEST_TIME` to 3 or more minutes.
+#[crate::sqlx_test]
+async fn test_state_handler_metrics_are_stable(pool: sqlx::PgPool) -> eyre::Result<()> {
+    let test_meter = TestMeter::default();
+
+    create_test_state_controller_tables(&pool).await;
+    let work_lock_manager_handle =
+        db::work_lock_manager::start(pool.clone(), Default::default()).await?;
+
+    let num_objects = 100;
+    let mut object_ids = Vec::new();
+    let mut txn = pool.begin().await.unwrap();
+    for idx in 0..num_objects {
+        let obj = create_test_object(idx.to_string(), &mut txn).await;
+        object_ids.push(obj.id);
+    }
+    txn.commit().await.unwrap();
+
+    let state_handler = Arc::new(CyclicTransitionStateHandler);
+    const ITERATION_TIME: Duration = Duration::from_millis(100);
+    const TEST_TIME: Duration = Duration::from_secs(10);
+    let start_time = std::time::Instant::now();
+
+    let _handle = StateController::<TestStateControllerIO>::builder()
+        .iteration_config(IterationConfig {
+            iteration_time: ITERATION_TIME,
+            processor_dispatch_interval: std::time::Duration::from_millis(10),
+            max_concurrency: num_objects,
+            ..Default::default()
+        })
+        .meter("test_objects", test_meter.meter())
+        .database(pool.clone(), work_lock_manager_handle.clone())
+        .processor_id(uuid::Uuid::new_v4().to_string())
+        .services(Arc::new(()))
+        .state_handler(state_handler.clone())
+        .build_and_spawn()
+        .unwrap();
+
+    // Check metrics periodically. We always expect to see 100 objects
+    while start_time.elapsed() < TEST_TIME {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        assert_eq!(
+            test_meter.formatted_metric("test_objects_total{fresh=\"true\"}"),
+            Some(num_objects.to_string()),
+            "Test failed after {}s",
+            start_time.elapsed().as_secs_f32()
+        );
+    }
+
+    Ok(())
 }
 
 /// Captured state change data for test verification.

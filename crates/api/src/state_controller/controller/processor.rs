@@ -58,6 +58,8 @@ pub(super) struct StateProcessor<IO: StateControllerIO> {
     >,
     pub(super) metric_emitter: Option<ProcessorMetricsEmitter>,
     pub(super) metric_holder: Arc<MetricHolder<IO>>,
+
+    pub(super) object_metrics: HashMap<IO::ObjectId, CollectedMetrics<IO>>,
     /// The iteration ID for which metrics have been passed towards `metric_holder`
     pub(super) published_metrics_iteration_id: Option<ControllerIterationId>,
     pub(super) stop_token: CancellationToken,
@@ -72,7 +74,7 @@ pub(super) struct StateProcessor<IO: StateControllerIO> {
     pub(super) requeue_objects: HashSet<IO::ObjectId>,
     pub(super) task_sender: tokio::sync::mpsc::UnboundedSender<ObjectHandlingTaskResult<IO>>,
     pub(super) task_receiver: tokio::sync::mpsc::UnboundedReceiver<ObjectHandlingTaskResult<IO>>,
-    pub(super) data_since_iteration_start: DataSinceStartOfIteration<IO>,
+    pub(super) data_since_iteration_start: DataSinceStartOfIteration,
     /// The last time a log message had been emitted
     pub(super) last_log_time: std::time::Instant,
     pub(super) stats_since_last_log: StatsSinceLastLog,
@@ -87,20 +89,23 @@ pub(super) struct ObjectHandlingTaskResult<IO: StateControllerIO> {
     metrics: ObjectHandlerMetrics<IO>,
 }
 
+pub(super) struct CollectedMetrics<IO: StateControllerIO> {
+    metrics: ObjectHandlerMetrics<IO>,
+    refreshed_in_current_iteration: bool,
+}
+
 #[derive(Debug)]
-pub(super) struct DataSinceStartOfIteration<IO: StateControllerIO> {
+pub(super) struct DataSinceStartOfIteration {
     /// The time when the first state state handling task for the iteration was dequeued
     iteration_started_at: std::time::Instant,
     iteration_started_at_utc: chrono::DateTime<chrono::Utc>,
-    object_metrics: HashMap<IO::ObjectId, ObjectHandlerMetrics<IO>>,
 }
 
-impl<IO: StateControllerIO> std::default::Default for DataSinceStartOfIteration<IO> {
+impl std::default::Default for DataSinceStartOfIteration {
     fn default() -> Self {
         Self {
             iteration_started_at: std::time::Instant::now(),
             iteration_started_at_utc: chrono::Utc::now(),
-            object_metrics: Default::default(),
         }
     }
 }
@@ -289,8 +294,20 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         self.published_metrics_iteration_id = finished_iteration_id;
 
         let mut aggregate = IterationMetrics::<IO>::default();
-        for object_metrics in self.data_since_iteration_start.object_metrics.values() {
-            aggregate.merge_object_handling_metrics(object_metrics);
+        for object_metrics in self.object_metrics.values() {
+            aggregate.merge_object_handling_metrics(&object_metrics.metrics);
+        }
+
+        // Remove metrics that have not been refreshed in the last iteration
+        // Metrics that have gathered in this iteration will carry forward forward
+        // for one more iteration.
+        // This prevents the race condition where handlers for some objects already
+        // finish processing for iteration N+1 before metrics for iteration N are emitted.
+        // In that case the metrics for iteration N+1 would be lost.
+        self.object_metrics
+            .retain(|_object_id, metrics| metrics.refreshed_in_current_iteration);
+        for object_metrics in self.object_metrics.values_mut() {
+            object_metrics.refreshed_in_current_iteration = false;
         }
 
         emit_iteration_log(
@@ -581,9 +598,13 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         }
 
         self.in_flight.remove(&task_result.object_id);
-        self.data_since_iteration_start
-            .object_metrics
-            .insert(task_result.object_id.clone(), task_result.metrics);
+        self.object_metrics.insert(
+            task_result.object_id.clone(),
+            CollectedMetrics {
+                metrics: task_result.metrics,
+                refreshed_in_current_iteration: true,
+            },
+        );
     }
 }
 
@@ -841,10 +862,7 @@ impl ProcessorMetricsEmitter {
         self.db.emit(db_metrics, attrs);
     }
 
-    fn emit_iteration_counters_and_histograms<IO: StateControllerIO>(
-        &self,
-        iteration_data: &DataSinceStartOfIteration<IO>,
-    ) {
+    fn emit_iteration_counters_and_histograms(&self, iteration_data: &DataSinceStartOfIteration) {
         self.controller_iteration_latency.record(
             1000.0 * iteration_data.iteration_started_at.elapsed().as_secs_f64(),
             &[],

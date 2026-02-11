@@ -213,6 +213,11 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
             .iter()
             .map(|object_id| object_id.to_string())
             .collect();
+        txn.commit().await?;
+
+        // The transactions for listing and enqueuing are decoupled to avoid
+        // any locking side-effects
+        let mut txn = self.pool.begin().await?;
         iteration_metrics.num_enqueued_objects =
             db::queue_objects(&mut txn, IO::DB_QUEUED_OBJECTS_TABLE_NAME, &queued_objects).await?;
 

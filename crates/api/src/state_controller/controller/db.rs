@@ -116,6 +116,22 @@ pub async fn queue_objects(
     table_id: &str,
     queued_objects: &[String],
 ) -> Result<usize, DatabaseError> {
+    // Object IDs need to be sorted in order to avoid a deadlock on concurrent calls to this
+    // method.
+    // If the object IDs would not be sorted and e.g.
+    // - client 1 inserts "A", "B", "C"
+    // - client 2 inserts "C", "B", "A"
+    // then it is possible that
+    // - the first DB transaction acquires a lock on row "A", and "B"
+    // - the second DB transaction acquires a lock on row "B" and "C"
+    // - the first DB transcation would wait forever to acquire the lock on "C"
+    // - the second DB transaction would wait forever to acquire the lock on "B"
+    //
+    // An alternative to this would be to require the caller to present the
+    // objects in stable order - however this would require a common understanding
+    // of sort order across all callers.
+    let mut sorted = queued_objects.to_vec();
+    sorted.sort();
     // Make sure we are not running into the BIND_LIMIT
     // The theoretical limit would be BIND_LIMIT
     // However shorter transactions are ok here - we still queue 1k objects
@@ -124,7 +140,7 @@ pub async fn queue_objects(
 
     let mut num_enqueued = 0;
 
-    for queued_objects in queued_objects.chunks(OBJECTS_PER_QUERY) {
+    for queued_objects in sorted.chunks(OBJECTS_PER_QUERY) {
         let mut builder = sqlx::QueryBuilder::new("INSERT INTO ");
         builder.push(table_id);
         builder.push("(object_id)");

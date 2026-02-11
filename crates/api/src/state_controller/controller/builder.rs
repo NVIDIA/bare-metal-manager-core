@@ -214,6 +214,7 @@ impl<IO: StateControllerIO> Builder<IO> {
             task_sender,
             task_receiver,
             data_since_iteration_start: Default::default(),
+            object_metrics: Default::default(),
             last_log_time: std::time::Instant::now(),
             stats_since_last_log: Default::default(),
             processor_span,
