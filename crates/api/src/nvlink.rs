@@ -117,6 +117,7 @@ pub mod test_support {
         _state: Arc<Mutex<u32>>,
         _partitions: Arc<Mutex<Vec<libnmxm::nmxm_model::Partition>>>,
         _gpus: Arc<Mutex<Vec<libnmxm::nmxm_model::Gpu>>>,
+        _fail_after_n_creates: Option<Arc<Mutex<usize>>>,
     }
 
     impl Default for NmxmSimClient {
@@ -125,13 +126,22 @@ pub mod test_support {
                 _state: Arc::new(Mutex::new(0)),
                 _partitions: Arc::new(Mutex::new(Vec::new())),
                 _gpus: Arc::new(Mutex::new(Self::default_gpus())),
+                _fail_after_n_creates: None,
             }
         }
     }
 
     impl NmxmSimClient {
+        // After n create_requests succeed, they will start failing.
+        pub fn with_fail_after_n_creates(n: usize) -> Self {
+            NmxmSimClient {
+                _fail_after_n_creates: Some(Arc::new(Mutex::new(n))),
+                ..Self::default()
+            }
+        }
+
         pub fn with_default_partition() -> Self {
-            let client = NmxmSimClient::default();
+            let client = Self::default();
             client.create_default_partition(
                 client
                     ._gpus
@@ -533,6 +543,15 @@ pub mod test_support {
             &self,
             _req: Option<libnmxm::nmxm_model::CreatePartitionRequest>,
         ) -> Result<libnmxm::nmxm_model::AsyncResponse, NmxmApiError> {
+            {
+                if let Some(fail_counter) = &self._fail_after_n_creates {
+                    let mut fail_counter = fail_counter.lock().unwrap();
+                    if *fail_counter == 0 {
+                        return Err(NmxmApiError::InvalidArguments);
+                    }
+                    *fail_counter -= 1;
+                }
+            }
             let r = _req.unwrap();
             let mut _p = self._partitions.lock().unwrap();
             let partition = libnmxm::nmxm_model::Partition {
@@ -627,6 +646,7 @@ pub mod test_support {
                 _state: self._state.clone(),
                 _partitions: self._partitions.clone(),
                 _gpus: self._gpus.clone(),
+                _fail_after_n_creates: self._fail_after_n_creates.clone(),
             }))
         }
     }

@@ -301,6 +301,109 @@ async fn test_with_multiple_nv_link_logical_partitions(pool: sqlx::PgPool) {
 }
 
 #[crate::sqlx_test]
+async fn test_nvl_partition_monitor_adds_successful_partitions_when_some_creates_fail(
+    pool: sqlx::PgPool,
+) {
+    let mut config = common::api_fixtures::get_config();
+    if let Some(nvlink_config) = config.nvlink_config.as_mut() {
+        nvlink_config.enabled = true;
+    }
+
+    // Fail after one create succeeds.
+    let mut overrides = TestEnvOverrides::with_config(config);
+    overrides.nmxm_fail_after_n_creates = Some(1);
+
+    let env = common::api_fixtures::create_test_env_with_overrides(pool.clone(), overrides).await;
+
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    let NvlLogicalPartitionFixture {
+        id: logical_partition_id1,
+        logical_partition: _logical_partition1,
+    } = create_nvl_logical_partition(&env, "test_partition1".to_string()).await;
+    let NvlLogicalPartitionFixture {
+        id: logical_partition_id2,
+        logical_partition: _logical_partition2,
+    } = create_nvl_logical_partition(&env, "test_partition2".to_string()).await;
+
+    let mh = create_managed_host_with_hardware_info_template(
+        &env,
+        HardwareInfoTemplate::Custom(
+            crate::tests::common::api_fixtures::host::GB200_COMPUTE_TRAY_1_INFO_JSON,
+        ),
+    )
+    .await;
+
+    let discovery_info = mh.host().rpc_machine().await.discovery_info.unwrap();
+    let gpus: Vec<Gpu> = discovery_info.gpus.to_vec();
+
+    let nvl_config = rpc::forge::InstanceNvLinkConfig {
+        gpu_configs: gpus
+            .iter()
+            .filter_map(|gpu| {
+                gpu.platform_info.as_ref().map(|platform_info| {
+                    rpc::forge::InstanceNvLinkGpuConfig {
+                        device_instance: platform_info.module_id,
+                        logical_partition_id: None,
+                    }
+                })
+            })
+            .collect(),
+    };
+
+    let (_tinstance, instance) =
+        create_instance_with_nvlink_config(&env, &mh, nvl_config.clone(), segment_id).await;
+
+    let nvl_config = rpc::forge::InstanceNvLinkConfig {
+        gpu_configs: gpus
+            .iter()
+            .filter_map(|gpu| {
+                gpu.platform_info.as_ref().map(|platform_info| {
+                    let nvl_logical_partition_id = if platform_info.module_id > 2 {
+                        Some(logical_partition_id2)
+                    } else {
+                        Some(logical_partition_id1)
+                    };
+                    rpc::forge::InstanceNvLinkGpuConfig {
+                        device_instance: platform_info.module_id,
+                        logical_partition_id: nvl_logical_partition_id,
+                    }
+                })
+            })
+            .collect(),
+    };
+    let mut txn = pool.begin().await.unwrap();
+    update_instance_nvlink_config(
+        &mut txn,
+        &instance.id(),
+        &InstanceNvLinkConfig::try_from(nvl_config).unwrap(),
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    // The monitor should successfully create one partition, but the second creation should fail.
+    env.run_nvl_partition_monitor_iteration().await;
+    env.run_nvl_partition_monitor_iteration().await;
+
+    let request_all = tonic::Request::new(rpc::forge::NvLinkPartitionSearchFilter {
+        name: None,
+        tenant_organization_id: None,
+    });
+    let ids_all = env
+        .api
+        .find_nv_link_partition_ids(request_all)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+
+    assert_eq!(
+        ids_all.partition_ids.len(),
+        1,
+        "expected exactly one partition in DB when one NMX-M create fails"
+    );
+}
+
+#[crate::sqlx_test]
 async fn test_create_instances_with_nvl_configs_same_logical_partition_different_domains(
     pool: sqlx::PgPool,
 ) {

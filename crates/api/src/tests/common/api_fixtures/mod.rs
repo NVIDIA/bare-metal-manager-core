@@ -258,6 +258,8 @@ pub struct TestEnvOverrides {
     pub dpf_config: Option<DpfConfig>,
     pub fnn_config: Option<FnnConfig>,
     pub nmxm_default_partition: Option<bool>,
+    // After n create_requests succeed, they will start failing.
+    pub nmxm_fail_after_n_creates: Option<usize>,
 }
 
 impl TestEnvOverrides {
@@ -1236,7 +1238,9 @@ pub async fn create_test_env_with_overrides(
     let certificate_provider = Arc::new(TestCertificateProvider::new());
     let redfish_sim = Arc::new(RedfishSim::default());
     let nmxm_sim: Arc<dyn NmxmClientPool> =
-        Arc::new(if overrides.nmxm_default_partition == Some(true) {
+        Arc::new(if let Some(n) = overrides.nmxm_fail_after_n_creates {
+            NmxmSimClient::with_fail_after_n_creates(n)
+        } else if overrides.nmxm_default_partition == Some(true) {
             NmxmSimClient::with_default_partition()
         } else {
             NmxmSimClient::default()
