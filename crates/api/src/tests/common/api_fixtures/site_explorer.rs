@@ -1574,22 +1574,22 @@ impl TestRackDbBuilder {
         self
     }
 
-    // TODO: unhide this when we have a test that prefills the discovered
-    // compute trays  
+    /// TODO: unhide this when we have a test that prefills the discovered
+    /// compute trays  
     pub fn _with_compute_trays(mut self, compute_trays: Vec<MachineId>) -> Self {
         self.compute_trays = compute_trays;
         self
     }
 
-    // TODO: unhide this when we have a test that prefills the discovered
-    // power shelfs
+    /// TODO: unhide this when we have a test that prefills the discovered
+    /// power shelfs
     pub fn _with_power_shelves(mut self, power_shelves: Vec<PowerShelfId>) -> Self {
         self.power_shelves = power_shelves;
         self
     }
 
-    // TODO: unhide this when we have a test that prefills the discovered
-    // switches
+    /// TODO: unhide this when we have a test that prefills the discovered
+    /// switches
     pub fn _with_switches(mut self, switches: Vec<SwitchId>) -> Self {
         self._switches = switches;
         self
@@ -1611,8 +1611,8 @@ impl TestRackDbBuilder {
         self
     }
 
-    // TODO: unhide this when we have a test that sets expected switches (presumably, but
-    // not necessarily when machine-a-tron supports switches)
+    /// TODO: unhide this when we have a test that sets expected switches (presumably, but
+    /// not necessarily when machine-a-tron supports switches)
     pub fn _with_expected_switches(mut self, expected_switches: Vec<[u8; 6]>) -> Self {
         self.expected_switches = expected_switches.into_iter().map(MacAddress::new).collect();
         self

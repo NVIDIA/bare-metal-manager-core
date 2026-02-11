@@ -144,7 +144,7 @@ async fn test_can_retrieve_rack_state_history(
         .await?;
 
     // Verify rack exists
-    db_rack::get(&mut txn, rack_id).await?;
+    db_rack::get(&mut *txn, rack_id).await?;
 
     // Start the state controller to process the rack while it's active
     let rack_handler = Arc::new(TestRackStateHandler::default());
@@ -214,7 +214,7 @@ async fn test_rack_state_transitions(pool: sqlx::PgPool) -> Result<(), Box<dyn s
         .await?;
 
     // Verify rack exists
-    let rack = db_rack::get(&mut txn, rack_id).await?;
+    let rack = db_rack::get(&mut *txn, rack_id).await?;
 
     // Verify initial state is Expected
     assert!(matches!(rack.controller_state.value, RackState::Expected));
@@ -272,7 +272,7 @@ async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         .await?;
 
     // Verify rack exists
-    let rack = db_rack::get(&mut txn, rack_id).await?;
+    let rack = db_rack::get(&mut *txn, rack_id).await?;
     assert_eq!(rack.id, rack_id);
 
     // Start the state controller to process the rack while it's active
@@ -405,7 +405,7 @@ async fn test_rack_state_transition_validation(
         .with_rack_id(rack_id)
         .persist(&mut txn)
         .await?;
-    let rack = db_rack::get(&mut txn, rack_id).await?;
+    let rack = db_rack::get(&mut *txn, rack_id).await?;
 
     // Verify initial state is Expected
     assert!(matches!(rack.controller_state.value, RackState::Expected));
