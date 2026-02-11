@@ -1338,13 +1338,13 @@ impl NvlPartitionMonitor {
                 match operation.operation_type {
                     NmxmPartitionOperationType::Create => {
                         // Create the nvl partition.
+                        let name =
+                            format!("{}{}", logical_partition_id, operation.gpu_ids.join(","));
+                        // NMX-M has a limit of 244 characters for the partition name
+                        let name: String = name.chars().take(240).collect();
                         let request = libnmxm::nmxm_model::CreatePartitionRequest {
                             // For integration test to pass, till we can fix SimClient to cache partition info dynamically
-                            name: format!(
-                                "{}{}",
-                                logical_partition_id,
-                                operation.gpu_ids.join(",")
-                            ),
+                            name,
                             members: Box::new(libnmxm::nmxm_model::PartitionMembers::Ids(
                                 operation.gpu_ids.clone(),
                             )),
