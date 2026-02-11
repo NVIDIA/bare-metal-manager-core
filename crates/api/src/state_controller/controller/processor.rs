@@ -772,7 +772,7 @@ async fn process_object<IO: StateControllerIO>(
         }),
     };
     if let Err(e) = result {
-        tracing::warn!(%object_id, error = ?e, "State handler error");
+        tracing::warn!(%object_id, state = ?metrics.common.initial_state, error = ?e, "State handler error");
         metrics.common.error = Some(e);
     }
 
