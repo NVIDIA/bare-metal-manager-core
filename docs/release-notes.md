@@ -4,7 +4,7 @@ This document contains release notes for the Bare Metal Manager (BMM) project.
 
 ## Bare Metal Manager 0.2.0
 
-This is an EA release of Bare Metal Manager.
+This release of Bare Metal Manager is open source software.
 
 ### Improvements
 
