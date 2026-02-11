@@ -34,7 +34,7 @@ No, BMM does not bring up NVLink. However, BMM manages NVLink partitions through
 
 **Does BMM support NVLink partitioning?**
 
-Yes, BMM will support NVLink partitioning as part of a future release. 
+Yes, BMM supports NVLink partitioning.
 
 **How does BMM maintain tenancy enforcement between Ethernet (N/S), Infiniband (E/W), NVLink (GPU-to-GPU) networks?**
 
