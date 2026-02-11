@@ -154,7 +154,7 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
         None,
         true,
-        AddressSelectionStrategy::Automatic,
+        AddressSelectionStrategy::NextAvailableIp,
     )
     .await?;
     txn.commit().await.unwrap();
@@ -375,7 +375,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     // Only one vlan-id available
     let mut txn = db_pool.begin().await?;
     let vlan_pool = ResourcePool::new(VLANID.to_string(), ValueType::Integer);
-    db::resource_pool::populate(&vlan_pool, &mut txn, vec!["1".to_string()]).await?;
+    db::resource_pool::populate(&vlan_pool, &mut txn, vec!["1".to_string()], true).await?;
     txn.commit().await?;
 
     // Create a network segment rpc call
@@ -393,7 +393,14 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     let mut txn = db_pool.begin().await?;
     assert_eq!(
         db::resource_pool::stats(&mut *txn, vlan_pool.name()).await?,
-        ResourcePoolStats { used: 1, free: 0 }
+        ResourcePoolStats {
+            used: 1,
+            free: 0,
+            auto_assign_used: 1,
+            auto_assign_free: 0,
+            non_auto_assign_free: 0,
+            non_auto_assign_used: 0
+        }
     );
     txn.commit().await?;
 
@@ -418,7 +425,14 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     let mut txn = db_pool.begin().await?;
     assert_eq!(
         db::resource_pool::stats(&mut *txn, vlan_pool.name()).await?,
-        ResourcePoolStats { used: 0, free: 1 }
+        ResourcePoolStats {
+            used: 0,
+            free: 1,
+            auto_assign_used: 0,
+            auto_assign_free: 1,
+            non_auto_assign_free: 0,
+            non_auto_assign_used: 0
+        }
     );
     txn.commit().await?;
 
@@ -437,7 +451,14 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     let mut txn = db_pool.begin().await?;
     assert_eq!(
         db::resource_pool::stats(&mut *txn, vlan_pool.name()).await?,
-        ResourcePoolStats { used: 1, free: 0 }
+        ResourcePoolStats {
+            used: 1,
+            free: 0,
+            auto_assign_used: 1,
+            auto_assign_free: 0,
+            non_auto_assign_free: 0,
+            non_auto_assign_used: 0
+        }
     );
     txn.commit().await?;
 
@@ -972,7 +993,7 @@ async fn test_update_svi_ip_admin_segment(
     let admin_segment = db::network_segment::admin(&mut txn).await?;
     assert!(admin_segment.vpc_id.is_some());
     let admin_vpc = db::vpc::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::One(IdColumn, &admin_segment.vpc_id.unwrap()),
     )
     .await?;

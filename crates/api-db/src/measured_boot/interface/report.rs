@@ -27,6 +27,7 @@ use measured_boot::records::{MeasurementReportRecord, MeasurementReportValueReco
 use sqlx::{PgConnection, Postgres, QueryBuilder};
 
 use crate::DatabaseError;
+use crate::db_read::DbReader;
 use crate::measured_boot::interface::common;
 
 /// match_latest_reports takes a list of PcrRegisterValues (i.e. register:shaXXX)
@@ -50,7 +51,7 @@ pub fn where_pcr_pairs(query: &mut QueryBuilder<'_, Postgres>, values: &[PcrRegi
 }
 
 pub async fn match_latest_reports(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     values: &[PcrRegisterValue],
 ) -> Result<Vec<MeasurementReportRecord>, DatabaseError> {
     if values.is_empty() {

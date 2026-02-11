@@ -133,7 +133,7 @@ pub async fn allocate_dpa_vni(
         ));
     };
 
-    let vpc = db::vpc::find_by_segment(txn, network_segment_id)
+    let vpc = db::vpc::find_by_segment(&mut *txn, network_segment_id)
         .await
         .map_err(CarbideError::from)?;
 

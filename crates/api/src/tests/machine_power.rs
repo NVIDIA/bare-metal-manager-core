@@ -136,9 +136,13 @@ async fn test_power_manager_state_machine_desired_on_machine_off(
     let power_entry = db::power_options::get_all(&mut txn).await?;
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::On);
-    let mh_snapshot = load_snapshot(&mut txn, &host_machine_id, LoadSnapshotOptions::default())
-        .await?
-        .unwrap();
+    let mh_snapshot = load_snapshot(
+        txn.as_mut(),
+        &host_machine_id,
+        LoadSnapshotOptions::default(),
+    )
+    .await?
+    .unwrap();
     txn.commit().await?;
 
     // Create redfish client
@@ -202,9 +206,13 @@ async fn test_power_manager_state_machine_desired_on_machine_off_counter(
     let power_entry = db::power_options::get_all(&mut txn).await?;
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::On);
-    let mh_snapshot = load_snapshot(&mut txn, &host_machine_id, LoadSnapshotOptions::default())
-        .await?
-        .unwrap();
+    let mh_snapshot = load_snapshot(
+        txn.as_mut(),
+        &host_machine_id,
+        LoadSnapshotOptions::default(),
+    )
+    .await?
+    .unwrap();
     txn.commit().await?;
 
     // Create redfish client

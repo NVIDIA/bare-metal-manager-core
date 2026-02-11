@@ -2257,7 +2257,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     env.create_vpc_and_tenant_segment().await;
-    let vpc = db::vpc::find_by_name(&mut env.pool.begin().await.unwrap(), "test vpc 1")
+    let vpc = db::vpc::find_by_name(&env.pool, "test vpc 1")
         .await
         .unwrap()
         .into_iter()
@@ -2348,7 +2348,9 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Ready
     ));
-    let mut vpc = db::vpc::find_by_name(&mut txn, "test vpc 1").await.unwrap();
+    let mut vpc = db::vpc::find_by_name(&env.pool, "test vpc 1")
+        .await
+        .unwrap();
     let vpc = vpc.remove(0);
 
     let update_vpc = UpdateVpcVirtualization {
@@ -4141,9 +4143,10 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
     };
 
     let mut txn = env.db_txn().await;
-    let segments = db::network_segment::find_ids(&mut txn, NetworkSegmentSearchFilter::default())
-        .await
-        .unwrap();
+    let segments =
+        db::network_segment::find_ids(txn.as_mut(), NetworkSegmentSearchFilter::default())
+            .await
+            .unwrap();
 
     let old_length = segments.len();
     txn.rollback().await.unwrap();
@@ -4168,9 +4171,10 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         .await
         .expect("Unable to create transaction on database pool");
 
-    let segments = db::network_segment::find_ids(&mut txn, NetworkSegmentSearchFilter::default())
-        .await
-        .unwrap();
+    let segments =
+        db::network_segment::find_ids(txn.as_mut(), NetworkSegmentSearchFilter::default())
+            .await
+            .unwrap();
 
     let new_length = segments.len();
     txn.rollback().await.unwrap();
@@ -4237,7 +4241,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     env.create_vpc_and_tenant_segment().await;
-    let vpc = db::vpc::find_by_name(&mut env.pool.begin().await.unwrap(), "test vpc 1")
+    let vpc = db::vpc::find_by_name(&env.pool, "test vpc 1")
         .await
         .unwrap()
         .into_iter()

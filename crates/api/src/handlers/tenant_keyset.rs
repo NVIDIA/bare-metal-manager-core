@@ -18,8 +18,6 @@
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
 use ::rpc::forge as rpc;
-use db::WithTransaction;
-use futures_util::FutureExt;
 use itertools::Itertools;
 use model::tenant::{
     PublicKey, TenantKeyset, TenantKeysetIdentifier, TenantPublicKey,
@@ -70,9 +68,7 @@ pub(crate) async fn find_ids(
 
     let filter: rpc::TenantKeysetSearchFilter = request.into_inner();
 
-    let keyset_ids = api
-        .with_txn(|txn| db::tenant_keyset::find_ids(txn, filter).boxed())
-        .await??;
+    let keyset_ids = db::tenant_keyset::find_ids(&api.database_connection, filter).await?;
 
     Ok(Response::new(rpc::TenantKeysetIdList {
         keyset_ids: keyset_ids
@@ -106,9 +102,9 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let keysets = api
-        .with_txn(|txn| db::tenant_keyset::find_by_ids(txn, keyset_ids, include_key_data).boxed())
-        .await?;
+    let keysets =
+        db::tenant_keyset::find_by_ids(&api.database_connection, keyset_ids, include_key_data)
+            .await;
 
     let result = keysets
         .map(|vpc| rpc::TenantKeySetList {

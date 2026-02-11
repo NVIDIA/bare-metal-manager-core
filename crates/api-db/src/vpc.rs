@@ -26,6 +26,7 @@ use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc};
 use sqlx::{PgConnection, PgTransaction};
 
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter, network_segment, vpc};
+use crate::db_read::DbReader;
 use crate::resource_pool::ResourcePoolDatabaseError;
 use crate::{DatabaseError, DatabaseResult};
 
@@ -83,7 +84,7 @@ pub async fn persist(value: NewVpc, txn: &mut PgConnection) -> Result<Vpc, Datab
 }
 
 pub async fn find_ids(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     filter: rpc::VpcSearchFilter,
 ) -> Result<Vec<VpcId>, DatabaseError> {
     // build query
@@ -177,6 +178,7 @@ pub async fn allocate_dpa_vni(
         txn,
         resource_pool::OwnerType::Dpa,
         &value.id.to_string(),
+        None,
     )
     .await
     {
@@ -215,7 +217,7 @@ pub async fn set_dpa_vni(txn: &mut PgConnection, id: VpcId, vni: i32) -> Result<
 // Note: Following find function should not be used to search based on vpc labels.
 // Recommended approach to filter by labels is to first find VPC ids.
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Vpc>>(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     filter: ObjectColumnFilter<'a, C>,
 ) -> Result<Vec<Vpc>, DatabaseError> {
     let mut query = FilterableQueryBuilder::new("SELECT * FROM vpcs").filter(&filter);
@@ -232,12 +234,12 @@ pub async fn find_by_vni(txn: &mut PgConnection, vni: i32) -> Result<Vec<Vpc>, D
     find_by(txn, ObjectColumnFilter::One(VniColumn, &vni)).await
 }
 
-pub async fn find_by_name(txn: &mut PgConnection, name: &str) -> Result<Vec<Vpc>, DatabaseError> {
+pub async fn find_by_name(txn: impl DbReader<'_>, name: &str) -> Result<Vec<Vpc>, DatabaseError> {
     find_by(txn, ObjectColumnFilter::One(NameColumn, &name)).await
 }
 
 pub async fn find_by_segment(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     segment_id: NetworkSegmentId,
 ) -> Result<Vpc, DatabaseError> {
     let mut query = FilterableQueryBuilder::new(
@@ -276,7 +278,8 @@ pub async fn update(value: &UpdateVpc, txn: &mut PgConnection) -> DatabaseResult
     let current_version = match value.if_version_match {
         Some(version) => version,
         None => {
-            let vpcs = find_by(txn, ObjectColumnFilter::One(vpc::IdColumn, &value.id)).await?;
+            let vpcs =
+                find_by(&mut *txn, ObjectColumnFilter::One(vpc::IdColumn, &value.id)).await?;
             if vpcs.len() != 1 {
                 return Err(DatabaseError::FindOneReturnedManyResultsError(
                     value.id.into(),
@@ -332,7 +335,11 @@ pub async fn update_virtualization(
     let current_version = match value.if_version_match {
         Some(version) => version,
         None => {
-            let vpcs = find_by(txn, ObjectColumnFilter::One(vpc::IdColumn, &value.id)).await?;
+            let vpcs = find_by(
+                txn.as_mut(),
+                ObjectColumnFilter::One(vpc::IdColumn, &value.id),
+            )
+            .await?;
             if vpcs.len() != 1 {
                 return Err(DatabaseError::FindOneReturnedManyResultsError(
                     value.id.into(),

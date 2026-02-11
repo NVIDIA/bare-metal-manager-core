@@ -21,7 +21,6 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use db::DatabaseError;
 use forge_secrets::SecretsError;
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
@@ -134,8 +133,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         port: Option<u16>,
         pool: &PgPool,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        let mut conn = pool.acquire().await.map_err(DatabaseError::acquire)?;
-        let auth_key = db::machine_interface::find_by_ip(&mut conn, ip)
+        let auth_key = db::machine_interface::find_by_ip(pool, ip)
             .await?
             .ok_or_else(|| {
                 RedfishClientCreationError::MissingArgument(format!(
@@ -143,7 +141,6 @@ pub trait RedfishClientPool: Send + Sync + 'static {
                 ))
             })
             .map(|machine_interface| RedfishAuth::for_bmc_mac(machine_interface.mac_address))?;
-        std::mem::drop(conn);
 
         self.create_client(&ip.to_string(), port, auth_key, true)
             .await

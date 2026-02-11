@@ -154,7 +154,7 @@ pub async fn persist(
 }
 
 pub async fn for_vpc(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     vpc_id: VpcId,
 ) -> Result<Vec<NetworkSegment>, DatabaseError> {
     lazy_static! {
@@ -258,7 +258,7 @@ pub async fn list_segment_ids(
 }
 
 pub async fn find_ids(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     filter: rpc::NetworkSegmentSearchFilter,
 ) -> Result<Vec<NetworkSegmentId>, DatabaseError> {
     // build query
@@ -423,8 +423,7 @@ where
             &mut *conn,
             record,
             dhcp_handler,
-            AddressSelectionStrategy::Automatic,
-            32,
+            AddressSelectionStrategy::NextAvailableIp,
         )
         .await
         .map_err(|e| {

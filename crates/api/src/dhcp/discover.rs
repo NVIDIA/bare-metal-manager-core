@@ -314,7 +314,7 @@ async fn update_rack_config_predicted_id_with_actual(
     actual: &MachineId,
 ) -> Result<(), CarbideError> {
     // TODO: pass in a rack id query by that when we support multirack, when supported
-    let racks = db::rack::list(txn).await?;
+    let racks = db::rack::list(&mut *txn).await?;
     let rack = match racks.is_empty() {
         false => racks[0].clone(),
         true => {

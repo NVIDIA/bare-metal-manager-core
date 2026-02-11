@@ -37,7 +37,7 @@ async fn create_delete_valid_domain(pool: sqlx::PgPool) {
     assert!(delete_result.is_ok());
 
     let domains = db::dns::domain::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
     )
     .await
@@ -100,7 +100,7 @@ async fn find_domain(pool: sqlx::PgPool) {
         .expect("Unable to create transaction on database pool");
 
     let domains = db::dns::domain::find_by(
-        &mut txn,
+        txn.as_mut(),
         ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
     )
     .await

@@ -22,9 +22,7 @@ use std::str::FromStr;
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use carbide_uuid::machine::MachineId;
-use db::WithTransaction;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
-use futures_util::FutureExt;
 use itertools::Itertools;
 use libredfish::SystemPowerControl;
 use model::hardware_info::MachineNvLinkInfo;
@@ -46,9 +44,8 @@ pub(crate) async fn find_machine_ids(
 
     let search_config = request.into_inner().try_into()?;
 
-    let machine_ids = api
-        .with_txn(|txn| db::machine::find_machine_ids(txn.as_mut(), search_config).boxed())
-        .await??;
+    let machine_ids =
+        db::machine::find_machine_ids(&api.database_connection, search_config).await?;
 
     Ok(Response::new(::rpc::common::MachineIdList {
         machine_ids: machine_ids.into_iter().collect(),
@@ -61,11 +58,11 @@ pub(crate) async fn find_machine_ids_by_bmc_ips(
 ) -> Result<Response<rpc::MachineIdBmcIpPairs>, Status> {
     log_request_data(&request);
 
-    let pairs = api
-        .with_txn(|txn| {
-            db::machine_topology::find_machine_bmc_pairs(txn, request.into_inner().bmc_ips).boxed()
-        })
-        .await??;
+    let pairs = db::machine_topology::find_machine_bmc_pairs(
+        &api.database_connection,
+        request.into_inner().bmc_ips,
+    )
+    .await?;
     let rpc_pairs = rpc::MachineIdBmcIpPairs {
         pairs: pairs
             .into_iter()

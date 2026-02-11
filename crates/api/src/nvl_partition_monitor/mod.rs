@@ -689,7 +689,7 @@ impl NvlPartitionMonitor {
 
         // Gather instances and NMX-M GPU info from DB, and partitions list from NMX-M.
         let mut txn = self.db_pool.txn_begin().await?;
-        let managed_host_snapshots = self.load_mnnvl_managed_host_snapshots(&mut txn).await?;
+        let managed_host_snapshots = self.load_mnnvl_managed_host_snapshots(txn.as_mut()).await?;
         let machine_nvlink_info = machine::find_nvlink_info_by_machine_ids(
             &mut txn,
             &managed_host_snapshots.keys().copied().collect::<Vec<_>>(),
@@ -1771,7 +1771,7 @@ impl NvlPartitionMonitor {
         )
         .await?;
         load_by_machine_ids(
-            txn,
+            txn.as_mut(),
             mnvvl_machine_ids.as_slice(),
             LoadSnapshotOptions {
                 include_history: false,

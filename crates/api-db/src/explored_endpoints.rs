@@ -115,7 +115,7 @@ impl From<DbExploredEndpoint> for ExploredEndpoint {
 }
 
 pub async fn find_ips(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     // filter is currently is empty, so it is a placeholder for the future
     _filter: ::rpc::site_explorer::ExploredEndpointSearchFilter,
 ) -> Result<Vec<IpAddr>, DatabaseError> {
@@ -159,7 +159,7 @@ pub async fn find_all(txn: &mut PgConnection) -> Result<Vec<ExploredEndpoint>, D
 
 /// find_preingest_not_waiting gets everything that is still in preingestion that isn't waiting for site explorer to refresh it again and isn't in an error state.
 pub async fn find_preingest_not_waiting_not_error(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
 ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
     let query = "SELECT * FROM explored_endpoints
                         WHERE (preingestion_state IS NULL OR preingestion_state->'state' != '\"complete\"')
@@ -175,7 +175,7 @@ pub async fn find_preingest_not_waiting_not_error(
 
 /// find_preingest_installing returns the endpoints where wew are waiting for firmware installs
 pub async fn find_preingest_installing(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
 ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
     let query = "SELECT * FROM explored_endpoints WHERE preingestion_state->'state' = '\"upgradefirmwarewait\"'";
 

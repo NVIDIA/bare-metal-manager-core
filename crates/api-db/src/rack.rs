@@ -22,6 +22,7 @@ use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::rack::{Rack, RackConfig, RackState};
 use sqlx::PgConnection;
 
+use crate::db_read::DbReader;
 use crate::{
     ColumnInfo, DatabaseError, DatabaseResult, FilterableQueryBuilder, ObjectColumnFilter,
 };
@@ -50,7 +51,7 @@ pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Rack>>(
         .map_err(|e| DatabaseError::new(query.sql(), e))
 }
 
-pub async fn list(txn: &mut PgConnection) -> DatabaseResult<Vec<Rack>> {
+pub async fn list(txn: impl DbReader<'_>) -> DatabaseResult<Vec<Rack>> {
     let query = "SELECT * from racks where deleted IS NULL".to_string();
     sqlx::query_as(&query)
         .fetch_all(txn)
@@ -58,7 +59,7 @@ pub async fn list(txn: &mut PgConnection) -> DatabaseResult<Vec<Rack>> {
         .map_err(|e| DatabaseError::new("racks get", e))
 }
 
-pub async fn get(txn: &mut PgConnection, rack_id: RackId) -> DatabaseResult<Rack> {
+pub async fn get(txn: impl DbReader<'_>, rack_id: RackId) -> DatabaseResult<Rack> {
     let query = "SELECT * from racks l WHERE l.id=$1".to_string();
     sqlx::query_as(&query)
         .bind(rack_id)

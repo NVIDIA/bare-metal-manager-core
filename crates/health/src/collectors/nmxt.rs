@@ -14,6 +14,7 @@
 //! Scrapes HTTP on 9352 (default for NMX-T) - NOT A Redfish collector!
 //! Currently scraping for Effective BER, Symbol Errors and Link Down counter.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,10 +23,11 @@ use nv_redfish_core::Bmc;
 use prometheus::{GaugeVec, Opts};
 
 use crate::HealthError;
-use crate::api_client::{BmcEndpoint, EndpointMetadata};
-use crate::collector::{IterationResult, PeriodicCollector};
+use crate::collectors::{IterationResult, PeriodicCollector};
 use crate::config::NmxtCollectorConfig as NmxtCollectorOptions;
+use crate::endpoint::{BmcEndpoint, EndpointMetadata};
 use crate::metrics::CollectorRegistry;
+use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample};
 
 /// default NMX-T port
 const NMXT_PORT: u16 = 9352;
@@ -141,6 +143,7 @@ async fn scrape_switch_nmxt_metrics(
 pub struct NmxtCollectorConfig {
     pub nmxt_config: NmxtCollectorOptions,
     pub collector_registry: Arc<CollectorRegistry>,
+    pub data_sink: Option<Arc<dyn DataSink>>,
 }
 
 /// NMX-T collector for a single switch/endpoint
@@ -148,9 +151,11 @@ pub struct NmxtCollector {
     endpoint: Arc<BmcEndpoint>,
     http_client: reqwest::Client,
     switch_id: String,
+    event_context: EventContext,
     effective_ber_gauge: GaugeVec,
     symbol_error_gauge: GaugeVec,
     link_down_gauge: GaugeVec,
+    data_sink: Option<Arc<dyn DataSink>>,
 }
 
 impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
@@ -163,8 +168,9 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
     ) -> Result<Self, HealthError> {
         let switch_id = match &endpoint.metadata {
             Some(EndpointMetadata::Switch(s)) => s.serial.clone(),
-            _ => endpoint.addr.mac.clone(),
+            _ => endpoint.addr.mac.to_string(),
         };
+        let event_context = EventContext::from_endpoint(endpoint.as_ref(), "nmxt");
 
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(60))
@@ -207,9 +213,11 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
             endpoint,
             http_client,
             switch_id,
+            event_context,
             effective_ber_gauge,
             symbol_error_gauge,
             link_down_gauge,
+            data_sink: config.data_sink,
         })
     }
 
@@ -227,40 +235,72 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
 }
 
 impl NmxtCollector {
+    fn emit_event(&self, event: CollectorEvent) {
+        if let Some(data_sink) = &self.data_sink {
+            data_sink.handle_event(&self.event_context, &event);
+        }
+    }
+
     async fn scrape_iteration(&self) -> Result<(), HealthError> {
         let switch_ip = self.endpoint.addr.ip.to_string();
 
         let metrics = scrape_switch_nmxt_metrics(&self.http_client, &switch_ip).await?;
 
         for sample in metrics {
-            let port_num = sample
-                .labels
-                .get("Port_Number")
-                .cloned()
-                .unwrap_or_default();
-
-            let node_guid = sample.labels.get("Node_GUID").cloned().unwrap_or_default();
+            let NmxtMetricSample {
+                name,
+                labels: mut sample_labels,
+                value,
+            } = sample;
+            let port_num = sample_labels.remove("Port_Number").unwrap_or_default();
+            let node_guid = sample_labels.remove("Node_GUID").unwrap_or_default();
 
             let labels = [self.switch_id.as_str(), &switch_ip, &node_guid, &port_num];
 
-            match sample.name.as_str() {
+            match name.as_str() {
                 "Effective_BER" => {
                     self.effective_ber_gauge
                         .with_label_values(&labels)
-                        .set(sample.value);
+                        .set(value);
                 }
                 "Symbol_Errors" => {
                     self.symbol_error_gauge
                         .with_label_values(&labels)
-                        .set(sample.value);
+                        .set(value);
                 }
                 "Link_Down" => {
-                    self.link_down_gauge
-                        .with_label_values(&labels)
-                        .set(sample.value);
+                    self.link_down_gauge.with_label_values(&labels).set(value);
                 }
                 _ => {}
             }
+
+            let metric_type = match name.as_str() {
+                "Effective_BER" => "effective_ber",
+                "Symbol_Errors" => "symbol_errors",
+                "Link_Down" => "link_down",
+                _ => continue,
+            };
+
+            let mut metric_key = String::with_capacity(metric_type.len() + 1 + port_num.len());
+            metric_key.push_str(metric_type);
+            metric_key.push(':');
+            metric_key.push_str(&port_num);
+
+            let event_labels = vec![
+                (Cow::Borrowed("switch_id"), self.switch_id.clone()),
+                (Cow::Borrowed("switch_ip"), switch_ip.clone()),
+                (Cow::Borrowed("node_guid"), node_guid),
+                (Cow::Borrowed("port_num"), port_num),
+            ];
+
+            self.emit_event(CollectorEvent::Metric(MetricSample {
+                key: metric_key,
+                name: "switch_nmxt".to_string(),
+                metric_type: metric_type.to_string(),
+                unit: "count".to_string(),
+                value,
+                labels: event_labels,
+            }));
         }
 
         Ok(())

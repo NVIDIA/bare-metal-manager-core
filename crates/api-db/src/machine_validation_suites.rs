@@ -20,6 +20,7 @@ use model::machine_validation::MachineValidationTest;
 use regex::Regex;
 use sqlx::PgConnection;
 
+use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
 /// Method to generate an SQL update query based on the fields that are `Some`
@@ -208,7 +209,7 @@ fn build_select_query(
 }
 
 pub async fn find(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     req: rpc::forge::MachineValidationTestsGetRequest,
 ) -> DatabaseResult<Vec<MachineValidationTest>> {
     let query = build_select_query(req, "machine_validation_tests")?;

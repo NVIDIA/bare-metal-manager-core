@@ -29,29 +29,21 @@ pub async fn get_rack(
     request: Request<rpc::GetRackRequest>,
 ) -> Result<Response<rpc::GetRackResponse>, Status> {
     let req = request.into_inner();
-    let rack = api
-        .with_txn(|txn| {
-            async move {
-                if let Some(id) = req.id {
-                    let rack_id = RackId::from_str(&id)
-                        .map_err(|e| Status::invalid_argument(format!("Invalid rack ID: {}", e)))?;
-                    let r = db_rack::get(txn, rack_id)
-                        .await
-                        .map_err(|e| Status::internal(format!("Getting rack {}", e)))?;
-                    Ok::<_, Status>(vec![r.into()])
-                } else {
-                    let racks = db_rack::list(txn)
-                        .await
-                        .map_err(|e| Status::internal(format!("Listing racks {}", e)))?
-                        .into_iter()
-                        .map(|x| x.into())
-                        .collect();
-                    Ok(racks)
-                }
-            }
-            .boxed()
-        })
-        .await??;
+    let rack = if let Some(id) = req.id {
+        let rack_id = RackId::from_str(&id)
+            .map_err(|e| Status::invalid_argument(format!("Invalid rack ID: {}", e)))?;
+        let r = db_rack::get(&api.database_connection, rack_id)
+            .await
+            .map_err(|e| Status::internal(format!("Getting rack {}", e)))?;
+        vec![r.into()]
+    } else {
+        db_rack::list(&api.database_connection)
+            .await
+            .map_err(|e| Status::internal(format!("Listing racks {}", e)))?
+            .into_iter()
+            .map(|x| x.into())
+            .collect()
+    };
     Ok(Response::new(rpc::GetRackResponse { rack }))
 }
 
@@ -64,7 +56,7 @@ pub async fn delete_rack(
         async move {
             let rack_id = RackId::from_str(&req.id)
                 .map_err(|e| Status::invalid_argument(format!("Invalid rack ID: {}", e)))?;
-            let rack = db_rack::get(txn, rack_id)
+            let rack = db_rack::get(txn.as_mut(), rack_id)
                 .await
                 .map_err(|e| Status::internal(format!("Getting rack {}", e)))?;
             db_rack::mark_as_deleted(&rack, txn)

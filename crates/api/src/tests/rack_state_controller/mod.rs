@@ -106,6 +106,7 @@ async fn test_rack_state_transitions(pool: sqlx::PgPool) -> Result<(), Box<dyn s
 
     let handler_services = Arc::new(CommonStateHandlerServices {
         db_pool: pool.clone(),
+        db_reader: pool.clone().into(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),
@@ -157,8 +158,7 @@ async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     let _rack = create_test_rack(&pool, rack_id).await?;
 
     // Verify rack exists
-    let mut txn = pool.acquire().await?;
-    let rack = db_rack::get(&mut txn, rack_id).await?;
+    let rack = db_rack::get(&pool, rack_id).await?;
     assert_eq!(rack.id, rack_id);
 
     // Start the state controller to process the rack while it's active
@@ -168,6 +168,7 @@ async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 
     let handler_services = Arc::new(CommonStateHandlerServices {
         db_pool: pool.clone(),
+        db_reader: pool.clone().into(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),
@@ -249,6 +250,7 @@ async fn test_rack_error_state_handling(
 
     let handler_services = Arc::new(CommonStateHandlerServices {
         db_pool: pool.clone(),
+        db_reader: pool.clone().into(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),
@@ -329,8 +331,7 @@ async fn test_rack_state_transition_validation(
         set_rack_controller_state(pool.acquire().await?.as_mut(), rack_id, state.clone()).await?;
 
         // Verify the state was set correctly
-        let mut txn = pool.acquire().await?;
-        let rack = db_rack::get(&mut txn, rack_id).await?;
+        let rack = db_rack::get(&pool, rack_id).await?;
         assert!(matches!(rack.controller_state.value, _ if rack.controller_state.value == state));
     }
 
@@ -354,6 +355,7 @@ async fn test_rack_deletion_with_state_controller(
 
     let handler_services = Arc::new(CommonStateHandlerServices {
         db_pool: pool.clone(),
+        db_reader: pool.clone().into(),
         redfish_client_pool: env.redfish_sim.clone(),
         ib_fabric_manager: env.ib_fabric_manager.clone(),
         ib_pools: env.common_pools.infiniband.clone(),

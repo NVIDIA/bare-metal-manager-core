@@ -22,6 +22,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
 
 use crate::DatabaseError;
+use crate::db_read::DbReader;
 
 #[derive(Debug, Clone)]
 struct DbExploredManagedHost {
@@ -51,7 +52,7 @@ impl From<DbExploredManagedHost> for ExploredManagedHost {
 }
 
 pub async fn find_ips(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     // filter is currently is empty, so it is a placeholder for the future
     _filter: ::rpc::site_explorer::ExploredManagedHostSearchFilter,
 ) -> Result<Vec<IpAddr>, DatabaseError> {
@@ -69,7 +70,7 @@ pub async fn find_ips(
 }
 
 pub async fn find_by_ips(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     ips: Vec<IpAddr>,
 ) -> Result<Vec<ExploredManagedHost>, DatabaseError> {
     let query = "SELECT * FROM explored_managed_hosts WHERE host_bmc_ip=ANY($1)";
@@ -82,7 +83,7 @@ pub async fn find_by_ips(
         .map_err(|e| DatabaseError::new("explored_managed_hosts::find_by_ips", e))
 }
 
-pub async fn find_all(txn: &mut PgConnection) -> Result<Vec<ExploredManagedHost>, DatabaseError> {
+pub async fn find_all(txn: impl DbReader<'_>) -> Result<Vec<ExploredManagedHost>, DatabaseError> {
     let query = "SELECT * FROM explored_managed_hosts ORDER by host_bmc_ip ASC";
 
     sqlx::query_as::<_, DbExploredManagedHost>(query)

@@ -16,8 +16,6 @@
  */
 use ::rpc::forge as rpc;
 use carbide_uuid::machine::MachineId;
-use db::WithTransaction;
-use futures_util::FutureExt;
 use itertools::Itertools;
 use model::machine::LoadSnapshotOptions;
 use tonic::{Request, Response, Status};
@@ -97,36 +95,36 @@ pub(crate) async fn list_hosts_waiting_for_reprovisioning(
 ) -> Result<Response<rpc::HostReprovisioningListResponse>, Status> {
     log_request_data(&request);
 
-    let hosts = api
-        .with_txn(|txn| db::machine::list_machines_requested_for_host_reprovisioning(txn).boxed())
-        .await??
-        .into_iter()
-        .map(
-            |x| rpc::host_reprovisioning_list_response::HostReprovisioningListItem {
-                id: Some(x.id),
-                state: x.current_state().to_string(),
-                requested_at: x
-                    .reprovision_requested
-                    .as_ref()
-                    .map(|a| a.requested_at.into()),
-                initiator: x
-                    .reprovision_requested
-                    .as_ref()
-                    .map(|a| a.initiator.clone())
-                    .unwrap_or_default(),
-                initiated_at: x
-                    .reprovision_requested
-                    .as_ref()
-                    .map(|a| a.started_at.map(|x| x.into()))
-                    .unwrap_or_default(),
-                user_approval_received: x
-                    .reprovision_requested
-                    .as_ref()
-                    .map(|x| x.user_approval_received)
-                    .unwrap_or_default(),
-            },
-        )
-        .collect_vec();
+    let hosts =
+        db::machine::list_machines_requested_for_host_reprovisioning(&api.database_connection)
+            .await?
+            .into_iter()
+            .map(
+                |x| rpc::host_reprovisioning_list_response::HostReprovisioningListItem {
+                    id: Some(x.id),
+                    state: x.current_state().to_string(),
+                    requested_at: x
+                        .reprovision_requested
+                        .as_ref()
+                        .map(|a| a.requested_at.into()),
+                    initiator: x
+                        .reprovision_requested
+                        .as_ref()
+                        .map(|a| a.initiator.clone())
+                        .unwrap_or_default(),
+                    initiated_at: x
+                        .reprovision_requested
+                        .as_ref()
+                        .map(|a| a.started_at.map(|x| x.into()))
+                        .unwrap_or_default(),
+                    user_approval_received: x
+                        .reprovision_requested
+                        .as_ref()
+                        .map(|x| x.user_approval_received)
+                        .unwrap_or_default(),
+                },
+            )
+            .collect_vec();
 
     Ok(Response::new(rpc::HostReprovisioningListResponse { hosts }))
 }

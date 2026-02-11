@@ -21,10 +21,8 @@ use std::sync::Arc;
 
 use carbide_uuid::dpa_interface::DpaInterfaceId;
 use chrono::{Duration, TimeDelta};
-use db::WithTransaction;
 use db::dpa_interface::get_dpa_vni;
 use eyre::eyre;
-use futures_util::FutureExt;
 use model::dpa_interface::DpaLockMode::{Locked, Unlocked};
 use model::dpa_interface::{DpaInterface, DpaInterfaceControllerState};
 use model::resource_pool::ResourcePool;
@@ -361,11 +359,7 @@ async fn send_set_vni_command<'a>(
     };
 
     let vni = if needs_vni {
-        match services
-            .db_pool
-            .with_txn(|txn| get_dpa_vni(state, txn).boxed())
-            .await?
-        {
+        match get_dpa_vni(state, &mut services.db_reader).await {
             Ok(dv) => dv,
             Err(e) => {
                 return Err(StateHandlerError::GenericError(eyre!(

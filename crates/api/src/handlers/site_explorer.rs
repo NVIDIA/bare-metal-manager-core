@@ -20,8 +20,6 @@ use std::str::FromStr;
 
 use ::rpc::forge::{self as rpc, IsBmcInManagedHostResponse};
 use config_version::ConfigVersion;
-use db::WithTransaction;
-use futures_util::FutureExt;
 use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
 
@@ -36,9 +34,7 @@ pub(crate) async fn find_explored_endpoint_ids(
 
     let filter: ::rpc::site_explorer::ExploredEndpointSearchFilter = request.into_inner();
 
-    let endpoint_ips = api
-        .with_txn(|txn| db::explored_endpoints::find_ips(txn, filter).boxed())
-        .await??;
+    let endpoint_ips = db::explored_endpoints::find_ips(&api.database_connection, filter).await?;
 
     Ok(Response::new(
         ::rpc::site_explorer::ExploredEndpointIdList {
@@ -73,9 +69,8 @@ pub(crate) async fn find_explored_endpoints_by_ids(
         );
     }
 
-    let result = api
-        .with_txn(|txn| db::explored_endpoints::find_by_ips(txn.as_mut(), ips).boxed())
-        .await?
+    let result = db::explored_endpoints::find_by_ips(&api.database_connection, ips)
+        .await
         .map(|ep| ::rpc::site_explorer::ExploredEndpointList {
             endpoints: ep
                 .into_iter()
@@ -94,9 +89,7 @@ pub(crate) async fn find_explored_managed_host_ids(
 
     let filter: ::rpc::site_explorer::ExploredManagedHostSearchFilter = request.into_inner();
 
-    let host_ips = api
-        .with_txn(|txn| db::explored_managed_host::find_ips(txn, filter).boxed())
-        .await??;
+    let host_ips = db::explored_managed_host::find_ips(&api.database_connection, filter).await?;
 
     Ok(Response::new(
         ::rpc::site_explorer::ExploredManagedHostIdList {
@@ -131,9 +124,8 @@ pub(crate) async fn find_explored_managed_hosts_by_ids(
         );
     }
 
-    let result = api
-        .with_txn(|txn| db::explored_managed_host::find_by_ips(txn, ips).boxed())
-        .await?
+    let result = db::explored_managed_host::find_by_ips(&api.database_connection, ips)
+        .await
         .map(|ep| ::rpc::site_explorer::ExploredManagedHostList {
             managed_hosts: ep
                 .into_iter()

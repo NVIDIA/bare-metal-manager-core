@@ -134,7 +134,7 @@ where
 /// Similar to get_object_for_id above, this leverages a mixture of sqlx-based
 /// derive + traits to reduce the use of copy-pasta code + string literals.
 pub async fn get_objects_where_id<T, R>(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     id: T,
 ) -> Result<Vec<R>, DatabaseError>
 where
@@ -160,7 +160,7 @@ where
 /// implementing the crate-specific DbName trait to make this possible,
 /// with the idea of reducing very boilerplate copy-pasta code and string
 /// literals.
-pub async fn get_all_objects<R>(txn: &mut PgConnection) -> Result<Vec<R>, DatabaseError>
+pub async fn get_all_objects<R>(txn: impl DbReader<'_>) -> Result<Vec<R>, DatabaseError>
 where
     R: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + DbTable,
 {

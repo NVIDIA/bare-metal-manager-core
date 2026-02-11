@@ -116,7 +116,10 @@ pub async fn from_id(
     }
 }
 
-pub async fn get_all(txn: &mut PgConnection) -> DatabaseResult<Vec<CandidateMachine>> {
+pub async fn get_all<DB>(txn: &mut DB) -> DatabaseResult<Vec<CandidateMachine>>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     get_candidate_machines(txn).await
 }
 
@@ -170,9 +173,12 @@ where
 }
 
 /// get_candidate_machines returns all populated CandidateMachine instances.
-async fn get_candidate_machines(txn: &mut PgConnection) -> DatabaseResult<Vec<CandidateMachine>> {
+async fn get_candidate_machines<DB>(txn: &mut DB) -> DatabaseResult<Vec<CandidateMachine>>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     let mut res: Vec<CandidateMachine> = Vec::new();
-    let mut records = get_candidate_machine_records(txn).await?;
+    let mut records = get_candidate_machine_records(&mut *txn).await?;
 
     for record in records.drain(..) {
         // there is no dmi_data for predicted hosts, so skip them

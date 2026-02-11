@@ -70,9 +70,22 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ResourcePoolStats {
     fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         let used: i64 = row.try_get("used")?;
         let free: i64 = row.try_get("free")?;
+
+        let auto_assign_used: i64 = row.try_get("auto_assign_used")?;
+        let auto_assign_free: i64 = row.try_get("auto_assign_free")?;
+
+        let non_auto_assign_used: i64 = row.try_get("non_auto_assign_used")?;
+        let non_auto_assign_free: i64 = row.try_get("non_auto_assign_free")?;
+
         Ok(ResourcePoolStats {
             used: used as usize,
             free: free as usize,
+
+            auto_assign_used: auto_assign_used as usize,
+            auto_assign_free: auto_assign_free as usize,
+
+            non_auto_assign_used: non_auto_assign_used as usize,
+            non_auto_assign_free: non_auto_assign_free as usize,
         })
     }
 }
@@ -197,6 +210,18 @@ pub struct ResourcePoolStats {
 
     /// Number of available values in this pool
     pub free: usize,
+
+    /// Number of allocated auto-assignable values in this pool
+    pub auto_assign_used: usize,
+
+    /// Number of available auto-assignable  values in this pool
+    pub auto_assign_free: usize,
+
+    /// Number of allocated non-auto-assignable values in this pool
+    pub non_auto_assign_used: usize,
+
+    /// Number of available non-auto-assignable values in this pool
+    pub non_auto_assign_free: usize,
 }
 
 #[derive(Debug, thiserror::Error)]

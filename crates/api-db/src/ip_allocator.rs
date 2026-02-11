@@ -58,9 +58,6 @@ pub enum DhcpError {
 
     #[error("Prefix: {0} has exhausted all address space")]
     PrefixExhausted(IpAddr),
-
-    #[error("Only IPV4 is supported. Got prefix: {0}")]
-    OnlyIpv4Supported(IpNetwork),
 }
 
 // Trying to decouple from NetworkSegment as much as possible.
@@ -109,7 +106,7 @@ struct NetworkDetails {
 pub struct IpAllocator {
     prefixes: Vec<Prefix>,
     used_ips: Vec<IpNetwork>,
-    prefix_length: u8,
+    address_strategy: AddressSelectionStrategy,
 }
 
 impl IpAllocator {
@@ -118,31 +115,26 @@ impl IpAllocator {
         segment: &NetworkSegment,
         used_ip_resolver: Box<dyn UsedIpResolver<DB> + Send>,
         address_strategy: AddressSelectionStrategy,
-        prefix_length: u8,
     ) -> DatabaseResult<Self>
     where
         for<'db> &'db mut DB: DbReader<'db>,
     {
-        match address_strategy {
-            AddressSelectionStrategy::Automatic => {
-                let used_ips = used_ip_resolver.used_prefixes(db).await?;
+        let used_ips = used_ip_resolver.used_prefixes(db).await?;
 
-                Ok(IpAllocator {
-                    prefixes: segment
-                        .prefixes
-                        .iter()
-                        .map(|x| Prefix {
-                            id: x.id,
-                            prefix: x.prefix,
-                            gateway: x.gateway,
-                            num_reserved: x.num_reserved,
-                        })
-                        .collect(),
-                    used_ips,
-                    prefix_length,
+        Ok(IpAllocator {
+            prefixes: segment
+                .prefixes
+                .iter()
+                .map(|x| Prefix {
+                    id: x.id,
+                    prefix: x.prefix,
+                    gateway: x.gateway,
+                    num_reserved: x.num_reserved,
                 })
-            }
-        }
+                .collect(),
+            used_ips,
+            address_strategy,
+        })
     }
 
     /// get_allocated populates and returns already-allocated IPs
@@ -173,26 +165,19 @@ impl IpAllocator {
         }
 
         let segment_prefix = &self.prefixes[0];
-        if !segment_prefix.prefix.is_ipv4() {
-            return Err(DatabaseError::from(DhcpError::OnlyIpv4Supported(
-                segment_prefix.prefix,
-            )));
-        }
 
-        let total_ips = get_network_size(&segment_prefix.prefix)?;
+        let total_ips = get_network_size(&segment_prefix.prefix);
 
         let allocated_ips = self
             .get_allocated(segment_prefix)
             .map_err(|e| DatabaseError::internal(format!("failed to get_allocated: {e}")))?;
 
-        let total_allocated: u32 =
-            allocated_ips
-                .iter()
-                .try_fold(0, |total_allocated, allocated_ip| {
-                    Ok::<u32, DatabaseError>(total_allocated + get_network_size(allocated_ip)?)
-                })?;
+        let total_allocated: u32 = allocated_ips
+            .iter()
+            .map(get_network_size)
+            .fold(0u32, |acc, size| acc.saturating_add(size));
 
-        Ok(total_ips - total_allocated)
+        Ok(total_ips.saturating_sub(total_allocated))
     }
 }
 
@@ -206,14 +191,6 @@ impl Iterator for IpAllocator {
             return None;
         }
         let segment_prefix = self.prefixes.remove(0);
-        if !segment_prefix.prefix.is_ipv4() {
-            return Some((
-                segment_prefix.id,
-                Err(DatabaseError::from(DhcpError::OnlyIpv4Supported(
-                    segment_prefix.prefix,
-                ))),
-            ));
-        }
 
         let allocated_ips = match self.get_allocated(&segment_prefix) {
             Ok(allocated) => allocated,
@@ -228,12 +205,25 @@ impl Iterator for IpAllocator {
             }
         };
 
+        // Resolve the prefix_length to allocate based on the strategy
+        // and the current prefix's address family.
+        let prefix_length = match self.address_strategy {
+            AddressSelectionStrategy::NextAvailableIp | AddressSelectionStrategy::Automatic => {
+                if segment_prefix.prefix.is_ipv4() {
+                    32
+                } else {
+                    128
+                }
+            }
+            AddressSelectionStrategy::NextAvailablePrefix(len) => len,
+        };
+
         // And now get the next available network prefix of prefix_length
         // from the segment prefix, taking into account any existing
         // allocated IPs (see the docstring for get_allocated for an explanation
         // about what allocated IPs are).
         let next_available_prefix =
-            match next_available_prefix(segment_prefix.prefix, self.prefix_length, allocated_ips) {
+            match next_available_prefix(segment_prefix.prefix, prefix_length, allocated_ips) {
                 Ok(prefix) => prefix,
                 Err(e) => {
                     return Some((
@@ -256,14 +246,42 @@ impl Iterator for IpAllocator {
     }
 }
 
-/// This is a simple function which shortcuts all the IpAllocator logic for the specific case where
-/// we know we only want a single IPv4 /32. It finds the next IP in a single database query, which
-/// can be much faster than loading all used IP's from the database and selecting the next one
-/// locally, especially during ingestion when we are allocating lots of IP's at once.
+/// NOTE(chet): This has been deprecated, but I'm keeping it here for reference
+/// just incase the topic comes up again, and/or we want to revisit a SQL
+/// based allocation fast-path again. The reasons this is being deprecated
+/// are because its introduction actually dropped support for dual-stacking
+/// environments, and because it cannot actually support IPv6 allocation. It
+/// ends up being a little complicated to try to leverage this for IPv4 single
+/// IP allocations amidst IPv6 allocations. BUT, we should definitely always
+/// be looking into more efficient ways of bulk allocation.
+///
+/// next_machine_interface_v4_ip is a SQL fast-path for allocating a single
+/// IPv4 address from a prefix.
+///
+/// This finds the next available IP in a single database query by using
+/// `generate_series()` to enumerate all candidate addresses and LEFT JOIN
+/// against already-allocated addresses. This is much faster than the
+/// Rust-based `IpAllocator` (which loads all used IPs into memory) during
+/// bulk operations like ingestion.
+///
+/// This is permanently IPv4-only for two reasons:
+///
+/// 1. `generate_series()` uses PostgreSQL `bigint` (64-bit). IPv6 addresses
+///    are 128-bit — there is no native 128-bit integer type in PostgreSQL.
+/// 2. `generate_series()` materializes the entire range in memory. Even a
+///    /96 prefix has ~4 billion addresses; a /64 has 2^64. The query would
+///    either OOM or take effectively forever.
+///
+/// IPv6 allocation uses the Rust-based `IpAllocator` instead, which uses
+/// u128 math and steps through candidate subnets without enumerating the
+/// full address space. See `machine_interface::create()` for the fallback.
 pub async fn next_machine_interface_v4_ip(
     txn: &mut PgConnection,
     prefix: &NetworkPrefix,
 ) -> DatabaseResult<Option<IpAddr>> {
+    if prefix.prefix.is_ipv6() {
+        return Ok(None);
+    }
     if prefix.gateway.is_none() {
         let nr = prefix.num_reserved.max(2); // Reserve network and gateway addresses at least
         let query = r#"
@@ -331,7 +349,7 @@ fn build_allocated_networks(
     if let Some(gateway) = segment_prefix.gateway
         && segment_prefix.prefix.contains(gateway)
     {
-        allocated_ips.push(IpNetwork::new(gateway, 32)?);
+        allocated_ips.push(IpNetwork::new(gateway, max_prefix_len(gateway))?);
     }
 
     // Next, exclude the first "N" number of addresses in the segment
@@ -345,19 +363,25 @@ fn build_allocated_networks(
         .iter()
         .take(segment_prefix.num_reserved as usize)
     {
-        let next_net = IpNetwork::new(next_ip, 32)?;
+        let next_net = IpNetwork::new(next_ip, max_prefix_len(next_ip))?;
         allocated_ips.push(next_net);
     }
 
-    // And if the segment we're allocating from is a /30 or larger,
-    // drop the network and broadcast addresses from being
-    // assignable to tenants.
-    //
-    // TODO(chet): Do we still want this here, and/or do we
-    // want to change it in some way?
-    if segment_prefix.prefix.prefix() < 31 {
-        allocated_ips.push(IpNetwork::new(segment_prefix.prefix.network(), 32)?);
-        allocated_ips.push(IpNetwork::new(segment_prefix.prefix.broadcast(), 32)?);
+    // If the segment is large enough to have distinct network and broadcast
+    // addresses, drop them from being assignable to tenants.
+    // IPv4: /30 or larger (prefix < 31). IPv6: /126 or larger (prefix < 127).
+    let should_reserve_network_broadcast = match segment_prefix.prefix {
+        IpNetwork::V4(v4) => v4.prefix() < 31,
+        IpNetwork::V6(v6) => v6.prefix() < 127,
+    };
+    if should_reserve_network_broadcast {
+        let network_addr = segment_prefix.prefix.network();
+        let broadcast_addr = segment_prefix.prefix.broadcast();
+        allocated_ips.push(IpNetwork::new(network_addr, max_prefix_len(network_addr))?);
+        allocated_ips.push(IpNetwork::new(
+            broadcast_addr,
+            max_prefix_len(broadcast_addr),
+        )?);
     }
 
     // Finally, add all of the aleady-allocated networks that were pulled
@@ -407,15 +431,26 @@ fn collapse_allocated_networks(input_networks: &[IpNetwork]) -> Vec<IpNetwork> {
         .collect()
 }
 
-/// get_network_size wraps IpNetwork.size() with a check to make sure
-/// the IpNetwork is an IPv4 network (since we currently don't support
-/// IPv6 networks).
-fn get_network_size(ip_network: &IpNetwork) -> DatabaseResult<u32> {
+/// get_network_size returns the number of addresses in an IP network as a u32.
+///
+/// TODO(chet): It looks like this got introduced for reporting nubmer of free
+/// IPs available to allocate within a given prefix, and there wasn't really a
+/// consideration for IPv6. This will need to be changed to be at least u64,
+/// and since protobuf only supports up to u64, we might need to split the u128
+/// into 2x u64, or maybe just limit it at u64. So for now, for IPv6 networks
+/// larger than 2^32, this result is going to be capped at u32::MAX.
+fn get_network_size(ip_network: &IpNetwork) -> u32 {
     match ip_network.size() {
-        ipnetwork::NetworkSize::V4(total_ips) => Ok(total_ips),
-        ipnetwork::NetworkSize::V6(_) => Err(DatabaseError::from(DhcpError::OnlyIpv4Supported(
-            *ip_network,
-        ))),
+        ipnetwork::NetworkSize::V4(total_ips) => total_ips,
+        ipnetwork::NetworkSize::V6(total_ips) => u32::try_from(total_ips).unwrap_or(u32::MAX),
+    }
+}
+
+/// Returns the maximum prefix length for a single host address (32 for IPv4, 128 for IPv6).
+fn max_prefix_len(ip: IpAddr) -> u8 {
+    match ip {
+        IpAddr::V4(_) => 32,
+        IpAddr::V6(_) => 128,
     }
 }
 
@@ -532,7 +567,7 @@ mod tests {
     #[test]
     fn test_ip_allocation() {
         let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
-        let prefix_length = 32;
+        let address_strategy = AddressSelectionStrategy::NextAvailableIp;
         let mut allocator = IpAllocator {
             prefixes: vec![Prefix {
                 id: prefix_id,
@@ -541,19 +576,19 @@ mod tests {
                 num_reserved: 1,
             }],
             used_ips: vec![],
-            prefix_length,
+            address_strategy,
         };
 
         // Prefix 24 means 256 ips in subnet.
         //     num_reserved: 1
         //     gateway: 1
         //     broadcast: 1
-        // network is part of num_reserved. So nfree is 256 - 3 = 253
+        // network is part of num_reserved. So nfree is 256 - 3 = 253.
         let nfree = allocator.num_free().unwrap();
         assert_eq!(nfree, 253);
 
         let result = allocator.next().unwrap();
-        let expected: IpNetwork = format!("10.1.1.2/{prefix_length}").parse().unwrap();
+        let expected: IpNetwork = "10.1.1.2/32".parse().unwrap();
         assert_eq!(result.0, prefix_id);
         assert_eq!(result.1.unwrap(), expected);
         assert!(allocator.next().is_none());
@@ -565,37 +600,45 @@ mod tests {
                 gateway: Some(IpAddr::V4("10.1.1.1".parse().unwrap())),
                 num_reserved: 1,
             }],
-            used_ips: vec!["10.1.1.2".parse().unwrap()], // The address we allocated above when we called next()
-            prefix_length: 32,
+            // The address we allocated above when we called next().
+            used_ips: vec!["10.1.1.2".parse().unwrap()],
+            address_strategy,
         };
         let nfree = allocator.num_free().unwrap();
         assert_eq!(nfree, 252);
     }
 
     #[test]
-    fn test_ip_allocation_ipv6_fail() {
+    fn test_ip_allocation_ipv6() {
         let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
+        let address_strategy = AddressSelectionStrategy::NextAvailableIp;
         let mut allocator = IpAllocator {
             prefixes: vec![Prefix {
                 id: prefix_id,
-                prefix: IpNetwork::V6("ff01::0/32".parse().unwrap()),
+                // Use /112 (65536 addresses).
+                prefix: IpNetwork::V6("2001:db8::0/112".parse().unwrap()),
                 gateway: None,
                 num_reserved: 1,
             }],
             used_ips: vec![],
-            prefix_length: 32,
+            address_strategy,
         };
         let result = allocator.next().unwrap();
         assert_eq!(result.0, prefix_id);
-        assert!(result.1.is_err());
+        // Reserved: 1 (network address 2001:db8::0), network addr, broadcast addr.
+        // Next available after those: 2001:db8::1.
+        let allocated = result.1.unwrap();
+        assert_eq!(allocated.to_string(), "2001:db8::1/128");
         assert!(allocator.next().is_none());
     }
 
     #[test]
     fn test_ip_allocation_ipv4_and_6() {
+        // AddressSelectionStrategy::NextAvailableIp allocates single IPs: /32 from
+        // IPv4 prefixes and /128 from IPv6 prefixes.
         let prefix_id1 = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
         let prefix_id2 = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1201").into();
-        let prefix_length = 32;
+        let address_strategy = AddressSelectionStrategy::NextAvailableIp;
         let mut allocator = IpAllocator {
             prefixes: vec![
                 Prefix {
@@ -606,28 +649,31 @@ mod tests {
                 },
                 Prefix {
                     id: prefix_id2,
-                    prefix: IpNetwork::V6("ff01::0/32".parse().unwrap()),
+                    prefix: IpNetwork::V6("2001:db8::0/112".parse().unwrap()),
                     gateway: None,
                     num_reserved: 1,
                 },
             ],
             used_ips: vec![],
-            prefix_length,
+            address_strategy,
         };
-        let result = allocator.next().unwrap();
-        let expected: IpNetwork = format!("10.1.1.2/{prefix_length}").parse().unwrap();
-        assert_eq!(result.0, prefix_id1);
-        assert_eq!(result.1.unwrap(), expected);
 
+        // First: IPv4 allocation — /32 from /24
+        let result = allocator.next().unwrap();
+        assert_eq!(result.0, prefix_id1);
+        assert_eq!(result.1.unwrap().to_string(), "10.1.1.2/32");
+
+        // Second: IPv6 allocation — /128 from /112
         let result = allocator.next().unwrap();
         assert_eq!(result.0, prefix_id2);
-        assert!(result.1.is_err());
+        assert_eq!(result.1.unwrap().to_string(), "2001:db8::1/128");
         assert!(allocator.next().is_none());
     }
 
     #[test]
     fn test_ip_allocation_prefix_exhausted() {
         let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
+        let address_strategy = AddressSelectionStrategy::NextAvailableIp;
         let mut allocator = IpAllocator {
             prefixes: vec![Prefix {
                 id: prefix_id,
@@ -636,7 +682,7 @@ mod tests {
                 num_reserved: 4,
             }],
             used_ips: vec![],
-            prefix_length: 32,
+            address_strategy,
         };
 
         let nfree = allocator.num_free().unwrap();
@@ -650,6 +696,7 @@ mod tests {
     #[test]
     fn test_ip_allocation_broadcast_address_is_excluded() {
         let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
+        let address_strategy = AddressSelectionStrategy::NextAvailableIp;
         let mut allocator = IpAllocator {
             prefixes: vec![Prefix {
                 id: prefix_id,
@@ -658,14 +705,14 @@ mod tests {
                 num_reserved: 3,
             }],
             used_ips: vec![],
-            prefix_length: 32,
+            address_strategy,
         };
         assert!(allocator.next().unwrap().1.is_err());
     }
     #[test]
     fn test_ip_allocation_network_broadcast_address_is_excluded() {
         let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
-        let prefix_length = 32;
+        let address_strategy = AddressSelectionStrategy::NextAvailableIp;
         let allocator = IpAllocator {
             prefixes: vec![Prefix {
                 id: prefix_id,
@@ -674,16 +721,16 @@ mod tests {
                 num_reserved: 0,
             }],
             used_ips: vec![],
-            prefix_length,
+            address_strategy,
         };
         let result = allocator.map(|x| x.1.unwrap()).collect::<Vec<IpNetwork>>()[0];
-        let expected: IpNetwork = format!("10.217.4.162/{prefix_length}").parse().unwrap();
+        let expected: IpNetwork = "10.217.4.162/32".parse().unwrap();
         assert_eq!(result, expected);
     }
     #[test]
     fn test_ip_allocation_with_used_ips() {
         let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
-        let prefix_length = 32;
+        let address_strategy = AddressSelectionStrategy::NextAvailableIp;
         let mut allocator = IpAllocator {
             prefixes: vec![Prefix {
                 id: prefix_id,
@@ -695,7 +742,7 @@ mod tests {
                 "10.217.4.162".parse().unwrap(),
                 "10.217.4.163".parse().unwrap(),
             ],
-            prefix_length,
+            address_strategy,
         };
 
         // Prefix: 28 means 16 ips in subnet
@@ -708,7 +755,7 @@ mod tests {
         assert_eq!(nfree, 11);
 
         let result = allocator.map(|x| x.1.unwrap()).collect::<Vec<IpNetwork>>()[0];
-        let expected: IpNetwork = format!("10.217.4.164/{prefix_length}").parse().unwrap();
+        let expected: IpNetwork = "10.217.4.164/32".parse().unwrap();
         assert_eq!(result, expected);
     }
 
@@ -720,7 +767,6 @@ mod tests {
     fn test_ip_allocation_with_used_networks() {
         let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
         let prefix = IpNetwork::V4("10.217.4.0/24".parse().unwrap());
-        let prefix_length = 30;
         let mut allocator = IpAllocator {
             prefixes: vec![Prefix {
                 id: prefix_id,
@@ -735,7 +781,7 @@ mod tests {
                 "10.217.4.3".parse().unwrap(),
                 "10.217.4.4".parse().unwrap(),
             ],
-            prefix_length,
+            address_strategy: AddressSelectionStrategy::NextAvailablePrefix(30),
         };
 
         // Prefix: /24 means 256 starting IPs, and it
@@ -750,12 +796,12 @@ mod tests {
         //
         // Which is an effective 6x reserved, which leaves
         // us with 250 free IPs.
-        assert_eq!(256, get_network_size(&prefix).unwrap());
+        assert_eq!(256, get_network_size(&prefix));
         let nfree = allocator.num_free().unwrap();
         assert_eq!(250, nfree);
 
         let result = allocator.map(|x| x.1.unwrap()).collect::<Vec<IpNetwork>>()[0];
-        let expected: IpNetwork = format!("10.217.4.8/{prefix_length}").parse().unwrap();
+        let expected: IpNetwork = "10.217.4.8/30".parse().unwrap();
         assert_eq!(result, expected);
     }
 
@@ -766,7 +812,6 @@ mod tests {
     fn test_ip_allocation_with_used_fnn_networks() {
         let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
         let prefix = IpNetwork::V4("10.217.4.0/24".parse().unwrap());
-        let prefix_length = 30;
         let mut allocator = IpAllocator {
             prefixes: vec![Prefix {
                 id: prefix_id,
@@ -779,7 +824,7 @@ mod tests {
                 "10.217.4.8/30".parse().unwrap(),
                 "10.217.4.12/30".parse().unwrap(),
             ],
-            prefix_length,
+            address_strategy: AddressSelectionStrategy::NextAvailablePrefix(30),
         };
 
         // Prefix: /24 means 256 starting IPs, and it
@@ -794,12 +839,12 @@ mod tests {
         //
         // Which is an effective 15x reserved, which leaves
         // us with 241 free IPs.
-        assert_eq!(256, get_network_size(&prefix).unwrap());
+        assert_eq!(256, get_network_size(&prefix));
         let nfree = allocator.num_free().unwrap();
         assert_eq!(241, nfree);
 
         let result = allocator.map(|x| x.1.unwrap()).collect::<Vec<IpNetwork>>()[0];
-        let expected: IpNetwork = format!("10.217.4.16/{prefix_length}").parse().unwrap();
+        let expected: IpNetwork = "10.217.4.16/30".parse().unwrap();
         assert_eq!(result, expected);
     }
 
@@ -823,12 +868,17 @@ mod tests {
     #[test]
     fn test_get_network_size() {
         let v4_network = "192.168.1.0/24".parse().unwrap();
-        let v6_network = "2012:db9::/32".parse().unwrap();
-        let v4_size = get_network_size(&v4_network);
-        assert!(v4_size.is_ok());
-        assert_eq!(256, v4_size.unwrap());
-        let v6_size = get_network_size(&v6_network);
-        assert!(v6_size.is_err());
+        assert_eq!(256, get_network_size(&v4_network));
+
+        // IPv6 /112 has 65536 addresses — fits in u32.
+        let v6_small: IpNetwork = "2001:db8::/112".parse().unwrap();
+        assert_eq!(65536, get_network_size(&v6_small));
+
+        // IPv6 /32 has 2^96 addresses — capped at u32::MAX.
+        // See comments in get_network_size for more info
+        // about that. We'll need to improve this at some point.
+        let v6_large: IpNetwork = "2012:db9::/32".parse().unwrap();
+        assert_eq!(u32::MAX, get_network_size(&v6_large));
     }
 
     #[test]
@@ -911,5 +961,90 @@ mod tests {
         ];
         let next_prefix = next_available_prefix(cidr, prefix_length, allocated_cidrs).unwrap();
         assert!(next_prefix.is_some_and(|prefix| prefix.to_string() == "2012:db9:0:2::/64"));
+    }
+
+    #[test]
+    fn test_ipv6_allocation_single_address() {
+        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
+        let address_strategy = AddressSelectionStrategy::NextAvailableIp;
+        let mut allocator = IpAllocator {
+            prefixes: vec![Prefix {
+                id: prefix_id,
+                // /112 has 65536 addresses — small enough for the test to reason about
+                prefix: IpNetwork::V6("2001:db8:abcd::0/112".parse().unwrap()),
+                gateway: None,
+                num_reserved: 3,
+            }],
+            used_ips: vec!["2001:db8:abcd::3/128".parse().unwrap()],
+            address_strategy,
+        };
+
+        // /112 = 65536 addresses
+        // Reserved: 3 (::0, ::1, ::2)
+        // Network addr (::0) overlaps with reserved
+        // Broadcast addr (::ffff)
+        // Used: ::3
+        // So allocated = 3 reserved + 1 broadcast + 1 used = 5
+        // Free = 65536 - 5 = 65531
+        let nfree = allocator.num_free().unwrap();
+        assert_eq!(nfree, 65531);
+
+        // Next available after reserved (::0, ::1, ::2) and used (::3): should be ::4
+        let result = allocator.next().unwrap();
+        assert_eq!(result.0, prefix_id);
+        assert_eq!(result.1.unwrap().to_string(), "2001:db8:abcd::4/128");
+    }
+
+    #[test]
+    fn test_ipv6_num_free_capped() {
+        let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
+        let address_strategy = AddressSelectionStrategy::NextAvailableIp;
+        let mut allocator = IpAllocator {
+            prefixes: vec![Prefix {
+                id: prefix_id,
+                // /64 has 2^64 addresses, which is above u32::MAX.
+                prefix: IpNetwork::V6("2001:db8:1::/64".parse().unwrap()),
+                gateway: None,
+                num_reserved: 0,
+            }],
+            used_ips: vec![],
+            address_strategy,
+        };
+
+        // num_free should be capped at u32::MAX (not overflow or error),
+        // but again, this is all because of get_network_size(), which
+        // we need to enhance to not be limited to u32.
+        let nfree = allocator.num_free().unwrap();
+        // The total is u32::MAX, allocated is small, but subtraction
+        // saturates so we get something close to u32::MAX
+        assert!(nfree > u32::MAX - 100);
+    }
+
+    #[test]
+    fn test_ipv6_build_allocated_networks() {
+        let prefix = Prefix {
+            id: uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into(),
+            prefix: IpNetwork::V6("2001:db8:abcd::0/112".parse().unwrap()),
+            gateway: None,
+            num_reserved: 2,
+        };
+        let used_ips = vec![];
+        let allocated = build_allocated_networks(&prefix, &used_ips).unwrap();
+
+        // Should have: 2 reserved (::0, ::1) + network (::0) + broadcast (::ffff)
+        // The network address overlaps with the first reserved, so after collapse
+        // we should have distinct /128 entries
+        for net in &allocated {
+            assert!(
+                net.prefix() == 128,
+                "Expected /128 for single IPv6 addresses, got /{}",
+                net.prefix()
+            );
+        }
+        // At minimum: ::0, ::1, ::ffff
+        assert!(
+            allocated.len() >= 3,
+            "Expected at least 3 allocated networks for IPv6 prefix with 2 reserved"
+        );
     }
 }

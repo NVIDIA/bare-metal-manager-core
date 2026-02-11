@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -28,20 +29,27 @@ use serde_json::Value as JsonValue;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
-use crate::api_client::{BmcEndpoint, EndpointMetadata};
-use crate::collector::PeriodicCollector;
-use crate::{HealthError, collector};
+use crate::HealthError;
+use crate::collectors::{IterationResult, PeriodicCollector};
+use crate::endpoint::{BmcEndpoint, EndpointMetadata};
+use crate::sink::{CollectorEvent, DataSink, EventContext, LogRecord};
 
 /// Configuration for logs collector
 pub struct LogsCollectorConfig {
     pub state_file_path: PathBuf,
     pub service_refresh_interval: Duration,
     pub log_writer: Arc<Mutex<LogFileWriter>>,
+    pub data_sink: Option<Arc<dyn DataSink>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct PersistentState {
     last_seen_ids: HashMap<ODataId, i32>,
+}
+
+#[derive(Serialize)]
+struct PersistentStateRef<'a> {
+    last_seen_ids: &'a HashMap<ODataId, i32>,
 }
 
 struct LogsCollectorState<B: Bmc> {
@@ -228,10 +236,12 @@ impl LogFileWriter {
 pub struct LogsCollector<B: Bmc> {
     endpoint: Arc<BmcEndpoint>,
     bmc: Arc<B>,
+    event_context: EventContext,
     state_file_path: PathBuf,
     state: Option<LogsCollectorState<B>>,
     service_refresh_interval: Duration,
     log_writer: Arc<Mutex<LogFileWriter>>,
+    data_sink: Option<Arc<dyn DataSink>>,
 }
 
 impl<B: Bmc + 'static> PeriodicCollector<B> for LogsCollector<B> {
@@ -242,17 +252,20 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for LogsCollector<B> {
         endpoint: Arc<BmcEndpoint>,
         config: Self::Config,
     ) -> Result<Self, HealthError> {
+        let event_context = EventContext::from_endpoint(endpoint.as_ref(), "logs_collector");
         Ok(Self {
             bmc,
             endpoint,
+            event_context,
             state_file_path: config.state_file_path,
             state: None,
             service_refresh_interval: config.service_refresh_interval,
             log_writer: config.log_writer,
+            data_sink: config.data_sink,
         })
     }
 
-    async fn run_iteration(&mut self) -> Result<collector::IterationResult, HealthError> {
+    async fn run_iteration(&mut self) -> Result<IterationResult, HealthError> {
         self.run_collection_iteration().await
     }
 
@@ -287,12 +300,10 @@ impl<B: Bmc + 'static> LogsCollector<B> {
 
     async fn save_persistent_state(&self) -> Result<(), HealthError> {
         if let Some(state) = &self.state {
-            let state = PersistentState {
-                last_seen_ids: state.last_seen_ids.clone(),
-            };
-            let json = serde_json::to_string_pretty(&state).map_err(|e| {
-                HealthError::GenericError(format!("Failed to serialize state: {}", e))
-            })?;
+            let json = serde_json::to_string_pretty(&PersistentStateRef {
+                last_seen_ids: &state.last_seen_ids,
+            })
+            .map_err(|e| HealthError::GenericError(format!("Failed to serialize state: {}", e)))?;
 
             tokio::fs::write(&self.state_file_path, json)
                 .await
@@ -354,9 +365,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
         Ok(services)
     }
 
-    async fn run_collection_iteration(
-        &mut self,
-    ) -> Result<collector::IterationResult, HealthError> {
+    async fn run_collection_iteration(&mut self) -> Result<IterationResult, HealthError> {
         let needs_refresh = self
             .state
             .as_ref()
@@ -395,7 +404,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
         let log_count = self.collect_logs_from_services().await?;
         self.save_persistent_state().await?;
 
-        Ok(collector::IterationResult {
+        Ok(IterationResult {
             refresh_triggered,
             entity_count: Some(log_count),
         })
@@ -405,6 +414,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
         let Some(EndpointMetadata::Machine(machine)) = &self.endpoint.metadata else {
             return Ok(0);
         };
+        let machine_id = machine.machine_id.to_string();
 
         let Some(state) = self.state.as_mut() else {
             return Ok(0);
@@ -413,6 +423,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
         let mut total_log_count = 0;
 
         for service in &state.discovered_services {
+            let service_id = service.odata_id().to_string();
             let last_seen_id = state.last_seen_ids.get(service.odata_id()).copied();
 
             let entries = match last_seen_id {
@@ -422,19 +433,19 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                         .await
                     {
                         Ok(e) => e,
-                        Err(e) => {
+                        Err(error) => {
                             tracing::debug!(
-                                service_id = %service.odata_id(),
-                                error = ?e,
+                                %service_id,
+                                ?error,
                                 "Failed to fetch filtered log entries, fetching all"
                             );
                             // Fallback - if filter is not supported properly
                             match service.entries().await {
                                 Ok(e) => e,
-                                Err(e) => {
+                                Err(error) => {
                                     tracing::warn!(
-                                        service_id = %service.odata_id(),
-                                        error = ?e,
+                                        %service_id,
+                                        ?error,
                                         "Failed to fetch log entries"
                                     );
                                     continue;
@@ -458,17 +469,17 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                         .collect()
                 }
                 None => match service.entries().await {
-                    Ok(e) => {
+                    Ok(error) => {
                         tracing::info!(
-                            service_id = %service.odata_id(),
+                            %service_id,
                             endpont=?self.endpoint.addr,
                             "Last seen id is empty, fetching all entries");
-                        e
+                        error
                     }
-                    Err(e) => {
+                    Err(error) => {
                         tracing::warn!(
-                            service_id = %service.odata_id(),
-                            error = ?e,
+                            %service_id,
+                            ?error,
                             "Failed to fetch log entries"
                         );
                         continue;
@@ -508,7 +519,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                 let mut attributes = HashMap::new();
                 attributes.insert(
                     "machineid".to_string(),
-                    JsonValue::String(machine.machine_id.to_string()),
+                    JsonValue::String(machine_id.clone()),
                 );
                 attributes.insert("type".to_string(), JsonValue::String("bmc_log".to_string()));
                 attributes.insert(
@@ -539,12 +550,25 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                     time_unix_nano: Self::system_time_to_unix_nano(entry_timestamp),
                     observed_time_unix_nano: Self::system_time_to_unix_nano(observed_timestamp),
                     severity_number,
-                    severity_text,
-                    body,
+                    severity_text: severity_text.clone(),
+                    body: body.clone(),
                     attributes,
                 };
 
                 records.push(otel_record);
+
+                let log_event = CollectorEvent::Log(LogRecord {
+                    body,
+                    severity: severity_text,
+                    attributes: vec![
+                        (Cow::Borrowed("machine_id"), machine_id.clone()),
+                        (Cow::Borrowed("entry_id"), entry.base.id.clone()),
+                        (Cow::Borrowed("service_id"), service_id.clone()),
+                    ],
+                });
+                if let Some(sink) = &self.data_sink {
+                    sink.handle_event(&self.event_context, &log_event);
+                }
 
                 if let Ok(entry_id) = entry.base.id.parse::<i32>() {
                     max_id = max_id.max(entry_id);

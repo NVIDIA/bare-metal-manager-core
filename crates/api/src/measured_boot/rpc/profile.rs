@@ -22,12 +22,10 @@
 use std::collections::HashMap;
 
 use carbide_uuid::measured_boot::MeasurementSystemProfileId;
-use db::WithTransaction;
 use db::measured_boot::interface::profile::{
     export_measurement_profile_records, get_bundles_for_profile_id, get_bundles_for_profile_name,
     get_machines_for_profile_id, get_machines_for_profile_name,
 };
-use futures_util::FutureExt;
 use measured_boot::profile::MeasurementSystemProfile;
 use rpc::protos::measured_boot::{
     CreateMeasurementSystemProfileRequest, CreateMeasurementSystemProfileResponse,
@@ -185,9 +183,8 @@ pub async fn handle_show_measurement_system_profiles(
     _req: ShowMeasurementSystemProfilesRequest,
 ) -> Result<ShowMeasurementSystemProfilesResponse, Status> {
     Ok(ShowMeasurementSystemProfilesResponse {
-        system_profiles: api
-            .with_txn(|txn| db::measured_boot::profile::get_all(txn).boxed())
-            .await?
+        system_profiles: db::measured_boot::profile::get_all(&mut api.db_reader())
+            .await
             .map_err(|e| Status::internal(format!("{e}")))?
             .into_iter()
             .map(|profile| profile.into())
@@ -201,13 +198,13 @@ pub async fn handle_list_measurement_system_profiles(
     api: &Api,
     _req: ListMeasurementSystemProfilesRequest,
 ) -> Result<ListMeasurementSystemProfilesResponse, Status> {
-    let system_profiles: Vec<MeasurementSystemProfileRecordPb> = api
-        .with_txn(|txn| export_measurement_profile_records(txn).boxed())
-        .await?
-        .map_err(|e| Status::internal(format!("{e}")))?
-        .into_iter()
-        .map(|record| record.into())
-        .collect();
+    let system_profiles: Vec<MeasurementSystemProfileRecordPb> =
+        export_measurement_profile_records(&api.database_connection)
+            .await
+            .map_err(|e| Status::internal(format!("{e}")))?
+            .into_iter()
+            .map(|record| record.into())
+            .collect();
 
     Ok(ListMeasurementSystemProfilesResponse { system_profiles })
 }

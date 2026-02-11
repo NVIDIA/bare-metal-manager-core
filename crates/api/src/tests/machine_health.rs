@@ -600,7 +600,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
         },
     };
     let all_machines =
-        db::managed_host::load_by_machine_ids(&mut txn, &machine_ids, options).await?;
+        db::managed_host::load_by_machine_ids(txn.as_mut(), &machine_ids, options).await?;
 
     assert_eq!(
         db::machine::count_healthy_unhealthy_host_machines(&all_machines),
@@ -645,7 +645,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
         },
     };
     let all_machines =
-        db::managed_host::load_by_machine_ids(&mut txn, &machine_ids, options).await?;
+        db::managed_host::load_by_machine_ids(txn.as_mut(), &machine_ids, options).await?;
 
     assert_eq!(
         db::machine::count_healthy_unhealthy_host_machines(&all_machines),
@@ -699,20 +699,18 @@ async fn load_snapshot(
     env: &TestEnv,
     host_machine_id: &::carbide_uuid::machine::MachineId,
 ) -> Result<model::machine::ManagedHostStateSnapshot, Box<dyn std::error::Error>> {
-    let mut txn = env.pool.begin().await?;
     let host_health_config = HostHealthConfig {
         hardware_health_reports: HardwareHealthReportsConfig::Enabled,
         dpu_agent_version_staleness_threshold: Default::default(),
         prevent_allocations_on_stale_dpu_agent_version: false,
     };
     let snapshot = db::managed_host::load_snapshot(
-        &mut txn,
+        &mut env.db_reader(),
         host_machine_id,
         LoadSnapshotOptions::default().with_host_health(host_health_config),
     )
     .await?
     .unwrap();
-    txn.rollback().await?;
     Ok(snapshot)
 }
 

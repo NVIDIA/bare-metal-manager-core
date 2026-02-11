@@ -21,6 +21,7 @@ humantime = { workspace = true }
 humantime-serde = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
+mac_address = { workspace = true }
 prometheus = { workspace = true }
 reqwest = { workspace = true }
 serde = { features = ["derive"], workspace = true }
@@ -38,6 +39,7 @@ tonic = { workspace = true }
 nv-redfish = { workspace = true }
 nv-redfish-core = { workspace = true }
 nv-redfish-bmc-http = { workspace = true }
+nv-redfish-csdl-compiler = { workspace = true }
 rand = { workspace = true }
 url = { workspace = true }
 
@@ -52,6 +54,21 @@ logfmt = { path = "../logfmt" }
 
 [build-dependencies]
 carbide-version = { path = "../version" }
+
+[features]
+bench-hooks = []
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "sink_pipeline"
+harness = false
+required-features = ["bench-hooks"]
+
+[[bench]]
+name = "collector_pipeline"
+harness = false
 
 [lints]
 workspace = true

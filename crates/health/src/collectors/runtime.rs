@@ -29,11 +29,11 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::HealthError;
-use crate::api_client::BmcEndpoint;
 use crate::config::Config as AppConfig;
 use crate::discovery::BmcClient;
+use crate::endpoint::BmcEndpoint;
 use crate::limiter::RateLimiter;
-use crate::metrics::CollectorRegistry;
+use crate::metrics::{CollectorRegistry, operation_duration_buckets_seconds};
 
 /// Result of a collector iteration
 #[derive(Debug, Clone)]
@@ -131,7 +131,8 @@ impl Collector {
                 ),
                 "Duration of collector iterations",
             )
-            .const_labels(const_labels.clone()),
+            .const_labels(const_labels.clone())
+            .buckets(operation_duration_buckets_seconds()),
         )?;
         registry.register(Box::new(iteration_histogram.clone()))?;
 

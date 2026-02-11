@@ -23,12 +23,10 @@ use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
 use carbide_uuid::machine::MachineId;
-use db::WithTransaction;
 use db::measured_boot::interface::report::{
     get_all_measurement_report_records, get_measurement_report_records_for_machine_id,
     match_latest_reports,
 };
-use futures_util::FutureExt;
 use measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
 use rpc::protos::measured_boot::{
     CreateMeasurementReportRequest, CreateMeasurementReportResponse,
@@ -217,9 +215,8 @@ pub async fn handle_show_measurement_reports(
     _req: ShowMeasurementReportsRequest,
 ) -> Result<ShowMeasurementReportsResponse, Status> {
     Ok(ShowMeasurementReportsResponse {
-        reports: api
-            .with_txn(|txn| db::measured_boot::report::get_all(txn).boxed())
-            .await?
+        reports: db::measured_boot::report::get_all(&mut api.db_reader())
+            .await
             .map_err(|e| Status::internal(format!("{e}")))?
             .into_iter()
             .map(|report| report.into())
@@ -266,9 +263,8 @@ pub async fn handle_match_measurement_report(
     req: MatchMeasurementReportRequest,
 ) -> Result<MatchMeasurementReportResponse, Status> {
     let pcr_register = PcrRegisterValue::from_pb_vec(req.pcr_values);
-    let mut reports = api
-        .with_txn(|txn| match_latest_reports(txn, &pcr_register).boxed())
-        .await?
+    let mut reports = match_latest_reports(&api.database_connection, &pcr_register)
+        .await
         .map_err(|e| Status::internal(format!("failure during report matching: {e}")))?;
 
     reports.sort_by(|a, b| a.ts.cmp(&b.ts));

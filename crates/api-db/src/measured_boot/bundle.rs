@@ -33,6 +33,7 @@ use measured_boot::records::{
 };
 use sqlx::{PgConnection, PgTransaction};
 
+use crate::db_read::DbReader;
 use crate::measured_boot::interface::bundle::{
     delete_bundle_for_id, delete_bundle_values_for_id, get_machines_for_bundle_id,
     get_measurement_bundle_by_id, get_measurement_bundle_for_name, get_measurement_bundle_records,
@@ -161,7 +162,7 @@ pub async fn set_state_for_id(
     state: MeasurementBundleState,
 ) -> DatabaseResult<MeasurementBundle> {
     let info = set_state_for_bundle_id(txn, bundle_id, state).await?;
-    let values = get_measurement_bundle_values_for_bundle_id(txn, info.bundle_id).await?;
+    let values = get_measurement_bundle_values_for_bundle_id(txn.as_mut(), info.bundle_id).await?;
     let bundle = from_info_and_values(info, values)?;
     update_journal(&bundle, txn).await?;
     Ok(bundle)
@@ -169,12 +170,15 @@ pub async fn set_state_for_id(
 
 /// get_all returns all populated MeasurementBundle
 /// models from records in the database.
-pub async fn get_all(txn: &mut PgConnection) -> DatabaseResult<Vec<MeasurementBundle>> {
+pub async fn get_all<DB>(txn: &mut DB) -> DatabaseResult<Vec<MeasurementBundle>>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     let mut res: Vec<MeasurementBundle> = Vec::new();
-    let mut bundle_records = get_measurement_bundle_records(txn).await?;
+    let mut bundle_records = get_measurement_bundle_records(&mut *txn).await?;
     for bundle_record in bundle_records.drain(..) {
         let values =
-            get_measurement_bundle_values_for_bundle_id(txn, bundle_record.bundle_id).await?;
+            get_measurement_bundle_values_for_bundle_id(&mut *txn, bundle_record.bundle_id).await?;
         res.push(from_info_and_values(bundle_record, values)?);
     }
     Ok(res)
@@ -190,7 +194,7 @@ pub async fn get_all_for_profile_id(
     let mut bundle_records = get_measurement_bundle_records_for_profile_id(txn, profile_id).await?;
     for bundle_record in bundle_records.drain(..) {
         let values =
-            get_measurement_bundle_values_for_bundle_id(txn, bundle_record.bundle_id).await?;
+            get_measurement_bundle_values_for_bundle_id(&mut *txn, bundle_record.bundle_id).await?;
         res.push(from_info_and_values(bundle_record, values)?);
     }
     Ok(res)
@@ -346,7 +350,7 @@ async fn update_journal(
 ) -> DatabaseResult<Vec<MeasurementJournal>> {
     let machine_state = bundle_state_to_machine_state(&measurement_bundle.state);
 
-    let reports = match_latest_reports(txn, &measurement_bundle.pcr_values()).await?;
+    let reports = match_latest_reports(txn.as_mut(), &measurement_bundle.pcr_values()).await?;
     let mut updates: Vec<MeasurementJournal> = Vec::new();
     for report in reports.iter() {
         let machine = crate::measured_boot::machine::from_id(txn, report.machine_id).await?;

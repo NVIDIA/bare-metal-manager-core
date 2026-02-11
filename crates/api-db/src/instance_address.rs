@@ -196,7 +196,7 @@ pub async fn allocate(
     mut updated_config: InstanceNetworkConfig,
     machine: &Machine,
 ) -> DatabaseResult<InstanceNetworkConfig> {
-    // We expect only one ipv4 prefix. Also Ipv6 is not supported yet.
+    // We expect only one prefix per segment (IPv4 or IPv6).
     // We're potentially about to insert a couple rows, so create a savepoint.
     let mut inner_txn = Transaction::begin_inner(txn).await?;
 
@@ -259,12 +259,7 @@ pub async fn allocate(
             }
         };
 
-        let valid_prefixes = segment
-            .prefixes
-            .iter()
-            .filter(|x| x.prefix.is_ipv4())
-            .cloned()
-            .collect_vec();
+        let valid_prefixes = segment.prefixes.clone();
 
         if valid_prefixes.len() > 1 {
             return Err(DatabaseError::FindOneReturnedManyResultsError(
@@ -304,16 +299,14 @@ pub async fn allocate(
                     busy_ips,
                 });
 
-            // TODO(chet): FNN will be leveraging the IpAllocator to allocate
-            // a /30 for a tenant instance (or, at least, something other than
-            // a /32). For now, hard-code 32 as the length -- the plan is to
-            // update the InstanceInterfaceConfig to request the prefix_length.
+            // TODO(chet): FNN will need to override prefix_length (e.g. /30
+            // for IPv4, /126 for IPv6) via InstanceInterfaceConfig. For now,
+            // the allocator defaults to single-host allocation (/32 or /128).
             let ip_allocator = IpAllocator::new(
                 inner_txn.as_pgconn(),
                 segment,
                 dhcp_handler,
-                AddressSelectionStrategy::Automatic,
-                32,
+                AddressSelectionStrategy::NextAvailableIp,
             )
             .await?;
 
@@ -569,12 +562,9 @@ pub async fn allocate_svi_ip(
         txn.as_mut(),
         segment,
         dhcp_handler,
-        AddressSelectionStrategy::Automatic,
-        32,
+        AddressSelectionStrategy::NextAvailableIp,
     )
     .await?;
-
-    // Carbide supports only one prefix that too Ipv4 only.
     match addresses_allocator.next() {
         Some((id, Ok(address))) => Ok((id, address.ip())),
         Some((_, Err(err))) => Err(err),

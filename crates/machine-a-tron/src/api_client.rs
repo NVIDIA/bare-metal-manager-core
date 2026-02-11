@@ -451,6 +451,7 @@ impl ApiClient {
                 tenant_keyset_id: None,
                 network_security_group_id: None,
                 network_virtualization_type: None,
+                vni: None,
                 metadata: Some(rpc::forge::Metadata {
                     name: format!("vpc_{vpc_count}"),
                     description: "".to_string(),

@@ -42,6 +42,7 @@ pub async fn populate<T>(
     value: &ResourcePool<T>,
     txn: &mut PgConnection,
     all_values: Vec<T>,
+    auto_assign: bool,
 ) -> Result<(), DatabaseError>
 where
     T: ToString + FromStr + Send + Sync + 'static,
@@ -50,16 +51,17 @@ where
     let free_state = ResourcePoolEntryState::Free;
     let initial_version = ConfigVersion::initial();
 
-    // Divide the bind limit by the number of parameters we're inserting in each tuple (currently 5)
-    for vals in all_values.chunks(BIND_LIMIT / 5) {
-        let query = "INSERT INTO resource_pool(name, value, value_type, state, state_version) ";
+    // Divide the bind limit by the number of parameters we're inserting in each tuple (currently 6)
+    for vals in all_values.chunks(BIND_LIMIT / 6) {
+        let query = "INSERT INTO resource_pool(name, value, value_type, state, state_version, auto_assign) ";
         let mut qb = sqlx::QueryBuilder::new(query);
         qb.push_values(vals.iter(), |mut b, v| {
             b.push_bind(&value.name)
                 .push_bind(v.to_string())
                 .push_bind(value.value_type)
                 .push_bind(sqlx::types::Json(&free_state))
-                .push_bind(initial_version);
+                .push_bind(initial_version)
+                .push_bind(auto_assign);
         });
         qb.push("ON CONFLICT (name, value) DO NOTHING");
         let q = qb.build();
@@ -76,18 +78,30 @@ pub async fn allocate<T>(
     txn: &mut PgConnection,
     owner_type: OwnerType,
     owner_id: &str,
+    requested_value: Option<T>,
 ) -> Result<T, ResourcePoolDatabaseError>
 where
     T: ToString + FromStr + Send + Sync + 'static,
     <T as FromStr>::Err: std::error::Error,
 {
-    if stats(&mut *txn, value.name()).await?.free == 0 {
+    let stats = stats(&mut *txn, value.name()).await?;
+    let auto_assign = requested_value.is_none();
+
+    if (auto_assign && stats.auto_assign_free == 0)
+        || (!auto_assign && stats.non_auto_assign_free == 0)
+    {
         return Err(ResourcePoolError::Empty.into());
     }
     let query = "
 WITH allocate AS (
  SELECT id, value FROM resource_pool
-    WHERE name = $1 AND state = $2
+    WHERE
+        name = $1
+        AND state = $2
+        AND auto_assign=$4
+        -- Either auto_assign is true or we only want
+        -- the requested value.
+        AND (auto_assign='t' OR value=$5)
     ORDER BY random()
     LIMIT 1
     FOR UPDATE SKIP LOCKED
@@ -105,15 +119,29 @@ RETURNING allocate.value
         owner_type: owner_type.to_string(),
     };
 
+    let req = requested_value.map(|v| v.to_string());
     // TODO: We should probably update the `state_version` field too. But
     // it's hard to do this inside the SQL query.
     let (allocated,): (String,) = sqlx::query_as(query)
         .bind(&value.name)
         .bind(sqlx::types::Json(&free_state))
         .bind(sqlx::types::Json(&allocated_state))
+        .bind(auto_assign)
+        .bind(&req)
         .fetch_one(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
+        .map_err(|e| match e {
+            // A check for available allocations was done earlier.
+            // If a value was explicitly requested but we made it here,
+            // then it was either already allocated or it was not a value
+            // that is allowed to be explictly requested.
+            sqlx::Error::RowNotFound if !auto_assign => DatabaseError::FailedPrecondition(format!(
+                "`{}` not an available value for resource-pool `{}`",
+                req.unwrap_or_default(),
+                value.name()
+            )),
+            e => DatabaseError::query(query, e),
+        })?;
     let out = allocated
         .parse()
         .map_err(|e: <T as FromStr>::Err| ResourcePoolError::Parse {
@@ -159,11 +187,24 @@ where
     E: sqlx::Executor<'c, Database = Postgres>,
 {
     // Will do an index scan on idx_resource_pools_name, same as without the FILTER, so doing
-    // both at once is faster than two queries.
+    // all at once is faster than two queries.
     let free_state = ResourcePoolEntryState::Free;
-    let query = "SELECT COUNT(*) FILTER (WHERE state != $1) AS used,
-                            COUNT(*) FILTER (WHERE state = $1) AS free
-                    FROM resource_pool WHERE NAME = $2";
+    let query = "SELECT
+                            auto_assign_used,
+                            auto_assign_free,
+                            non_auto_assign_used,
+                            non_auto_assign_free,
+                            (auto_assign_used + non_auto_assign_used) AS used,
+                            (auto_assign_free + non_auto_assign_free) AS free
+                        FROM
+                            (
+                                SELECT
+                                COUNT(*) FILTER (WHERE state != $1 AND auto_assign) AS auto_assign_used,
+                                COUNT(*) FILTER (WHERE state = $1 AND auto_assign) AS auto_assign_free,
+                                COUNT(*) FILTER (WHERE state != $1 AND NOT auto_assign) AS non_auto_assign_used,
+                                COUNT(*) FILTER (WHERE state = $1 AND NOT auto_assign) AS non_auto_assign_free
+                                FROM resource_pool WHERE NAME = $2
+                        ) split_stats";
     let s: ResourcePoolStats = sqlx::query_as(query)
         .bind(sqlx::types::Json(free_state))
         .bind(name)
@@ -176,16 +217,47 @@ where
 pub async fn all(txn: &mut PgConnection) -> Result<Vec<ResourcePoolSnapshot>, DatabaseError> {
     let mut out = Vec::with_capacity(4);
 
-    let query_int =
-        "SELECT name, CAST(min(value::bigint) AS text), CAST(max(value::bigint) AS text),
-            count(*) FILTER (WHERE state = '{\"state\": \"free\"}') AS free,
-            count(*) FILTER (WHERE state != '{\"state\": \"free\"}') AS used
-            FROM resource_pool WHERE value_type = 'integer' GROUP BY name";
+    let query_int = "
+            SELECT
+                name,
+                min,
+                max,
+                auto_assign_free,
+                auto_assign_used,
+                non_auto_assign_free,
+                non_auto_assign_used,
+                (auto_assign_used + non_auto_assign_used) AS used,
+                (auto_assign_free + non_auto_assign_free) AS free
+            FROM
+            (
+                SELECT name, CAST(min(value::bigint) AS text), CAST(max(value::bigint) AS text),
+                    count(*) FILTER (WHERE state = '{\"state\": \"free\"}' AND auto_assign) AS auto_assign_free,
+                    count(*) FILTER (WHERE state != '{\"state\": \"free\"}' AND auto_assign) AS auto_assign_used,
+                    count(*) FILTER (WHERE state = '{\"state\": \"free\"}' AND NOT auto_assign) AS non_auto_assign_free,
+                    count(*) FILTER (WHERE state != '{\"state\": \"free\"}' AND NOT auto_assign) AS non_auto_assign_used
+                FROM resource_pool WHERE value_type = 'integer' GROUP BY name
+            ) snapshot";
 
-    let query_ipv4 = "SELECT name, CAST(min(value::inet) AS text), CAST(max(value::inet) AS text),
-            count(*) FILTER (WHERE state = '{\"state\": \"free\"}') AS free,
-            count(*) FILTER (WHERE state != '{\"state\": \"free\"}') AS used
-            FROM resource_pool WHERE value_type = 'ipv4' GROUP BY name";
+    let query_ipv4 = "
+            SELECT
+                name,
+                min,
+                max,
+                auto_assign_free,
+                auto_assign_used,
+                non_auto_assign_free,
+                non_auto_assign_used,
+                (auto_assign_used + non_auto_assign_used) AS used,
+                (auto_assign_free + non_auto_assign_free) AS free
+            FROM
+            (
+                SELECT name, CAST(min(value::bigint) AS text), CAST(max(value::bigint) AS text),
+                    count(*) FILTER (WHERE state = '{\"state\": \"free\"}' AND auto_assign) AS auto_assign_free,
+                    count(*) FILTER (WHERE state != '{\"state\": \"free\"}' AND auto_assign) AS auto_assign_used,
+                    count(*) FILTER (WHERE state = '{\"state\": \"free\"}' AND NOT auto_assign) AS non_auto_assign_free,
+                    count(*) FILTER (WHERE state != '{\"state\": \"free\"}' AND NOT auto_assign) AS non_auto_assign_used
+                FROM resource_pool WHERE value_type = 'ipv4' GROUP BY name
+            ) snapshot";
 
     for query in &[query_int, query_ipv4] {
         let mut rows: Vec<ResourcePoolSnapshot> = sqlx::query_as(query)
@@ -296,7 +368,15 @@ pub async fn define(
         // Just ranges
         (None, ranges) => {
             for range in ranges {
-                define_by_range(txn, name, def.pool_type, &range.start, &range.end).await?;
+                define_by_range(
+                    txn,
+                    name,
+                    def.pool_type,
+                    &range.start,
+                    &range.end,
+                    range.auto_assign,
+                )
+                .await?;
             }
         }
     }
@@ -324,7 +404,7 @@ async fn define_by_prefix(
         name.to_string(),
         model::resource_pool::ValueType::Ipv4,
     );
-    populate(&pool, txn, values).await?;
+    populate(&pool, txn, values, true).await?;
     tracing::debug!(
         pool_name = name,
         num_values,
@@ -340,6 +420,7 @@ async fn define_by_range(
     pool_type: ResourcePoolType,
     range_start: &str,
     range_end: &str,
+    auto_assign: bool,
 ) -> Result<(), DefineResourcePoolError> {
     match pool_type {
         ResourcePoolType::Ipv4 => {
@@ -353,7 +434,7 @@ async fn define_by_range(
                 name.to_string(),
                 model::resource_pool::ValueType::Ipv4,
             );
-            populate(&pool, txn, values).await?;
+            populate(&pool, txn, values, auto_assign).await?;
             tracing::debug!(
                 pool_name = name,
                 num_values,
@@ -371,7 +452,7 @@ async fn define_by_range(
                 name.to_string(),
                 model::resource_pool::ValueType::Integer,
             );
-            populate(&pool, txn, values).await?;
+            populate(&pool, txn, values, auto_assign).await?;
             tracing::debug!(pool_name = name, num_values, "Populated int resource pool");
         }
     }

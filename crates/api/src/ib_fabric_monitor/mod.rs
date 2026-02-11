@@ -617,7 +617,7 @@ async fn get_tenant_partitions(
     txn: &mut PgConnection,
 ) -> Result<HashMap<IBPartitionId, IBPartition>, CarbideError> {
     let partition_ids = db::ib_partition::find_ids(
-        txn,
+        &mut *txn,
         IbPartitionSearchFilter {
             tenant_org_id: None,
             name: None,
@@ -632,7 +632,7 @@ async fn get_tenant_partitions(
         let page_size = PAGE_SIZE.min(partition_ids.len() - offset);
         let next_ids = &partition_ids[offset..offset + page_size];
         let partition_data = db::ib_partition::find_by(
-            txn,
+            &mut *txn,
             db::ObjectColumnFilter::List(db::ib_partition::IdColumn, next_ids),
         )
         .await?;

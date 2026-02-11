@@ -187,7 +187,8 @@ pub(crate) async fn determine_machine_ingestion_state(
 
     // now check if we have an entry in explored_managed_hosts
     let explored_managed_hosts =
-        db::explored_managed_host::find_by_ips(&mut txn, vec![explored_endpoint.address]).await?;
+        db::explored_managed_host::find_by_ips(txn.as_mut(), vec![explored_endpoint.address])
+            .await?;
 
     if !explored_managed_hosts.is_empty() {
         let machine_created = db::machine::find_id_by_bmc_ip(&mut txn, &explored_endpoint.address)

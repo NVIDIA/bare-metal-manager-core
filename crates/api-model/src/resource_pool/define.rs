@@ -30,6 +30,8 @@ pub struct ResourcePoolDef {
 pub struct Range {
     pub start: String,
     pub end: String,
+    #[serde(default = "default_true")]
+    pub auto_assign: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, Copy, Clone, PartialEq, Eq)]
@@ -37,4 +39,8 @@ pub struct Range {
 pub enum ResourcePoolType {
     Ipv4,
     Integer,
+}
+
+fn default_true() -> bool {
+    true
 }

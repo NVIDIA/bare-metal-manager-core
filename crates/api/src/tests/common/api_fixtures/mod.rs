@@ -31,6 +31,7 @@ use carbide_uuid::machine::MachineId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Duration, Utc};
+use db::db_read::PgPoolReader;
 use db::instance_type::create as create_instance_type;
 use db::network_security_group::create as create_network_security_group;
 use db::work_lock_manager;
@@ -79,7 +80,7 @@ use tracing_subscriber::EnvFilter;
 use crate::api::Api;
 use crate::cfg::file::{
     BomValidationConfig, CarbideConfig, DpaConfig, DpaInterfaceStateControllerConfig,
-    DpuConfig as InitialDpuConfig, FirmwareGlobal, IBFabricConfig, IbFabricDefinition,
+    DpuConfig as InitialDpuConfig, FirmwareGlobal, FnnConfig, IBFabricConfig, IbFabricDefinition,
     IbPartitionStateControllerConfig, ListenMode, MachineStateControllerConfig, MachineUpdater,
     MachineValidationConfig, MeasuredBootMetricsCollectorConfig, NetworkSecurityGroupConfig,
     NetworkSegmentStateControllerConfig, NvLinkConfig, PowerManagerOptions,
@@ -255,6 +256,7 @@ pub struct TestEnvOverrides {
     pub network_segments_drain_period: Option<chrono::Duration>,
     pub power_manager_enabled: Option<bool>,
     pub dpf_config: Option<DpfConfig>,
+    pub fnn_config: Option<FnnConfig>,
     pub nmxm_default_partition: Option<bool>,
 }
 
@@ -322,6 +324,7 @@ impl TestEnv {
     pub fn state_handler_services(&self) -> CommonStateHandlerServices {
         CommonStateHandlerServices {
             db_pool: self.pool.clone(),
+            db_reader: self.pool.clone().into(),
             redfish_client_pool: self.redfish_sim.clone(),
             ib_fabric_manager: self.ib_fabric_manager.clone(),
             ib_pools: self.common_pools.infiniband.clone(),
@@ -861,6 +864,10 @@ impl TestEnv {
             .await
             .unwrap();
     }
+
+    pub fn db_reader(&self) -> PgPoolReader {
+        self.pool.clone().into()
+    }
 }
 
 fn dpu_fw_example() -> HashMap<String, Firmware> {
@@ -1017,6 +1024,7 @@ pub fn get_config() -> CarbideConfig {
                 pkeys: vec![resource_pool::Range {
                     start: "1".to_string(),
                     end: "100".to_string(),
+                    auto_assign: true,
                 }],
             },
         )]
@@ -1243,6 +1251,13 @@ pub async fn create_test_env_with_overrides(
             .host_health
             .prevent_allocations_on_stale_dpu_agent_version = prevent;
     }
+
+    config.fnn = if let Some(override_fnn_config) = overrides.fnn_config {
+        Some(override_fnn_config)
+    } else {
+        Default::default()
+    };
+
     let config = Arc::new(config);
 
     let ib_config = config.ib_config.clone().unwrap_or_default();
@@ -1420,6 +1435,7 @@ pub async fn create_test_env_with_overrides(
 
     let handler_services = Arc::new(CommonStateHandlerServices {
         db_pool: db_pool.clone(),
+        db_reader: db_pool.clone().into(),
         redfish_client_pool: redfish_sim.clone(),
         ib_fabric_manager: ib_fabric_manager.clone(),
         ib_pools: common_pools.infiniband.clone(),
@@ -1816,10 +1832,18 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
         "ib_fabrics.default.pkey".to_string(),
         resource_pool::ResourcePoolDef {
             pool_type: resource_pool::ResourcePoolType::Integer,
-            ranges: vec![resource_pool::Range {
-                start: "1".to_string(),
-                end: "100".to_string(),
-            }],
+            ranges: vec![
+                resource_pool::Range {
+                    start: "1".to_string(),
+                    end: "100".to_string(),
+                    auto_assign: true,
+                },
+                resource_pool::Range {
+                    start: "101".to_string(),
+                    end: "200".to_string(),
+                    auto_assign: false,
+                },
+            ],
             prefix: None,
         },
     );
@@ -1832,6 +1856,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
             ranges: vec![resource_pool::Range {
                 start: "10.255.255.0".to_string(),
                 end: "10.255.255.127".to_string(),
+                auto_assign: true,
             }],
         },
     );
@@ -1851,6 +1876,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
             ranges: vec![resource_pool::Range {
                 start: 10_001.to_string(),
                 end: (10_001 + fabric_len as u16 - 1).to_string(),
+                auto_assign: true,
             }],
             prefix: None,
         },
@@ -1862,6 +1888,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
             ranges: vec![resource_pool::Range {
                 start: 1.to_string(),
                 end: (1 + fabric_len as u16 - 1).to_string(),
+                auto_assign: true,
             }],
             prefix: None,
         },
@@ -1870,10 +1897,18 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
         model::resource_pool::common::VPC_VNI.to_string(),
         resource_pool::ResourcePoolDef {
             pool_type: resource_pool::ResourcePoolType::Integer,
-            ranges: vec![resource_pool::Range {
-                start: 20001.to_string(),
-                end: (20001 + fabric_len as u16 - 1).to_string(),
-            }],
+            ranges: vec![
+                resource_pool::Range {
+                    start: 20001.to_string(),
+                    end: (20001 + fabric_len as u16 - 1).to_string(),
+                    auto_assign: true,
+                },
+                resource_pool::Range {
+                    start: 60001.to_string(),
+                    end: (60001 + fabric_len as u16 - 1).to_string(),
+                    auto_assign: false,
+                },
+            ],
             prefix: None,
         },
     );
@@ -1885,6 +1920,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
             ranges: vec![resource_pool::Range {
                 start: 50001.to_string(),
                 end: (50001 + fabric_len as u16 - 1).to_string(),
+                auto_assign: true,
             }],
             prefix: None,
         },
@@ -1896,6 +1932,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
             ranges: vec![resource_pool::Range {
                 start: 30001.to_string(),
                 end: (30001 + fabric_len as u16 - 1).to_string(),
+                auto_assign: true,
             }],
             prefix: None,
         },
@@ -1907,6 +1944,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
             ranges: vec![resource_pool::Range {
                 start: "30001".to_string(),
                 end: "30035".to_string(),
+                auto_assign: true,
             }],
             prefix: None,
         },
@@ -2478,7 +2516,7 @@ pub async fn update_machine_validation_run(
 }
 
 pub async fn get_vpc_fixture_id(env: &TestEnv) -> VpcId {
-    db::vpc::find_by_name(&mut env.pool.begin().await.unwrap(), "test vpc 1")
+    db::vpc::find_by_name(&env.pool, "test vpc 1")
         .await
         .unwrap()
         .into_iter()

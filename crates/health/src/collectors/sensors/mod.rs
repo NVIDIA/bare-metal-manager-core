@@ -15,89 +15,75 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::collections::HashSet;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures::{StreamExt, stream};
-use health_report::{HealthAlertClassification, HealthProbeId};
 use nv_redfish::ServiceRoot;
 use nv_redfish::chassis::{Chassis, PowerSupply};
 use nv_redfish::computer_system::{ComputerSystem, Drive, Memory, Processor, Storage};
-use nv_redfish::resource::Health as BmcHealth;
 use nv_redfish::sensor::SensorRef;
 use nv_redfish_core::{Bmc, EntityTypeRef, ToSnakeCase};
 
-use crate::api_client::{BmcAddr, BmcEndpoint, EndpointMetadata, HealthReportSink};
-use crate::collector::PeriodicCollector;
-use crate::metrics::{CollectorRegistry, GaugeMetrics, GaugeReading, MetricLabel, sanitize_unit};
-use crate::{HealthError, collector};
+use crate::HealthError;
+use crate::collectors::{IterationResult, PeriodicCollector};
+use crate::endpoint::{BmcAddr, BmcEndpoint, EndpointMetadata};
+use crate::metrics::{MetricLabel, sanitize_unit};
+use crate::sink::{CollectorEvent, DataSink, EventContext, HealthOverride, MetricSample};
 
-/// Configuration for health monitor
-pub struct HealthMonitorConfig {
-    pub report_sink: Option<Arc<dyn HealthReportSink>>,
+mod monitor_health;
+
+use monitor_health::{SensorHealthData, SensorHealthResult};
+
+/// Configuration for sensor collector
+pub struct SensorCollectorConfig {
+    pub data_sink: Option<Arc<dyn DataSink>>,
     pub state_refresh_interval: Duration,
     pub sensor_fetch_concurrency: usize,
-    pub collector_registry: Arc<CollectorRegistry>,
     pub include_sensor_thresholds: bool,
 }
 
-/// Health monitor for a single BMC endpoint
-pub struct HealthMonitor<B: Bmc> {
+/// Sensor collector for a single BMC endpoint
+pub struct SensorCollector<B: Bmc> {
     endpoint: Arc<BmcEndpoint>,
     bmc: Arc<B>,
-    state: Option<HealthMonitorState<B>>,
-    report_sink: Option<Arc<dyn HealthReportSink>>,
+    event_context: EventContext,
+    state: Option<SensorCollectorState<B>>,
+    data_sink: Option<Arc<dyn DataSink>>,
     state_refresh_interval: Duration,
     sensor_fetch_concurrency: usize,
     include_sensor_thresholds: bool,
-    metrics: Arc<GaugeMetrics>,
 }
 
-impl<B: Bmc + 'static> PeriodicCollector<B> for HealthMonitor<B> {
-    type Config = HealthMonitorConfig;
+impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
+    type Config = SensorCollectorConfig;
 
     fn new_runner(
         bmc: Arc<B>,
         endpoint: Arc<BmcEndpoint>,
         config: Self::Config,
     ) -> Result<Self, HealthError> {
-        let (serial, machine_id) = match &endpoint.metadata {
-            Some(EndpointMetadata::Machine(m)) => (
-                m.machine_serial.clone().unwrap_or_default(),
-                m.machine_id.to_string(),
-            ),
-            _ => (String::new(), String::new()),
-        };
-        let metrics = config.collector_registry.create_gauge_metrics(
-            format!("health_gauge_{}", endpoint.addr.hash_key()),
-            "BMC Sensor readings",
-            vec![
-                ("serial_number".to_string(), serial),
-                ("machine_id".to_string(), machine_id),
-                ("bmc_mac".to_string(), endpoint.addr.mac.clone()),
-            ],
-        )?;
-
+        let event_context = EventContext::from_endpoint(endpoint.as_ref(), "sensor_collector");
         Ok(Self {
             bmc,
             endpoint,
+            event_context,
             state: None,
-            report_sink: config.report_sink,
+            data_sink: config.data_sink,
             state_refresh_interval: config.state_refresh_interval,
             sensor_fetch_concurrency: config.sensor_fetch_concurrency,
             include_sensor_thresholds: config.include_sensor_thresholds,
-            metrics,
         })
     }
 
-    async fn run_iteration(&mut self) -> Result<collector::IterationResult, HealthError> {
+    async fn run_iteration(&mut self) -> Result<IterationResult, HealthError> {
         self.run_monitor_iteration().await
     }
 
     fn collector_type(&self) -> &'static str {
-        "health_monitor"
+        "sensor_collector"
     }
 }
 
@@ -130,176 +116,13 @@ enum MonitoredEntity<B: Bmc> {
     },
 }
 
-#[derive(Debug, Clone, Copy)]
-enum SensorHealth {
-    Ok,
-    Warning,
-    Critical,
-    SensorFailure,
-}
-
-impl SensorHealth {
-    fn to_classification(self) -> &'static str {
-        match self {
-            Self::Ok => "SensorOk",
-            Self::Warning => "SensorWarning",
-            Self::Critical => "SensorCritical",
-            Self::SensorFailure => "SensorFailure",
-        }
-    }
-}
-
-#[derive(Debug)]
-struct SensorHealthData {
-    entity_type: String,
-    sensor_id: String,
-    reading: f64,
-    reading_type: String,
-    unit: String,
-    upper_critical: Option<f64>,
-    lower_critical: Option<f64>,
-    upper_caution: Option<f64>,
-    lower_caution: Option<f64>,
-    range_max: Option<f64>,
-    range_min: Option<f64>,
-    bmc_health: Option<BmcHealth>,
-}
-
-impl SensorHealthData {
-    fn fmt_range(low: Option<f64>, high: Option<f64>) -> String {
-        match (low, high) {
-            (None, None) => "not set".to_string(),
-            (Some(l), Some(h)) => format!("{:.1} to {:.1}", l, h),
-            (Some(l), None) => format!("min {:.1}", l),
-            (None, Some(h)) => format!("max {:.1}", h),
-        }
-    }
-
-    fn classify(&self) -> SensorHealth {
-        if let Some(max) = self.range_max
-            && self.reading > max
-            && self.range_max > self.range_min
-        {
-            return SensorHealth::SensorFailure;
-        }
-
-        if let Some(min) = self.range_min
-            && self.reading < min
-            && self.range_max > self.range_min
-        {
-            return SensorHealth::SensorFailure;
-        }
-
-        if let Some(upper_critical) = self.upper_critical
-            && self.reading >= upper_critical
-            && self.upper_critical > self.lower_critical
-        {
-            return SensorHealth::Critical;
-        }
-
-        if let Some(lower_critical) = self.lower_critical
-            && self.reading <= lower_critical
-            && self.upper_critical > self.lower_critical
-        {
-            return SensorHealth::Critical;
-        }
-
-        if let Some(upper_caution) = self.upper_caution
-            && self.reading >= upper_caution
-            && self.upper_caution > self.lower_caution
-        {
-            return SensorHealth::Warning;
-        }
-        if let Some(lower_caution) = self.lower_caution
-            && self.reading <= lower_caution
-            && self.upper_caution > self.lower_caution
-        {
-            return SensorHealth::Warning;
-        }
-
-        SensorHealth::Ok
-    }
-
-    fn to_health_result(&self, health: SensorHealth) -> SensorHealthResult {
-        let probe_id = HealthProbeId::from_str("BMC_Sensor").expect("cannot fail");
-
-        let bmc_reports_ok = matches!(self.bmc_health, Some(BmcHealth::Ok));
-
-        match health {
-            SensorHealth::Ok => SensorHealthResult::Success(health_report::HealthProbeSuccess {
-                id: probe_id,
-                target: Some(self.sensor_id.clone()),
-            }),
-            health => {
-                if bmc_reports_ok {
-                    tracing::warn!(
-                        sensor_id = %self.sensor_id,
-                        entity_type = %self.entity_type,
-                        reading = self.reading,
-                        unit = %self.unit,
-                        reading_type = %self.reading_type,
-                        valid_range = %Self::fmt_range(self.range_min, self.range_max),
-                        caution_range = %Self::fmt_range(self.lower_caution, self.upper_caution),
-                        critical_range = %Self::fmt_range(self.lower_critical, self.upper_critical),
-                        calculated_status = ?health,
-                        "Threshold check indicates issue but BMC reports sensor as OK - likely incorrect thresholds, reporting OK"
-                    );
-                    return SensorHealthResult::Success(health_report::HealthProbeSuccess {
-                        id: probe_id,
-                        target: Some(self.sensor_id.clone()),
-                    });
-                }
-
-                let status = match health {
-                    SensorHealth::Warning => "Warning",
-                    SensorHealth::Critical => "Critical",
-                    SensorHealth::SensorFailure => "Sensor Failure",
-                    SensorHealth::Ok => "Ok",
-                };
-
-                let message = format!(
-                    "{} '{}': {} - reading {:.2}{} ({}), valid range: {}, caution: {}, critical: {}",
-                    self.entity_type,
-                    self.sensor_id,
-                    status,
-                    self.reading,
-                    self.unit,
-                    self.reading_type,
-                    Self::fmt_range(self.range_min, self.range_max),
-                    Self::fmt_range(self.lower_caution, self.upper_caution),
-                    Self::fmt_range(self.lower_critical, self.upper_critical),
-                );
-                let classifications = if let Ok(classification) = health.to_classification().parse()
-                {
-                    vec![classification, HealthAlertClassification::hardware()]
-                } else {
-                    vec![HealthAlertClassification::hardware()]
-                };
-                SensorHealthResult::Alert(health_report::HealthProbeAlert {
-                    id: probe_id,
-                    target: Some(self.sensor_id.clone()),
-                    in_alert_since: None,
-                    message,
-                    tenant_message: None,
-                    classifications,
-                })
-            }
-        }
-    }
-}
-
-enum SensorHealthResult {
-    Success(health_report::HealthProbeSuccess),
-    Alert(health_report::HealthProbeAlert),
-}
-
 /// Trait for entities that can record sensor metrics
 trait SensorRecordable<B: Bmc> {
     fn metric_prefix(&self) -> &'static str;
     fn sensor(&self) -> &SensorRef<B>;
     fn base_attributes(&self) -> Vec<MetricLabel>;
     fn entity_specific_attributes(&self) -> Vec<MetricLabel>;
-    fn record_entity_metrics(&self, gauge: &GaugeMetrics, attributes: Vec<MetricLabel>);
+    fn entity_metrics(&self, attributes: &[MetricLabel]) -> Vec<MetricSample>;
 }
 
 impl<B: Bmc> SensorRecordable<B> for MonitoredEntity<B> {
@@ -320,12 +143,12 @@ impl<B: Bmc> SensorRecordable<B> for MonitoredEntity<B> {
     fn base_attributes(&self) -> Vec<MetricLabel> {
         match self {
             MonitoredEntity::Processor { entity, system, .. } => vec![
-                ("processor_id".to_string(), entity.raw().base.id.clone()),
-                ("system_id".to_string(), system.raw().base.id.clone()),
+                (Cow::Borrowed("processor_id"), entity.raw().base.id.clone()),
+                (Cow::Borrowed("system_id"), system.raw().base.id.clone()),
             ],
             MonitoredEntity::Memory { entity, system, .. } => vec![
-                ("memory_id".to_string(), entity.raw().base.id.clone()),
-                ("system_id".to_string(), system.raw().base.id.clone()),
+                (Cow::Borrowed("memory_id"), entity.raw().base.id.clone()),
+                (Cow::Borrowed("system_id"), system.raw().base.id.clone()),
             ],
             MonitoredEntity::Drive {
                 entity,
@@ -333,18 +156,21 @@ impl<B: Bmc> SensorRecordable<B> for MonitoredEntity<B> {
                 storage,
                 ..
             } => vec![
-                ("drive_id".to_string(), entity.raw().base.id.clone()),
-                ("storage_id".to_string(), storage.raw().base.id.clone()),
-                ("system_id".to_string(), system.raw().base.id.clone()),
+                (Cow::Borrowed("drive_id"), entity.raw().base.id.clone()),
+                (Cow::Borrowed("storage_id"), storage.raw().base.id.clone()),
+                (Cow::Borrowed("system_id"), system.raw().base.id.clone()),
             ],
             MonitoredEntity::PowerSupply {
                 entity, chassis, ..
             } => vec![
-                ("powersupply_id".to_string(), entity.raw().base.id.clone()),
-                ("chassis_id".to_string(), chassis.raw().base.id.clone()),
+                (
+                    Cow::Borrowed("powersupply_id"),
+                    entity.raw().base.id.clone(),
+                ),
+                (Cow::Borrowed("chassis_id"), chassis.raw().base.id.clone()),
             ],
             MonitoredEntity::Chassis { entity, .. } => {
-                vec![("chassis_id".to_string(), entity.raw().base.id.clone())]
+                vec![(Cow::Borrowed("chassis_id"), entity.raw().base.id.clone())]
             }
         }
     }
@@ -356,38 +182,38 @@ impl<B: Bmc> SensorRecordable<B> for MonitoredEntity<B> {
             MonitoredEntity::Processor { entity, .. } => {
                 if let Some(processor_type) = entity.raw().processor_type.flatten() {
                     attrs.push((
-                        "processor_type".to_string(),
+                        Cow::Borrowed("processor_type"),
                         processor_type.to_snake_case().to_string(),
                     ));
                 }
                 if let Some(model) = entity.raw().model.clone().flatten() {
-                    attrs.push(("model".to_string(), model));
+                    attrs.push((Cow::Borrowed("model"), model));
                 }
             }
             MonitoredEntity::Memory { entity, .. } => {
                 if let Some(device_type) = entity.raw().memory_device_type.flatten() {
                     attrs.push((
-                        "device_type".to_string(),
+                        Cow::Borrowed("device_type"),
                         device_type.to_snake_case().to_string(),
                     ));
                 }
                 if let Some(model) = entity.raw().model.clone().flatten() {
-                    attrs.push(("model".to_string(), model));
+                    attrs.push((Cow::Borrowed("model"), model));
                 }
             }
             MonitoredEntity::Drive { entity, .. } => {
                 if let Some(model) = entity.raw().model.clone().flatten() {
-                    attrs.push(("model".to_string(), model));
+                    attrs.push((Cow::Borrowed("model"), model));
                 }
             }
             MonitoredEntity::PowerSupply { entity, .. } => {
                 if let Some(model) = entity.raw().model.clone().flatten() {
-                    attrs.push(("model".to_string(), model));
+                    attrs.push((Cow::Borrowed("model"), model));
                 }
             }
             MonitoredEntity::Chassis { entity, .. } => {
                 if let Some(model) = entity.raw().model.clone().flatten() {
-                    attrs.push(("model".to_string(), model));
+                    attrs.push((Cow::Borrowed("model"), model));
                 }
             }
         }
@@ -395,37 +221,37 @@ impl<B: Bmc> SensorRecordable<B> for MonitoredEntity<B> {
         attrs
     }
 
-    fn record_entity_metrics(&self, metrics: &GaugeMetrics, attributes: Vec<MetricLabel>) {
+    fn entity_metrics(&self, attributes: &[MetricLabel]) -> Vec<MetricSample> {
         match self {
             MonitoredEntity::Drive { entity, .. } => {
                 if let Some(lifetime) = entity.raw().predicted_media_life_left_percent.flatten() {
-                    metrics.record(
-                        GaugeReading::new(
-                            entity.raw().id().to_string(),
-                            "hw",
-                            "drive_predicted_media_life_left",
-                            "percentage",
-                            lifetime,
-                        )
-                        .with_labels(attributes),
-                    );
+                    vec![MetricSample {
+                        key: entity.raw().id().to_string(),
+                        name: "hw".to_string(),
+                        metric_type: "drive_predicted_media_life_left".to_string(),
+                        unit: "percentage".to_string(),
+                        value: lifetime,
+                        labels: attributes.to_vec(),
+                    }]
+                } else {
+                    Vec::new()
                 }
             }
             MonitoredEntity::PowerSupply { entity, .. } => {
                 if let Some(capacity) = entity.raw().power_capacity_watts.flatten() {
-                    metrics.record(
-                        GaugeReading::new(
-                            entity.raw().id().to_string(),
-                            "hw",
-                            "powersupply_capacity",
-                            "watts",
-                            capacity,
-                        )
-                        .with_labels(attributes),
-                    );
+                    vec![MetricSample {
+                        key: entity.raw().id().to_string(),
+                        name: "hw".to_string(),
+                        metric_type: "powersupply_capacity".to_string(),
+                        unit: "watts".to_string(),
+                        value: capacity,
+                        labels: attributes.to_vec(),
+                    }]
+                } else {
+                    Vec::new()
                 }
             }
-            _ => {}
+            _ => Vec::new(),
         }
     }
 }
@@ -451,13 +277,19 @@ impl<T, E> ResultExt<T, E> for Result<T, E> {
     }
 }
 
-struct HealthMonitorState<B: Bmc> {
+struct SensorCollectorState<B: Bmc> {
     entities: Vec<MonitoredEntity<B>>,
     last_entity_refresh: Instant,
 }
 
-impl<B: Bmc + 'static> HealthMonitor<B> {
-    async fn run_monitor_iteration(&mut self) -> Result<collector::IterationResult, HealthError> {
+impl<B: Bmc + 'static> SensorCollector<B> {
+    fn emit_event(&self, event: CollectorEvent) {
+        if let Some(data_sink) = &self.data_sink {
+            data_sink.handle_event(&self.event_context, &event);
+        }
+    }
+
+    async fn run_monitor_iteration(&mut self) -> Result<IterationResult, HealthError> {
         let needs_entity_refresh = self
             .state
             .as_ref()
@@ -474,7 +306,7 @@ impl<B: Bmc + 'static> HealthMonitor<B> {
                     let count = entities.len();
                     tracing::info!("Entity refresh complete. Found {} entities", count);
 
-                    self.state = Some(HealthMonitorState {
+                    self.state = Some(SensorCollectorState {
                         entities,
                         last_entity_refresh: Instant::now(),
                     });
@@ -494,36 +326,30 @@ impl<B: Bmc + 'static> HealthMonitor<B> {
             let (successes, alerts) = self.fetch_and_update_sensors(state).await?;
             entity_count = Some(successes.len() + alerts.len());
 
-            if let (Some(EndpointMetadata::Machine(machine)), Some(report_sink)) =
-                (&self.endpoint.metadata, &self.report_sink)
-            {
-                let machine_id = machine.machine_id;
+            let report = health_report::HealthReport {
+                source: "hardware-health".to_string(),
+                observed_at: Some(chrono::Utc::now()),
+                successes,
+                alerts,
+            };
 
-                let report = health_report::HealthReport {
-                    source: "hardware-health".to_string(),
-                    observed_at: Some(chrono::Utc::now()),
-                    successes,
-                    alerts,
-                };
+            tracing::info!(
+                endpoint = %self.endpoint.addr.mac,
+                success_count = report.successes.len(),
+                alert_count = report.alerts.len(),
+                "Sending hardware health report"
+            );
 
-                tracing::info!(
-                    machine_id = %machine_id,
-                    success_count = report.successes.len(),
-                    alert_count = report.alerts.len(),
-                    "Sending hardware health report"
-                );
-
-                if let Err(e) = report_sink.submit_health_report(&machine_id, report).await {
-                    tracing::warn!(
-                        machine_id = %machine_id,
-                        error = ?e,
-                        "Failed to submit health report"
-                    );
-                }
-            }
+            self.emit_event(CollectorEvent::HealthOverride(HealthOverride {
+                machine_id: self.endpoint.metadata.as_ref().and_then(|m| match m {
+                    EndpointMetadata::Machine(machine) => Some(machine.machine_id),
+                    EndpointMetadata::Switch(_) => None,
+                }),
+                report: Arc::new(report),
+            }));
         }
 
-        Ok(collector::IterationResult {
+        Ok(IterationResult {
             refresh_triggered,
             entity_count,
         })
@@ -784,7 +610,7 @@ impl<B: Bmc + 'static> HealthMonitor<B> {
         }
 
         tracing::info!(
-            bmc = self.endpoint.addr.mac,
+            bmc = %self.endpoint.addr.mac,
             total_valid = validated_entities.len(),
             "Discovered hardware entities with sensors"
         );
@@ -794,7 +620,7 @@ impl<B: Bmc + 'static> HealthMonitor<B> {
 
     async fn fetch_and_update_sensors(
         &self,
-        state: &HealthMonitorState<B>,
+        state: &SensorCollectorState<B>,
     ) -> Result<
         (
             Vec<health_report::HealthProbeSuccess>,
@@ -802,7 +628,7 @@ impl<B: Bmc + 'static> HealthMonitor<B> {
         ),
         HealthError,
     > {
-        self.metrics.begin_update();
+        self.emit_event(CollectorEvent::MetricCollectionStart);
         let futures: Vec<_> = state
             .entities
             .iter()
@@ -819,13 +645,12 @@ impl<B: Bmc + 'static> HealthMonitor<B> {
         let mut alerts = Vec::new();
 
         for data in health_data {
-            let health = data.classify();
-            match data.to_health_result(health) {
+            match data.to_health_result() {
                 SensorHealthResult::Success(s) => successes.push(s),
                 SensorHealthResult::Alert(a) => alerts.push(a),
             }
         }
-        self.metrics.sweep_stale();
+        self.emit_event(CollectorEvent::MetricCollectionEnd);
 
         Ok((successes, alerts))
     }
@@ -861,67 +686,66 @@ impl<B: Bmc + 'static> HealthMonitor<B> {
             return None;
         };
 
-        let attributes: Vec<_> =
-            std::iter::once(("sensor_name".to_string(), sensor.base.id.clone()))
-                .chain(entity.base_attributes())
-                .chain(
-                    sensor
-                        .thresholds
-                        .as_ref()
-                        .filter(|_| self.include_sensor_thresholds)
-                        .map(|t| {
-                            [
-                                (
-                                    "upper_critical_threshold".to_string(),
-                                    t.upper_critical
-                                        .as_ref()
-                                        .and_then(|th| th.reading.flatten())
-                                        .unwrap_or_default()
-                                        .to_string(),
-                                ),
-                                (
-                                    "lower_critical_threshold".to_string(),
-                                    t.lower_critical
-                                        .as_ref()
-                                        .and_then(|th| th.reading.flatten())
-                                        .unwrap_or_default()
-                                        .to_string(),
-                                ),
-                            ]
-                        })
-                        .into_iter()
-                        .flatten(),
-                )
-                .chain(
-                    sensor
-                        .physical_context
-                        .flatten()
-                        .map(|phc| phc.to_snake_case())
-                        .or({
-                            Some(match entity {
-                                MonitoredEntity::Processor { .. } => "cpu",
-                                MonitoredEntity::Memory { .. } => "memory",
-                                MonitoredEntity::Drive { .. } => "storage_device",
-                                MonitoredEntity::PowerSupply { .. } => "power_supply",
-                                MonitoredEntity::Chassis { .. } => "chassis",
-                            })
-                        })
-                        .map(|phc| ("physical_context".to_string(), phc.to_string())),
-                )
-                .chain(entity.entity_specific_attributes())
-                .collect();
+        let mut attributes = entity.base_attributes();
+        attributes.reserve(6);
+        attributes.push((Cow::Borrowed("sensor_name"), sensor.base.id.clone()));
 
-        self.metrics.record(
-            GaugeReading::new(
-                sensor.id().to_string(),
-                "hw_sensor",
-                reading_type.to_snake_case(),
-                sanitize_unit(&unit),
-                reading,
-            )
-            .with_labels(attributes.clone()),
-        );
-        entity.record_entity_metrics(&self.metrics, attributes);
+        if let Some(thresholds) = sensor
+            .thresholds
+            .as_ref()
+            .filter(|_| self.include_sensor_thresholds)
+        {
+            attributes.push((
+                Cow::Borrowed("upper_critical_threshold"),
+                thresholds
+                    .upper_critical
+                    .as_ref()
+                    .and_then(|th| th.reading.flatten())
+                    .unwrap_or_default()
+                    .to_string(),
+            ));
+            attributes.push((
+                Cow::Borrowed("lower_critical_threshold"),
+                thresholds
+                    .lower_critical
+                    .as_ref()
+                    .and_then(|th| th.reading.flatten())
+                    .unwrap_or_default()
+                    .to_string(),
+            ));
+        }
+
+        let physical_context = sensor
+            .physical_context
+            .flatten()
+            .map(|phc| phc.to_snake_case().to_string())
+            .unwrap_or_else(|| {
+                match entity {
+                    MonitoredEntity::Processor { .. } => "cpu",
+                    MonitoredEntity::Memory { .. } => "memory",
+                    MonitoredEntity::Drive { .. } => "storage_device",
+                    MonitoredEntity::PowerSupply { .. } => "power_supply",
+                    MonitoredEntity::Chassis { .. } => "chassis",
+                }
+                .to_string()
+            });
+        attributes.push((Cow::Borrowed("physical_context"), physical_context));
+        attributes.extend(entity.entity_specific_attributes());
+
+        let derived_metrics = entity.entity_metrics(&attributes);
+        let metric_type = reading_type.to_snake_case().to_string();
+        self.emit_event(CollectorEvent::Metric(MetricSample {
+            key: sensor.id().to_string(),
+            name: "hw_sensor".to_string(),
+            metric_type: metric_type.clone(),
+            unit: sanitize_unit(&unit),
+            value: reading,
+            labels: attributes,
+        }));
+
+        for metric in derived_metrics {
+            self.emit_event(CollectorEvent::Metric(metric));
+        }
 
         let (upper_critical, lower_critical, upper_caution, lower_caution) =
             if let Some(thresholds) = &sensor.thresholds {
@@ -956,7 +780,7 @@ impl<B: Bmc + 'static> HealthMonitor<B> {
             entity_type: entity.metric_prefix().replace("hw_", ""),
             sensor_id: sensor.base.id.clone(),
             reading,
-            reading_type: reading_type.to_snake_case().to_string(),
+            reading_type: metric_type,
             unit,
             upper_critical,
             lower_critical,
