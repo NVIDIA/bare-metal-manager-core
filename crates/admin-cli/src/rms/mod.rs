@@ -21,10 +21,11 @@ pub mod cmds;
 #[cfg(test)]
 mod tests;
 
-use crate::cfg::cli_options::CliOptions;
-use crate::rms::args::RmsAction;
 pub use args::Cmd;
 use librms::RackManagerClientPool;
+
+use crate::cfg::cli_options::CliOptions;
+use crate::rms::args::RmsAction;
 
 pub async fn action(action: RmsAction, config: &CliOptions) -> color_eyre::Result<()> {
     let url = if let Some(x) = action.url {

@@ -15,11 +15,12 @@
  * limitations under the License.
  */
 
+use std::sync::Arc;
+
 use db::db_read::PgPoolReader;
 use librms::RmsApi;
 use model::resource_pool::common::IbPools;
 use sqlx::PgPool;
-use std::sync::Arc;
 
 use crate::cfg::file::CarbideConfig;
 use crate::dpa::handler::DpaInfo;
