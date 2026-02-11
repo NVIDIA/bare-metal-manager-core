@@ -58,22 +58,7 @@ Indicates that a BMC sensor reported a warning/critical/failure condition.
 Details:
 - `target` is set to the BMC sensor ID (for example, a fan/temperature/power sensor name).
 - The alert `message` contains the entity type, reading, unit, and threshold ranges used for evaluation.
-- Classifications include `Hardware` and (when available) one of `SensorWarning`, `SensorCritical`, or `SensorFailure`.
-
-Status semantics:
-- `SensorFailure`:
-  the reading is outside the sensor's advertised valid range (`range_min`/`range_max`), if that range is well-formed.
-- `SensorCritical`:
-  the reading violates critical thresholds (`lower_critical`/`upper_critical`), if those thresholds are well-formed.
-- `SensorWarning`:
-  the reading violates caution thresholds (`lower_caution`/`upper_caution`), if those thresholds are well-formed.
-
-Evaluation order (highest severity first):
-`SensorFailure` -> `SensorCritical` -> `SensorWarning` -> success.
-
-Special case:
-if threshold evaluation indicates warning/critical/failure but the BMC explicitly reports the sensor health as `Ok`,
-the service treats the probe as success (to avoid false alerts from incorrect threshold metadata).
+- Classifications are documented in [Health alert classifications](health_alert_classifications.md), including `Hardware`, `SensorWarning`, `SensorCritical`, and `SensorFailure`.
 
 `message` format:
 
