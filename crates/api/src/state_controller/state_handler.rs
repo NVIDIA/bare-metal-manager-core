@@ -26,6 +26,7 @@ use sqlx::PgTransaction;
 
 use crate::rack::rms_client::RackManagerError;
 use crate::redfish::RedfishClientCreationError;
+use crate::state_controller::machine::db_write_batch::DbWriteBatch;
 
 /// The collection of generic objects which are referenced in StateHandlerContext
 pub trait StateHandlerContextObjects: Send + Sync + 'static {
@@ -68,19 +69,9 @@ pub trait StateHandler: std::fmt::Debug + Send + Sync + 'static {
         state: &mut Self::State,
         controller_state: &Self::ControllerState,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcomeWithTransaction<Self::ControllerState>, StateHandlerError>;
-}
+    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError>;
 
-/// [`StateHandlerOutcomeWithTransaction`] includes a transaction with the StateHandlerOutcome, so
-/// that the state controller can re-use this transaction for any further writes it does (for
-/// instance when calling [`StateControllerIO::persist_controller_state`] and
-/// [`StateControllerIO::persist_outcome`]). The reason we don't just store the transaction in an
-/// instance variable in ControllerState, is so that we can catch (and avoid) cases where the
-/// transaction is held open across an await point (see `lints/carbide-lints/README.md` in the
-/// carbide repo for explanation.)
-pub struct StateHandlerOutcomeWithTransaction<S> {
-    pub outcome: StateHandlerOutcome<S>,
-    pub transaction: Option<PgTransaction<'static>>,
+    async fn take_pending_writes(&self) -> Option<DbWriteBatch>;
 }
 
 pub enum StateHandlerOutcome<S> {
@@ -88,28 +79,67 @@ pub enum StateHandlerOutcome<S> {
         /// The reason we're waiting
         reason: String,
         source_ref: &'static Location<'static>,
+        txn: Option<PgTransaction<'static>>,
     },
     Transition {
         /// The state we are transitioning to
         next_state: S,
         source_ref: &'static Location<'static>,
+        txn: Option<PgTransaction<'static>>,
     },
     DoNothing {
         source_ref: &'static Location<'static>,
+        txn: Option<PgTransaction<'static>>,
     }, // Nothing to do. Typically in Ready or Assigned/Ready
     Deleted {
         _source_ref: &'static Location<'static>,
+        txn: Option<PgTransaction<'static>>,
     }, // The object was removed from the database
 }
 
 impl<S> StateHandlerOutcome<S> {
-    pub fn with_txn(
-        self,
+    pub fn with_txn(self, transaction: PgTransaction<'static>) -> StateHandlerOutcome<S> {
+        self.with_txn_opt(Some(transaction))
+    }
+
+    pub fn with_txn_opt(
+        mut self,
         transaction: Option<PgTransaction<'static>>,
-    ) -> StateHandlerOutcomeWithTransaction<S> {
-        StateHandlerOutcomeWithTransaction {
-            outcome: self,
-            transaction,
+    ) -> StateHandlerOutcome<S> {
+        debug_assert!(
+            self.take_transaction().is_none(),
+            "BUG: with_txn called on a StateHandlerOutcome that already has a transaction!"
+        );
+        match self {
+            Self::Wait {
+                reason,
+                source_ref,
+                txn: _,
+            } => Self::Wait {
+                reason,
+                source_ref,
+                txn: transaction,
+            },
+            Self::Transition {
+                next_state,
+                source_ref,
+                txn: _,
+            } => Self::Transition {
+                next_state,
+                source_ref,
+                txn: transaction,
+            },
+            Self::DoNothing { source_ref, txn: _ } => Self::DoNothing {
+                source_ref,
+                txn: transaction,
+            },
+            Self::Deleted {
+                _source_ref,
+                txn: _,
+            } => Self::Deleted {
+                _source_ref,
+                txn: transaction,
+            },
         }
     }
 
@@ -117,6 +147,7 @@ impl<S> StateHandlerOutcome<S> {
     pub fn do_nothing() -> Self {
         StateHandlerOutcome::DoNothing {
             source_ref: Location::caller(),
+            txn: None,
         }
     }
 
@@ -125,6 +156,7 @@ impl<S> StateHandlerOutcome<S> {
         StateHandlerOutcome::Transition {
             next_state,
             source_ref: Location::caller(),
+            txn: None,
         }
     }
 
@@ -133,6 +165,7 @@ impl<S> StateHandlerOutcome<S> {
         StateHandlerOutcome::Wait {
             reason,
             source_ref: Location::caller(),
+            txn: None,
         }
     }
 
@@ -140,7 +173,18 @@ impl<S> StateHandlerOutcome<S> {
     pub fn deleted() -> Self {
         StateHandlerOutcome::Deleted {
             _source_ref: Location::caller(),
+            txn: None,
         }
+    }
+
+    pub fn take_transaction(&mut self) -> Option<PgTransaction<'static>> {
+        match self {
+            StateHandlerOutcome::Wait { txn, .. } => txn,
+            StateHandlerOutcome::Transition { txn, .. } => txn,
+            StateHandlerOutcome::DoNothing { txn, .. } => txn,
+            StateHandlerOutcome::Deleted { txn, .. } => txn,
+        }
+        .take()
     }
 }
 
@@ -305,8 +349,12 @@ impl<
         _state: &mut Self::State,
         _controller_state: &Self::ControllerState,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcomeWithTransaction<Self::ControllerState>, StateHandlerError> {
-        Ok(StateHandlerOutcome::do_nothing().with_txn(None))
+    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
+        Ok(StateHandlerOutcome::do_nothing())
+    }
+
+    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
+        None
     }
 }
 
@@ -319,18 +367,18 @@ impl<S> FromStateHandlerResult<S> for PersistentStateHandlerOutcome {
         r: Result<&StateHandlerOutcome<S>, &StateHandlerError>,
     ) -> PersistentStateHandlerOutcome {
         match r {
-            Ok(StateHandlerOutcome::Wait { reason, source_ref }) => {
-                PersistentStateHandlerOutcome::Wait {
-                    reason: reason.clone(),
-                    source_ref: Some(source_ref.into()),
-                }
-            }
+            Ok(StateHandlerOutcome::Wait {
+                reason, source_ref, ..
+            }) => PersistentStateHandlerOutcome::Wait {
+                reason: reason.clone(),
+                source_ref: Some(source_ref.into()),
+            },
             Ok(StateHandlerOutcome::Transition { source_ref, .. }) => {
                 PersistentStateHandlerOutcome::Transition {
                     source_ref: Some(source_ref.into()),
                 }
             }
-            Ok(StateHandlerOutcome::DoNothing { source_ref }) => {
+            Ok(StateHandlerOutcome::DoNothing { source_ref, .. }) => {
                 PersistentStateHandlerOutcome::DoNothing {
                     source_ref: Some(source_ref.into()),
                 }
@@ -350,7 +398,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_transition_source_location() {
-        let StateHandlerOutcome::<String>::DoNothing { source_ref } =
+        let StateHandlerOutcome::<String>::DoNothing { source_ref, .. } =
             StateHandlerOutcome::do_nothing()
         else {
             unreachable!()
@@ -374,7 +422,8 @@ mod tests {
         assert_eq!(source_ref.line(), line!() - 4);
         assert_eq!(source_ref.file(), file!());
 
-        let StateHandlerOutcome::<String>::Deleted { _source_ref } = StateHandlerOutcome::deleted()
+        let StateHandlerOutcome::<String>::Deleted { _source_ref, .. } =
+            StateHandlerOutcome::deleted()
         else {
             unreachable!()
         };

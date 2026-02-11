@@ -18,10 +18,10 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use db::power_shelf as db_power_shelf;
 use model::power_shelf::{PowerShelf, PowerShelfControllerState};
 
+use crate::state_controller::machine::db_write_batch::DbWriteBatch;
 use crate::state_controller::power_shelf::context::PowerShelfStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
-    StateHandlerOutcomeWithTransaction,
 };
 
 /// The actual PowerShelf State handler
@@ -41,8 +41,7 @@ impl StateHandler for PowerShelfStateHandler {
         state: &mut PowerShelf,
         controller_state: &Self::ControllerState,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcomeWithTransaction<PowerShelfControllerState>, StateHandlerError>
-    {
+    ) -> Result<StateHandlerOutcome<PowerShelfControllerState>, StateHandlerError> {
         match controller_state {
             PowerShelfControllerState::Initializing => {
                 // TODO: Implement PowerShelf initialization logic
@@ -52,7 +51,7 @@ impl StateHandler for PowerShelfStateHandler {
                 // 3. Setting up the PowerShelf in the power management system
                 tracing::info!("Initializing PowerShelf");
                 let new_state = PowerShelfControllerState::FetchingData;
-                Ok(StateHandlerOutcome::transition(new_state).with_txn(None))
+                Ok(StateHandlerOutcome::transition(new_state))
             }
 
             PowerShelfControllerState::FetchingData => {
@@ -62,7 +61,7 @@ impl StateHandler for PowerShelfStateHandler {
                 // 1. Fetching data from the PowerShelf
                 // 2. Updating the PowerShelf status
                 let new_state = PowerShelfControllerState::Configuring;
-                Ok(StateHandlerOutcome::transition(new_state).with_txn(None))
+                Ok(StateHandlerOutcome::transition(new_state))
             }
 
             PowerShelfControllerState::Configuring => {
@@ -72,7 +71,7 @@ impl StateHandler for PowerShelfStateHandler {
                 // 1. Configuring the PowerShelf
                 // 2. Updating the PowerShelf status
                 let new_state = PowerShelfControllerState::Ready;
-                Ok(StateHandlerOutcome::transition(new_state).with_txn(None))
+                Ok(StateHandlerOutcome::transition(new_state))
             }
 
             PowerShelfControllerState::Deleting => {
@@ -86,16 +85,15 @@ impl StateHandler for PowerShelfStateHandler {
                 // For now, just delete the PowerShelf from the database
                 let mut txn = ctx.services.db_pool.begin().await?;
                 db_power_shelf::final_delete(*power_shelf_id, &mut txn).await?;
-                Ok(StateHandlerOutcome::deleted().with_txn(Some(txn)))
+                Ok(StateHandlerOutcome::deleted().with_txn(txn))
             }
 
             PowerShelfControllerState::Ready => {
                 tracing::info!("PowerShelf is ready");
                 if state.is_marked_as_deleted() {
-                    Ok(
-                        StateHandlerOutcome::transition(PowerShelfControllerState::Deleting)
-                            .with_txn(None),
-                    )
+                    Ok(StateHandlerOutcome::transition(
+                        PowerShelfControllerState::Deleting,
+                    ))
                 } else {
                     // TODO: Implement PowerShelf monitoring logic
                     // This would typically involve:
@@ -104,22 +102,25 @@ impl StateHandler for PowerShelfStateHandler {
                     // 3. Monitoring power consumption and efficiency
 
                     // For now, just do nothing
-                    Ok(StateHandlerOutcome::do_nothing().with_txn(None))
+                    Ok(StateHandlerOutcome::do_nothing())
                 }
             }
 
             PowerShelfControllerState::Error { .. } => {
                 tracing::info!("PowerShelf is in error state");
                 if state.is_marked_as_deleted() {
-                    Ok(
-                        StateHandlerOutcome::transition(PowerShelfControllerState::Deleting)
-                            .with_txn(None),
-                    )
+                    Ok(StateHandlerOutcome::transition(
+                        PowerShelfControllerState::Deleting,
+                    ))
                 } else {
                     // If PowerShelf is in error state, keep it there for manual intervention
-                    Ok(StateHandlerOutcome::do_nothing().with_txn(None))
+                    Ok(StateHandlerOutcome::do_nothing())
                 }
             }
         }
+    }
+
+    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
+        None
     }
 }

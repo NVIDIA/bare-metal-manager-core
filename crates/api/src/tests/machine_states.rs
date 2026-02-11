@@ -42,6 +42,7 @@ use rpc::forge::{HardwareHealthReport, TpmCaCert, TpmCaCertId};
 use rpc::forge_agent_control_response::Action;
 use tonic::Request;
 
+use crate::state_controller::machine::db_write_batch::DbWriteBatch;
 use crate::state_controller::machine::handler::{
     MachineStateHandlerBuilder, handler_host_power_control,
 };
@@ -1323,14 +1324,16 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
 
     let mut txn = env.db_txn().await;
     let snapshot = mh.snapshot(&mut txn).await;
+    let write_batch = DbWriteBatch::new();
     handler_host_power_control(
         &snapshot,
         &env.state_handler_services(),
         libredfish::SystemPowerControl::ForceOff,
-        &mut txn,
+        &write_batch,
     )
     .await
     .unwrap();
+    write_batch.apply_all(&mut txn).await.unwrap();
     txn.commit().await.unwrap();
 
     let mut txn = env.db_txn().await;
@@ -1352,14 +1355,16 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     }
 
     let mut txn = env.db_txn().await;
+    let write_batch = DbWriteBatch::new();
     handler_host_power_control(
         &snapshot,
         &env.state_handler_services(),
         libredfish::SystemPowerControl::On,
-        &mut txn,
+        &write_batch,
     )
     .await
     .unwrap();
+    write_batch.apply_all(&mut txn).await.unwrap();
     txn.commit().await.unwrap();
 
     let mut txn = env.db_txn().await;
@@ -1380,14 +1385,16 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     }
 
     let mut txn = env.db_txn().await;
+    let write_batch = DbWriteBatch::new();
     handler_host_power_control(
         &snapshot,
         &env.state_handler_services(),
         libredfish::SystemPowerControl::ForceRestart,
-        &mut txn,
+        &write_batch,
     )
     .await
     .unwrap();
+    write_batch.apply_all(&mut txn).await.unwrap();
     txn.commit().await.unwrap();
 
     let mut txn = env.db_txn().await;

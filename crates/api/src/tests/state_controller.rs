@@ -32,13 +32,14 @@ use sqlx::{FromRow, PgConnection, Row};
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::controller::{self, Enqueuer, QueuedObject, StateController};
 use crate::state_controller::io::StateControllerIO;
+use crate::state_controller::machine::db_write_batch::DbWriteBatch;
 use crate::state_controller::metrics::NoopMetricsEmitter;
 use crate::state_controller::state_change_emitter::{
     StateChangeEmitterBuilder, StateChangeEvent, StateChangeHook,
 };
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerContextObjects, StateHandlerError,
-    StateHandlerOutcome, StateHandlerOutcomeWithTransaction,
+    StateHandlerOutcome,
 };
 use crate::tests::common::test_meter::TestMeter;
 
@@ -633,7 +634,7 @@ impl StateHandler for TestConcurrencyStateHandler {
         state: &mut TestObject,
         _controller_state: &Self::ControllerState,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcomeWithTransaction<Self::ControllerState>, StateHandlerError> {
+    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
         assert_eq!(state.id, *object_id);
         self.count.fetch_add(1, Ordering::SeqCst);
         {
@@ -641,7 +642,11 @@ impl StateHandler for TestConcurrencyStateHandler {
             *guard.entry(object_id.to_string()).or_default() += 1;
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        Ok(StateHandlerOutcome::do_nothing().with_txn(None))
+        Ok(StateHandlerOutcome::do_nothing())
+    }
+
+    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
+        None
     }
 }
 
@@ -732,16 +737,20 @@ impl StateHandler for TestTransitionStateHandler {
         _state: &mut TestObject,
         controller_state: &Self::ControllerState,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcomeWithTransaction<Self::ControllerState>, StateHandlerError> {
+    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
         match controller_state {
-            TestObjectControllerState::A => {
-                Ok(StateHandlerOutcome::transition(TestObjectControllerState::B).with_txn(None))
-            }
-            TestObjectControllerState::B => {
-                Ok(StateHandlerOutcome::transition(TestObjectControllerState::C).with_txn(None))
-            }
-            TestObjectControllerState::C => Ok(StateHandlerOutcome::do_nothing().with_txn(None)),
+            TestObjectControllerState::A => Ok(StateHandlerOutcome::transition(
+                TestObjectControllerState::B,
+            )),
+            TestObjectControllerState::B => Ok(StateHandlerOutcome::transition(
+                TestObjectControllerState::C,
+            )),
+            TestObjectControllerState::C => Ok(StateHandlerOutcome::do_nothing()),
         }
+    }
+
+    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
+        None
     }
 }
 

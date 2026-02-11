@@ -107,7 +107,7 @@ pub async fn delete(txn: &mut PgConnection, instance_id: InstanceId) -> Result<(
 
 pub async fn delete_addresses(
     txn: &mut PgConnection,
-    addresses: &[&IpAddr],
+    addresses: &[IpAddr],
 ) -> Result<(), DatabaseError> {
     // Lock MUST be taken by calling function.
     let query = "DELETE FROM instance_addresses WHERE address=ANY($1)";

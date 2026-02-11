@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 use chrono::Utc;
 use health_report::HealthReport;
 use model::machine::{
@@ -21,10 +22,11 @@ use model::machine::{
     ManagedHostStateSnapshot, ValidationState,
 };
 use model::sku::diff_skus;
-use sqlx::PgConnection;
+use sqlx::{PgConnection, PgTransaction};
 
 use super::{HostHandlerParams, discovered_after_state_transition};
 use crate::state_controller::common_services::CommonStateHandlerServices;
+use crate::state_controller::machine::db_write_batch::DbWriteBatch;
 use crate::state_controller::machine::handler::trigger_reboot_if_needed;
 use crate::state_controller::state_handler::{StateHandlerError, StateHandlerOutcome};
 
@@ -201,10 +203,11 @@ fn should_allow_allocation_on_validation_failure(host_handler_params: &HostHandl
 }
 
 pub(crate) async fn handle_bom_validation_requested(
-    txn: &mut PgConnection,
     host_handler_params: &HostHandlerParams,
     mh_snapshot: &ManagedHostStateSnapshot,
+    services: &CommonStateHandlerServices,
 ) -> Result<Option<StateHandlerOutcome<ManagedHostState>>, StateHandlerError> {
+    let mut txn = services.db_pool.begin().await?;
     if !host_handler_params.bom_validation.enabled {
         tracing::debug!("BOM validation disabled");
         return Ok(None);
@@ -213,7 +216,8 @@ pub(crate) async fn handle_bom_validation_requested(
     // Case 1: Machine has no SKU assigned
     if mh_snapshot.host_snapshot.hw_sku.is_none() {
         // Always try to find a matching SKU for machine regardless of configs
-        if let Some(sku) = match_sku_for_machine(txn, host_handler_params, mh_snapshot).await? {
+        if let Some(sku) = match_sku_for_machine(&mut txn, host_handler_params, mh_snapshot).await?
+        {
             // Case 1.1: Found a matching SKU
             tracing::info!(
                 machine_id=%mh_snapshot.host_snapshot.id,
@@ -275,7 +279,7 @@ pub(crate) async fn handle_bom_validation_requested(
     }
 
     // Case 2.2: Check if the assigned SKU got deleted from the database
-    if db::sku::find(txn, std::slice::from_ref(sku_id))
+    if db::sku::find(&mut txn, std::slice::from_ref(sku_id))
         .await?
         .is_empty()
     {
@@ -299,7 +303,7 @@ pub(crate) async fn handle_bom_validation_requested(
 }
 
 async fn advance_to_sku_missing(
-    txn: &mut PgConnection,
+    mut txn: PgTransaction<'static>,
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let bom_validation_context =
@@ -313,38 +317,40 @@ async fn advance_to_sku_missing(
     );
 
     db::machine::update_sku_validation_health_report(
-        txn,
+        &mut txn,
         &mh_snapshot.host_snapshot.id,
         &health_report,
     )
     .await?;
 
-    Ok(StateHandlerOutcome::transition(
-        ManagedHostState::BomValidating {
+    Ok(
+        StateHandlerOutcome::transition(ManagedHostState::BomValidating {
             bom_validating_state: BomValidating::SkuMissing(bom_validation_context),
-        },
-    ))
+        })
+        .with_txn(txn),
+    )
 }
 
 async fn advance_to_updating_inventory(
-    txn: &mut PgConnection,
+    mut txn: PgTransaction<'static>,
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let bom_validation_context =
         get_bom_validation_context(mh_snapshot.host_snapshot.current_state());
 
-    db::machine_topology::set_topology_update_needed(txn, &mh_snapshot.host_snapshot.id, true)
+    db::machine_topology::set_topology_update_needed(&mut txn, &mh_snapshot.host_snapshot.id, true)
         .await?;
 
-    Ok(StateHandlerOutcome::transition(
-        ManagedHostState::BomValidating {
+    Ok(
+        StateHandlerOutcome::transition(ManagedHostState::BomValidating {
             bom_validating_state: BomValidating::UpdatingInventory(bom_validation_context),
-        },
-    ))
+        })
+        .with_txn(txn),
+    )
 }
 
 async fn advance_to_waiting_for_sku_assignment(
-    txn: &mut PgConnection,
+    txn: PgTransaction<'static>,
     mh_snapshot: &ManagedHostStateSnapshot,
     host_handler_params: &HostHandlerParams,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
@@ -362,18 +368,19 @@ async fn advance_to_waiting_for_sku_assignment(
         let bom_validation_context =
             get_bom_validation_context(mh_snapshot.host_snapshot.current_state());
 
-        Ok(StateHandlerOutcome::transition(
-            ManagedHostState::BomValidating {
+        Ok(
+            StateHandlerOutcome::transition(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
                     bom_validation_context,
                 ),
-            },
-        ))
+            })
+            .with_txn(txn),
+        )
     }
 }
 
 async fn advance_to_machine_validating(
-    txn: &mut PgConnection,
+    mut txn: PgTransaction<'static>,
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     // transitioning to machine validating with a None context is a bug.
@@ -381,34 +388,34 @@ async fn advance_to_machine_validating(
 
     let Some(context) = context.machine_validation_context else {
         tracing::info!("SKU verification complete; Skipping machine validation");
-        return Ok(StateHandlerOutcome::transition(
-            ManagedHostState::HostInit {
-                machine_state: MachineState::Discovered {
-                    skip_reboot_wait: true,
-                },
+        return Ok(StateHandlerOutcome::transition(ManagedHostState::HostInit {
+            machine_state: MachineState::Discovered {
+                skip_reboot_wait: true,
             },
-        ));
+        })
+        .with_txn(txn));
     };
     let validation_id = db::machine_validation::create_new_run(
-        txn,
+        &mut txn,
         &mh_snapshot.host_snapshot.id,
         context.clone(),
         model::machine::MachineValidationFilter::default(),
     )
     .await?;
-    Ok(StateHandlerOutcome::transition(
-        ManagedHostState::Validation {
+    Ok(
+        StateHandlerOutcome::transition(ManagedHostState::Validation {
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::RebootHost { validation_id },
             },
-        },
-    ))
+        })
+        .with_txn(txn),
+    )
 }
 
 /// Skip BOM validation and proceed to machine validation (or Ready if machine validation is disabled)
 /// Used when BOM validation is disabled or when allow_allocation_on_validation_failure is enabled
 async fn skip_bom_validation_and_advance(
-    txn: &mut PgConnection,
+    txn: PgTransaction<'static>,
     host_handler_params: &HostHandlerParams,
     mh_snapshot: &ManagedHostStateSnapshot,
     reason: &str,
@@ -425,13 +432,14 @@ async fn skip_bom_validation_and_advance(
 }
 
 pub(crate) async fn handle_bom_validation_state(
-    txn: &mut PgConnection,
+    pending_db_writes: &DbWriteBatch,
     host_handler_params: &HostHandlerParams,
     services: &CommonStateHandlerServices,
     mh_snapshot: &mut ManagedHostStateSnapshot,
     bom_validating_state: &BomValidating,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let outcome = if !host_handler_params.bom_validation.enabled {
+        let txn = services.db_pool.begin().await?;
         skip_bom_validation_and_advance(
             txn,
             host_handler_params,
@@ -443,10 +451,11 @@ pub(crate) async fn handle_bom_validation_state(
         match bom_validating_state {
             BomValidating::MatchingSku(bom_validating_context) => {
                 if mh_snapshot.host_snapshot.hw_sku.is_none() {
+                    let mut txn = services.db_pool.begin().await?;
                     if let Some(sku) =
-                        match_sku_for_machine(txn, host_handler_params, mh_snapshot).await?
+                        match_sku_for_machine(&mut txn, host_handler_params, mh_snapshot).await?
                     {
-                        db::machine::assign_sku(txn, &mh_snapshot.host_snapshot.id, &sku.id)
+                        db::machine::assign_sku(&mut txn, &mh_snapshot.host_snapshot.id, &sku.id)
                             .await?;
                         // finding a match uses the same check as verifying the sku, so consider it verified.
                         advance_to_machine_validating(txn, mh_snapshot).await
@@ -475,7 +484,7 @@ pub(crate) async fn handle_bom_validation_state(
                         bom_validating_context.reboot_retry_count,
                         &host_handler_params.reachability_params,
                         services,
-                        txn,
+                        pending_db_writes,
                     )
                     .await
                     {
@@ -537,7 +546,9 @@ pub(crate) async fn handle_bom_validation_state(
                     ));
                 };
 
-                let Some(expected_sku) = db::sku::find(txn, std::slice::from_ref(&sku_id))
+                let mut txn = services.db_pool.begin().await?;
+
+                let Some(expected_sku) = db::sku::find(&mut txn, std::slice::from_ref(&sku_id))
                     .await?
                     .pop()
                 else {
@@ -545,7 +556,7 @@ pub(crate) async fn handle_bom_validation_state(
                 };
 
                 let actual_sku = db::sku::generate_sku_from_machine_at_version(
-                    &mut *txn,
+                    txn.as_mut(),
                     &mh_snapshot.host_snapshot.id,
                     expected_sku.schema_version,
                 )
@@ -560,7 +571,7 @@ pub(crate) async fn handle_bom_validation_state(
                     let health_report = HealthReport::sku_validation_success();
 
                     db::machine::update_sku_validation_health_report(
-                        txn,
+                        &mut txn,
                         &mh_snapshot.host_snapshot.id,
                         &health_report,
                     )
@@ -577,31 +588,34 @@ pub(crate) async fn handle_bom_validation_state(
                 } else {
                     let health_report = HealthReport::sku_mismatch(diffs);
                     db::machine::update_sku_validation_health_report(
-                        txn,
+                        &mut txn,
                         &mh_snapshot.host_snapshot.id,
                         &health_report,
                     )
                     .await?;
 
-                    Ok(StateHandlerOutcome::transition(
-                        ManagedHostState::BomValidating {
+                    Ok(
+                        StateHandlerOutcome::transition(ManagedHostState::BomValidating {
                             bom_validating_state: BomValidating::SkuVerificationFailed(
                                 bom_validating_context.clone(),
                             ),
-                        },
-                    ))
+                        })
+                        .with_txn(txn),
+                    )
                 }
             }
             BomValidating::SkuVerificationFailed(bom_validating_context) => {
                 // If SKU was unassigned, transition to waiting for SKU assignment
+                let txn = services.db_pool.begin().await?;
                 if mh_snapshot.host_snapshot.hw_sku.is_none() {
-                    Ok(StateHandlerOutcome::transition(
-                        ManagedHostState::BomValidating {
+                    Ok(
+                        StateHandlerOutcome::transition(ManagedHostState::BomValidating {
                             bom_validating_state: BomValidating::WaitingForSkuAssignment(
                                 bom_validating_context.clone(),
                             ),
-                        },
-                    ))
+                        })
+                        .with_txn(txn),
+                    )
                 } else if mh_snapshot
                     .host_snapshot
                     .hw_sku_status
@@ -624,13 +638,14 @@ pub(crate) async fn handle_bom_validation_state(
                     advance_to_machine_validating(txn, mh_snapshot).await
                 } else {
                     // Stay in failed state, waiting for manual intervention
-                    Ok(StateHandlerOutcome::do_nothing())
+                    Ok(StateHandlerOutcome::do_nothing().with_txn(txn))
                 }
             }
             BomValidating::WaitingForSkuAssignment(_) => {
                 // Check if SKU was assigned or a matching SKU was found
+                let mut txn = services.db_pool.begin().await?;
                 if mh_snapshot.host_snapshot.hw_sku.is_some()
-                    || match_sku_for_machine(txn, host_handler_params, mh_snapshot)
+                    || match_sku_for_machine(&mut txn, host_handler_params, mh_snapshot)
                         .await?
                         .is_some()
                 {
@@ -646,18 +661,23 @@ pub(crate) async fn handle_bom_validation_state(
                     .await
                 } else {
                     // Stay in waiting state until SKU is assigned
-                    Ok(StateHandlerOutcome::do_nothing())
+                    Ok(StateHandlerOutcome::do_nothing().with_txn(txn))
                 }
             }
             BomValidating::SkuMissing(_) => {
-                let outcome = if let Some(sku_id) = mh_snapshot.host_snapshot.hw_sku.clone() {
+                let mut txn = services.db_pool.begin().await?;
+                let mut outcome = if let Some(sku_id) = mh_snapshot.host_snapshot.hw_sku.clone() {
                     // SKU is still assigned, check if it now exists or can be auto-generated
-                    if db::sku::find(txn, std::slice::from_ref(&sku_id))
+                    if db::sku::find(&mut txn, std::slice::from_ref(&sku_id))
                         .await?
                         .pop()
                         .is_some()
-                        || generate_missing_sku_for_machine(txn, host_handler_params, mh_snapshot)
-                            .await
+                        || generate_missing_sku_for_machine(
+                            &mut txn,
+                            host_handler_params,
+                            mh_snapshot,
+                        )
+                        .await
                     {
                         advance_to_updating_inventory(txn, mh_snapshot).await
                     } else if should_allow_allocation_on_validation_failure(host_handler_params) {
@@ -672,7 +692,8 @@ pub(crate) async fn handle_bom_validation_state(
                         Ok(StateHandlerOutcome::wait(
                             "Assigned SKU does not exist. Create the SKU or assign a different one"
                                 .to_string(),
-                        ))
+                        )
+                        .with_txn(txn))
                     }
                 } else {
                     // SKU was unassigned, transition to waiting for SKU assignment
@@ -682,13 +703,12 @@ pub(crate) async fn handle_bom_validation_state(
 
                 // Clear health report for internal transitions within BomValidating
                 // External transitions are handled by the generic cleanup below
-                if matches!(
-                    outcome,
-                    Ok(StateHandlerOutcome::Transition {
-                        next_state: ManagedHostState::BomValidating { .. },
-                        ..
-                    })
-                ) {
+                if let Ok(StateHandlerOutcome::Transition {
+                    next_state: ManagedHostState::BomValidating { .. },
+                    txn: Some(txn),
+                    ..
+                }) = &mut outcome
+                {
                     clear_sku_validation_report(txn, mh_snapshot).await?;
                 }
                 outcome
@@ -696,12 +716,23 @@ pub(crate) async fn handle_bom_validation_state(
         }
     };
 
-    // if leaving BOM validation states, clear any health reports
-    if let Ok(StateHandlerOutcome::Transition { next_state, .. }) = &outcome
-        && !matches!(next_state, ManagedHostState::BomValidating { .. })
-    {
-        clear_sku_validation_report(txn, mh_snapshot).await?;
-    }
+    match outcome {
+        Ok(mut outcome) => {
+            let mut txn = if let Some(txn) = outcome.take_transaction() {
+                txn
+            } else {
+                services.db_pool.begin().await?
+            };
 
-    outcome
+            // if leaving BOM validation states, clear any health reports
+            if let StateHandlerOutcome::Transition { next_state, .. } = &outcome
+                && !matches!(next_state, ManagedHostState::BomValidating { .. })
+            {
+                clear_sku_validation_report(&mut txn, mh_snapshot).await?;
+            }
+
+            Ok(outcome.with_txn(txn))
+        }
+        Err(e) => Err(e),
+    }
 }

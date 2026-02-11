@@ -21,9 +21,9 @@ use model::machine::{
     ManagedHostStateSnapshot, PerformPowerOperation, ReprovisionState, ReprovisioningPhase,
     WaitForNetworkConfigAndRemoveAnnotationResult,
 };
-use sqlx::PgConnection;
 
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
+use crate::state_controller::machine::db_write_batch::DbWriteBatch;
 use crate::state_controller::machine::handler::helpers::{ManagedHostStateHelper, NextState};
 use crate::state_controller::machine::handler::{
     DpfConfig, DpuInitStateHelper, ReachabilityParams, all_equal,
@@ -53,12 +53,11 @@ fn bmc_ip(machine: &Machine) -> Result<&str, StateHandlerError> {
 ///
 /// # Returns
 /// * `Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError>` with the outcome of the transition.
-#[allow(txn_held_across_await)]
 pub async fn handle_dpf_state(
     state: &ManagedHostStateSnapshot,
     dpu_snapshot: &Machine,
     dpf_state: &DpfState,
-    txn: &mut PgConnection,
+    pending_db_writes: &DbWriteBatch,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     dpf_config: &DpfConfig,
     reachability_params: &ReachabilityParams,
@@ -94,7 +93,7 @@ pub async fn handle_dpf_state(
                 state,
                 dpu_snapshot,
                 false,
-                txn,
+                pending_db_writes,
                 ctx,
                 reachability_params,
                 &DpuInitNextStateResolver {},
@@ -106,7 +105,7 @@ pub async fn handle_dpf_state(
             handle_wait_for_discovery_and_remove_annotation_state(
                 state,
                 dpu_snapshot,
-                txn,
+                pending_db_writes,
                 ctx,
                 reachability_params,
                 dpf_config,
@@ -133,13 +132,12 @@ pub async fn handle_dpf_state(
 ///
 /// # Returns
 /// * `Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError>` with the outcome of the transition.
-#[allow(txn_held_across_await)]
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_dpf_state_with_reprovision(
     state: &ManagedHostStateSnapshot,
     dpu_snapshot: &Machine,
     dpf_state: &DpfState,
-    txn: &mut PgConnection,
+    pending_db_writes: &DbWriteBatch,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     dpf_config: &DpfConfig,
     reachability_params: &ReachabilityParams,
@@ -191,7 +189,7 @@ pub async fn handle_dpf_state_with_reprovision(
                 state,
                 dpu_snapshot,
                 true,
-                txn,
+                pending_db_writes,
                 ctx,
                 reachability_params,
                 state_resolver,
@@ -203,7 +201,7 @@ pub async fn handle_dpf_state_with_reprovision(
             handle_wait_for_discovery_and_remove_annotation_state_with_reprovision(
                 state,
                 dpu_snapshot,
-                txn,
+                pending_db_writes,
                 ctx,
                 reachability_params,
                 dpf_config,
@@ -356,11 +354,10 @@ fn handle_waiting_for_all_dpus_to_be_deleted_state(
 ///
 /// # Returns
 /// * `Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError>` outcome for the handler.
-#[allow(txn_held_across_await)]
 async fn handle_wait_for_discovery_and_remove_annotation_state(
     state: &ManagedHostStateSnapshot,
     dpu_snapshot: &Machine,
-    txn: &mut PgConnection,
+    pending_db_writes: &DbWriteBatch,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     reachability_params: &ReachabilityParams,
     dpf_config: &DpfConfig,
@@ -369,7 +366,7 @@ async fn handle_wait_for_discovery_and_remove_annotation_state(
         handle_wait_for_network_config_and_remove_annotation(
             state,
             dpu_snapshot,
-            txn,
+            pending_db_writes,
             ctx,
             reachability_params,
             dpf_config,
@@ -401,11 +398,10 @@ async fn handle_wait_for_discovery_and_remove_annotation_state(
 ///
 /// # Returns
 /// * `Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError>`
-#[allow(txn_held_across_await)]
 async fn handle_wait_for_discovery_and_remove_annotation_state_with_reprovision(
     state: &ManagedHostStateSnapshot,
     dpu_snapshot: &Machine,
-    txn: &mut PgConnection,
+    pending_db_writes: &DbWriteBatch,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     reachability_params: &ReachabilityParams,
     dpf_config: &DpfConfig,
@@ -415,7 +411,7 @@ async fn handle_wait_for_discovery_and_remove_annotation_state_with_reprovision(
         handle_wait_for_network_config_and_remove_annotation(
             state,
             dpu_snapshot,
-            txn,
+            pending_db_writes,
             ctx,
             reachability_params,
             dpf_config,
@@ -450,11 +446,10 @@ async fn handle_wait_for_discovery_and_remove_annotation_state_with_reprovision(
 ///
 /// # Returns
 /// * `Result<(), StateHandlerError>`
-#[allow(txn_held_across_await)]
 async fn handle_wait_for_network_config_and_remove_annotation(
     state: &ManagedHostStateSnapshot,
     dpu_snapshot: &Machine,
-    txn: &mut PgConnection,
+    pending_db_writes: &DbWriteBatch,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     reachability_params: &ReachabilityParams,
     dpf_config: &DpfConfig,
@@ -470,7 +465,7 @@ async fn handle_wait_for_network_config_and_remove_annotation(
                     None,
                     reachability_params,
                     ctx.services,
-                    txn,
+                    pending_db_writes,
                 )
                 .await?;
             }
@@ -501,12 +496,11 @@ async fn handle_wait_for_network_config_and_remove_annotation(
 ///
 /// # Returns
 /// * `Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError>`
-#[allow(txn_held_across_await)]
 async fn handle_wait_for_os_install_and_discovery(
     state: &ManagedHostStateSnapshot,
     dpu_snapshot: &Machine,
     reprovision_case: bool,
-    txn: &mut PgConnection,
+    pending_db_writes: &DbWriteBatch,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     reachability_params: &ReachabilityParams,
     next_state_resolver: &impl NextState,
@@ -532,7 +526,7 @@ async fn handle_wait_for_os_install_and_discovery(
             None,
             reachability_params,
             ctx.services,
-            txn,
+            pending_db_writes,
         )
         .await?;
 
@@ -542,7 +536,7 @@ async fn handle_wait_for_os_install_and_discovery(
         )));
     }
 
-    handler_restart_dpu(dpu_snapshot, ctx.services, txn).await?;
+    handler_restart_dpu(dpu_snapshot, ctx.services, pending_db_writes).await?;
     Ok(StateHandlerOutcome::transition(next_state))
 }
 

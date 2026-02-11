@@ -53,6 +53,7 @@ use crate::instance::{
     validate_ib_partition_ownership,
 };
 use crate::redfish::RedfishAuth;
+use crate::state_controller::machine::db_write_batch::DbWriteBatch;
 use crate::{CarbideError, CarbideResult};
 
 /// Represents the repair status label value set by RepairSystem
@@ -1482,7 +1483,7 @@ pub async fn force_delete_instance(
             .new_config
             .interfaces
             .iter()
-            .flat_map(|x| x.ip_addrs.values().collect_vec())
+            .flat_map(|x| x.ip_addrs.values().copied().collect_vec())
             .collect_vec();
 
         addresses.extend(
@@ -1544,13 +1545,16 @@ pub async fn force_delete_instance(
         id: instance.machine_id.to_string(),
     })?;
 
+    let write_batch = DbWriteBatch::new();
     crate::state_controller::machine::handler::release_vpc_dpu_loopback(
         &snapshot,
         &Some(api.common_pools.clone()),
-        &mut txn,
-    )
-    .await
-    .map_err(|e| CarbideError::internal(e.to_string()))?;
+        &write_batch,
+    );
+    write_batch
+        .apply_all(&mut txn)
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     txn.commit().await?;
 

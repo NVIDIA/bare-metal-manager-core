@@ -51,7 +51,6 @@ impl MachineUpdateModule for HostFirmwareUpdate {
         Ok(current_updating_machines.iter().map(|m| m.id).collect())
     }
 
-    #[allow(txn_held_across_await)]
     async fn start_updates(
         &self,
         txn: &mut PgConnection,
@@ -59,22 +58,21 @@ impl MachineUpdateModule for HostFirmwareUpdate {
         updating_host_machines: &HashSet<MachineId>,
         _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     ) -> CarbideResult<HashSet<MachineId>> {
-        let mut firmware_dir_last_read = self.firmware_dir_last_read.lock().await;
-        let firmware_dir_mod_time = self.firmware_config.config_update_time();
-        if (firmware_dir_mod_time.is_none() && firmware_dir_last_read.is_none()) // Not using an auto firmware directory, one and done
-            || (firmware_dir_mod_time.is_some_and(|firmware_dir_mod_time| {
+        if let Ok(mut firmware_dir_last_read) = self.firmware_dir_last_read.try_lock() {
+            let firmware_dir_mod_time = self.firmware_config.config_update_time();
+            if (firmware_dir_mod_time.is_none() && firmware_dir_last_read.is_none()) // Not using an auto firmware directory, one and done
+                || (firmware_dir_mod_time.is_some_and(|firmware_dir_mod_time| {
                 firmware_dir_last_read.unwrap_or(std::time::SystemTime::UNIX_EPOCH)
                     < firmware_dir_mod_time // Using an auto firmware directory, and a new file has been created or this is the first run
-            }))
-        {
-            // Save the firmware config in an SQL table so that we can filter for hosts with non-matching firmware there.
-            tracing::info!("Firmware config now: {:?}", self.firmware_config.map());
-            let models = self.firmware_config.map().into_values().collect::<Vec<_>>();
-            desired_firmware::snapshot_desired_firmware(txn, &models).await?;
-            *firmware_dir_last_read =
-                Some(firmware_dir_mod_time.unwrap_or(std::time::SystemTime::now()));
+            })) {
+                // Save the firmware config in an SQL table so that we can filter for hosts with non-matching firmware there.
+                tracing::info!("Firmware config now: {:?}", self.firmware_config.map());
+                let models = self.firmware_config.map().into_values().collect::<Vec<_>>();
+                desired_firmware::snapshot_desired_firmware(txn, &models).await?;
+                *firmware_dir_last_read =
+                    Some(firmware_dir_mod_time.unwrap_or(std::time::SystemTime::now()));
+            }
         }
-        drop(firmware_dir_last_read);
 
         let machine_updates = self.check_for_updates(txn, available_updates).await?;
         let mut updates_started = HashSet::default();

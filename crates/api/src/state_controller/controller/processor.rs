@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -38,7 +37,7 @@ use crate::state_controller::metrics::{
 use crate::state_controller::state_change_emitter::{StateChangeEmitter, StateChangeEvent};
 use crate::state_controller::state_handler::{
     FromStateHandlerResult, StateHandler, StateHandlerContext, StateHandlerContextObjects,
-    StateHandlerError, StateHandlerOutcome, StateHandlerOutcomeWithTransaction,
+    StateHandlerError, StateHandlerOutcome,
 };
 
 /// The `StateProcessor` is responsible for executing the state handler functions
@@ -687,14 +686,27 @@ async fn process_object<IO: StateControllerIO>(
         // handler was successful and gave us back a transaction, use that,
         // otherwise make our own.
         let (handler_outcome, mut txn) = match handler_output {
-            Ok(StateHandlerOutcomeWithTransaction {
-                outcome,
-                transaction,
-            }) => {
-                if let Some(txn) = transaction {
-                    (Ok(outcome), txn)
+            Ok(mut outcome) => {
+                let maybe_txn = outcome.take_transaction();
+                if let Some(pending_writes) = handler.take_pending_writes().await {
+                    let mut txn = if let Some(txn) = maybe_txn {
+                        txn
+                    } else {
+                        pool.begin().await?
+                    };
+                    if let Err(e) = pending_writes.apply_all(&mut txn).await {
+                        // If there's an error running the writes, count that as the handler outcome
+                        (Err(e), txn)
+                    } else {
+                        (Ok(outcome), txn)
+                    }
                 } else {
-                    (Ok(outcome), pool.begin().await?)
+                    let txn = if let Some(txn) = maybe_txn {
+                        txn
+                    } else {
+                        pool.begin().await?
+                    };
+                    (Ok(outcome), txn)
                 }
             }
             Err(e) => (Err(e), pool.begin().await?),

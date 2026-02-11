@@ -31,7 +31,6 @@ use crate::state_controller::power_shelf::context::PowerShelfStateHandlerContext
 use crate::state_controller::power_shelf::io::PowerShelfStateControllerIO;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
-    StateHandlerOutcomeWithTransaction,
 };
 use crate::tests::common;
 use crate::tests::common::api_fixtures::create_test_env;
@@ -40,6 +39,7 @@ mod fixtures;
 use fixtures::power_shelf::{mark_power_shelf_as_deleted, set_power_shelf_controller_state};
 
 use crate::state_controller::common_services::CommonStateHandlerServices;
+use crate::state_controller::machine::db_write_batch::DbWriteBatch;
 
 #[derive(Debug, Default, Clone)]
 pub struct TestPowerShelfStateHandler {
@@ -62,7 +62,7 @@ impl StateHandler for TestPowerShelfStateHandler {
         state: &mut PowerShelf,
         _controller_state: &Self::ControllerState,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcomeWithTransaction<Self::ControllerState>, StateHandlerError> {
+    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
         assert_eq!(state.id, *power_shelf_id);
         self.count.fetch_add(1, Ordering::SeqCst);
         {
@@ -70,7 +70,11 @@ impl StateHandler for TestPowerShelfStateHandler {
             *guard.entry(power_shelf_id.to_string()).or_default() += 1;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
-        Ok(StateHandlerOutcome::do_nothing().with_txn(None))
+        Ok(StateHandlerOutcome::do_nothing())
+    }
+
+    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
+        None
     }
 }
 

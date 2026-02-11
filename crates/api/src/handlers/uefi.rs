@@ -14,8 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 use ::rpc::forge as rpc;
+use db::WithTransaction;
+use futures_util::FutureExt;
 use model::machine::LoadSnapshotOptions;
 use tonic::{Request, Response, Status};
 
@@ -23,7 +24,6 @@ use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
 
-#[allow(txn_held_across_await)]
 pub(crate) async fn clear_host_uefi_password(
     api: &Api,
     request: Request<rpc::ClearHostUefiPasswordRequest>,
@@ -79,9 +79,12 @@ pub(crate) async fn clear_host_uefi_password(
         id: machine_id.to_string(),
     })?;
 
+    // Don't hold the transaction across an await point
+    txn.commit().await?;
+
     let redfish_client = api
         .redfish_pool
-        .create_client_from_machine(&snapshot.host_snapshot, &mut txn)
+        .create_client_from_machine(&snapshot.host_snapshot, &api.database_connection)
         .await
         .map_err(|e| {
             tracing::error!("unable to create redfish client: {}", e);
@@ -94,12 +97,9 @@ pub(crate) async fn clear_host_uefi_password(
         crate::redfish::clear_host_uefi_password(redfish_client.as_ref(), api.redfish_pool.clone())
             .await?;
 
-    txn.commit().await?;
-
     Ok(Response::new(rpc::ClearHostUefiPasswordResponse { job_id }))
 }
 
-#[allow(txn_held_across_await)]
 pub(crate) async fn set_host_uefi_password(
     api: &Api,
     request: Request<rpc::SetHostUefiPasswordRequest>,
@@ -154,30 +154,31 @@ pub(crate) async fn set_host_uefi_password(
         kind: "machine",
         id: machine_id.to_string(),
     })?;
+    // Let txn drop so we don't hold it across a redfish request
+    txn.commit().await?;
 
     let redfish_client = api
         .redfish_pool
-        .create_client_from_machine(&snapshot.host_snapshot, &mut txn)
+        .create_client_from_machine(&snapshot.host_snapshot, &api.database_connection)
         .await
         .map_err(|e| {
             tracing::error!("unable to create redfish client: {}", e);
-            Status::internal(format!(
-                "Could not create connection to Redfish API to {machine_id}, check logs"
-            ))
+            CarbideError::RedfishClientCreation {
+                inner: e.into(),
+                machine_id,
+            }
         })?;
 
     let job_id =
         crate::redfish::set_host_uefi_password(redfish_client.as_ref(), api.redfish_pool.clone())
             .await?;
 
-    db::machine::update_bios_password_set_time(&machine_id, &mut txn)
-        .await
+    api.with_txn(|txn| db::machine::update_bios_password_set_time(&machine_id, txn).boxed())
+        .await?
         .map_err(|e| {
             tracing::error!("Failed to update bios_password_set_time: {}", e);
             Status::internal(format!("Failed to update BIOS password timestamp: {e}"))
         })?;
-
-    txn.commit().await?;
 
     Ok(Response::new(rpc::SetHostUefiPasswordResponse { job_id }))
 }

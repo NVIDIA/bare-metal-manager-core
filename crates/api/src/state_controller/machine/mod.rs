@@ -31,6 +31,7 @@ use model::machine::{
 use super::state_handler::StateHandlerError;
 
 pub mod context;
+pub mod db_write_batch;
 pub mod handler;
 pub mod io;
 pub mod metrics;

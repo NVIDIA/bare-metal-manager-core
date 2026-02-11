@@ -25,6 +25,7 @@ use model::power_manager::{
 };
 
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
+use crate::state_controller::machine::db_write_batch::DbWriteBatch;
 use crate::state_controller::machine::handler::{
     PowerOptionConfig, handler_host_power_control, host_power_state,
 };
@@ -33,21 +34,26 @@ use crate::state_controller::state_handler::{StateHandlerContext, StateHandlerEr
 // Handle power related stuff and return updated power options.
 pub async fn handle_power(
     mh_snapshot: &ManagedHostStateSnapshot,
-    txn: &mut sqlx::PgConnection,
+    pending_db_writes: &DbWriteBatch,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     power_options_config: &PowerOptionConfig,
 ) -> Result<PowerHandlingOutcome, StateHandlerError> {
     if let Some(power_options) = &mh_snapshot.host_snapshot.power_options {
         match power_options.desired_power_state {
             model::power_manager::PowerState::On => {
-                handle_power_desired_on(power_options, mh_snapshot, txn, ctx, power_options_config)
-                    .await
+                handle_power_desired_on(
+                    power_options,
+                    mh_snapshot,
+                    ctx,
+                    power_options_config,
+                    pending_db_writes,
+                )
+                .await
             }
             model::power_manager::PowerState::Off => {
                 get_updated_power_options_desired_off(
                     power_options,
                     mh_snapshot,
-                    txn,
                     ctx,
                     power_options_config,
                 )
@@ -70,16 +76,16 @@ pub async fn handle_power(
 pub async fn handle_power_desired_on(
     current_power_options: &PowerOptions,
     mh_snapshot: &ManagedHostStateSnapshot,
-    txn: &mut sqlx::PgConnection,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     power_options_config: &PowerOptionConfig,
+    pending_db_writes: &DbWriteBatch,
 ) -> Result<PowerHandlingOutcome, StateHandlerError> {
     let mut update_done = false;
     let mut updated_power_options = current_power_options.clone();
     let now = Utc::now();
     if now > current_power_options.last_fetched_next_try_at {
         // Time to fetch the next power state.
-        let power_state = get_power_state(mh_snapshot, txn, ctx).await?;
+        let power_state = get_power_state(mh_snapshot, ctx).await?;
 
         // Update the power options.
         updated_power_options.last_fetched_updated_at = now;
@@ -100,7 +106,7 @@ pub async fn handle_power_desired_on(
                         mh_snapshot,
                         ctx.services,
                         SystemPowerControl::On,
-                        txn,
+                        pending_db_writes,
                     )
                     .await?;
                 }
@@ -152,7 +158,7 @@ pub async fn handle_power_desired_on(
             mh_snapshot,
             ctx.services,
             SystemPowerControl::ForceRestart,
-            txn,
+            pending_db_writes,
         )
         .await?;
 
@@ -171,14 +177,13 @@ pub async fn handle_power_desired_on(
 pub async fn get_updated_power_options_desired_off(
     current_power_options: &PowerOptions,
     mh_snapshot: &ManagedHostStateSnapshot,
-    txn: &mut sqlx::PgConnection,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     power_options_config: &PowerOptionConfig,
 ) -> Result<PowerHandlingOutcome, StateHandlerError> {
     let now = Utc::now();
     if now > current_power_options.last_fetched_next_try_at {
         // Time to fetch the next power state.
-        let power_state = get_power_state(mh_snapshot, txn, ctx).await?;
+        let power_state = get_power_state(mh_snapshot, ctx).await?;
         // In phase 1, let's not power off the host but leave it as such without processing any
         // event. State machine assumes that SRE has manually powered-off the host.
 
@@ -223,16 +228,13 @@ pub async fn get_updated_power_options_desired_off(
 }
 
 // Fetch actual power state.
-#[allow(txn_held_across_await)]
 async fn get_power_state(
     mh_snapshot: &ManagedHostStateSnapshot,
-    txn: &mut sqlx::PgConnection,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<UsablePowerState, StateHandlerError> {
     let redfish_client = ctx
         .services
-        .redfish_client_pool
-        .create_client_from_machine(&mh_snapshot.host_snapshot, txn)
+        .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
         .await?;
     let power_state = host_power_state(redfish_client.as_ref()).await?;
     Ok(match power_state {

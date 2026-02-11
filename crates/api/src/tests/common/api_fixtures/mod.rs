@@ -105,6 +105,7 @@ use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::controller::{Enqueuer, StateController};
 use crate::state_controller::ib_partition::handler::IBPartitionStateHandler;
 use crate::state_controller::ib_partition::io::IBPartitionStateControllerIO;
+use crate::state_controller::machine::db_write_batch::DbWriteBatch;
 use crate::state_controller::machine::handler::{
     DpfConfig, MachineStateHandler, MachineStateHandlerBuilder, PowerOptionConfig,
     ReachabilityParams,
@@ -117,7 +118,7 @@ use crate::state_controller::power_shelf::io::PowerShelfStateControllerIO;
 use crate::state_controller::spdm::handler::SpdmAttestationStateHandler;
 use crate::state_controller::spdm::io::SpdmStateControllerIO;
 use crate::state_controller::state_handler::{
-    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcomeWithTransaction,
+    StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
 use crate::state_controller::switch::handler::SwitchStateHandler;
 use crate::state_controller::switch::io::SwitchStateControllerIO;
@@ -2528,9 +2529,17 @@ pub async fn get_vpc_fixture_id(env: &TestEnv) -> VpcId {
 /// A hot swappable machine state handler.
 /// Allows modifying the handler behavior without reconstructing the machine
 /// state controller (which leads to stale metrics being saved).
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct SwapHandler<H: StateHandler> {
     pub inner: Arc<Mutex<H>>,
+}
+
+impl<H: StateHandler> Clone for SwapHandler<H> {
+    fn clone(&self) -> Self {
+        SwapHandler {
+            inner: self.inner.clone(),
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -2552,12 +2561,16 @@ where
         state: &mut Self::State,
         controller_state: &Self::ControllerState,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcomeWithTransaction<Self::ControllerState>, StateHandlerError> {
+    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
         self.inner
             .lock()
             .await
             .handle_object_state(object_id, state, controller_state, ctx)
             .await
+    }
+
+    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
+        self.inner.lock().await.take_pending_writes().await
     }
 }
 

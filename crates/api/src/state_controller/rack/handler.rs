@@ -26,10 +26,10 @@ use model::rack::{
 };
 use sqlx::PgTransaction;
 
+use crate::state_controller::machine::db_write_batch::DbWriteBatch;
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
-    StateHandlerOutcomeWithTransaction,
 };
 
 #[derive(Debug, Default, Clone)]
@@ -48,7 +48,7 @@ impl StateHandler for RackStateHandler {
         state: &mut Rack,
         controller_state: &Self::ControllerState,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcomeWithTransaction<RackState>, StateHandlerError> {
+    ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
         let mut config = state.config.clone();
         let pending_txn: Option<PgTransaction>;
         tracing::info!("Rack {} is in state {}", id, controller_state.to_string());
@@ -128,9 +128,9 @@ impl StateHandler for RackStateHandler {
                 //match config.expected_nvlink_switches.len().cmp(&config.nvlink_switches.len()) {}
                 if compute_done && ps_done {
                     Ok(StateHandlerOutcome::transition(RackState::Discovering)
-                        .with_txn(pending_txn))
+                        .with_txn_opt(pending_txn))
                 } else {
-                    Ok(StateHandlerOutcome::do_nothing().with_txn(pending_txn))
+                    Ok(StateHandlerOutcome::do_nothing().with_txn_opt(pending_txn))
                 }
             }
             RackState::Discovering => {
@@ -159,7 +159,7 @@ impl StateHandler for RackStateHandler {
                             machine_id,
                             mh_snapshot.managed_state
                         );
-                        return Ok(StateHandlerOutcome::do_nothing().with_txn(Some(txn)));
+                        return Ok(StateHandlerOutcome::do_nothing().with_txn(txn));
                     }
                 }
                 // todo: check nvlink switches
@@ -171,7 +171,7 @@ impl StateHandler for RackStateHandler {
                         rack_firmware_upgrade: RackFirmwareUpgradeState::Compute,
                     },
                 })
-                .with_txn(Some(txn)))
+                .with_txn(txn))
             }
             RackState::Maintenance {
                 rack_maintenance: maintenance,
@@ -187,8 +187,7 @@ impl StateHandler for RackStateHandler {
                                     RackState::Maintenance {
                                         rack_maintenance: RackMaintenanceState::Completed,
                                     },
-                                )
-                                .with_txn(None));
+                                ));
                             }
                             RackFirmwareUpgradeState::Switch => {}
                             RackFirmwareUpgradeState::PowerShelf => {}
@@ -214,11 +213,10 @@ impl StateHandler for RackStateHandler {
                     RackMaintenanceState::Completed => {
                         return Ok(StateHandlerOutcome::transition(RackState::Ready {
                             rack_ready: RackReadyState::Full,
-                        })
-                        .with_txn(None));
+                        }));
                     }
                 }
-                Ok(StateHandlerOutcome::do_nothing().with_txn(None))
+                Ok(StateHandlerOutcome::do_nothing())
             }
             RackState::Ready {
                 rack_ready: ready_state,
@@ -232,19 +230,22 @@ impl StateHandler for RackStateHandler {
                             rack_maintenance: RackMaintenanceState::RackValidation {
                                 rack_validation: RackValidationState::Topology,
                             },
-                        })
-                        .with_txn(None));
+                        }));
                     }
                 }
-                Ok(StateHandlerOutcome::do_nothing().with_txn(None))
+                Ok(StateHandlerOutcome::do_nothing())
             }
-            RackState::Deleting => Ok(StateHandlerOutcome::do_nothing().with_txn(None)),
+            RackState::Deleting => Ok(StateHandlerOutcome::do_nothing()),
             RackState::Error { cause: log } => {
                 // try to recover / auto-remediate
                 tracing::error!("Rack {} is in error state {}", id, log);
-                Ok(StateHandlerOutcome::do_nothing().with_txn(None))
+                Ok(StateHandlerOutcome::do_nothing())
             }
-            RackState::Unknown => Ok(StateHandlerOutcome::do_nothing().with_txn(None)),
+            RackState::Unknown => Ok(StateHandlerOutcome::do_nothing()),
         }
+    }
+
+    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
+        None
     }
 }

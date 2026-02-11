@@ -202,22 +202,18 @@ pub(crate) async fn attest_quote(
                 ))
             })?;
 
-    txn.commit().await?;
-
     // if the attestation was successful and enabled, we can now vend the certs
     // - get attestation result
     // - if enabled and not successful, send response without certs
     // - else send response with certs
     let attestation_failed = if api.runtime_config.attestation_enabled {
-        !crate::attestation::has_passed_attestation(
-            &mut api.db_reader(),
-            &machine_id,
-            &report.report_id,
-        )
-        .await?
+        !crate::attestation::has_passed_attestation(&mut txn, &machine_id, &report.report_id)
+            .await?
     } else {
         false
     };
+
+    txn.commit().await?;
 
     if attestation_failed {
         tracing::info!(

@@ -26,10 +26,10 @@ use model::network_segment::{
 };
 use model::resource_pool::ResourcePool;
 
+use crate::state_controller::machine::db_write_batch::DbWriteBatch;
 use crate::state_controller::network_segment::context::NetworkSegmentStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
-    StateHandlerOutcomeWithTransaction,
 };
 
 /// The actual Network Segment State handler
@@ -99,15 +99,14 @@ impl StateHandler for NetworkSegmentStateHandler {
         state: &mut NetworkSegment,
         controller_state: &Self::ControllerState,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcomeWithTransaction<NetworkSegmentControllerState>, StateHandlerError>
-    {
+    ) -> Result<StateHandlerOutcome<NetworkSegmentControllerState>, StateHandlerError> {
         // record metrics irrespective of the state of the network segment
         self.record_metrics(state, ctx);
         match controller_state {
             NetworkSegmentControllerState::Provisioning => {
                 let new_state = NetworkSegmentControllerState::Ready;
                 tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
-                Ok(StateHandlerOutcome::transition(new_state).with_txn(None))
+                Ok(StateHandlerOutcome::transition(new_state))
             }
             NetworkSegmentControllerState::Ready => {
                 if state.is_marked_as_deleted() {
@@ -120,9 +119,9 @@ impl StateHandler for NetworkSegmentStateHandler {
                         },
                     };
                     tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
-                    Ok(StateHandlerOutcome::transition(new_state).with_txn(None))
+                    Ok(StateHandlerOutcome::transition(new_state))
                 } else {
-                    Ok(StateHandlerOutcome::do_nothing().with_txn(None))
+                    Ok(StateHandlerOutcome::do_nothing())
                 }
             }
             NetworkSegmentControllerState::Deleting { deletion_state } => {
@@ -154,19 +153,19 @@ impl StateHandler for NetworkSegmentStateHandler {
                                 },
                             };
                             tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
-                            Ok(StateHandlerOutcome::transition(new_state).with_txn(Some(txn)))
+                            Ok(StateHandlerOutcome::transition(new_state).with_txn(txn))
                         } else if chrono::Utc::now() >= *delete_at {
                             let new_state = NetworkSegmentControllerState::Deleting {
                                 deletion_state: NetworkSegmentDeletionState::DBDelete,
                             };
                             tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
-                            Ok(StateHandlerOutcome::transition(new_state).with_txn(Some(txn)))
+                            Ok(StateHandlerOutcome::transition(new_state).with_txn(txn))
                         } else {
                             Ok(StateHandlerOutcome::wait(format!(
                                 "Cannot delete from database until draining completes at {}",
                                 delete_at.to_rfc3339()
                             ))
-                            .with_txn(Some(txn)))
+                            .with_txn(txn))
                         }
                     }
                     NetworkSegmentDeletionState::DBDelete => {
@@ -183,10 +182,14 @@ impl StateHandler for NetworkSegmentStateHandler {
                             "Network Segment getting removed from the database",
                         );
                         db::network_segment::final_delete(*segment_id, &mut txn).await?;
-                        Ok(StateHandlerOutcome::deleted().with_txn(Some(txn)))
+                        Ok(StateHandlerOutcome::deleted().with_txn(txn))
                     }
                 }
             }
         }
+    }
+
+    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
+        None
     }
 }
