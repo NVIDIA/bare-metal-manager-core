@@ -38,7 +38,10 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { features = ["env-filter", "local-time"], workspace = true }
+tracing-subscriber = { features = [
+  "env-filter",
+  "local-time",
+], workspace = true }
 url = { workspace = true }
 
 # [local-dependencies]

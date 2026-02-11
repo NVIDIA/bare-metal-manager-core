@@ -1287,6 +1287,8 @@ message VpcPrefixConfig {
 message VpcPrefixStatus {
   uint32 total_31_segments = 1;
   uint32 available_31_segments = 2;
+  uint64 total_linknet_segments = 3;
+  uint64 available_linknet_segments = 4;
 }
 
 message VpcPrefixCreationRequest {

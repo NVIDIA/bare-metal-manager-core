@@ -28,7 +28,6 @@ use db::{
     self, ObjectColumnFilter, ObjectFilter, dpa_interface, extension_service, ib_partition,
     network_security_group,
 };
-use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::ConfigValidationError;
 use model::hardware_info::InfinibandInterface;
@@ -49,7 +48,7 @@ use model::vpc_prefix::VpcPrefix;
 use sqlx::PgConnection;
 
 use crate::api::Api;
-use crate::network_segment::allocate::Ipv4PrefixAllocator;
+use crate::network_segment::allocate::PrefixAllocator;
 use crate::{CarbideError, CarbideResult};
 
 /// User parameters for creating an instance
@@ -210,31 +209,7 @@ pub async fn allocate_network(
                     let vpc_prefix_id = &VpcPrefixId::from(*vpc_prefix_id);
                     let (vpc_id, vpc_prefix, last_used_prefix) = {
                         if let Some(vpc) = vpc_prefixes.get(vpc_prefix_id) {
-                            let prefix = match vpc.config.prefix {
-                                ipnetwork::IpNetwork::V4(ipv4_network) => ipv4_network,
-                                ipnetwork::IpNetwork::V6(_) => {
-                                    return Err(CarbideError::internal(format!(
-                                        "IPv6 prefix: {} with prefix id {} is not supported.",
-                                        vpc.config.prefix, vpc_prefix_id
-                                    )));
-                                }
-                            };
-
-                            let last_used_prefix = if let Some(x) = vpc.status.last_used_prefix {
-                                match x {
-                                    ipnetwork::IpNetwork::V4(ipv4_network) => Some(ipv4_network),
-                                    ipnetwork::IpNetwork::V6(_) => {
-                                        return Err(CarbideError::internal(format!(
-                                            "IPv6 prefix: {} with prefix id {} is not supported.",
-                                            vpc.config.prefix, vpc_prefix_id
-                                        )));
-                                    }
-                                }
-                            } else {
-                                None
-                            };
-
-                            (vpc.vpc_id, prefix, last_used_prefix)
+                            (vpc.vpc_id, vpc.config.prefix, vpc.status.last_used_prefix)
                         } else {
                             return Err(CarbideError::internal(format!(
                                 "Unknown VPC prefix id: {vpc_prefix_id}"
@@ -242,13 +217,21 @@ pub async fn allocate_network(
                         }
                     };
 
-                    let (ns_id, prefix) =
-                        Ipv4PrefixAllocator::new(*vpc_prefix_id, vpc_prefix, last_used_prefix, 31)
-                            .allocate_network_segment(txn, vpc_id)
-                            .await?;
+                    // FNN linknets are point-to-point: two addresses per subnet.
+                    // IPv4: /31 (RFC 3021), IPv6: /127 (RFC 6164).
+                    let linknet_prefix = if vpc_prefix.is_ipv4() { 31 } else { 127 };
+
+                    let (ns_id, prefix) = PrefixAllocator::new(
+                        *vpc_prefix_id,
+                        vpc_prefix,
+                        last_used_prefix,
+                        linknet_prefix,
+                    )?
+                    .allocate_network_segment(txn, vpc_id)
+                    .await?;
                     interface.network_segment_id = Some(ns_id);
                     vpc_prefixes.entry(*vpc_prefix_id).and_modify(|x| {
-                        x.status.last_used_prefix = Some(IpNetwork::V4(prefix));
+                        x.status.last_used_prefix = Some(prefix);
                     });
                 }
             }

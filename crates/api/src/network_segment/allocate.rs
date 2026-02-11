@@ -14,11 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::{VpcId, VpcPrefixId};
-use ipnetwork::Ipv4Network;
+use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::network_prefix::NewNetworkPrefix;
 use model::network_segment::NewNetworkSegment;
@@ -26,98 +26,161 @@ use sqlx::PgConnection;
 
 use crate::{CarbideError, CarbideResult};
 
-/// Ipv4PrefixAllocator to allocate a prefix of given length from given vpc_prefix field.
+/// ip_to_u128 converts an IP address to its u128 representation.
+/// IPv4 addresses are zero-extended (u32 → u128), and IPv6 are native u128.
+fn ip_to_u128(ip: IpAddr) -> u128 {
+    match ip {
+        IpAddr::V4(v4) => u32::from(v4) as u128,
+        IpAddr::V6(v6) => u128::from(v6),
+    }
+}
+
+/// u128_to_ip converts a u128 back to an IP address of the appropriate family.
+fn u128_to_ip(val: u128, is_v6: bool) -> IpAddr {
+    if is_v6 {
+        IpAddr::V6(Ipv6Addr::from(val))
+    } else {
+        IpAddr::V4(Ipv4Addr::from(val as u32))
+    }
+}
+
+/// max_prefix_bits returns the maximum prefix length for the address
+/// family (32 for IPv4, 128 for IPv6).
+fn max_prefix_bits(prefix: &IpNetwork) -> u32 {
+    if prefix.is_ipv6() { 128 } else { 32 }
+}
+
+/// wrap_to_prefix_start returns `addr` if it falls within the VPC prefix,
+/// otherwise wraps around to the start of the VPC prefix.
+fn wrap_to_prefix_start(addr: IpAddr, vpc_prefix: &IpNetwork) -> IpAddr {
+    let addr_u128 = ip_to_u128(addr);
+    let network_u128 = ip_to_u128(vpc_prefix.network());
+    let broadcast_u128 = ip_to_u128(vpc_prefix.broadcast());
+    if addr_u128 < network_u128 || addr_u128 > broadcast_u128 {
+        vpc_prefix.network()
+    } else {
+        addr
+    }
+}
+
+/// PrefixAllocator allocates a prefix of given length from a VPC prefix.
+/// Works with both IPv4 and IPv6 address families.
+///
+/// The prefix length is validated at construction time via [`PrefixAllocator::new`],
+/// so all internal arithmetic (including the iterator) can rely on the prefix
+/// being valid for the address family without additional checks.
 #[derive(Debug)]
-pub struct Ipv4PrefixAllocator {
+pub struct PrefixAllocator {
     vpc_prefix_id: VpcPrefixId,
-    vpc_prefix: Ipv4Network,
-    last_used_prefix: Option<Ipv4Network>,
+    vpc_prefix: IpNetwork,
+    last_used_prefix: Option<IpNetwork>,
     prefix: u8,
 }
 
-// A iterator keeping track of previously allocated item.
+/// PrefixIterator is an Iterator that steps through candidate subnets of a
+/// given prefix length within a parent VPC prefix, using u128 arithmetic
+/// for both IPv4 and IPv6.
 #[derive(Debug)]
-struct Ipv4PrefixIterator {
-    vpc_prefix: Ipv4Network,
+struct PrefixIterator {
+    vpc_prefix: IpNetwork,
     prefix: u8,
-    current_item: Ipv4Addr,
+    current_item: u128,
+    // We cache this based on `vpc_prefix` to avoid re-checking the address
+    // family on every iteration.
+    is_v6: bool,
     first_iter: bool,
 }
 
-/// This function returns the IP which is just next the boundary of last allocated prefix.
-/// Problem with this approach is that if prefix changes e.g. 31 to 27, the next IP of /31 is not a
-/// valid network address for /27. In this case this function ignores such address and moves to the
-/// valid /27 network. Handles wrap-around conditions also.
-fn get_next_usable_address(ip: Ipv4Addr, vpc_prefix: Ipv4Network, needed_prefix: u8) -> Ipv4Addr {
-    let next_address = u32::from_be_bytes(ip.octets()).wrapping_add(1);
-    let mut next_address = Ipv4Addr::from(next_address);
-    let next_prefix = Ipv4Network::new(next_address, needed_prefix).unwrap();
-
-    if next_address != next_prefix.network() {
-        // The next_address is not at the beginning of prefix boundary. In this case, take the
-        // broadcast address of prefix and take first address from it.
-        let next_address_u32 = u32::from_be_bytes(next_prefix.broadcast().octets()).wrapping_add(1);
-        next_address = Ipv4Addr::from(next_address_u32);
-    }
-
-    if next_address < vpc_prefix.network() || next_address > vpc_prefix.broadcast() {
-        // reset to the first address.
-        vpc_prefix.network()
-    } else {
-        next_address
-    }
+/// networks_overlap returns true if two networks overlap (as in
+/// one contains the other's network address).
+fn networks_overlap(a: IpNetwork, b: IpNetwork) -> bool {
+    a.contains(b.network()) || b.contains(a.network())
 }
 
-impl Ipv4PrefixAllocator {
-    fn iter(&self) -> Ipv4PrefixIterator {
-        let next_usable_address = if let Some(last_used_prefix) = self.last_used_prefix {
-            get_next_usable_address(last_used_prefix.broadcast(), self.vpc_prefix, self.prefix)
+impl PrefixAllocator {
+    fn iter(&self) -> PrefixIterator {
+        let is_v6 = self.vpc_prefix.is_ipv6();
+
+        // When resuming after a previous allocation, seed the iterator with
+        // the broadcast address of the last used prefix and set first_iter to
+        // false. The first call to next() will then use bit-shifting to
+        // advance to the next aligned subnet boundary — the same result
+        // get_next_usable_address used to compute as a separate step.
+        //
+        // When starting fresh, seed with the VPC prefix's network address and
+        // set first_iter to true so the first call returns it directly
+        // (bit-shifting would skip past it).
+        let (start, first_iter) = if let Some(last_used_prefix) = self.last_used_prefix {
+            (ip_to_u128(last_used_prefix.broadcast()), false)
         } else {
-            self.vpc_prefix.network()
+            (ip_to_u128(self.vpc_prefix.network()), true)
         };
 
-        Ipv4PrefixIterator {
+        PrefixIterator {
             vpc_prefix: self.vpc_prefix,
             prefix: self.prefix,
-            current_item: next_usable_address,
-            first_iter: true,
+            current_item: start,
+            is_v6,
+            first_iter,
         }
     }
 
     pub fn new(
         vpc_prefix_id: VpcPrefixId,
-        vpc_prefix: Ipv4Network,
-        last_used_prefix: Option<Ipv4Network>,
+        vpc_prefix: IpNetwork,
+        last_used_prefix: Option<IpNetwork>,
         prefix: u8,
-    ) -> Ipv4PrefixAllocator {
-        Self {
+    ) -> CarbideResult<PrefixAllocator> {
+        let max_bits = max_prefix_bits(&vpc_prefix) as u8;
+        if prefix > max_bits {
+            return Err(CarbideError::InvalidArgument(format!(
+                "prefix length {prefix} exceeds maximum for address family ({max_bits})"
+            )));
+        }
+        if prefix <= vpc_prefix.prefix() {
+            return Err(CarbideError::InvalidArgument(format!(
+                "prefix length {prefix} must be greater than VPC prefix length {}",
+                vpc_prefix.prefix()
+            )));
+        }
+
+        Ok(Self {
             vpc_prefix_id,
             vpc_prefix,
             last_used_prefix,
             prefix,
-        }
+        })
     }
 
-    // This should only be used by FNN code.
+    // As of now this is only used by FNN.
     pub async fn allocate_network_segment(
         &self,
         txn: &mut PgConnection,
         vpc_id: VpcId,
-    ) -> CarbideResult<(NetworkSegmentId, Ipv4Network)> {
+    ) -> CarbideResult<(NetworkSegmentId, IpNetwork)> {
         let prefix = self.next_free_prefix(txn).await?;
 
         let name = format!("vpc_prefix_{}", prefix.network());
         let segment_id = NetworkSegmentId::new();
+
+        // Note: There is a database constraint `no_gateway_on_ipv6` ensuring
+        // IPv6 prefixes must have gateway IS NULL. IPv6 uses RAs (Router
+        // Advertisements) instead of explicit gateways.
+        let gateway = if prefix.is_ipv4() {
+            Some(prefix.network())
+        } else {
+            None
+        };
 
         let ns = NewNetworkSegment {
             id: segment_id,
             name,
             subdomain_id: None,
             vpc_id: Some(vpc_id),
-            mtu: 9000, // Default value
+            mtu: 9000, // Default value.
             prefixes: vec![NewNetworkPrefix {
-                prefix: prefix.into(),
-                gateway: Some(prefix.network().into()),
+                prefix,
+                gateway,
                 num_reserved: 0,
             }],
             vlan_id: None,
@@ -134,38 +197,24 @@ impl Ipv4PrefixAllocator {
         .await?;
 
         for prefix in &mut segment.prefixes {
-            db::network_prefix::set_vpc_prefix(
-                prefix,
-                txn,
-                &self.vpc_prefix_id,
-                &ipnetwork::IpNetwork::V4(self.vpc_prefix),
-            )
-            .await?;
+            db::network_prefix::set_vpc_prefix(prefix, txn, &self.vpc_prefix_id, &self.vpc_prefix)
+                .await?;
         }
 
         Ok((segment.id, prefix))
     }
 
-    pub async fn next_free_prefix(&self, txn: &mut PgConnection) -> CarbideResult<Ipv4Network> {
+    pub async fn next_free_prefix(&self, txn: &mut PgConnection) -> CarbideResult<IpNetwork> {
         let vpc_str = self.vpc_prefix.to_string();
         let used_prefixes = db::network_prefix::containing_prefix(txn, vpc_str.as_str())
             .await?
             .iter()
-            .filter_map(|x| match x.prefix {
-                ipnetwork::IpNetwork::V4(ipv4net) => Some(ipv4net),
-                _ => None,
-            })
+            .map(|x| x.prefix)
             .collect_vec();
 
-        if self.prefix <= self.vpc_prefix.prefix() {
-            return Err(CarbideError::InvalidArgument(format!(
-                "vpc prefix {} is smaller than requested prefix {}",
-                self.vpc_prefix.prefix(),
-                self.prefix
-            )));
-        }
-        let total_network_possible = 2_u32.pow((self.prefix - self.vpc_prefix.prefix()) as u32);
-        let mut current_iteration = 0_u32;
+        // Reminder that `new()` already validated self.prefix > self.vpc_prefix.prefix().
+        let total_network_possible: u128 = 1u128 << (self.prefix - self.vpc_prefix.prefix()) as u32;
+        let mut current_iteration: u128 = 0;
         let mut allocator_itr = self.iter();
 
         loop {
@@ -173,7 +222,10 @@ impl Ipv4PrefixAllocator {
                 return Err(CarbideError::internal("Prefix exhausted.".to_string()));
             };
 
-            if !used_prefixes.iter().any(|x| x.overlaps(next_address)) {
+            if !used_prefixes
+                .iter()
+                .any(|x| networks_overlap(*x, next_address))
+            {
                 return Ok(next_address);
             }
 
@@ -188,110 +240,229 @@ impl Ipv4PrefixAllocator {
     }
 }
 
-const MAX_PREFIX_LEN: u32 = 32_u32;
-impl Iterator for Ipv4PrefixIterator {
-    type Item = Ipv4Network;
+/// PrefixIterator is only constructed by `PrefixAllocator::iter`, which
+/// guarantees that `self.prefix` is a valid prefix length for the address
+/// family, meaning the `IpNetwork::new(...).unwrap()` calls below are safe.
+impl Iterator for PrefixIterator {
+    type Item = IpNetwork;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.first_iter {
             self.first_iter = false;
-            return Some(Ipv4Network::new(self.current_item, self.prefix).unwrap());
+            let ip = u128_to_ip(self.current_item, self.is_v6);
+            return Some(IpNetwork::new(ip, self.prefix).unwrap());
         }
-        let current_item = u32::from_be_bytes(self.current_item.octets());
 
-        // Number of host bits in needed prefix.
-        let host_bits: u32 = MAX_PREFIX_LEN - self.prefix as u32;
-        // Binary representation of needed prefix network subnet bits. e.g.
-        // /27 = 11111111.11111111.11111111.11100000
-        let prefix_network_subnet = u32::MAX << host_bits;
-
-        // Take the network address from the current item and increase it by one to get the next
-        // network address. e.g.
-        // current_item = 192.168.50.64
-        // current_item & prefix_network_subnet = 11000000.10101000.00110010.01000000
-        // >> host_bits =  00000110000001010100000110010010 => +1 = 00000110000001010100000110010011
-        // => 11000000.10101000.00110010.01100000 => 192.168.50.96
-        let next_address =
-            (((current_item & prefix_network_subnet) >> host_bits).wrapping_add(1)) << host_bits;
-        let next_address = Ipv4Addr::from(next_address);
-
-        let next_address = if next_address > self.vpc_prefix.broadcast()
-            || next_address < self.vpc_prefix.network()
-        {
-            // wrap around or overflow condition
-            // network() is the first address of the subnet and broadcast() the last possible.
-            self.vpc_prefix.network()
+        let max_bits = max_prefix_bits(&self.vpc_prefix);
+        // Number of host bits in the needed prefix.
+        let host_bits: u32 = max_bits - self.prefix as u32;
+        // Mask for the network portion of the address.
+        let prefix_network_subnet: u128 = if host_bits >= 128 {
+            0
         } else {
-            next_address
+            u128::MAX << host_bits
         };
 
-        self.current_item = next_address;
-        Some(Ipv4Network::new(next_address, self.prefix).unwrap())
+        // Advance to the next network address at the correct prefix boundary.
+        let next_address = (((self.current_item & prefix_network_subnet) >> host_bits)
+            .wrapping_add(1))
+            << host_bits;
+
+        let ip = wrap_to_prefix_start(u128_to_ip(next_address, self.is_v6), &self.vpc_prefix);
+        self.current_item = ip_to_u128(ip);
+        Some(IpNetwork::new(ip, self.prefix).unwrap())
     }
 }
 
 #[cfg(test)]
 mod test {
-    use ipnetwork::Ipv4Network;
+    use std::net::Ipv6Addr;
 
-    use crate::network_segment::allocate::Ipv4PrefixAllocator;
+    use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
+
+    use crate::network_segment::allocate::PrefixAllocator;
 
     #[test]
     fn test_next_iter() {
-        let allocator = Ipv4PrefixAllocator::new(
+        let allocator = PrefixAllocator::new(
             uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f").into(),
-            Ipv4Network::new("10.0.0.248".parse().unwrap(), 29).unwrap(),
+            IpNetwork::V4(Ipv4Network::new("10.0.0.248".parse().unwrap(), 29).unwrap()),
             None,
             31,
-        );
+        )
+        .unwrap();
 
         let mut it = allocator.iter();
 
         assert_eq!(
-            Ipv4Network::new("10.0.0.248".parse().unwrap(), 31).unwrap(),
+            IpNetwork::V4(Ipv4Network::new("10.0.0.248".parse().unwrap(), 31).unwrap()),
             it.next().unwrap()
         );
         assert_eq!(
-            Ipv4Network::new("10.0.0.250".parse().unwrap(), 31).unwrap(),
+            IpNetwork::V4(Ipv4Network::new("10.0.0.250".parse().unwrap(), 31).unwrap()),
             it.next().unwrap()
         );
         assert_eq!(
-            Ipv4Network::new("10.0.0.252".parse().unwrap(), 31).unwrap(),
+            IpNetwork::V4(Ipv4Network::new("10.0.0.252".parse().unwrap(), 31).unwrap()),
             it.next().unwrap()
         );
         assert_eq!(
-            Ipv4Network::new("10.0.0.254".parse().unwrap(), 31).unwrap(),
+            IpNetwork::V4(Ipv4Network::new("10.0.0.254".parse().unwrap(), 31).unwrap()),
             it.next().unwrap()
         );
         // wrap around condition
         assert_eq!(
-            Ipv4Network::new("10.0.0.248".parse().unwrap(), 31).unwrap(),
+            IpNetwork::V4(Ipv4Network::new("10.0.0.248".parse().unwrap(), 31).unwrap()),
             it.next().unwrap()
         );
     }
 
     #[test]
     fn test_next_iter_overflow() {
-        let allocator = Ipv4PrefixAllocator::new(
+        let allocator = PrefixAllocator::new(
             uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f").into(),
-            Ipv4Network::new("202.164.25.0".parse().unwrap(), 30).unwrap(),
+            IpNetwork::V4(Ipv4Network::new("202.164.25.0".parse().unwrap(), 30).unwrap()),
             None,
             31,
-        );
+        )
+        .unwrap();
 
         let mut it = allocator.iter();
 
         assert_eq!(
-            Ipv4Network::new("202.164.25.0".parse().unwrap(), 31).unwrap(),
+            IpNetwork::V4(Ipv4Network::new("202.164.25.0".parse().unwrap(), 31).unwrap()),
             it.next().unwrap()
         );
         assert_eq!(
-            Ipv4Network::new("202.164.25.2".parse().unwrap(), 31).unwrap(),
+            IpNetwork::V4(Ipv4Network::new("202.164.25.2".parse().unwrap(), 31).unwrap()),
             it.next().unwrap()
         );
         // Overflow condition.
         assert_eq!(
-            Ipv4Network::new("202.164.25.0".parse().unwrap(), 31).unwrap(),
+            IpNetwork::V4(Ipv4Network::new("202.164.25.0".parse().unwrap(), 31).unwrap()),
+            it.next().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_next_iter_ipv6() {
+        // /120 VPC prefix with /127 linknets — 128 possible /127 subnets.
+        let allocator = PrefixAllocator::new(
+            uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f").into(),
+            IpNetwork::V6(Ipv6Network::new("fd00::100".parse().unwrap(), 120).unwrap()),
+            None,
+            127,
+        )
+        .unwrap();
+
+        let mut it = allocator.iter();
+
+        assert_eq!(
+            IpNetwork::V6(
+                Ipv6Network::new(
+                    Ipv6Addr::from(0xfd00_0000_0000_0000_0000_0000_0000_0100u128),
+                    127
+                )
+                .unwrap()
+            ),
+            it.next().unwrap()
+        );
+        assert_eq!(
+            IpNetwork::V6(
+                Ipv6Network::new(
+                    Ipv6Addr::from(0xfd00_0000_0000_0000_0000_0000_0000_0102u128),
+                    127
+                )
+                .unwrap()
+            ),
+            it.next().unwrap()
+        );
+        assert_eq!(
+            IpNetwork::V6(
+                Ipv6Network::new(
+                    Ipv6Addr::from(0xfd00_0000_0000_0000_0000_0000_0000_0104u128),
+                    127
+                )
+                .unwrap()
+            ),
+            it.next().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_next_iter_ipv6_wrap_around() {
+        // /126 VPC prefix — only 4 addresses aka 2 possible /127 subnets.
+        let allocator = PrefixAllocator::new(
+            uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f").into(),
+            IpNetwork::V6(Ipv6Network::new("fd00::4".parse().unwrap(), 126).unwrap()),
+            None,
+            127,
+        )
+        .unwrap();
+
+        let mut it = allocator.iter();
+
+        assert_eq!(
+            IpNetwork::V6(
+                Ipv6Network::new(
+                    Ipv6Addr::from(0xfd00_0000_0000_0000_0000_0000_0000_0004u128),
+                    127
+                )
+                .unwrap()
+            ),
+            it.next().unwrap()
+        );
+        assert_eq!(
+            IpNetwork::V6(
+                Ipv6Network::new(
+                    Ipv6Addr::from(0xfd00_0000_0000_0000_0000_0000_0000_0006u128),
+                    127
+                )
+                .unwrap()
+            ),
+            it.next().unwrap()
+        );
+        // Wrap around
+        assert_eq!(
+            IpNetwork::V6(
+                Ipv6Network::new(
+                    Ipv6Addr::from(0xfd00_0000_0000_0000_0000_0000_0000_0004u128),
+                    127
+                )
+                .unwrap()
+            ),
+            it.next().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_next_iter_ipv6_with_last_used() {
+        // /120 VPC prefix, last_used_prefix at the first /127 subnet.
+        let allocator = PrefixAllocator::new(
+            uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f").into(),
+            IpNetwork::V6(Ipv6Network::new("fd00::100".parse().unwrap(), 120).unwrap()),
+            Some(IpNetwork::V6(
+                Ipv6Network::new(
+                    Ipv6Addr::from(0xfd00_0000_0000_0000_0000_0000_0000_0100u128),
+                    127,
+                )
+                .unwrap(),
+            )),
+            127,
+        )
+        .unwrap();
+
+        let mut it = allocator.iter();
+
+        // Should start after the last used /127, i.e. at fd00::102.
+        assert_eq!(
+            IpNetwork::V6(
+                Ipv6Network::new(
+                    Ipv6Addr::from(0xfd00_0000_0000_0000_0000_0000_0000_0102u128),
+                    127
+                )
+                .unwrap()
+            ),
             it.next().unwrap()
         );
     }
