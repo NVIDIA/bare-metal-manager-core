@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use carbide_uuid::machine::MachineId;
 use db::{ObjectColumnFilter, Transaction};
@@ -120,26 +121,46 @@ impl MachineCreator {
 
         // Zero-dpu case: If the explored host had no DPUs, we can create the machine now
         if managed_host.explored_host.dpus.is_empty() {
-            if !self.config.allow_zero_dpu_hosts {
+            if self.config.allow_zero_dpu_hosts {
+                if let Some(machine_id) = self
+                    .create_zero_dpu_machine(
+                        &mut txn,
+                        &managed_host,
+                        report,
+                        metadata.unwrap_or(&Metadata::default()),
+                    )
+                    .await?
+                {
+                    managed_host.machine_id = Some(machine_id);
+                } else {
+                    // Site explorer has already created a machine for this endpoint previously, skip.
+                    return Ok(false);
+                }
+                tracing::info!("Created managed_host with zero DPUs");
+            } else if self.config.use_onboard_nic.load(Ordering::Relaxed) {
+                let host_onboard_nic_mac_address = None;
+                // expected_machine.map(|m| m.host_nics[0].mac_address);
+                if let Some(machine_id) = self
+                    .create_onboard_nic_machine(
+                        &mut txn,
+                        &managed_host,
+                        report,
+                        metadata.unwrap_or(&Metadata::default()),
+                        host_onboard_nic_mac_address,
+                    )
+                    .await?
+                {
+                    managed_host.machine_id = Some(machine_id);
+                } else {
+                    // Site explorer has already created a machine for this endpoint previously, skip.
+                    return Ok(false);
+                }
+                tracing::info!("Created managed_host with onboard NIC");
+            } else {
                 let error = CarbideError::NoDpusInMachine(managed_host.explored_host.host_bmc_ip);
-                tracing::error!(%error, "Cannot create managed host for explored endpoint with no DPUs: Zero-dpu hosts are disallowed by config");
+                tracing::error!(%error, "Cannot create managed host for explored endpoint with no DPUs: Zero-dpu hosts are disallowed by config and onboard NIC is not enabled");
                 return Err(error);
             }
-            if let Some(machine_id) = self
-                .create_zero_dpu_machine(
-                    &mut txn,
-                    &managed_host,
-                    report,
-                    metadata.unwrap_or(&Metadata::default()),
-                )
-                .await?
-            {
-                managed_host.machine_id = Some(machine_id);
-            } else {
-                // Site explorer has already created a machine for this endpoint previously, skip.
-                return Ok(false);
-            }
-            tracing::info!("Created managed_host with zero DPUs");
         }
 
         let mut dpu_ids = vec![];
@@ -181,19 +202,22 @@ impl MachineCreator {
                 "Failed to get machine ID for host: {managed_host:#?}"
             )))?;
 
-        db::machine::update_state(
-            &mut txn,
-            &host_machine_id,
-            &ManagedHostState::DpuDiscoveringState {
+        let starting_state = if self.config.use_onboard_nic.load(Ordering::Relaxed) {
+            ManagedHostState::HostInit {
+                machine_state: model::machine::MachineState::EnableIpmiOverLan,
+            }
+        } else {
+            ManagedHostState::DpuDiscoveringState {
                 dpu_states: DpuDiscoveringStates {
                     states: dpu_ids
                         .into_iter()
                         .map(|x| (x, DpuDiscoveringState::Initializing))
                         .collect::<HashMap<MachineId, DpuDiscoveringState>>(),
                 },
-            },
-        )
-        .await?;
+            }
+        };
+
+        db::machine::update_state(&mut txn, &host_machine_id, &starting_state).await?;
 
         txn.commit().await?;
 
@@ -329,6 +353,158 @@ impl MachineCreator {
                 )
                 .await?;
             }
+        }
+
+        Ok(Some(*machine_id))
+    }
+
+    // Returns MachineId if machene was created.
+    async fn create_onboard_nic_machine(
+        &self,
+        txn: &mut PgConnection,
+        managed_host: &ManagedHost<'_>,
+        report: &mut EndpointExplorationReport,
+        metadata: &Metadata,
+        host_onboard_nic_mac_address: Option<mac_address::MacAddress>,
+    ) -> CarbideResult<Option<MachineId>> {
+        let onboard_nic_mac_address =
+            if let Some(onboard_nic_mac_address) = host_onboard_nic_mac_address {
+                // Check if the onboard NIC mac address is correct from redfish report
+                if !report
+                    .all_mac_addresses()
+                    .iter()
+                    .any(|mac| mac == &onboard_nic_mac_address)
+                {
+                    return Err(CarbideError::internal(format!(
+                        "Onboard NIC mac address not found in exploration report: {:#?}",
+                        onboard_nic_mac_address
+                    )));
+                }
+                onboard_nic_mac_address
+            } else {
+                if report.all_mac_addresses().is_empty() {
+                    return Err(CarbideError::internal(format!(
+                        "No mac addresses found in exploration report: {:#?}",
+                        report
+                    )));
+                }
+                // If not specified then use first mac address from redfish report
+                *report.all_mac_addresses().first().unwrap()
+            };
+
+        if db::machine::find_by_mac_address(txn, &onboard_nic_mac_address)
+            .await?
+            .is_some()
+        {
+            return Ok(None);
+        }
+
+        // If we already minted this machine and it hasn't DHCP'd yet, there will be an
+        // predicted_machine_interface with this MAC address. If so, also skip.
+        if !db::predicted_machine_interface::find_by(
+            txn,
+            ObjectColumnFilter::One(
+                db::predicted_machine_interface::MacAddressColumn,
+                &onboard_nic_mac_address,
+            ),
+        )
+        .await?
+        .is_empty()
+        {
+            return Ok(None);
+        }
+
+        let machine_id = match managed_host.machine_id.as_ref() {
+            Some(machine_id) => machine_id,
+            None => {
+                // Mint a predicted-host machine_id from the exploration report
+                report.generate_machine_id(true)?.unwrap()
+            }
+        };
+
+        tracing::info!(%machine_id, "Minted predicted host ID for onboard NIC machine");
+
+        let existing_machine = db::machine::find_one(
+            txn,
+            machine_id,
+            MachineSearchConfig {
+                include_predicted_host: true,
+                ..Default::default()
+            },
+        )
+        .await?;
+
+        if let Some(existing_machine) = existing_machine {
+            // There's already a machine with this ID, but we already looked above for machines with
+            // the same MAC address as this one, so something's weird here. Log this host's mac
+            // addresses and the ones from the colliding hosts to help in diagnosis.
+            let existing_macs = existing_machine
+                .hardware_info
+                .as_ref()
+                .map(|hw| hw.all_mac_addresses())
+                .unwrap_or_default();
+            tracing::warn!(
+                %machine_id,
+                ?existing_macs,
+                predicted_host_macs=?onboard_nic_mac_address,
+                "Predicted host already exists, with different mac addresses from this one. Potentially multiple machines with same serial number?"
+            );
+            return Ok(None);
+        }
+
+        self.create_machine_from_explored_managed_host(
+            txn,
+            managed_host,
+            machine_id,
+            metadata,
+            None,
+            false,
+        )
+        .await?;
+
+        // Create and attach a non-DPU machine_interface to the host for every MAC address we see in
+        // the exploration report
+        if let Some(machine_interface) =
+            db::machine_interface::find_by_mac_address(txn, onboard_nic_mac_address)
+                .await?
+                .into_iter()
+                .next()
+        {
+            // There's already a machine_interface with this MAC...
+            if let Some(existing_machine_id) = machine_interface.machine_id {
+                // ...If it has a MachineId, something's gone wrong. We already checked db::machine::find_by_mac()
+                // above for all mac addresses, and returned Ok(false) if any were found. Finding an interface
+                // with this MAC with a non-nil machine_id is a contradiction.
+                tracing::error!(
+                    %onboard_nic_mac_address,
+                    %machine_id,
+                    %existing_machine_id,
+                    "BUG! Found existing machine_interface with this MAC address, we should not have gotten here!"
+                );
+                // return Err(CarbideError::AlreadyFoundError {
+                //     kind: "MachineInterface",
+                //     id: mac_address.to_string(),
+                // });
+            } else {
+                // ...If it has no MachineId, the host must have DHCP'd before site-explorer ran. Set it to the new machine ID.
+                tracing::info!(%onboard_nic_mac_address, %machine_id, "Migrating unowned machine_interface to new managed host");
+                db::machine_interface::associate_interface_with_machine(
+                    &machine_interface.id,
+                    MachineInterfaceAssociation::Machine(*machine_id),
+                    txn,
+                )
+                .await?;
+            }
+        } else {
+            db::predicted_machine_interface::create(
+                NewPredictedMachineInterface {
+                    machine_id,
+                    mac_address: onboard_nic_mac_address,
+                    expected_network_segment_type: NetworkSegmentType::Admin,
+                },
+                txn,
+            )
+            .await?;
         }
 
         Ok(Some(*machine_id))

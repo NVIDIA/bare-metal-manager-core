@@ -9214,6 +9214,15 @@ async fn set_host_boot_order(
         SetBootOrderState::SetBootOrder => {
             if mh_snapshot.dpu_snapshots.is_empty() {
                 // MachineState::SetBootOrder is a NO-OP for the Zero-DPU case
+                if ctx.services.site_config.force_dpu_nic_mode {
+                    redfish_client
+                        .boot_first(Boot::UefiHttp)
+                        .await
+                        .map_err(|e| StateHandlerError::RedfishError {
+                            operation: "boot_first",
+                            error: e,
+                        })?;
+                }
                 Ok(SetBootOrderOutcome::Done)
             } else {
                 let primary_interface = mh_snapshot
