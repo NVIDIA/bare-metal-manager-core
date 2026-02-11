@@ -47,12 +47,17 @@ pub(crate) async fn cleanup_machine_completed(
     let (machine, mut txn) = api
         .load_machine(&machine_id, MachineSearchConfig::default())
         .await?;
-    db::machine::update_cleanup_time(&machine, &mut txn).await?;
 
-    if let Some(nvme_result) = cleanup_info.nvme
+    // Check if cleanup failed
+    if let Some(ref nvme_result) = cleanup_info.nvme
         && rpc::machine_cleanup_info::CleanupResult::Error as i32 == nvme_result.result
     {
         // NVME Cleanup failed. Move machine to failed state.
+        tracing::warn!(
+            machine_id = %machine_id,
+            error = %nvme_result.message,
+            "NVMe cleanup failed"
+        );
         db::machine::update_failure_details(
             &machine,
             &mut txn,
@@ -65,6 +70,16 @@ pub(crate) async fn cleanup_machine_completed(
             },
         )
         .await?;
+    } else {
+        // Cleanup succeeded or was skipped (nvme field not present means scout skipped it)
+        if cleanup_info.nvme.is_none() {
+            tracing::info!(
+                machine_id = %machine_id,
+                "NVMe cleanup skipped by scout (likely due to safety check)"
+            );
+        }
+        // Update cleanup time on success
+        db::machine::update_cleanup_time(&machine, &mut txn).await?;
     }
 
     txn.commit().await?;
