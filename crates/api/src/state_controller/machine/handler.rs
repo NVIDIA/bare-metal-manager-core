@@ -8058,21 +8058,28 @@ impl AsyncFirmwareUploader {
     }
 }
 
-/// Issues a reboot request command to a host or DPU
-async fn handler_restart_dpu(
+#[track_caller]
+fn handler_restart_dpu(
     machine: &Machine,
     services: &CommonStateHandlerServices,
     txn: &mut PgConnection,
-) -> Result<(), StateHandlerError> {
-    db::machine::update_reboot_requested_time(
-        &machine.id,
-        txn,
-        model::machine::MachineLastRebootRequestedMode::Reboot,
-    )
-    .await?;
+) -> impl Future<Output = Result<(), StateHandlerError>> {
+    let trigger_location = std::panic::Location::caller();
+    tracing::info!(
+        dpu_machine_id = %machine.id,
+        %trigger_location,
+        "DPU restart triggered"
+    );
+    async move {
+        db::machine::update_reboot_requested_time(
+            &machine.id,
+            txn,
+            model::machine::MachineLastRebootRequestedMode::Reboot,
+        )
+        .await?;
 
-    restart_dpu(machine, services, txn).await
-    //handler_host_power_control(state, services, SystemPowerControl::ForceRestart, txn).await
+        restart_dpu(machine, services, txn).await
+    }
 }
 
 pub async fn host_power_state(

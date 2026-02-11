@@ -1677,7 +1677,6 @@ impl SiteExplorer {
                     // Try to generate a MachineId and parsed version info based on the retrieved data
                     if let Ok(report) = &mut result {
                         if !report.is_power_shelf() {
-                            tracing::info!("Generating MachineId for machine");
                             if let Err(error) = report.generate_machine_id(false) {
                                 tracing::error!(%error, "Can not generate MachineId for explored endpoint");
                             }
