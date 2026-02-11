@@ -775,11 +775,12 @@ impl ApiClient {
             .0
             .create_vpc(VpcCreationRequest {
                 name: name.to_string(),
+                vni: None,
+                routing_profile_type: None,
                 tenant_organization_id: "devenv_test_org".to_string(),
                 tenant_keyset_id: None,
-                vni: None,
                 network_virtualization_type: Some(
-                    VpcVirtualizationType::EthernetVirtualizerWithNvue as i32,
+                    VpcVirtualizationType::EthernetVirtualizerWithNvue.into(),
                 ),
                 id: Some(vpc_id),
                 metadata: Some(rpc::Metadata {
@@ -866,7 +867,7 @@ impl ApiClient {
         let request = rpc::VpcUpdateVirtualizationRequest {
             id: vpc.id,
             if_version_match: None,
-            network_virtualization_type: Some(virtualizer as i32),
+            network_virtualization_type: Some(virtualizer.into()),
         };
         self.0.update_vpc_virtualization(request).await?;
 

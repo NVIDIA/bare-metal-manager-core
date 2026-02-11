@@ -28,12 +28,79 @@ use model::vpc::{UpdateVpc, UpdateVpcVirtualization};
 use rpc::forge::forge_server::Forge;
 
 use crate::tests::common;
+use crate::tests::common::api_fixtures::create_test_env_with_fnn;
 use crate::tests::common::rpc_builder::{VpcCreationRequest, VpcUpdateRequest};
 use crate::{DatabaseError, db_init};
 
 #[crate::sqlx_test]
-async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+async fn create_vpc_for_tenant_without_profile(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
+
+    // Create a tenant.
+    let tenant = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "sizzle".to_string(),
+            routing_profile_type: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "sizzle".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .tenant
+        .unwrap();
+
+    // Try to request a VPC without sending a valid tenant org.
+    // This should fail.
+    assert!(
+        env.api
+            .create_vpc(
+                VpcCreationRequest::builder("", "")
+                    .metadata(rpc::forge::Metadata {
+                        name: "Forge".to_string(),
+                        description: "".to_string(),
+                        labels: Vec::new(),
+                    })
+                    .routing_profile_type(rpc::forge::RoutingProfileType::PrivilegedInternal)
+                    .tonic_request(),
+            )
+            .await
+            .unwrap_err()
+            .message()
+            .contains("no tenant found")
+    );
+
+    // Try to request a VPC with a routing profile when the tenant has no routing profile type
+    assert!(
+        env.api
+            .create_vpc(
+                VpcCreationRequest::builder("", tenant.organization_id)
+                    .metadata(rpc::forge::Metadata {
+                        name: "Forge".to_string(),
+                        description: "".to_string(),
+                        labels: Vec::new(),
+                    })
+                    .routing_profile_type(rpc::forge::RoutingProfileType::PrivilegedInternal)
+                    .tonic_request(),
+            )
+            .await
+            .unwrap_err()
+            .message()
+            .contains("with no routing-profile type")
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_fnn(pool).await;
 
     // Create a tenant.
     let tenant = env
@@ -110,6 +177,26 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         .into_inner()
         .tenant
         .unwrap();
+
+    // Try to request an elevated routing profile type for the VPC.
+    // This should fail.
+    assert!(
+        env.api
+            .create_vpc(
+                VpcCreationRequest::builder("", &tenant.organization_id)
+                    .metadata(rpc::forge::Metadata {
+                        name: "Forge".to_string(),
+                        description: "".to_string(),
+                        labels: Vec::new(),
+                    })
+                    .routing_profile_type(rpc::forge::RoutingProfileType::PrivilegedInternal)
+                    .tonic_request(),
+            )
+            .await
+            .unwrap_err()
+            .message()
+            .contains("greater than associated tenant")
+    );
 
     // No network_virtualization_type, should default
     let forge_vpc = env

@@ -57,7 +57,7 @@ use model::metadata::Metadata;
 use model::network_security_group;
 use model::resource_pool::common::CommonPools;
 use model::resource_pool::{self};
-use model::tenant::TenantOrganizationId;
+use model::tenant::{RoutingProfileType, TenantOrganizationId};
 use nras::{
     DeviceAttestationInfo, NrasError, ProcessedAttestationOutcome, RawAttestationOutcome,
     VerifierClient,
@@ -1167,6 +1167,39 @@ async fn create_pool(current_pool: sqlx::PgPool) -> sqlx::PgPool {
 /// can be inspected and passed to other systems.
 pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
     create_test_env_with_overrides(db_pool, Default::default()).await
+}
+
+pub async fn create_test_env_with_fnn(db_pool: sqlx::PgPool) -> TestEnv {
+    create_test_env_with_overrides(
+        db_pool,
+        TestEnvOverrides {
+            fnn_config: Some(FnnConfig {
+                admin_vpc: None,
+                common_internal_route_target: None,
+                additional_route_target_imports: vec![],
+                routing_profiles: HashMap::from([
+                    (
+                        RoutingProfileType::External.to_string(),
+                        crate::cfg::file::FnnRoutingProfileConfig {
+                            internal: false,
+                            route_target_imports: vec![],
+                            route_targets_on_exports: vec![],
+                        },
+                    ),
+                    (
+                        RoutingProfileType::Internal.to_string(),
+                        crate::cfg::file::FnnRoutingProfileConfig {
+                            internal: true,
+                            route_target_imports: vec![],
+                            route_targets_on_exports: vec![],
+                        },
+                    ),
+                ]),
+            }),
+            ..Default::default()
+        },
+    )
+    .await
 }
 
 #[derive(Debug, Default)]

@@ -165,7 +165,6 @@ async fn test_simple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     db::resource_pool::release(&pool, &mut txn, auto_allocated).await?;
     db::resource_pool::release(&pool, &mut txn, non_auto_allocated).await?;
 
-    // and then there was one
     assert_eq!(
         db::resource_pool::stats(&mut *txn, pool.name()).await?,
         St {

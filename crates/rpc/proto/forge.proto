@@ -1177,6 +1177,13 @@ message VpcCreationRequest {
   // The requested VNI must be available in a resource-pool range that is not
   // marked for auto-assignment; otherwise, the request will be rejected.
   optional uint32 vni = 15;
+
+  // Desired routing profile type for this VPC.
+  // The requested type must be equal to or less than
+  // type of the tenant.
+  // For example, an internal tenant can request internal or external VPCs,
+  // but an external tenant can only request external VPCs.
+  optional RoutingProfileType routing_profile_type = 16;  
 }
 
 enum VpcVirtualizationType {

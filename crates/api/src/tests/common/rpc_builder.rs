@@ -44,6 +44,7 @@ pub struct VpcCreationRequest {
     pub metadata: ::core::option::Option<rpc::forge::Metadata>,
     pub network_security_group_id: ::core::option::Option<::prost::alloc::string::String>,
     pub vni: ::core::option::Option<u32>,
+    pub routing_profile_type: ::core::option::Option<i32>,
     pub default_nvlink_logical_partition_id:
         ::core::option::Option<::carbide_uuid::nvlink::NvLinkLogicalPartitionId>,
 }
