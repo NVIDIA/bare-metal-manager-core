@@ -16,6 +16,7 @@
  */
 
 pub mod account_service;
+pub mod assembly;
 pub mod bios;
 pub mod boot_option;
 pub mod chassis;

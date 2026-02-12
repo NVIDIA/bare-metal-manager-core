@@ -67,6 +67,7 @@ impl Bluefield3<'_> {
                     pcie_devices: Some(vec![]),
                     serial_number: Some(self.product_serial_number.to_string().into()),
                     sensors: None,
+                    assembly: None,
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "Bluefield_ERoT".into(),
@@ -78,6 +79,7 @@ impl Bluefield3<'_> {
                     pcie_devices: None,
                     serial_number: Some("".into()),
                     sensors: None,
+                    assembly: None,
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "CPU_0".into(),
@@ -89,6 +91,7 @@ impl Bluefield3<'_> {
                     serial_number: Some("Unspecified Serial Number".into()),
                     pcie_devices: Some(vec![]),
                     sensors: None,
+                    assembly: None,
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "Card1".into(),
@@ -103,6 +106,7 @@ impl Bluefield3<'_> {
                         "Card1",
                         Self::sensor_layout(),
                     )),
+                    assembly: None,
                 },
             ],
         }

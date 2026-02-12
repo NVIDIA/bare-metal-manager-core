@@ -99,6 +99,10 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
             &redfish::sensor::chassis_resource(CHASSIS_ID, SENSOR_ID).odata_id,
             get(get_chassis_sensor),
         )
+        .route(
+            &redfish::assembly::chassis_resource(CHASSIS_ID).odata_id,
+            get(get_chassis_assembly),
+        )
 }
 
 pub struct SingleChassisConfig {
@@ -111,6 +115,7 @@ pub struct SingleChassisConfig {
     pub pcie_devices: Option<Vec<redfish::pcie_device::PCIeDevice>>,
     pub sensors: Option<Vec<redfish::sensor::Sensor>>,
     pub chassis_type: Cow<'static, str>,
+    pub assembly: Option<serde_json::Value>,
 }
 
 pub struct ChassisConfig {
@@ -193,25 +198,33 @@ async fn get_chassis(State(state): State<BmcState>, Path(chassis_id): Path<Strin
         return http::not_found();
     };
     let config = &chassis_state.config;
-    let b = builder(&resource(&chassis_id));
-    let b = b.chassis_type(&config.chassis_type);
+    let pcie_devices = config
+        .pcie_devices
+        .is_some()
+        .then_some(redfish::pcie_device::chassis_collection(&chassis_id));
 
-    let b = if config.pcie_devices.is_some() {
-        b.pcie_devices(redfish::pcie_device::chassis_collection(&chassis_id))
-    } else {
-        b
-    };
-    let b = if config.network_adapters.is_some() {
-        b.network_adapters(redfish::network_adapter::chassis_collection(&chassis_id))
-    } else {
-        b
-    };
-    let b = if config.sensors.is_some() {
-        b.sensors(redfish::sensor::chassis_collection(&chassis_id))
-    } else {
-        b
-    };
-    b.maybe_with(ChassisBuilder::serial_number, &config.serial_number)
+    let network_adapters = config
+        .network_adapters
+        .is_some()
+        .then_some(redfish::network_adapter::chassis_collection(&chassis_id));
+
+    let sensors = config
+        .sensors
+        .is_some()
+        .then_some(redfish::sensor::chassis_collection(&chassis_id));
+
+    let assembly = config
+        .assembly
+        .is_some()
+        .then_some(redfish::assembly::chassis_resource(&chassis_id));
+
+    builder(&resource(&chassis_id))
+        .chassis_type(&config.chassis_type)
+        .maybe_with(ChassisBuilder::assembly, &assembly)
+        .maybe_with(ChassisBuilder::pcie_devices, &pcie_devices)
+        .maybe_with(ChassisBuilder::network_adapters, &network_adapters)
+        .maybe_with(ChassisBuilder::sensors, &sensors)
+        .maybe_with(ChassisBuilder::serial_number, &config.serial_number)
         .maybe_with(ChassisBuilder::manufacturer, &config.manufacturer)
         .maybe_with(ChassisBuilder::part_number, &config.part_number)
         .maybe_with(ChassisBuilder::model, &config.model)
@@ -378,6 +391,18 @@ async fn get_chassis_sensor(
         .unwrap_or_else(http::not_found)
 }
 
+async fn get_chassis_assembly(
+    State(state): State<BmcState>,
+    Path(chassis_id): Path<String>,
+) -> Response {
+    state
+        .chassis_state
+        .find(&chassis_id)
+        .and_then(|chassis_state| chassis_state.config.assembly.clone())
+        .map(|assembly| assembly.into_ok_response())
+        .unwrap_or_else(http::not_found)
+}
+
 pub struct ChassisBuilder {
     value: serde_json::Value,
 }
@@ -411,15 +436,19 @@ impl ChassisBuilder {
         self.add_str_field("Model", v)
     }
 
-    pub fn network_adapters(self, v: redfish::Collection<'_>) -> Self {
+    pub fn assembly(self, v: &redfish::Resource<'_>) -> Self {
+        self.apply_patch(v.nav_property("Assembly"))
+    }
+
+    pub fn network_adapters(self, v: &redfish::Collection<'_>) -> Self {
         self.apply_patch(v.nav_property("NetworkAdapters"))
     }
 
-    pub fn pcie_devices(self, v: redfish::Collection<'_>) -> Self {
+    pub fn pcie_devices(self, v: &redfish::Collection<'_>) -> Self {
         self.apply_patch(v.nav_property("PCIeDevices"))
     }
 
-    pub fn sensors(self, v: redfish::Collection<'_>) -> Self {
+    pub fn sensors(self, v: &redfish::Collection<'_>) -> Self {
         self.apply_patch(v.nav_property("Sensors"))
     }
 

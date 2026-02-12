@@ -46,6 +46,12 @@ impl Collection<'_> {
     }
 }
 
+impl<'a> AsRef<Collection<'a>> for Collection<'a> {
+    fn as_ref(&self) -> &Self {
+        self
+    }
+}
+
 impl JsonPatch for Collection<'_> {
     fn json_patch(&self) -> serde_json::Value {
         json!({
