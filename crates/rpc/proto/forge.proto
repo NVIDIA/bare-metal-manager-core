@@ -1025,6 +1025,8 @@ message RuntimeConfig {
 
   string dpa_subnet_ip = 47;
   int32 dpa_subnet_mask = 48;
+
+  bool dpf_enabled = 49;
 }
 
 message EchoRequest {
