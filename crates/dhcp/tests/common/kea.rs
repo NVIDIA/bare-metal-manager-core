@@ -31,7 +31,12 @@ pub struct Kea {
     dhcp_out_port: u16,
 
     // Hold this around so that when Kea is dropped, TempDir is dropped and cleaned up
-    temp_base_directory: TempDir,
+    // The config file is stored in this directory
+    _temp_base_directory: TempDir,
+
+    // Directories for PID and lock files that AppArmor allows
+    pidfile_dir: PathBuf,
+    lockfile_dir: PathBuf,
 
     process: Option<Child>,
 }
@@ -44,9 +49,14 @@ impl Kea {
         dhcp_in_port: u16,
         dhcp_out_port: u16,
     ) -> Result<Kea, eyre::Report> {
-        let temp_base_directory = tempfile::tempdir()?;
+        let _temp_base_directory = tempfile::tempdir()?;
 
-        let temp_conf_file = temp_base_directory.path().join("kea-dhcp4.conf");
+        let temp_conf_file = _temp_base_directory.path().join("kea-dhcp4.conf");
+
+        // Use the unique temp directory for each test instance to avoid conflicts
+        // when tests run in parallel. This requires AppArmor to be in complain mode.
+        let pidfile_dir = _temp_base_directory.path().to_path_buf();
+        let lockfile_dir = _temp_base_directory.path().to_path_buf();
 
         let mut temp_conf_fd = File::create(&temp_conf_file)?;
         temp_conf_fd.write_all(Kea::config(api_server_url).as_bytes())?;
@@ -56,7 +66,9 @@ impl Kea {
 
         Ok(Kea {
             temp_conf_file,
-            temp_base_directory,
+            _temp_base_directory,
+            pidfile_dir,
+            lockfile_dir,
             dhcp_in_port,
             dhcp_out_port,
             process: None,
@@ -65,8 +77,8 @@ impl Kea {
 
     pub fn run(&mut self) -> Result<(), eyre::Report> {
         let mut process = Command::new("/usr/sbin/kea-dhcp4")
-            .env("KEA_PIDFILE_DIR", self.temp_base_directory.path())
-            .env("KEA_LOCKFILE_DIR", self.temp_base_directory.path())
+            .env("KEA_PIDFILE_DIR", &self.pidfile_dir)
+            .env("KEA_LOCKFILE_DIR", &self.lockfile_dir)
             .arg("-c")
             .arg(self.temp_conf_file.as_os_str())
             .arg("-p")
