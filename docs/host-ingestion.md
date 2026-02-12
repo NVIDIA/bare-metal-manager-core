@@ -1,6 +1,6 @@
 # Host Ingestion
 
-Once you have Carbide up and running, you can begin ingesting managed hosts. 
+Once you have NVIDIA Bare Metal Manager (BMM) up and running, you can begin ingesting managed hosts. 
 
 ## Prerequisites
 
@@ -8,11 +8,11 @@ Ensure you have the following prerequisites met before ingesting hosts:
 
 1. You have the `admin-cli` command available: You can compile it from sources or you can use the pre-compiled binary. Another choice is to use a containerized version.
 
-2. You can access the Carbide site using the `admin-cli`.
+2. You can access the BMM site using the `admin-cli`.
 
-3. The Carbide API service is running at IP address `CARBIDE_API_EXTERNAL`. It is recommended that you add this IP address to your trusted list.
+3. The BMM API service is running at IP address `BMM_API_EXTERNAL`. It is recommended that you add this IP address to your trusted list.
    
-4. DHCP requests from all managed host IPMI networks have been forwarded to the Carbide service running at IP address `CARBIDE_DHCP_EXTERNAL`.
+4. DHCP requests from all managed host IPMI networks have been forwarded to the BMM service running at IP address `BMM_DHCP_EXTERNAL`.
 
 5. You have the following information for all hosts that need to be ingested:
 
@@ -23,7 +23,7 @@ Ensure you have the following prerequisites met before ingesting hosts:
 
 ## Update Site 
 
-Carbide requires knowledge of the desired BMC and UEFI credentials for hosts and DPUs. Carbide will set these credentials on the BMC and UEFI when ingesting a host. You can use these credentials when accessing the host or DPU BMC yourself, and Carbide will use these credentials for its automated processes.
+BMM requires knowledge of the desired BMC and UEFI credentials for hosts and DPUs. BMM will set these credentials on the BMC and UEFI when ingesting a host. You can use these credentials when accessing the host or DPU BMC yourself, and BMM will use these credentials for its automated processes.
 
 The required credentials include the following:
 
@@ -70,7 +70,7 @@ TODO: Need to add this command.
 
 ## Add Expected Machines Table
 
-Carbide needs to know the factory default credentials for each BMC, which is expressed as a JSON table of "Expected Machines".  The serial number is used to verify the BMC MAC matches the actual serial number of the chassis.
+BMM needs to know the factory default credentials for each BMC, which is expressed as a JSON table of "Expected Machines".  The serial number is used to verify the BMC MAC matches the actual serial number of the chassis.
 
 Prepare an `expected_machines.json` file as follows:
 
@@ -103,8 +103,8 @@ admin-cli -c <api-url> credential em replace-all --filename expected_machines.js
 
 ## Approve all Machines for Ingestion
 
-Carbide uses Measured Boot using the on-host Trusted Platform Module (TPM) v2.0 to enforce cryptographic identity of the host hardware and firmware.
-The following command configures Carbide to approve all pending machines based on PCR Registers 0, 3, 5, and 6.
+BMM uses Measured Boot using the on-host Trusted Platform Module (TPM) v2.0 to enforce cryptographic identity of the host hardware and firmware.
+The following command configures BMM to approve all pending machines based on PCR Registers 0, 3, 5, and 6.
 
 ```bash
 admin-cli -c <api-url> mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"

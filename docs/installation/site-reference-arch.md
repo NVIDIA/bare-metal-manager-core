@@ -1,6 +1,6 @@
 # Site Reference Architecture 
 
-This page provides guidelines for hardware and configuration for Carbide managed sites.
+This page provides guidelines for hardware and configuration for NVIDIA Bare Metal Manager (BMM) managed sites.
 
 ## Host Hardware Requirements
 
@@ -46,11 +46,11 @@ The site controller and compute systems must be qualified for one dual-port NVID
   * Firmware update support
   * Serial-over-LAN capability
 
-**Note**: Carbide does not require any cabling or communication between the DPU and the host.
+**Note**: BMM does not require any cabling or communication between the DPU and the host.
 
 ## Kubernetes and Runtime
 
-The following versions indicate the tested baseline for the Carbide site controller.
+The following versions indicate the tested baseline for the BMM site controller.
 
 * **Kubernetes**: v1.30.x (tested with 1.30.4)
 * **CRI**: containerd 1.7.x (tested with 1.7.1)
@@ -85,10 +85,10 @@ This design requires the DPU to be in DPU mode in site controllers.
 
 ## General Guidance
 
-* **IP addressing**: The site owner supplies their subnets/VLANs--do not hardcode the default Carbide subnets.
+* **IP addressing**: The site owner supplies their subnets/VLANs--do not hardcode the default BMM subnets.
 * **MTU**: Use 1500 for overlays (VXLAN/Geneve). Use 9000 only if the underlay supports it end‑to‑end.
 * **DNS**: Enterprise resolvers; NodeLocal DNS cache is optional.
-* **Gateway/routing**: Static or routed (BGP) per site standards--no dependency on Carbide routes.
+* **Gateway/routing**: Static or routed (BGP) per site standards--no dependency on BMM routes.
 * **Bonding/LACP**: Optional for NIC redundancy; otherwise, you can use simple active/standby.
 * **Firewalling**: Allow Kubernetes control-plane and node ports per the chosen CNI, as well as SSH access from a secure management network or jumpbox. Block everything else by default.
 
@@ -123,9 +123,9 @@ This pool is required for the services running on the control plane cluster.
 
 * **Number of IPs per host**: 1 (host BMC) + 2 × the number of DPUs (DPU ARM OS + DPU BMC per DPU)
 
-* The IP allocation in this network is managed by Carbide. 
+* The IP allocation in this network is managed by BMM. 
 * The allocation can be split into multiple pools. 
-* These subnets must be configured on the out-of-band connected switches, with a DHCP relay configuration pointing to the Carbide DHCP service Carbide must be informed about them.
+* These subnets must be configured on the out-of-band connected switches, with a DHCP relay configuration pointing to the BMM DHCP service BMM must be informed about them.
 
 ### DPU Loopback Pool
 
@@ -133,7 +133,7 @@ This pool is required for the services running on the control plane cluster.
 
 * This is the DPU loopback address used during DPU networking.
 
-### Carbide Managed Admin Network
+### BMM Managed Admin Network
 
 This is the host IP when there’s no tenant using it.
 
@@ -141,14 +141,14 @@ This is the host IP when there’s no tenant using it.
 
 * The pool should be large enough for one usable IP per managed server, plus any required network and broadcast addresses for the subnet(s).
 
-### Carbide Managed Tenant Network(s)
+### BMM Managed Tenant Network(s)
 
 * **Number of IPs required per managed host per tenant network**: 2 host IPs (PF + VF), provisioned as one `/31` per interface.
   * For example, if you want to provision for two tenant networks, you should provide two pools, each large enough for all servers. 
 
 * When a managed host is allocated to a tenant, it joins a tenant network.
 * There can be multiple tenant networks.
-* IP allocations are managed by Carbide.
+* IP allocations are managed by BMM.
 * We use `/31` point-to-point subnets per interface; for example, a host with 1 DPU using the PF and one VF consumes 2 × `/31` subnets per tenant network (one `/31` for each interface).
 
 ### Switch Configuration
@@ -175,7 +175,7 @@ Storage layout for the site controller should keep the OS clean and isolate the 
   * Usage is typically ~ 200–500 GiB
 * Mount **/var/lib/containerd** and **/var/lib/kubelet** on a **separate NVMe data disk** (≥ 1 TiB)
   * Format ext4/xfs; mount with noatime; consider a dedicated `/var/log` if there is heavy logging.
-* Use **persistent app storage**, such as SAN/NAS or an add‑on (e.g. Rook‑Ceph), if required by workloads. This is not required for the Carbide controller itself.
+* Use **persistent app storage**, such as SAN/NAS or an add‑on (e.g. Rook‑Ceph), if required by workloads. This is not required for the BMM controller itself.
 
 ## Security and Platform Settings
 

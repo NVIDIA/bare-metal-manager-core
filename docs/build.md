@@ -1,19 +1,23 @@
-# Building Carbide containers
+# Building Bare Metal Manager containers
 
-1. You have cloned the carbide repo from github
-2. Ubuntu2404 Host or VM - Make sure you have 150GB+ of disk space
+This section provides instructions for building the Bare Metal Manager (BMM) containers.
 
-## Installing prerequisite software
+## Prerequisites
 
-A linux VM or host is required in order to complete the steps below.  This will not work on MacOS. Instructions
+- You have cloned the BMM repo from GitHub.
+- You have an Ubuntu 24.04 Host or VM with 150GB+ of disk space
+
+## Installing Prerequisite Software
+
+A Linux VM or host is required in order to complete the steps below. This will not work on MacOS. Instructions
 assume an `apt` based distro such as Ubuntu 24.04
 
 1. `apt-get install build-essential direnv mkosi uidmap curl fakeroot git docker.io docker-buildx sccache protobuf-compiler libopenipmi-dev libudev-dev libboost-dev libgrpc-dev libprotobuf-dev libssl-dev libtss2-dev kea-dev systemd-boot systemd-ukify`
 2. [Add the correct hook for your shell](https://direnv.net/docs/hook.html)
-3. Install rustup - `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` (select Option 1)
+3. Install rustup: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` (select Option 1)
 4. Start a new shell to pick up changes made from direnv and rustup.
-5. Clone carbide - `git clone git@github.com:NVIDIA/carbide-core-snapshot.git carbide`
-6. `cd carbide`
+5. Clone the BMM repository: `git clone git@github.com:NVIDIA/bare-metal-manager-core.git bare-metal-manager`
+6. `cd bare-metal-manager`
 7. `direnv allow`
 8. `cd $REPO_ROOT/pxe`
 9. `git clone https://github.com/systemd/mkosi.git`
@@ -28,49 +32,48 @@ assume an `apt` based distro such as Ubuntu 24.04
 18. `sudo usermod -aG docker <username>`
 19. `reboot`
 
-**NOTE**
-In order to download the required HBN container, you must have access to [PID Library](https://apps.nvidia.com/pid/contentlibraries/detail?id=1138607) The PID library contains an attachment `HBN-LTS-2-4-3-complete.tar.gz` which you will need to download into your home directory.
+**NOTE**: In order to download the required HBN container, you must have access to [PID Library](https://apps.nvidia.com/pid/contentlibraries/detail?id=1138607) The PID library contains an attachment `HBN-LTS-2-4-3-complete.tar.gz` which you will need to download into your home directory.
 
 ## Building X86_64 Containers
 
-***NOTE*** Execute these tasks in order. All commands are run from the top of the carbide directory
+***NOTE*** Execute these tasks in order. All commands are run from the top of the ``bare-metal-manager`` directory
 
-### Building the X86 build container
-
-```sh
-docker build --file dev/docker/Dockerfile.build-container-x86_64 -t carbide-buildcontainer-x86_64 .
-```
-
-### Building the X86 runtime container
+### Building the X86 Build Container
 
 ```sh
-docker build --file dev/docker/Dockerfile.runtime-container-x86_64 -t carbide-runtime-container-x86_64 .
+docker build --file dev/docker/Dockerfile.build-container-x86_64 -t bmm-buildcontainer-x86_64 .
 ```
 
-### Building boot artifact containers
+### Building the X86 Runtime Container
+
+```sh
+docker build --file dev/docker/Dockerfile.runtime-container-x86_64 -t bmm-runtime-container-x86_64 .
+```
+
+### Building Boot Artifact Containers
 
 ```sh
 cargo make --cwd pxe --env SA_ENABLEMENT=1 build-boot-artifacts-x86-host-sa
 docker build --build-arg "CONTAINER_RUNTIME_X86_64=alpine:latest" -t boot-artifacts-x86_64 -f dev/docker/Dockerfile.release-artifacts-x86_64 .
 ```
 
-## Machine Validation images
+## Machine Validation Images
 
 ```sh
-docker build --build-arg CONTAINER_RUNTIME_X86_64=carbide-runtime-container-x86_64 -t machine-validation-runner -f dev/docker/Dockerfile.machine-validation-runner .
+docker build --build-arg CONTAINER_RUNTIME_X86_64=bmm-runtime-container-x86_64 -t machine-validation-runner -f dev/docker/Dockerfile.machine-validation-runner .
 
-docker build --build-arg CONTAINER_RUNTIME_X86_64=carbide-runtime-container-x86_64 -t machine-validation-config -f dev/docker/Dockerfile.machine-validation-config .
+docker build --build-arg CONTAINER_RUNTIME_X86_64=bmm-runtime-container-x86_64 -t machine-validation-config -f dev/docker/Dockerfile.machine-validation-config .
 ```
 
-## Building carbide-core container
+## Building bmm-core Container
 
 ```sh
-docker build --build-arg "CONTAINER_RUNTIME_X86_64=carbide-runtime-container-x86_64" --build-arg "CONTAINER_BUILD_X86_64=carbide-build-container-x86_64" -f dev/docker/Dockerfile.release-container-sa-x86_64 -t carbide .
+docker build --build-arg "CONTAINER_RUNTIME_X86_64=bmm-runtime-container-x86_64" --build-arg "CONTAINER_BUILD_X86_64=bmm-build-container-x86_64" -f dev/docker/Dockerfile.release-container-sa-x86_64 -t bmm .
 ```
 
-## AARCH64 Containers and artifacts
+## AARCH64 Containers and Artifacts
 
-### Building Cross-compile container
+### Building Cross-Compile Container
 
 ```sh
 docker build --file dev/docker/Dockerfile.build-artifacts-container-cross-aarch64 -t build-artifacts-container-cross-aarch64 .
@@ -78,7 +81,7 @@ docker build --file dev/docker/Dockerfile.build-artifacts-container-cross-aarch6
 
 ### Building the DPU BFB
 
-After downloading HBN-LTS-2-4-3-complete.tar.gz
+After downloading `HBN-LTS-2-4-3-complete.tar.gz`, perform the following steps:
 
 ```sh
 tar -zxf HBN-LTS-2-4-3-complete.tar.gz`
