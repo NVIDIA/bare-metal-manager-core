@@ -452,6 +452,7 @@ impl ApiClient {
                 network_security_group_id: None,
                 network_virtualization_type: None,
                 vni: None,
+                routing_profile_type: None,
                 metadata: Some(rpc::forge::Metadata {
                     name: format!("vpc_{vpc_count}"),
                     description: "".to_string(),

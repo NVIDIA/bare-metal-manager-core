@@ -57,7 +57,7 @@ use model::metadata::Metadata;
 use model::network_security_group;
 use model::resource_pool::common::CommonPools;
 use model::resource_pool::{self};
-use model::tenant::TenantOrganizationId;
+use model::tenant::{RoutingProfileType, TenantOrganizationId};
 use nras::{
     DeviceAttestationInfo, NrasError, ProcessedAttestationOutcome, RawAttestationOutcome,
     VerifierClient,
@@ -270,6 +270,36 @@ impl TestEnvOverrides {
 
     pub fn with_dpf_config(mut self, dpf_config: DpfConfig) -> Self {
         self.dpf_config = Some(dpf_config);
+        self
+    }
+
+    pub fn with_fnn_config(mut self, fnn_config: Option<FnnConfig>) -> Self {
+        self.fnn_config = fnn_config.or_else(|| {
+            Some(FnnConfig {
+                admin_vpc: None,
+                common_internal_route_target: None,
+                additional_route_target_imports: vec![],
+                routing_profiles: HashMap::from([
+                    (
+                        RoutingProfileType::External.to_string(),
+                        crate::cfg::file::FnnRoutingProfileConfig {
+                            internal: false,
+                            route_target_imports: vec![],
+                            route_targets_on_exports: vec![],
+                        },
+                    ),
+                    (
+                        RoutingProfileType::Internal.to_string(),
+                        crate::cfg::file::FnnRoutingProfileConfig {
+                            internal: true,
+                            route_target_imports: vec![],
+                            route_targets_on_exports: vec![],
+                        },
+                    ),
+                ]),
+            })
+        });
+
         self
     }
 
