@@ -2,6 +2,7 @@
 **/node_modules
 bluefield/forge-dpu*.deb
 bluefield/forge-dpu*/
+bluefield/otel-dpu*/
 public/
 .vagrant
 .DS_Store

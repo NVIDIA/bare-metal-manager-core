@@ -28,6 +28,7 @@ description = "clean up locally built forge-dpu-agent files"
 script = '''
   echo Removing locally built forge-dpu-agent files ...
   rm -rf forge-dpu_*
+  rm -rf otel-dpu_*
   echo Cleanup completed.
 '''
 
@@ -204,9 +205,11 @@ script = '''
   VERSION=$(cat otelcol_version.txt)
   FILERESOURCE_VERSION=$(bash ${OTEL}/get_module_version.sh ${OTEL}/fileresourceprocessor)
   TELEMETRYSTATS_VERSION=$(bash ${OTEL}/get_module_version.sh ${OTEL}/telemetrystatsprocessor)
+  PUNTSTATS_VERSION=$(bash ${OTEL}/get_module_version.sh ${OTEL}/puntstatsreceiver)
   sed -e "s/\${VERSION}/${VERSION}/g" \
       -e "s/\${FILERESOURCE_VERSION}/$FILERESOURCE_VERSION/g" \
       -e "s/\${TELEMETRYSTATS_VERSION}/$TELEMETRYSTATS_VERSION/g" \
+      -e "s/\${PUNTSTATS_VERSION}/$PUNTSTATS_VERSION/g" \
       otelcol_builder_config_yaml.txt > ocb_config.yaml
   export GOROOT="${OTEL}/go"
   export PATH="${GOROOT}/bin:${PATH}"
@@ -467,6 +470,26 @@ script = '''
     dpkg-deb --build forge-dpu_${DPU_AGENT_PKG_VERSION}_arm64 ${REPO_ROOT}/target/debs/
 '''
 dependencies = ["setup-dpu-agent-deb-local"]
+
+[tasks.build-otel-dpu-deb-local]
+category = "Build"
+description = "Build the otel-dpu.deb package locally for otel without dpu agent"
+workspace = false
+script = '''
+    export vers=${DPU_AGENT_PKG_VERSION}
+    mkdir -p "otel-dpu_${vers}_arm64/lib/systemd/system"
+    mkdir -p "otel-dpu_${vers}_arm64/usr/bin"
+    mkdir -p "otel-dpu_${vers}_arm64/etc/otelcol-contrib"
+    cp misc/otelcol-contrib.service "otel-dpu_${vers}_arm64/lib/systemd/system/"
+    cp otel/site-controller/otelcol-wrapper "otel-dpu_${vers}_arm64/etc/otelcol-contrib/" && chmod u+x "otel-dpu_${vers}_arm64/etc/otelcol-contrib/otelcol-wrapper"
+    cp otel/site-controller/otel_config.yaml "otel-dpu_${vers}_arm64/etc/otelcol-contrib/config.yaml"
+    cp "forge-dpu_${vers}_arm64/usr/bin/otelcol-contrib" "otel-dpu_${vers}_arm64/usr/bin/"
+    cp -r misc/site-controller/DEBIAN "otel-dpu_${vers}_arm64/"
+    sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" otel-dpu_${vers}_arm64/DEBIAN/control
+
+    dpkg-deb --build otel-dpu_${DPU_AGENT_PKG_VERSION}_arm64 ${REPO_ROOT}/target/debs/
+'''
+dependencies = ["build-forge-dpu-deb-local"]
 
 [tasks.build-forge-dpu-deb]
 category = "Build"
