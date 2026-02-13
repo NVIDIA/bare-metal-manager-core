@@ -92,6 +92,31 @@ impl StateHandler for IBPartitionStateHandler {
                             match e {
                                 // The IBPartition maybe deleted during controller cycle.
                                 CarbideError::NotFoundError { .. } => {
+                                    // Before deleting, check if any instances still reference
+                                    // this partition. This prevents deleting a partition that
+                                    // instances still depend on, which would cause errors when
+                                    // the instance state handler tries to unbind ports.
+                                    let mut txn = ctx.services.db_pool.begin().await?;
+                                    let instance_count =
+                                        db::ib_partition::count_instances_referencing_partition(
+                                            &mut txn,
+                                            *partition_id,
+                                        )
+                                        .await?;
+
+                                    if instance_count > 0 {
+                                        tracing::info!(
+                                            %partition_id,
+                                            instance_count,
+                                            "Postponing IB partition deletion: \
+                                             {instance_count} instance(s) still reference this partition",
+                                        );
+                                        return Ok(StateHandlerOutcome::wait(format!(
+                                            "Waiting for {instance_count} instance(s) to release IB partition"
+                                        ))
+                                        .with_txn(Some(txn)));
+                                    }
+
                                     // Release pkey after ib_partition deleted.
                                     let pkey_pool = ctx
                                         .services
@@ -104,7 +129,6 @@ impl StateHandler for IBPartitionStateHandler {
                                                 "pkey pool for fabric \"{DEFAULT_IB_FABRIC_NAME}\" was not found"
                                             )})?;
 
-                                    let mut txn = ctx.services.db_pool.begin().await?;
                                     db::ib_partition::final_delete(*partition_id, &mut txn).await?;
 
                                     db::resource_pool::release(pkey_pool, &mut txn, pkey.into())

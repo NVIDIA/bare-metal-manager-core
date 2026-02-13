@@ -1101,3 +1101,503 @@ async fn verify_pkey_guids(
         assert_eq!(actual_guids, expected_guids);
     }
 }
+
+/// Tests that `count_instances_referencing_partition` correctly counts instances
+/// whose `ib_config` references a given IB partition.
+#[crate::sqlx_test]
+async fn test_count_instances_referencing_partition(pool: sqlx::PgPool) {
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        mtu: crate::ib::IBMtu(2),
+        rate_limit: crate::ib::IBRateLimit(10),
+        max_partition_per_tenant: 16,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    let (ib_partition_id, _ib_partition) = create_ib_partition(
+        &env,
+        "test_ib_partition".to_string(),
+        DEFAULT_TENANT.to_string(),
+    )
+    .await;
+
+    // No instances yet — count should be 0
+    let mut txn = env.pool.begin().await.unwrap();
+    let count = db::ib_partition::count_instances_referencing_partition(
+        &mut txn,
+        ib_partition_id,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+    assert_eq!(count, 0, "No instances should reference the partition yet");
+
+    // Create a managed host and an instance with two IB interfaces both
+    // referencing the same partition. The count query uses EXISTS so it
+    // should still return 1 (one instance), not 2.
+    let mh = create_managed_host(&env).await;
+    let ib_config = rpc::forge::InstanceInfinibandConfig {
+        ib_interfaces: vec![
+            rpc::forge::InstanceIbInterfaceConfig {
+                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+                virtual_function_id: None,
+                ib_partition_id: Some(ib_partition_id),
+                device: "MT2910 Family [ConnectX-7]".to_string(),
+                vendor: None,
+                device_instance: 0,
+            },
+            rpc::forge::InstanceIbInterfaceConfig {
+                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+                virtual_function_id: None,
+                ib_partition_id: Some(ib_partition_id),
+                device: "MT2910 Family [ConnectX-7]".to_string(),
+                vendor: None,
+                device_instance: 1,
+            },
+        ],
+    };
+    let (tinstance, _instance) =
+        create_instance_with_ib_config(&env, &mh, ib_config, segment_id).await;
+
+    // Two interfaces reference the partition, but it's one instance — count should be 1
+    let mut txn = env.pool.begin().await.unwrap();
+    let count = db::ib_partition::count_instances_referencing_partition(
+        &mut txn,
+        ib_partition_id,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+    assert_eq!(count, 1, "One instance (with two IB interfaces) should be counted once");
+
+    // Mark the instance as deleted (set the deleted timestamp).
+    let mut txn = env.pool.begin().await.unwrap();
+    sqlx::query("UPDATE instances SET deleted = NOW() WHERE id = $1::uuid")
+        .bind(tinstance.id)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    // After mark_as_deleted, count should still be 1 (instance row still exists)
+    let mut txn = env.pool.begin().await.unwrap();
+    let count = db::ib_partition::count_instances_referencing_partition(
+        &mut txn,
+        ib_partition_id,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+    assert_eq!(
+        count, 1,
+        "Instance marked as deleted should still be counted (cleanup not finished)"
+    );
+
+    let mut txn = env.pool.begin().await.unwrap();
+    sqlx::query("DELETE FROM instance_addresses WHERE instance_id = $1::uuid")
+        .bind(tinstance.id)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM instances WHERE id = $1::uuid")
+        .bind(tinstance.id)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let count = db::ib_partition::count_instances_referencing_partition(
+        &mut txn,
+        ib_partition_id,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+    assert_eq!(
+        count, 0,
+        "No instances should reference the partition after final delete"
+    );
+}
+
+/// Tests the full IB partition deletion postponement behaviour.
+///
+/// Scenario:
+/// 1. Partition is in Ready state, instance references it in ib_config
+/// 2. Instance's GUIDs are unbound from UFM (simulating the race condition)
+/// 3. Partition is marked for deletion
+/// 4. Controller transitions partition to Deleting
+/// 5. Mock UFM returns NotFound (GUIDs were removed)
+/// 6. Controller checks instance count → > 0 → waits instead of deleting
+/// 7. Instance soft-deleted (marked as deleted, row still in DB)
+/// 8. Controller checks instance count → still > 0 → continues to wait
+/// 9. Instance fully deleted (row removed from DB after cleanup completes)
+/// 10. Controller checks instance count → 0 → deletes the partition
+#[crate::sqlx_test]
+async fn test_postpone_partition_deletion_while_instances_reference_it(pool: sqlx::PgPool) {
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        mtu: crate::ib::IBMtu(2),
+        rate_limit: crate::ib::IBRateLimit(10),
+        max_partition_per_tenant: 16,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    let (ib_partition_id, ib_partition) = create_ib_partition(
+        &env,
+        "test_ib_partition".to_string(),
+        DEFAULT_TENANT.to_string(),
+    )
+    .await;
+
+    let hex_pkey = ib_partition.status.as_ref().unwrap().pkey().to_string();
+    let pkey_u16: u16 = u16::from_str_radix(
+        hex_pkey
+            .strip_prefix("0x")
+            .expect("Pkey needs to be in hex format"),
+        16,
+    )
+    .expect("Failed to parse pkey");
+
+    let mh = create_managed_host(&env).await;
+    let ib_config = rpc::forge::InstanceInfinibandConfig {
+        ib_interfaces: vec![rpc::forge::InstanceIbInterfaceConfig {
+            function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            virtual_function_id: None,
+            ib_partition_id: Some(ib_partition_id),
+            device: "MT2910 Family [ConnectX-7]".to_string(),
+            vendor: None,
+            device_instance: 0,
+        }],
+    };
+    let (tinstance, _instance) =
+        create_instance_with_ib_config(&env, &mh, ib_config, segment_id).await;
+
+    // Simulate the race condition: the instance state handler has already
+    // removed GUIDs from UFM, causing the partition to vanish in UFM,
+    // but the instance row is still in the DB (not yet fully cleaned up).
+    let ib_conn = env
+        .ib_fabric_manager
+        .new_client(DEFAULT_IB_FABRIC_NAME)
+        .await
+        .unwrap();
+    let ports = ib_conn
+        .find_ib_port(Some(Filter {
+            guids: None,
+            pkey: Some(pkey_u16),
+            state: None,
+        }))
+        .await
+        .unwrap();
+    let guids: Vec<String> = ports.into_iter().map(|p| p.guid).collect();
+    if !guids.is_empty() {
+        ib_conn
+            .unbind_ib_ports(pkey_u16, guids)
+            .await
+            .unwrap();
+    }
+
+    // Delete the partition via the API (marks it for deletion).
+    env.api
+        .delete_ib_partition(Request::new(rpc::forge::IbPartitionDeletionRequest {
+            id: Some(ib_partition_id),
+        }))
+        .await
+        .expect("expect deletion request to succeed");
+
+    // Controller iteration 1: Ready + is_marked_as_deleted → transitions to Deleting
+    env.run_ib_partition_controller_iteration().await;
+    // Controller iteration 2: Deleting → get_ib_network → NotFound (GUIDs removed)
+    //   → count_instances_referencing_partition returns 1 → WAIT
+    env.run_ib_partition_controller_iteration().await;
+
+    // Partition should still exist because instance still references it
+    let partitions = env
+        .api
+        .find_ib_partitions_by_ids(Request::new(rpc::forge::IbPartitionsByIdsRequest {
+            ib_partition_ids: vec![ib_partition_id],
+            include_history: false,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .ib_partitions;
+    assert!(
+        !partitions.is_empty(),
+        "Partition must NOT be deleted while an instance still references it"
+    );
+
+    // Soft-delete the instance (mark as deleted). The row is still in the DB
+    // so the controller must continue to wait — the instance state handler
+    // may still need to unbind IB ports during its cleanup sequence.
+    let mut txn = env.pool.begin().await.unwrap();
+    sqlx::query("UPDATE instances SET deleted = NOW() WHERE id = $1::uuid")
+        .bind(tinstance.id)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    // Controller should still wait — soft-deleted instance row still exists
+    env.run_ib_partition_controller_iteration().await;
+
+    let partitions = env
+        .api
+        .find_ib_partitions_by_ids(Request::new(rpc::forge::IbPartitionsByIdsRequest {
+            ib_partition_ids: vec![ib_partition_id],
+            include_history: false,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .ib_partitions;
+    assert!(
+        !partitions.is_empty(),
+        "Partition must NOT be deleted while a soft-deleted instance row still exists"
+    );
+
+    let mut txn = env.pool.begin().await.unwrap();
+    sqlx::query("DELETE FROM instance_addresses WHERE instance_id = $1::uuid")
+        .bind(tinstance.id)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM instances WHERE id = $1::uuid")
+        .bind(tinstance.id)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    // Now the controller should proceed with deletion
+    env.run_ib_partition_controller_iteration().await;
+    env.run_ib_partition_controller_iteration().await;
+
+    let partitions = env
+        .api
+        .find_ib_partitions_by_ids(Request::new(rpc::forge::IbPartitionsByIdsRequest {
+            ib_partition_ids: vec![ib_partition_id],
+            include_history: false,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .ib_partitions;
+    assert!(
+        partitions.is_empty(),
+        "Partition should be deleted once no instances reference it"
+    );
+}
+
+/// Tests `count_instances_referencing_partition` with two partitions, two
+/// managed hosts, and two instances where the instances share one partition
+/// but only one references the second partition.
+///
+/// Setup:
+///   - Partition A, Partition B
+///   - Instance 1 (host 1): 1 IB interface → partition A
+///   - Instance 2 (host 2): 3 IB interfaces → 2 on partition A, 1 on partition B
+///
+/// Validates:
+///   - partition A count = 2, partition B count = 1
+///   - After soft-deleting instance 1: both counts unchanged (row still in DB)
+///   - After hard-deleting instance 1: partition A count = 1, partition B count = 0
+///   - After hard-deleting instance 2: both counts = 0
+#[crate::sqlx_test]
+async fn test_count_instances_multi_partition_multi_interface(pool: sqlx::PgPool) {
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        mtu: crate::ib::IBMtu(2),
+        rate_limit: crate::ib::IBRateLimit(10),
+        max_partition_per_tenant: 16,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    // Create two partitions: A and B
+    let (partition_a_id, _) = create_ib_partition(
+        &env,
+        "partition_a".to_string(),
+        DEFAULT_TENANT.to_string(),
+    )
+    .await;
+    let (partition_b_id, _) = create_ib_partition(
+        &env,
+        "partition_b".to_string(),
+        DEFAULT_TENANT.to_string(),
+    )
+    .await;
+
+    // No instances yet — both counts should be 0
+    let mut txn = env.pool.begin().await.unwrap();
+    let count_a = db::ib_partition::count_instances_referencing_partition(
+        &mut txn, partition_a_id,
+    ).await.unwrap();
+    let count_b = db::ib_partition::count_instances_referencing_partition(
+        &mut txn, partition_b_id,
+    ).await.unwrap();
+    txn.commit().await.unwrap();
+    assert_eq!(count_a, 0, "No instances should reference partition A yet");
+    assert_eq!(count_b, 0, "No instances should reference partition B yet");
+
+    // Create two managed hosts (each machine can hold one instance)
+    let mh1 = create_managed_host(&env).await;
+    let mh2 = create_managed_host(&env).await;
+
+    // Instance 1 (host 1): 1 IB interface bound to partition A
+    let ib_config_1 = rpc::forge::InstanceInfinibandConfig {
+        ib_interfaces: vec![
+            rpc::forge::InstanceIbInterfaceConfig {
+                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+                virtual_function_id: None,
+                ib_partition_id: Some(partition_a_id),
+                device: "MT2910 Family [ConnectX-7]".to_string(),
+                vendor: None,
+                device_instance: 0,
+            },
+        ],
+    };
+
+    // Instance 2 (host 2): 3 IB interfaces — 2 on partition A, 1 on partition B
+    let ib_config_2 = rpc::forge::InstanceInfinibandConfig {
+        ib_interfaces: vec![
+            rpc::forge::InstanceIbInterfaceConfig {
+                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+                virtual_function_id: None,
+                ib_partition_id: Some(partition_a_id),
+                device: "MT2910 Family [ConnectX-7]".to_string(),
+                vendor: None,
+                device_instance: 0,
+            },
+            rpc::forge::InstanceIbInterfaceConfig {
+                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+                virtual_function_id: None,
+                ib_partition_id: Some(partition_a_id),
+                device: "MT2910 Family [ConnectX-7]".to_string(),
+                vendor: None,
+                device_instance: 1,
+            },
+            rpc::forge::InstanceIbInterfaceConfig {
+                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+                virtual_function_id: None,
+                ib_partition_id: Some(partition_b_id),
+                device: "MT27800 Family [ConnectX-5]".to_string(),
+                vendor: None,
+                device_instance: 0,
+            },
+        ],
+    };
+
+    let (tinstance1, _) =
+        create_instance_with_ib_config(&env, &mh1, ib_config_1, segment_id).await;
+    let (tinstance2, _) =
+        create_instance_with_ib_config(&env, &mh2, ib_config_2, segment_id).await;
+
+    // Partition A: referenced by instance 1 (1 iface) and instance 2 (2 ifaces) → count = 2
+    // Partition B: referenced by instance 2 only (1 iface) → count = 1
+    let mut txn = env.pool.begin().await.unwrap();
+    let count_a = db::ib_partition::count_instances_referencing_partition(
+        &mut txn, partition_a_id,
+    ).await.unwrap();
+    let count_b = db::ib_partition::count_instances_referencing_partition(
+        &mut txn, partition_b_id,
+    ).await.unwrap();
+    txn.commit().await.unwrap();
+    assert_eq!(count_a, 2, "Both instances reference partition A → count should be 2");
+    assert_eq!(count_b, 1, "Only instance 2 references partition B → count should be 1");
+
+    // Soft-delete instance 1 (mark as deleted). Row still in DB, counts unchanged.
+    let mut txn = env.pool.begin().await.unwrap();
+    sqlx::query("UPDATE instances SET deleted = NOW() WHERE id = $1::uuid")
+        .bind(tinstance1.id)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let count_a = db::ib_partition::count_instances_referencing_partition(
+        &mut txn, partition_a_id,
+    ).await.unwrap();
+    let count_b = db::ib_partition::count_instances_referencing_partition(
+        &mut txn, partition_b_id,
+    ).await.unwrap();
+    txn.commit().await.unwrap();
+    assert_eq!(count_a, 2, "Soft-deleted instance 1 still counted for partition A");
+    assert_eq!(count_b, 1, "Partition B unaffected by instance 1 soft-delete");
+
+    // Must delete instance_addresses first due to FK constraint.
+    let mut txn = env.pool.begin().await.unwrap();
+    sqlx::query("DELETE FROM instance_addresses WHERE instance_id = $1::uuid")
+        .bind(tinstance1.id)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM instances WHERE id = $1::uuid")
+        .bind(tinstance1.id)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    // Partition A drops to 1 (only instance 2 remains).
+    // Partition B stays at 1 (instance 2 still references it).
+    let mut txn = env.pool.begin().await.unwrap();
+    let count_a = db::ib_partition::count_instances_referencing_partition(
+        &mut txn, partition_a_id,
+    ).await.unwrap();
+    let count_b = db::ib_partition::count_instances_referencing_partition(
+        &mut txn, partition_b_id,
+    ).await.unwrap();
+    txn.commit().await.unwrap();
+    assert_eq!(count_a, 1, "After hard-deleting instance 1, only instance 2 references partition A");
+    assert_eq!(count_b, 1, "Instance 2 still references partition B");
+
+    let mut txn = env.pool.begin().await.unwrap();
+    sqlx::query("DELETE FROM instance_addresses WHERE instance_id = $1::uuid")
+        .bind(tinstance2.id)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM instances WHERE id = $1::uuid")
+        .bind(tinstance2.id)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    // Both counts should be 0
+    let mut txn = env.pool.begin().await.unwrap();
+    let count_a = db::ib_partition::count_instances_referencing_partition(
+        &mut txn, partition_a_id,
+    ).await.unwrap();
+    let count_b = db::ib_partition::count_instances_referencing_partition(
+        &mut txn, partition_b_id,
+    ).await.unwrap();
+    txn.commit().await.unwrap();
+    assert_eq!(count_a, 0, "No instances reference partition A after both hard-deleted");
+    assert_eq!(count_b, 0, "No instances reference partition B after both hard-deleted");
+}
