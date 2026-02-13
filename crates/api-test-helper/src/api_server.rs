@@ -146,6 +146,24 @@ pub async fn start(
         start = "1024500"
         end = "1024550"
 
+        [pools.vpc-dpu-lo]
+        type = "ipv4"
+        prefix = "10.181.62.1/26"
+
+        [pools.external-vpc-vni]
+        type = "integer"
+
+        [[pools.external-vpc-vni.ranges]]
+        start = "51000"
+        end = "51007"
+
+        [pools.fnn-asn]
+        type = "integer"
+
+        [[pools.fnn-asn.ranges]]
+        start = "4268001000"
+        end = "4268001999"
+
         [networks.DEV1-C09-DPU-01]
         type = "underlay"
         prefix = "172.20.1.0/24"
@@ -223,6 +241,19 @@ pub async fn start(
         max_uploads = 4
         concurrency_limit = 16
         firmware_directory = "{firmware_directory_str}"
+
+        [fnn.routing_profiles.EXTERNAL]
+        internal = false
+        route_target_imports = []
+
+        [[fnn.routing_profiles.EXTERNAL.route_targets_on_exports]]
+        # Tag routes with the common external route tag
+        asn = 65001
+        vni = 50500
+
+        [fnn.admin_vpc]
+        enabled = true
+        vpc_vni = 60100
 
         [multi_dpu]
         enabled = false

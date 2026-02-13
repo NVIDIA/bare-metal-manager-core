@@ -20,6 +20,7 @@ use sqlx::pool::PoolConnection;
 use sqlx::{Connection, PgConnection, PgPool, Postgres};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::MissedTickBehavior;
+use tracing::Instrument;
 
 use crate::{DatabaseError, DatabaseResult};
 
@@ -96,7 +97,12 @@ pub async fn start(
     let (cmd_tx, cmd_rx) = mpsc::channel(COMMAND_BUFFER_SIZE);
     tokio::task::Builder::new()
         .name("WorkLockManager")
-        .spawn(run_loop(pool, db, cmd_rx, keepalive_timeout))
+        // Note: don't inherit the callers span, since child spans can't outlive their parent.
+        // This prevents a crash in tracing-subscriber.
+        .spawn(
+            run_loop(pool, db, cmd_rx, keepalive_timeout)
+                .instrument(tracing::debug_span!(parent: None, "WorklockManager::run_loop")),
+        )
         .expect("failed to start work manager");
 
     Ok(WorkLockManagerHandle {
@@ -234,7 +240,7 @@ impl WorkLock {
             let work_key = work_key.clone();
             let mut keepalive_timer = tokio::time::interval(keepalive_interval);
             keepalive_timer.set_missed_tick_behavior(MissedTickBehavior::Skip);
-            async move {
+            let fut = async move {
                 loop {
                     tokio::select! {
                         _ = keepalive_timer.tick() => {
@@ -254,7 +260,10 @@ impl WorkLock {
                         }
                     }
                 }
-            }
+            };
+            // Note: don't inherit the callers span, since child spans can't outlive their parent.
+            // This prevents a crash in tracing-subscriber.
+            fut.instrument(tracing::debug_span!(parent: None, "WorkLock keepalive loop"))
         }).expect("could not spawn tokio task");
 
         if !cfg!(test) {
