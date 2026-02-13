@@ -82,6 +82,7 @@ impl WiwynnGB200Nvl<'_> {
                     chassis: vec!["BMC_0".into()],
                     boot_options: Some(boot_options),
                     bios_mode: redfish::computer_system::BiosMode::Generic,
+                    oem: redfish::computer_system::Oem::Generic,
                     base_bios: Some(
                         redfish::bios::builder(&redfish::bios::resource(system_id))
                             .attributes(json!({
@@ -89,6 +90,7 @@ impl WiwynnGB200Nvl<'_> {
                             }))
                             .build(),
                     ),
+                    log_services: None,
                 },
                 redfish::computer_system::SingleSystemConfig {
                     id: "HGX_Baseboard_0".into(),
@@ -100,8 +102,10 @@ impl WiwynnGB200Nvl<'_> {
                     boot_options: None,
                     serial_number: None,
                     boot_order_mode: redfish::computer_system::BootOrderMode::Generic,
+                    oem: redfish::computer_system::Oem::Generic,
                     bios_mode: redfish::computer_system::BiosMode::Generic,
                     base_bios: None,
+                    log_services: None,
                 },
             ],
         }

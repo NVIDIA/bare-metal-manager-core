@@ -135,3 +135,20 @@ pub enum SystemPowerControl {
     Pause,
     Resume,
 }
+
+pub trait LogServices: Send + Sync {
+    fn services(&self) -> Vec<&(dyn LogService + '_)>;
+
+    fn find(&self, id: &str) -> Option<&(dyn LogService + '_)> {
+        self.services()
+            .iter()
+            .find(|service| service.id() == id)
+            .copied()
+    }
+}
+
+pub trait LogService: Send + Sync {
+    fn id(&self) -> &str;
+
+    fn entries(&self, collection: &redfish::Collection<'_>) -> Vec<serde_json::Value>;
+}

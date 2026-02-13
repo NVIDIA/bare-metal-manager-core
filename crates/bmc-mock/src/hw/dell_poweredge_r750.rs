@@ -125,6 +125,8 @@ impl DellPowerEdgeR750<'_> {
                 chassis: vec!["System.Embedded.1".into()],
                 boot_options: Some(boot_options),
                 bios_mode: redfish::computer_system::BiosMode::DellOem,
+                oem: redfish::computer_system::Oem::Generic,
+                log_services: None,
                 base_bios: Some(redfish::bios::builder(&redfish::bios::resource(system_id))
                     .attributes(json!({
                         "BootSeqRetry": "Disabled",
