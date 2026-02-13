@@ -1160,6 +1160,7 @@ pub fn get_config() -> CarbideConfig {
         dpf: crate::cfg::file::DpfConfig::default(),
         x86_pxe_boot_url_override: None,
         arm_pxe_boot_url_override: None,
+        supernic_firmware_profiles: HashMap::default(),
     }
 }
 

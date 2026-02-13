@@ -16,13 +16,15 @@
  */
 
 use ::rpc::protos::mlx_device::{
-    MlxDeviceReport as MlxDeviceReportPb, PublishMlxDeviceReportRequest,
-    PublishMlxDeviceReportResponse, PublishMlxObservationReportRequest,
-    PublishMlxObservationReportResponse,
+    FirmwareFlashReport as FirmwareFlashReportPb, MlxDeviceReport as MlxDeviceReportPb,
+    PublishMlxDeviceReportRequest, PublishMlxDeviceReportResponse,
+    PublishMlxObservationReportRequest, PublishMlxObservationReportResponse,
 };
 use carbide_uuid::machine::MachineId;
 use libmlx::device::discovery;
 use libmlx::device::report::MlxDeviceReport;
+use libmlx::firmware::config::FirmwareFlasherProfile;
+use libmlx::firmware::flasher::FirmwareFlasher;
 use libmlx::lockdown::error::MlxResult;
 use libmlx::lockdown::lockdown::{LockdownManager, StatusReport};
 use libmlx::profile::error::MlxProfileError;
@@ -1024,6 +1026,87 @@ pub fn handle_config_compare(
                     ),
                 ),
             }
+        }
+    }
+}
+
+// apply_firmware executes the full firmware flash lifecycle for a device
+// using the provided FirmwareFlasherProfile. Returns Some(report) on
+// success (including partial success where flash worked but a post-flash
+// step failed), or None if the flasher couldn't be created or the flash
+// itself failed.
+pub async fn apply_firmware(
+    device: &str,
+    profile: &FirmwareFlasherProfile,
+) -> Option<FirmwareFlashReportPb> {
+    let firmware_credential_type = profile
+        .flash_spec
+        .firmware_credentials
+        .as_ref()
+        .map(|c| c.type_name())
+        .unwrap_or("none");
+
+    let device_conf_credential_type = profile
+        .flash_spec
+        .device_conf_credentials
+        .as_ref()
+        .map(|c| c.type_name())
+        .unwrap_or("none");
+
+    tracing::info!(
+        device = %device,
+        part_number = %profile.firmware_spec.part_number,
+        psid = %profile.firmware_spec.psid,
+        firmware_url = %profile.flash_spec.firmware_url,
+        firmware_credential_type,
+        device_conf_url = profile.flash_spec.device_conf_url.as_deref().unwrap_or("none"),
+        device_conf_credential_type,
+        target_version = %profile.firmware_spec.version,
+        "applying firmware"
+    );
+
+    // Initialize a new FirmwareFlasher, leveraging new(..)
+    // to validate the device identity matches FirmwareSpec.
+    let flasher = match FirmwareFlasher::new(device, &profile.firmware_spec) {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::error!(
+                device = %device,
+                part_number = %profile.firmware_spec.part_number,
+                psid = %profile.firmware_spec.psid,
+                %e,
+                "failed to create FirmwareFlasher"
+            );
+            return None;
+        }
+    };
+
+    // ...and now that we've got our FirmwareFlasher, lets take
+    // the FirmwareFlasherProfile we got from carbide-api and
+    // execute the full firmware lifecycle.
+    match flasher.apply(profile).await {
+        Ok(result) => {
+            tracing::info!(
+                device = %device,
+                part_number = %profile.firmware_spec.part_number,
+                psid = %profile.firmware_spec.psid,
+                firmware_url = %profile.flash_spec.firmware_url,
+                target_version = %profile.firmware_spec.version,
+                "firmware flash successful"
+            );
+            Some(result.into())
+        }
+        Err(e) => {
+            tracing::error!(
+                device = %device,
+                part_number = %profile.firmware_spec.part_number,
+                psid = %profile.firmware_spec.psid,
+                firmware_url = %profile.flash_spec.firmware_url,
+                target_version = %profile.firmware_spec.version,
+                %e,
+                "firmware flash failed"
+            );
+            None
         }
     }
 }

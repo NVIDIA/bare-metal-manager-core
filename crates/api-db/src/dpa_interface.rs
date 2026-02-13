@@ -22,6 +22,7 @@ use carbide_uuid::dpa_interface::{DpaInterfaceId, NULL_DPA_INTERFACE_ID};
 use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersion;
 use eyre::eyre;
+use libmlx::device::info::MlxDeviceInfo;
 use mac_address::MacAddress;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::dpa_interface::{
@@ -213,11 +214,33 @@ pub async fn find_by_mac_addr(
     Ok(results)
 }
 
+/// update_device_info updates the device_info JSONB column and
+/// timestamp for a DPA interface, storing the full MlxDeviceInfo as
+/// reported by the device. Called on every device report so that the
+/// latest hardware info (part_number, psid, fw_version_current, etc)
+/// is always available.
+pub async fn update_device_info(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+    pci_name: &str,
+    device_info: &MlxDeviceInfo,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE dpa_interfaces SET device_info = $1::jsonb, device_info_ts = NOW() WHERE machine_id = $2 AND pci_name = $3 AND deleted IS NULL";
+    sqlx::query(query)
+        .bind(sqlx::types::Json(device_info))
+        .bind(machine_id)
+        .bind(pci_name)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
+
 pub async fn update_card_state(
     txn: &mut PgConnection,
     value: DpaInterface,
 ) -> Result<DpaInterfaceId, DatabaseError> {
-    let query = "UPDATE dpa_interfaces SET card_state = $1::json WHERE id = $2::uuid 
+    let query = "UPDATE dpa_interfaces SET card_state = $1::json WHERE id = $2::uuid
                 RETURNING id";
 
     sqlx::query_as(query)
@@ -231,12 +254,12 @@ pub async fn update_card_state(
 // Used by the machine statemachine controller to find all DPAs associated with a given machine
 pub async fn find_by_machine_id(
     txn: impl DbReader<'_>,
-    mid: &MachineId,
+    machine_id: MachineId,
 ) -> Result<Vec<DpaInterface>, DatabaseError> {
     let query = "SELECT row_to_json(m.*) from (select * from dpa_interfaces WHERE deleted is NULL AND machine_id = $1) m";
     let results: Vec<DpaInterface> = {
         sqlx::query_as(query)
-            .bind(mid)
+            .bind(machine_id)
             .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))?
@@ -501,6 +524,7 @@ mod test {
     use std::str::FromStr;
 
     use carbide_uuid::machine::MachineId;
+    use libmlx::device::info::MlxDeviceInfo;
     use mac_address::MacAddress;
     use model::dpa_interface::NewDpaInterface;
     use model::machine::ManagedHostState;
@@ -545,6 +569,92 @@ mod test {
 
         assert_eq!(db_intf.len(), 1);
         assert_eq!(db_intf[0].id, intf.id);
+
+        Ok(())
+    }
+
+    // test_device_info_roundtrip is a super basic test that inserts
+    // a new DPA + corresponding MlxDeviceInfo (as a JSONB blob) into
+    // the database, and makes sure it gets read back out successfully.
+    // Since this drives things like doing firmware updates, it seemed
+    // like a nice test to have.
+    #[crate::sqlx_test]
+    async fn test_device_info_roundtrip(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await.unwrap();
+
+        let machine_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
+        machine::create(
+            &mut txn,
+            None,
+            &machine_id,
+            ManagedHostState::Ready,
+            &Metadata::default(),
+            None,
+            true,
+            2,
+        )
+        .await?;
+
+        let pci_name = "01:00.0";
+        let new_intf = NewDpaInterface {
+            machine_id,
+            mac_address: MacAddress::from_str("00:11:22:33:44:55")?,
+            device_type: "BlueField3".to_string(),
+            pci_name: pci_name.to_string(),
+        };
+
+        crate::dpa_interface::persist(new_intf, &mut txn).await?;
+
+        // Verify device_info starts as None, because in this case,
+        // one hasn't been reported yet (and also allows for backwards
+        // compatibility checks from before this existed).
+        let intfs = crate::dpa_interface::find_by_machine_id(txn.as_mut(), machine_id).await?;
+        assert_eq!(intfs.len(), 1);
+        assert!(intfs[0].device_info.is_none());
+        assert!(intfs[0].device_info_ts.is_none());
+
+        // Store a device info report.
+        let device_info = MlxDeviceInfo {
+            pci_name: pci_name.to_string(),
+            device_type: "BlueField3".to_string(),
+            psid: Some("MT_0000001069".to_string()),
+            device_description: Some(
+                "Nvidia BlueField-3 B3140H E-series HHHL SuperNIC".to_string(),
+            ),
+            part_number: Some("900-9D3D4-00EN-HA0".to_string()),
+            fw_version_current: Some("32.43.1014".to_string()),
+            pxe_version_current: None,
+            uefi_version_current: None,
+            uefi_version_virtio_blk_current: None,
+            uefi_version_virtio_net_current: None,
+            base_mac: Some(MacAddress::from_str("00:11:22:33:44:55")?),
+            status: Some("OK".to_string()),
+        };
+
+        crate::dpa_interface::update_device_info(txn.as_mut(), machine_id, pci_name, &device_info)
+            .await?;
+
+        // Read back and verify everything we put into
+        // the database came back as we originally put it.
+        let intfs = crate::dpa_interface::find_by_machine_id(txn.as_mut(), machine_id).await?;
+        assert_eq!(intfs.len(), 1);
+
+        let info = intfs[0]
+            .device_info
+            .as_ref()
+            .expect("device_info should be set");
+        assert_eq!(info.part_number.as_deref(), Some("900-9D3D4-00EN-HA0"));
+        assert_eq!(info.psid.as_deref(), Some("MT_0000001069"));
+        assert_eq!(info.fw_version_current.as_deref(), Some("32.43.1014"));
+        assert_eq!(info.pci_name, pci_name);
+        assert_eq!(
+            info.base_mac,
+            Some(MacAddress::from_str("00:11:22:33:44:55")?)
+        );
+        assert!(intfs[0].device_info_ts.is_some());
 
         Ok(())
     }

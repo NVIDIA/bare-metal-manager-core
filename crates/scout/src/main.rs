@@ -35,7 +35,8 @@ use rpc::forge::ForgeAgentControlResponse;
 use rpc::forge::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
 use rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
 use rpc::protos::mlx_device::{
-    LockStatus, MlxObservation, MlxObservationReport, PublishMlxObservationReportRequest,
+    FirmwareFlashReport as FirmwareFlashReportPb, LockStatus, MlxObservation, MlxObservationReport,
+    PublishMlxObservationReportRequest,
 };
 use rpc::{ForgeScoutErrorReport, forge as rpc_forge};
 pub use scout::{CarbideClientError, CarbideClientResult};
@@ -491,7 +492,7 @@ async fn handle_mlxreport_action(
         // The action is a structure with an OpCode (like Lock/Unlock/ApplyProfile)
         // and an additional optional string (for ApplyProfile)
 
-        let dpa_cmd: DpaCommand = match serde_json::from_str(&action) {
+        let dpa_cmd: DpaCommand<'_> = match serde_json::from_str(&action) {
             Ok(dpc) => dpc,
             Err(e) => {
                 tracing::error!(
@@ -511,6 +512,7 @@ async fn handle_mlxreport_action(
                         lock_status: Some(LockStatus::Locked.into()),
                         profile_name: None,
                         profile_synced: None,
+                        firmware_report: None,
                     };
                     report.observations.push(obs);
                 }
@@ -521,6 +523,51 @@ async fn handle_mlxreport_action(
                     );
                 }
             },
+            // ApplyFirmware attempts to apply the provided FirmwareFlasherProfile
+            // that it gets back from carbide-api. The profile *may* be None, which
+            // could mean no firmware profile was found for the target Part Number
+            // and PSID, or that carbide-api decided there was nothing to do here
+            // (already at target version), or it wants to do a noop pass-through.
+            // If None, scout reports a successful pass-through.
+            //
+            // Otherwise, scout constructs a FirmwareFlasher with new(..) validation
+            // (device hw identity must match the FirmwareSpec), then calls apply()
+            // which orchestrates: flash → reset → verify_image → verify_version.
+            //
+            // If flash() fails, scout does NOT send an observation, which causes
+            // the DpaInterfaceController to remain in ApplyFirmware. On the next
+            // poll, carbide-api will tell scout to try again.
+            //
+            // If flash() succeeds but a later step fails (reset, verify), scout
+            // still sends the partial result so the API has visibility into what
+            // happened. The state controller checks flashed && reset before
+            // transitioning, so a partial failure stays in ApplyFirmware.
+            OpCode::ApplyFirmware { profile } => {
+                let firmware_report = match profile {
+                    Some(profile) => mlx_device::apply_firmware(&dev_pci_name, &profile).await,
+                    None => {
+                        // No firmware profile was provided. Report a pass-through
+                        // so the state controller transitions past ApplyFirmware.
+                        tracing::info!(
+                            device = %dev_pci_name,
+                            "no firmware profile, skipping"
+                        );
+                        Some(FirmwareFlashReportPb {
+                            flashed: true,
+                            ..Default::default()
+                        })
+                    }
+                };
+
+                let obs = MlxObservation {
+                    device_info: Some(dev.into()),
+                    lock_status: None,
+                    profile_name: None,
+                    profile_synced: None,
+                    firmware_report,
+                };
+                report.observations.push(obs);
+            }
             OpCode::ApplyProfile { profile_str } => {
                 // XXX TODO XXX
                 // Call appropriate mlx routine to apply profile and handle errors
@@ -530,6 +577,7 @@ async fn handle_mlxreport_action(
                     lock_status: None,
                     profile_name: Some(profile_str),
                     profile_synced: Some(true),
+                    firmware_report: None,
                 };
                 report.observations.push(obs);
             }
@@ -540,6 +588,7 @@ async fn handle_mlxreport_action(
                         lock_status: Some(LockStatus::Unlocked.into()),
                         profile_name: None,
                         profile_synced: None,
+                        firmware_report: None,
                     };
                     report.observations.push(obs);
                 }

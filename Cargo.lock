@@ -1414,6 +1414,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-health-report",
  "carbide-host-support",
+ "carbide-libmlx",
  "carbide-macros",
  "carbide-measured-boot",
  "carbide-network",
@@ -1484,6 +1485,7 @@ dependencies = [
  "carbide-dpf",
  "carbide-health-report",
  "carbide-host-support",
+ "carbide-libmlx",
  "carbide-network",
  "carbide-rpc",
  "carbide-sqlx-testing",
@@ -1825,6 +1827,7 @@ name = "carbide-host-support"
 version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
+ "carbide-libmlx",
  "carbide-rpc",
  "carbide-tls",
  "carbide-utils",

@@ -16,68 +16,84 @@
  */
 
 // src/config.rs
-// Defines the SupernicFirmwareConfig structure for TOML-based firmware
-// configuration, and provides methods to construct firmware sources
-// from that config.
+// This module defines the firmware configuration types: FirmwareSpec,
+// FlashSpec, FlashOptions, and FirmwareFlasherProfile. I originally had
+// this single SupernicFirmwareConfig type in here, but it started to get
+// kind of messy when I tried to implement it. By breaking it up into a
+// a structured separation of concerns, I ended up with a pretty nice RAII
+// model for initializing a new FirmwareFlasher, and then using the mix
+// of specs + options to drive further operations/management.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use rpc::protos::mlx_device::{
+    FirmwareFlasherProfile as FirmwareFlasherProfilePb, FirmwareSpec as FirmwareSpecPb,
+    FlashOptions as FlashOptionsPb, FlashSpec as FlashSpecPb,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::firmware::credentials::Credentials;
 use crate::firmware::error::{FirmwareError, FirmwareResult};
+use crate::firmware::reset::DEFAULT_RESET_LEVEL;
 use crate::firmware::source::FirmwareSource;
 
-// SupernicFirmwareConfig is the TOML-serializable configuration for
-// SuperNIC firmware management. In the Carbide API config, this lives
-// under the [supernic_firmware_config] block.
+// FirmwareSpec identifies a firmware target by device identity and
+// version. The part_number and psid identify the hardware the
+// firmware is built for, and the version is the target firmware
+// version. Used to construct a FirmwareFlasher with the aforementioned
+// RAII-esque validation (if the underlying MlxDeviceInfo for the given
+// device_id doesn't match this FirmwareSpec, then we will fail to
+// construct a new FirmwareFlasher).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SupernicFirmwareConfig {
-    // firmware_url is the location of the firmware binary. Supported
-    // formats:
-    //   - Local path:  /path/to/firmware.signed.bin
-    //   - file:// URL: file:///path/to/firmware.signed.bin
-    //   - HTTPS URL:   https://host/path/to/firmware.signed.bin
-    //   - SSH URL:     ssh://user@host:path/to/firmware.signed.bin
-    pub firmware_url: String,
+pub struct FirmwareSpec {
+    // part_number is the manufacturer part number that the firmware
+    // is built for (e.g., "900-9D3B4-00CV-TA0").
+    pub part_number: String,
+    // psid (Parameter-Set IDentification) identifies the firmware
+    // configuration (e.g., "MT_0000000884").
+    pub psid: String,
+    // version is the target firmware version (e.g., "32.43.1014").
+    pub version: String,
+}
 
+impl FirmwareSpec {
+    // map_key returns a key suitable for indexing firmware specs
+    // by hardware identity, in the format "part_number:psid", like
+    // in the case of the carbide-api runtime config mappings.
+    pub fn map_key(&self) -> String {
+        format!("{}:{}", self.part_number, self.psid)
+    }
+}
+
+// FlashSpec specifies source locations and caching options for
+// flash and verify_image operations. Contains everything needed
+// to download and apply firmware and device config.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlashSpec {
+    // firmware_url is the location of the firmware binary. Supports
+    // local paths, file://, https://, and ssh:// URLs.
+    pub firmware_url: String,
     // firmware_credentials is the optional authentication for
     // downloading the firmware binary.
     pub firmware_credentials: Option<Credentials>,
-
     // device_conf_url is the optional location of the device config
-    // to apply before flashing (e.g., a debug token or mlxconfig
-    // configuration blob). When present, the config is applied via
-    // `mlxconfig apply` before burning the firmware. Supports the
-    // same URL formats as firmware_url.
+    // to apply before flashing. When present, the config is applied
+    // via `mlxconfig apply` before burning the firmware.
+    // Supports the same URL formats as firmware_url.
     pub device_conf_url: Option<String>,
-
     // device_conf_credentials is the optional authentication for
     // downloading the device config.
     pub device_conf_credentials: Option<Credentials>,
-
-    // expected_version is the firmware version string expected after
-    // flashing (e.g., "32.43.1014"). When set, the flasher will
-    // verify the installed version matches after a reset.
-    pub expected_version: Option<String>,
+    // verify_from_cache controls whether verify_image() uses the
+    // cached firmware from cache_dir instead of re-pulling.
+    #[serde(default)]
+    pub verify_from_cache: bool,
+    // cache_dir is the directory for staging downloaded firmware.
+    // Defaults to a temporary directory if not specified.
+    pub cache_dir: Option<PathBuf>,
 }
 
-impl SupernicFirmwareConfig {
-    // from_file reads a SupernicFirmwareConfig from a TOML file.
-    // The file should contain the firmware config fields directly
-    // at the top level (not nested under a section key).
-    pub fn from_file(path: impl AsRef<Path>) -> FirmwareResult<Self> {
-        let content = std::fs::read_to_string(path.as_ref()).map_err(FirmwareError::Io)?;
-        Self::from_toml(&content)
-    }
-
-    // from_toml parses a SupernicFirmwareConfig from a TOML string.
-    pub fn from_toml(toml_str: &str) -> FirmwareResult<Self> {
-        toml::from_str(toml_str).map_err(|e| {
-            FirmwareError::ConfigError(format!("Failed to parse firmware config: {e}"))
-        })
-    }
-
+impl FlashSpec {
     // build_firmware_source constructs a FirmwareSource from the
     // firmware_url and firmware_credentials fields.
     pub fn build_firmware_source(&self) -> FirmwareResult<FirmwareSource> {
@@ -89,8 +105,7 @@ impl SupernicFirmwareConfig {
     }
 
     // build_device_conf_source constructs a FirmwareSource for the
-    // device config, if device_conf_url is configured. Returns None
-    // if no device config is configured.
+    // device config, if device_conf_url is configured.
     pub fn build_device_conf_source(&self) -> FirmwareResult<Option<FirmwareSource>> {
         match &self.device_conf_url {
             Some(url) => {
@@ -102,5 +117,367 @@ impl SupernicFirmwareConfig {
             }
             None => Ok(None),
         }
+    }
+
+    // cache_dir_or_default returns the configured cache directory
+    // or a default temporary directory.
+    pub fn cache_dir_or_default(&self) -> PathBuf {
+        self.cache_dir
+            .clone()
+            .unwrap_or_else(|| std::env::temp_dir().join("mlxconfig-firmware"))
+    }
+}
+
+fn default_reset_level() -> u8 {
+    DEFAULT_RESET_LEVEL
+}
+
+// FlashOptions contains lifecycle flags for the apply() workflow
+// orchestrator, which takes a FirmwareFlasherProfile. This controls
+// which post-flash steps are executed, and their parameters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlashOptions {
+    // verify_image controls whether the firmware image is verified
+    // against the source binary after flashing.
+    #[serde(default)]
+    pub verify_image: bool,
+    // verify_version controls whether the firmware version on the
+    // device is checked after flashing.
+    #[serde(default)]
+    pub verify_version: bool,
+    // reset controls whether the device is reset via mlxfwreset
+    // after flashing.
+    #[serde(default)]
+    pub reset: bool,
+    // reset_level is the mlxfwreset level to use. Defaults to 3.
+    #[serde(default = "default_reset_level")]
+    pub reset_level: u8,
+}
+
+impl Default for FlashOptions {
+    fn default() -> Self {
+        Self {
+            verify_image: false,
+            verify_version: false,
+            reset: false,
+            reset_level: DEFAULT_RESET_LEVEL,
+        }
+    }
+}
+
+// FirmwareFlasherProfile bundles a FirmwareSpec, FlashSpec, and
+// FlashOptions into a complete firmware management profile. This
+// is the top-level configuration type used in the API runtime config
+// and sent to scout via OpCode::ApplyFirmware.
+//
+// The #[serde(flatten)] attributes allow TOML config to stay flat:
+//   [[supernic_firmware_profiles]]
+//   part_number = "900-9D3B4-00CV-TA0"
+//   psid = "MT_0000000884"
+//   version = "32.43.1014"
+//   firmware_url = "https://..."
+//   reset = true
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FirmwareFlasherProfile {
+    #[serde(flatten)]
+    pub firmware_spec: FirmwareSpec,
+    #[serde(flatten)]
+    pub flash_spec: FlashSpec,
+    #[serde(flatten, default)]
+    pub flash_options: FlashOptions,
+}
+
+impl FirmwareFlasherProfile {
+    // from_file reads a FirmwareFlasherProfile from a TOML file.
+    pub fn from_file(path: impl AsRef<Path>) -> FirmwareResult<Self> {
+        let content = std::fs::read_to_string(path.as_ref()).map_err(FirmwareError::Io)?;
+        Self::from_toml(&content)
+    }
+
+    // from_toml parses a FirmwareFlasherProfile from a TOML string.
+    pub fn from_toml(toml_str: &str) -> FirmwareResult<Self> {
+        toml::from_str(toml_str).map_err(|e| {
+            FirmwareError::ConfigError(format!("Failed to parse firmware profile: {e}"))
+        })
+    }
+}
+
+// From implementations for converting FirmwareSpec
+// to/from a FirmwareSpecPb protobuf message and back.
+impl From<FirmwareSpec> for FirmwareSpecPb {
+    fn from(spec: FirmwareSpec) -> Self {
+        FirmwareSpecPb {
+            part_number: spec.part_number,
+            psid: spec.psid,
+            version: spec.version,
+        }
+    }
+}
+
+impl From<FirmwareSpecPb> for FirmwareSpec {
+    fn from(proto: FirmwareSpecPb) -> Self {
+        FirmwareSpec {
+            part_number: proto.part_number,
+            psid: proto.psid,
+            version: proto.version,
+        }
+    }
+}
+
+// From implementations for converting FlashSpec
+// to/from a FlashSpecPb protobuf message and back.
+impl From<FlashSpec> for FlashSpecPb {
+    fn from(spec: FlashSpec) -> Self {
+        FlashSpecPb {
+            firmware_url: spec.firmware_url,
+            firmware_credentials: spec.firmware_credentials.map(Into::into),
+            device_conf_url: spec.device_conf_url,
+            device_conf_credentials: spec.device_conf_credentials.map(Into::into),
+            verify_from_cache: spec.verify_from_cache,
+            cache_dir: spec.cache_dir.map(|p| p.to_string_lossy().into_owned()),
+        }
+    }
+}
+
+impl TryFrom<FlashSpecPb> for FlashSpec {
+    type Error = String;
+
+    fn try_from(proto: FlashSpecPb) -> Result<Self, Self::Error> {
+        Ok(FlashSpec {
+            firmware_url: proto.firmware_url,
+            firmware_credentials: proto
+                .firmware_credentials
+                .map(TryInto::try_into)
+                .transpose()?,
+            device_conf_url: proto.device_conf_url,
+            device_conf_credentials: proto
+                .device_conf_credentials
+                .map(TryInto::try_into)
+                .transpose()?,
+            verify_from_cache: proto.verify_from_cache,
+            cache_dir: proto.cache_dir.map(PathBuf::from),
+        })
+    }
+}
+
+// From implementations for converting FlashOptions
+// to/from a FlashOptionsPb protobuf message and back.
+impl From<FlashOptions> for FlashOptionsPb {
+    fn from(opts: FlashOptions) -> Self {
+        FlashOptionsPb {
+            verify_image: opts.verify_image,
+            verify_version: opts.verify_version,
+            reset: opts.reset,
+            reset_level: opts.reset_level as u32,
+        }
+    }
+}
+
+impl From<FlashOptionsPb> for FlashOptions {
+    fn from(proto: FlashOptionsPb) -> Self {
+        FlashOptions {
+            verify_image: proto.verify_image,
+            verify_version: proto.verify_version,
+            reset: proto.reset,
+            reset_level: proto.reset_level as u8,
+        }
+    }
+}
+
+// From implementations for converting FirmwareFlasherProfile
+// to/from a FirmwareFlasherProfilePb protobuf message and back.
+impl From<FirmwareFlasherProfile> for FirmwareFlasherProfilePb {
+    fn from(profile: FirmwareFlasherProfile) -> Self {
+        FirmwareFlasherProfilePb {
+            firmware_spec: Some(profile.firmware_spec.into()),
+            flash_spec: Some(profile.flash_spec.into()),
+            flash_options: Some(profile.flash_options.into()),
+        }
+    }
+}
+
+impl TryFrom<FirmwareFlasherProfilePb> for FirmwareFlasherProfile {
+    type Error = String;
+
+    fn try_from(proto: FirmwareFlasherProfilePb) -> Result<Self, Self::Error> {
+        let firmware_spec = proto.firmware_spec.ok_or("missing firmware_spec")?.into();
+        let flash_spec: FlashSpec = proto.flash_spec.ok_or("missing flash_spec")?.try_into()?;
+        let flash_options = proto.flash_options.map(Into::into).unwrap_or_default();
+
+        Ok(FirmwareFlasherProfile {
+            firmware_spec,
+            flash_spec,
+            flash_options,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_firmware_spec_map_key() {
+        let spec = FirmwareSpec {
+            part_number: "900-9D3B4-00CV-TA0".to_string(),
+            psid: "MT_0000000884".to_string(),
+            version: "32.43.1014".to_string(),
+        };
+        assert_eq!(spec.map_key(), "900-9D3B4-00CV-TA0:MT_0000000884");
+    }
+
+    #[test]
+    fn test_firmware_spec_roundtrip() {
+        let original = FirmwareSpec {
+            part_number: "900-9D3B4-00CV-TA0".to_string(),
+            psid: "MT_0000000884".to_string(),
+            version: "32.43.1014".to_string(),
+        };
+        let proto: FirmwareSpecPb = original.clone().into();
+        let converted: FirmwareSpec = proto.into();
+        assert_eq!(original.part_number, converted.part_number);
+        assert_eq!(original.psid, converted.psid);
+        assert_eq!(original.version, converted.version);
+    }
+
+    #[test]
+    fn test_flash_options_default() {
+        let opts = FlashOptions::default();
+        assert!(!opts.verify_image);
+        assert!(!opts.verify_version);
+        assert!(!opts.reset);
+        assert_eq!(opts.reset_level, 3);
+    }
+
+    #[test]
+    fn test_flash_options_roundtrip() {
+        let original = FlashOptions {
+            verify_image: true,
+            verify_version: true,
+            reset: true,
+            reset_level: 5,
+        };
+        let proto: FlashOptionsPb = original.clone().into();
+        let converted: FlashOptions = proto.into();
+        assert_eq!(original.verify_image, converted.verify_image);
+        assert_eq!(original.verify_version, converted.verify_version);
+        assert_eq!(original.reset, converted.reset);
+        assert_eq!(original.reset_level, converted.reset_level);
+    }
+
+    #[test]
+    fn test_profile_full_roundtrip() {
+        let original = FirmwareFlasherProfile {
+            firmware_spec: FirmwareSpec {
+                part_number: "900-9D3B4-00CV-TA0".to_string(),
+                psid: "MT_0000000884".to_string(),
+                version: "32.43.1014".to_string(),
+            },
+            flash_spec: FlashSpec {
+                firmware_url: "https://artifacts.nvidia.com/fw.bin".to_string(),
+                firmware_credentials: Some(Credentials::bearer_token("token123")),
+                device_conf_url: Some("https://artifacts.nvidia.com/debug.conf".to_string()),
+                device_conf_credentials: Some(Credentials::basic_auth("user", "pass")),
+                verify_from_cache: true,
+                cache_dir: Some(PathBuf::from("/var/cache/fw")),
+            },
+            flash_options: FlashOptions {
+                verify_image: true,
+                verify_version: true,
+                reset: true,
+                reset_level: 3,
+            },
+        };
+        let proto: FirmwareFlasherProfilePb = original.clone().into();
+        let converted: FirmwareFlasherProfile = proto.try_into().unwrap();
+
+        assert_eq!(
+            original.firmware_spec.part_number,
+            converted.firmware_spec.part_number
+        );
+        assert_eq!(original.firmware_spec.psid, converted.firmware_spec.psid);
+        assert_eq!(
+            original.firmware_spec.version,
+            converted.firmware_spec.version
+        );
+        assert_eq!(
+            original.flash_spec.firmware_url,
+            converted.flash_spec.firmware_url
+        );
+        assert_eq!(
+            original.flash_spec.device_conf_url,
+            converted.flash_spec.device_conf_url
+        );
+        assert_eq!(
+            original.flash_spec.verify_from_cache,
+            converted.flash_spec.verify_from_cache
+        );
+        assert!(converted.flash_spec.firmware_credentials.is_some());
+        assert!(converted.flash_spec.device_conf_credentials.is_some());
+        assert!(converted.flash_options.verify_image);
+        assert!(converted.flash_options.verify_version);
+        assert!(converted.flash_options.reset);
+        assert_eq!(converted.flash_options.reset_level, 3);
+    }
+
+    #[test]
+    fn test_profile_minimal_roundtrip() {
+        let original = FirmwareFlasherProfile {
+            firmware_spec: FirmwareSpec {
+                part_number: "900-9D3B4-00CV-TA0".to_string(),
+                psid: "MT_0000000884".to_string(),
+                version: "32.43.1014".to_string(),
+            },
+            flash_spec: FlashSpec {
+                firmware_url: "/local/path/fw.bin".to_string(),
+                firmware_credentials: None,
+                device_conf_url: None,
+                device_conf_credentials: None,
+                verify_from_cache: false,
+                cache_dir: None,
+            },
+            flash_options: FlashOptions::default(),
+        };
+        let proto: FirmwareFlasherProfilePb = original.clone().into();
+        let converted: FirmwareFlasherProfile = proto.try_into().unwrap();
+
+        assert_eq!(
+            original.firmware_spec.part_number,
+            converted.firmware_spec.part_number
+        );
+        assert_eq!(
+            original.flash_spec.firmware_url,
+            converted.flash_spec.firmware_url
+        );
+        assert!(converted.flash_spec.firmware_credentials.is_none());
+        assert!(converted.flash_spec.device_conf_url.is_none());
+        assert!(!converted.flash_options.reset);
+        assert!(!converted.flash_options.verify_image);
+        assert!(!converted.flash_options.verify_version);
+        assert_eq!(converted.flash_options.reset_level, 3);
+    }
+
+    #[test]
+    fn test_profile_toml_roundtrip() {
+        let toml_str = r#"
+part_number = "900-9D3B4-00CV-TA0"
+psid = "MT_0000000884"
+version = "32.43.1014"
+firmware_url = "https://artifacts.nvidia.com/fw.bin"
+reset = true
+verify_image = true
+verify_version = true
+"#;
+        let profile = FirmwareFlasherProfile::from_toml(toml_str).unwrap();
+        assert_eq!(profile.firmware_spec.part_number, "900-9D3B4-00CV-TA0");
+        assert_eq!(profile.firmware_spec.version, "32.43.1014");
+        assert_eq!(
+            profile.flash_spec.firmware_url,
+            "https://artifacts.nvidia.com/fw.bin"
+        );
+        assert!(profile.flash_options.reset);
+        assert!(profile.flash_options.verify_image);
+        assert!(profile.flash_options.verify_version);
+        assert_eq!(profile.flash_options.reset_level, 3); // default
     }
 }

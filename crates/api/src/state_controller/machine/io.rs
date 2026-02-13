@@ -100,7 +100,7 @@ impl StateControllerIO for MachineStateControllerIO {
         .await?;
 
         if let Some(retstate) = retstate.as_mut() {
-            let dpa_snapshots = db::dpa_interface::find_by_machine_id(txn, machine_id).await?;
+            let dpa_snapshots = db::dpa_interface::find_by_machine_id(txn, *machine_id).await?;
             retstate.dpa_interface_snapshots = dpa_snapshots;
         };
 

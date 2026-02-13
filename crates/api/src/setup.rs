@@ -163,6 +163,10 @@ pub fn parse_carbide_config(
         }
     }
 
+    // Validate that the firmware profile config keys match their inner
+    // part_number and psid values. Mismatches are logged as warnings.
+    config.validate_supernic_firmware_profiles();
+
     tracing::trace!("Carbide config: {:#?}", config.redacted());
     Ok(Arc::new(config))
 }

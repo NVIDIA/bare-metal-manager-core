@@ -134,53 +134,94 @@ impl StateHandler for DpaInterfaceStateHandler {
                         "Waiting for card to get unlocked".to_string(),
                     ));
                 }
-                let cs = state.card_state.clone().unwrap();
-                if cs.lockmode.is_some() {
-                    let lm = cs.lockmode.unwrap();
-                    if lm == Unlocked {
-                        let new_state = DpaInterfaceControllerState::ApplyProfile;
-                        tracing::info!(state = ?new_state, "Dpa Interface state transition");
-                        return Ok(StateHandlerOutcome::transition(new_state));
-                    }
+                if let Some(ref mut cs) = state.card_state
+                    && cs.lockmode == Some(Unlocked)
+                {
+                    let new_state = DpaInterfaceControllerState::ApplyFirmware;
+                    tracing::info!(state = ?new_state, "Interface unlocked. Transitioning to next state");
+                    return Ok(StateHandlerOutcome::transition(new_state));
                 }
                 Ok(StateHandlerOutcome::wait(
                     "Waiting for card to get unlocked".to_string(),
                 ))
             }
 
+            DpaInterfaceControllerState::ApplyFirmware => {
+                // At this point, we're in the ApplyFirmware state, which means we
+                // have sent a firmware flash instruction to scout (via a configured
+                // FirmwareFlasherProfile). Now, we wait for an observation report
+                // from scout indicating firmware has been applied (or skipped if no
+                // config was available).
+                let Some(ref card_state) = state.card_state else {
+                    tracing::info!(
+                        "no firmware report, because card_state none for dpa: {:#?}, waiting for retry",
+                        state.id
+                    );
+                    return Ok(StateHandlerOutcome::wait(
+                        "Waiting for firmware to be applied".to_string(),
+                    ));
+                };
+                if let Some(ref firmware_report) = card_state.firmware_report {
+                    // Transition on to the next state if the flash succeeded and reset
+                    // either wasn't requested (None) or succeeded (Some(true)).
+                    //
+                    // To explain this a bit better, if no reset was requested, then
+                    // we'll get None back here. Since no reset was requested at all,
+                    // then we can continue, so we just "default" to true, to let
+                    // things continue. If a reset WAS requested, then we'll unwrap
+                    // whatever the result was (either success/true, or failed/false).
+                    let reset_ok = firmware_report.reset.unwrap_or(true);
+                    if firmware_report.flashed && reset_ok {
+                        let new_state = DpaInterfaceControllerState::ApplyProfile;
+                        tracing::info!(
+                            state = ?new_state,
+                            observed_version = firmware_report.observed_version.as_deref().unwrap_or("none"),
+                            "firmware report received and successfully applied, transitioning"
+                        );
+                        return Ok(StateHandlerOutcome::transition(new_state));
+                    }
+                    tracing::warn!(
+                        flashed = firmware_report.flashed,
+                        reset = ?firmware_report.reset,
+                        observed_version = firmware_report.observed_version.as_deref().unwrap_or("none"),
+                        "firmware report received but not successful, waiting for retry"
+                    );
+                }
+
+                // ..if we get here, it's because the firmware_report in the CardState
+                // wasn't set yet. ...or it was, and this round wasn't successful, so we're
+                // just going to keep hanging out in this state until it is (letting the
+                // apply workflow happen again).
+                Ok(StateHandlerOutcome::wait(
+                    "Waiting for firmware to be applied".to_string(),
+                ))
+            }
+
             DpaInterfaceControllerState::ApplyProfile => {
-                if state.card_state.is_none() {
+                let Some(ref cs) = state.card_state else {
                     // Card should be in unlocked state when we come here. So we do
                     // expect card_state to be not NONE.
                     tracing::error!("Unexpected - card_state none for dpa: {:#?}", state.id);
                     return Ok(StateHandlerOutcome::do_nothing());
-                }
-                let cs = state.card_state.clone().unwrap();
-                if cs.profile.is_some() && cs.profile_synced.is_some() {
-                    let psynced = cs.profile_synced.unwrap();
-                    if psynced {
-                        let new_state = DpaInterfaceControllerState::Locking;
-                        tracing::info!(state = ?new_state, "Dpa Interface state transition");
-                        return Ok(StateHandlerOutcome::transition(new_state));
-                    }
+                };
+                if cs.profile.is_some() && cs.profile_synced == Some(true) {
+                    let new_state = DpaInterfaceControllerState::Locking;
+                    tracing::info!(state = ?new_state, "Dpa Interface state transition");
+                    return Ok(StateHandlerOutcome::transition(new_state));
                 }
                 Ok(StateHandlerOutcome::wait(
                     "Waiting for profile to be applied on card".to_string(),
                 ))
             }
             DpaInterfaceControllerState::Locking => {
-                if state.card_state.is_none() {
+                let Some(ref cs) = state.card_state else {
                     tracing::error!("Unexpected - card_state none for dpa: {:#?}", state.id);
                     return Ok(StateHandlerOutcome::do_nothing());
-                }
-                let cs = state.card_state.clone().unwrap();
-                if cs.lockmode.is_some() {
-                    let lm = cs.lockmode.unwrap();
-                    if lm == Locked {
-                        let new_state = DpaInterfaceControllerState::WaitingForSetVNI;
-                        tracing::info!(state = ?new_state, "Dpa Interface state transition");
-                        return Ok(StateHandlerOutcome::transition(new_state));
-                    }
+                };
+                if cs.lockmode == Some(Locked) {
+                    let new_state = DpaInterfaceControllerState::WaitingForSetVNI;
+                    tracing::info!(state = ?new_state, "Dpa Interface state transition");
+                    return Ok(StateHandlerOutcome::transition(new_state));
                 }
                 Ok(StateHandlerOutcome::wait(
                     "Waiting for card to get locked".to_string(),

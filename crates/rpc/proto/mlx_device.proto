@@ -363,10 +363,146 @@ message SerializableMlxConfigProfile {
   map<string, string> config = 4;
 }
 
+// FirmwareCredentials represents authentication credentials for
+// accessing firmware or device config resources. Maps to the Rust
+// Credentials enum in libmlx::firmware::credentials.
+message FirmwareCredentials {
+  oneof credential_type {
+    BearerTokenCredentials bearer_token = 1;
+    BasicAuthCredentials basic_auth = 2;
+    HeaderCredentials header = 3;
+    SshKeyCredentials ssh_key = 4;
+    SshAgentCredentials ssh_agent = 5;
+  }
+}
+
+// BearerTokenCredentials uses an Authorization: Bearer <token> header.
+message BearerTokenCredentials {
+  string token = 1;
+}
+
+// BasicAuthCredentials uses HTTP Basic authentication.
+message BasicAuthCredentials {
+  string username = 1;
+  string password = 2;
+}
+
+// HeaderCredentials uses a custom HTTP header for authentication.
+message HeaderCredentials {
+  string name = 1;
+  string value = 2;
+}
+
+// SshKeyCredentials uses a private key file for SSH authentication.
+message SshKeyCredentials {
+  string path = 1;
+  optional string passphrase = 2;
+}
+
+// SshAgentCredentials uses the running SSH agent for authentication.
+message SshAgentCredentials {
+}
+
+// FirmwareSpec identifies a firmware target by device identity
+// (part_number, psid) and the target firmware version. It is
+// used to construct a FirmwareFlasher following an RAII model,
+// where we poll the device to confirm part_number + PSID of
+// the device match that of the spec, otherwise we won't hand
+// back a new flasher. This helps to ensure we will only flash
+// firmware to a device the firmware supports.
+message FirmwareSpec {
+  // part_number is the manufacturer part number for the target device
+  // (e.g., "900-9D3B4-00CV-TA0").
+  string part_number = 1;
+  // psid (Parameter-Set IDentification) identifies the firmware
+  // configuration of the target device (e.g., "MT_0000000884").
+  string psid = 2;
+  // version is the target firmware version string (e.g., "32.43.1014").
+  string version = 3;
+}
+
+// FlashSpec specifies the source locations and caching options for
+// flash and verify_image operations. Passed to flasher.flash() and
+// flasher.verify_image().
+message FlashSpec {
+  // firmware_url is the location of the firmware binary.
+  // Supports local paths, file://, https://, and ssh:// URLs.
+  string firmware_url = 1;
+  // firmware_credentials is the optional authentication for
+  // downloading the firmware binary.
+  optional FirmwareCredentials firmware_credentials = 2;
+  // device_conf_url is the optional location of the device config
+  // to apply before flashing (e.g., a debug token or mlxconfig blob).
+  optional string device_conf_url = 3;
+  // device_conf_credentials is the optional authentication for
+  // downloading the device config.
+  optional FirmwareCredentials device_conf_credentials = 4;
+  // verify_from_cache controls whether verify_image() uses the
+  // cached firmware from cache_dir instead of re-pulling from source.
+  bool verify_from_cache = 5;
+  // cache_dir is the directory for staging downloaded firmware files.
+  // Defaults to a temporary directory if not specified.
+  optional string cache_dir = 6;
+}
+
+// FlashOptions contains lifecycle flags for the apply() orchestrator.
+// Controls which post-flash steps are executed.
+message FlashOptions {
+  // verify_image controls whether the firmware image on the device is
+  // verified against the source binary after flashing. Default is false.
+  bool verify_image = 1;
+  // verify_version controls whether the firmware version on the device
+  // is checked after flashing. Default is false.
+  bool verify_version = 2;
+  // reset controls whether the device is reset via mlxfwreset after
+  // flashing. Default is false.
+  bool reset = 3;
+  // reset_level is the mlxfwreset level to use. Default is 3.
+  uint32 reset_level = 4;
+}
+
+// FirmwareFlasherProfile bundles a FirmwareSpec, FlashSpec, and
+// FlashOptions into a complete firmware management profile. Used by
+// the API runtime config and sent to scout via OpCode::ApplyFirmware.
+message FirmwareFlasherProfile {
+  FirmwareSpec firmware_spec = 1;
+  FlashSpec flash_spec = 2;
+  optional FlashOptions flash_options = 3;
+}
+
 message MlxObservationReport {
   common.MachineId machine_id = 1;
   google.protobuf.Timestamp timestamp = 2;
   repeated MlxObservation observations = 3;
+}
+
+// FirmwareFlashReport captures the outcome of each step in the
+// firmware flash lifecycle: flash, reset, image verification, and
+// version verification. Each optional step (reset, verify_image,
+// verify_version) is controlled by the corresponding flag in
+// SupernicFirmwareConfig. A None value means the step was not
+// requested; Some(true/false) means it was attempted and the result.
+// Sent from scout to the API as part of an MlxObservation after an
+// ApplyFirmware operation.
+message FirmwareFlashReport {
+  // Whether the firmware was successfully flashed via flint.
+  bool flashed = 1;
+  // Whether the device was successfully reset via mlxfwreset.
+  // None if config.reset was false (not requested).
+  optional bool reset = 2;
+  // Whether the firmware image on the device was verified against
+  // the source image via flint verify.
+  // None if config.verify_image was false (not requested).
+  optional bool verified_image = 3;
+  // Whether the firmware version on the device matches the expected
+  // version. None if config.verify_version was false (not requested).
+  optional bool verified_version = 4;
+  // The firmware version observed on the device after flashing,
+  // queried via mlxfwmanager. None if the device could not be queried
+  // or if the step was not performed.
+  optional string observed_version = 5;
+  // The expected firmware version from the config, if one was set.
+  optional string expected_version = 6;
 }
 
 message MlxObservation {
@@ -374,6 +510,10 @@ message MlxObservation {
   optional LockStatus lock_status = 2;
   optional string profile_name = 3;
   optional bool profile_synced = 4;
+  // firmware_report captures the outcome of the firmware flash lifecycle
+  // during the ApplyFirmware state. Each step's report reflects whether
+  // it was requested (via config flags) and whether it succeeded.
+  optional FirmwareFlashReport firmware_report = 5;
 }
 
 // PublishMlxObservationReportRequest is sent by scout or the agent

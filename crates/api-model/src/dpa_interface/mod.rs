@@ -25,6 +25,8 @@ use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use itertools::Itertools;
+use libmlx::device::info::MlxDeviceInfo;
+use libmlx::firmware::result::FirmwareFlashReport;
 use mac_address::MacAddress;
 use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
@@ -46,6 +48,17 @@ pub enum DpaInterfaceControllerState {
     Ready,
     /// Unlock the card
     Unlocking,
+    /// Apply firmware to the SuperNIC, in which we will send down
+    /// a FirmwareFlasherProfile matching the device P/N + PSID,
+    /// with the target version. We may also send down a "None"
+    /// profile, which is effectively a noop; scout will report
+    /// back saying it successfully applied nothing.
+    ///
+    /// The API can also choose to just skip to the ApplyProfile
+    /// state in the case of there being None to send to scout,
+    /// but scout is expected to successfully reply "Ok" if it
+    /// gets a None.
+    ApplyFirmware,
     /// Apply mlx profile
     ApplyProfile,
     /// Lock the card
@@ -130,6 +143,18 @@ pub struct CardState {
     pub lockmode: Option<DpaLockMode>,
     pub profile: Option<String>,
     pub profile_synced: Option<bool>,
+
+    #[serde(default)]
+    // firmware_report contains the latest FirmwareFlashReport as
+    // fed back from scout after receiving a FirmwareFlashProfile
+    // to apply as part of the ApplyFirmware state + OpCode
+    // workflow. This report will let us know if the firmware
+    // flash occurred, as well as a number of optional bits
+    // of feedback (e.g. if a reset was configured, did it happen,
+    // if a version verification was configured, did it happen,
+    // etc). This is useful for metrics, verification, and general
+    // transparency via logging or other mechanisms.
+    pub firmware_report: Option<FirmwareFlashReport>,
 }
 
 impl Display for CardState {
@@ -150,6 +175,9 @@ pub fn state_sla(state: &DpaInterfaceControllerState, state_version: &ConfigVers
         DpaInterfaceControllerState::Provisioning => StateSla::no_sla(),
         DpaInterfaceControllerState::Ready => StateSla::no_sla(),
         DpaInterfaceControllerState::Locking => StateSla::with_sla(slas::LOCKING, time_in_state),
+        DpaInterfaceControllerState::ApplyFirmware => {
+            StateSla::with_sla(slas::APPLY_FIRMWARE, time_in_state)
+        }
         DpaInterfaceControllerState::ApplyProfile => {
             StateSla::with_sla(slas::APPLY_PROFILE, time_in_state)
         }
@@ -172,6 +200,7 @@ mod tests {
 
     #[test]
     fn serialize_controller_state() {
+        // Make sure the Provisioning state serializes to/from "provisioning".
         let state = DpaInterfaceControllerState::Provisioning {};
         let serialized = serde_json::to_string(&state).unwrap();
         assert_eq!(serialized, "{\"state\":\"provisioning\"}");
@@ -180,9 +209,19 @@ mod tests {
             state
         );
 
+        // Make sure the Ready state serializes to/from "ready".
         let state = DpaInterfaceControllerState::Ready {};
         let serialized = serde_json::to_string(&state).unwrap();
         assert_eq!(serialized, "{\"state\":\"ready\"}");
+        assert_eq!(
+            serde_json::from_str::<DpaInterfaceControllerState>(&serialized).unwrap(),
+            state
+        );
+
+        // Make sure the ApplyFirmware state serializes to/from "applyfirmware".
+        let state = DpaInterfaceControllerState::ApplyFirmware;
+        let serialized = serde_json::to_string(&state).unwrap();
+        assert_eq!(serialized, "{\"state\":\"applyfirmware\"}");
         assert_eq!(
             serde_json::from_str::<DpaInterfaceControllerState>(&serialized).unwrap(),
             state
@@ -217,6 +256,15 @@ pub struct DpaInterface {
     pub network_status_observation: Option<DpaInterfaceNetworkStatusObservation>,
 
     pub card_state: Option<CardState>,
+
+    // device_info and its corresponding timestamp are used to
+    // keep track of the latest MlxDeviceInfo received by scout
+    // for the target Mellanox device. This contains information
+    // like the part number, PSID, firmware version(s), MAC address,
+    // etc. We store the received timestamp alongside it to detect
+    // if we're acting on potentially stale MlxDeviceInfo data.
+    pub device_info: Option<MlxDeviceInfo>,
+    pub device_info_ts: Option<DateTime<Utc>>,
 
     pub history: Vec<DpaInterfaceStateHistoryRecord>,
 }
@@ -400,6 +448,10 @@ pub struct DpaInterfaceSnapshotPgJson {
     pub pci_name: String,
     pub underlay_ip: Option<IpAddr>,
     pub overlay_ip: Option<IpAddr>,
+    #[serde(default, alias = "device_info_report")]
+    pub device_info: Option<MlxDeviceInfo>,
+    #[serde(default, alias = "device_info_report_ts")]
+    pub device_info_ts: Option<DateTime<Utc>>,
     #[serde(default)]
     pub history: Vec<DpaInterfaceStateHistoryRecord>,
 }
@@ -437,6 +489,8 @@ impl TryFrom<DpaInterfaceSnapshotPgJson> for DpaInterface {
             },
             network_status_observation: value.network_status_observation,
             card_state: value.card_state,
+            device_info: value.device_info,
+            device_info_ts: value.device_info_ts,
             history: value.history,
             pci_name: value.pci_name,
             underlay_ip: value.underlay_ip,
