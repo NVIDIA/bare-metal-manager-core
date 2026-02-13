@@ -102,6 +102,13 @@ mod tests {
 
             let (req, send) = handle.next_request().await.unwrap();
             assert_eq!(
+                req.uri().path(),
+                "/api/v1/namespaces/forge-system/services/carbide-pxe-external"
+            );
+            send.send_response(ok_json(get_svc()));
+
+            let (req, send) = handle.next_request().await.unwrap();
+            assert_eq!(
                 req.uri(),
                 "/apis/provisioning.dpu.nvidia.com/v1alpha1/namespaces/dpf-operator-system/bfbs?"
             );
@@ -286,6 +293,72 @@ mod tests {
             }
         }
         )
+    }
+
+    fn get_svc() -> serde_json::Value {
+        serde_json::json!(
+                    {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "argocd.argoproj.io/tracking-id": "site-controller:/Service:forge-system/carbide-pxe-external",
+                    "config.kubernetes.io/origin": "path: ../../../../overlays/forge-system/external-services.yaml\n",
+                    "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"v1\",\"kind\":\"Service\",\"metadata\":{\"annotations\":{\"argocd.argoproj.io/tracking-id\":\"site-controller:/Service:forge-system/carbide-pxe-external\",\"config.kubernetes.io/origin\":\"path: ../../../../overlays/forge-system/external-services.yaml\\n\",\"metallb.universe.tf/allow-shared-ip\":\"carbide-pxe\",\"metallb.universe.tf/loadBalancerIPs\":\"10.180.61.162\"},\"labels\":{\"app.kubernetes.io/part-of\":\"carbide-pxe\",\"argocd.argoproj.io/instance\":\"site-controller\"},\"name\":\"carbide-pxe-external\",\"namespace\":\"forge-system\"},\"spec\":{\"externalTrafficPolicy\":\"Local\",\"ports\":[{\"name\":\"http\",\"port\":8080,\"protocol\":\"TCP\",\"targetPort\":8080}],\"selector\":{\"app.kubernetes.io/name\":\"carbide-pxe\"},\"type\":\"LoadBalancer\"}}\n",
+                    "metallb.universe.tf/allow-shared-ip": "carbide-pxe",
+                    "metallb.universe.tf/ip-allocated-from-pool": "vip-pool-int-test",
+                    "metallb.universe.tf/loadBalancerIPs": "10.180.61.162"
+                },
+                "creationTimestamp": "2026-01-27T14:57:56Z",
+                "labels": {
+                    "app.kubernetes.io/part-of": "carbide-pxe",
+                    "argocd.argoproj.io/instance": "site-controller"
+                },
+                "name": "carbide-pxe-external",
+                "namespace": "forge-system",
+                "resourceVersion": "60182091",
+                "uid": "86c3af56-6e98-4929-a66c-63066aac75d7"
+            },
+            "spec": {
+                "allocateLoadBalancerNodePorts": true,
+                "clusterIP": "10.233.55.156",
+                "clusterIPs": [
+                    "10.233.55.156"
+                ],
+                "externalTrafficPolicy": "Local",
+                "healthCheckNodePort": 32538,
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "http",
+                        "nodePort": 31312,
+                        "port": 8080,
+                        "protocol": "TCP",
+                        "targetPort": 8080
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/name": "carbide-pxe"
+                },
+                "sessionAffinity": "None",
+                "type": "LoadBalancer"
+            },
+            "status": {
+                "loadBalancer": {
+                    "ingress": [
+                        {
+                            "ip": "10.180.61.162",
+                            "ipMode": "VIP"
+                        }
+                    ]
+                }
+            }
+        }
+                )
     }
 
     fn get_bfb_response(name: String) -> serde_json::Value {
