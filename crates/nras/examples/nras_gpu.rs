@@ -20,7 +20,7 @@ use nras::VerifierClient;
 const DEFAULT_NRAS_URL: &str = "https://nras.attestation-dev.nvidia.com";
 const DEFAULT_NRAS_GPU_URL_SUFFIX: &str = "/v4/attest/gpu/health";
 const DEFAULT_NONCE: &str = "abcdef13455";
-const DEFAULT_EVIDENCE: &str = "abdetg2345";
+const DEFAULT_EVIDENCE: &str = "EeABGpR4QbD50HlMYaZVZl4sXy1iV0lG/omaPmg33F7DO4D3ABFgAAABDwAAGgELAIIIAKaAbRwVx5iJy8lS5J1Mcz2fbxX6vEMqjX/0F8oIVGbBYeC28oXwNbMAAERkQYLFGv/im6lEaYePMFKj4vFAz3AMiOwp9urtaLOTHrjNy/HtkHKCMV3SanUBdSPPVPWBjfoxpSpQ8ivO+2Fu0B3Showk+mLfCAqEzVX3SMY9cbF3jZXNcWuLuBBdwA==";
 const DEFAULT_FIRMWARE_VERSION: &str = "97.10.52.00.17";
 const DEFAULT_ARCHITECTURE: &str = "blackwell";
 
