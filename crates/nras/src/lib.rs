@@ -23,8 +23,8 @@ mod parser;
 // re-exports
 use std::collections as stdcol;
 
-use base64::{engine::general_purpose::STANDARD, Engine};
-
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 pub use client::{NrasVerifierClient, VerifierClient};
 pub use keystore::{KeyStore, NrasKeyStore};
 pub use parser::Parser;
