@@ -16,8 +16,8 @@
  */
 use clap::{Parser, Subcommand, ValueEnum};
 use forge_tls::default as tls_default;
-use mlxconfig_device::cmd::device::args::DeviceAction;
-use mlxconfig_lockdown::cmd::args::LockdownAction;
+use libmlx::device::cmd::device::args::DeviceAction;
+use libmlx::lockdown::cmd::args::LockdownAction;
 
 #[derive(ValueEnum, Clone, Debug, Copy, PartialEq)]
 pub(crate) enum Mode {

@@ -49,9 +49,7 @@ carbide-ssh = { path = "../ssh" }
 carbide-tls = { path = "../tls" }
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 carbide-measured-boot = { path = "../measured-boot", features = ["sqlx"] }
-carbide-mlxconfig-device = { path = "../mlxconfig-device" }
-carbide-mlxconfig-profile = { path = "../mlxconfig-profile" }
-carbide-mlxconfig-variables = { path = "../mlxconfig-variables" }
+carbide-libmlx = { path = "../libmlx" }
 carbide-api-model = { path = "../api-model", default-features = false }
 carbide-api-db = { path = "../api-db", default-features = false }
 spancounter = { path = "../spancounter" }
@@ -95,6 +93,7 @@ ipnetwork = { workspace = true, features = ["serde"] }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
 libredfish = { workspace = true }
+librms = { workspace = true }
 mac_address = { workspace = true }
 md5 = { workspace = true }
 num-bigint-dig = { workspace = true }

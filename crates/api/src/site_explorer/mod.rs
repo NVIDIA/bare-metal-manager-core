@@ -39,6 +39,8 @@ use futures_util::stream::FuturesUnordered;
 use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
 use libredfish::model::oem::nvidia_dpu::NicMode;
+use librms::RmsApi;
+use librms::protos::rack_manager::NodeType as RmsNodeType;
 use mac_address::MacAddress;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::expected_switch::ExpectedSwitch;
@@ -58,7 +60,6 @@ use tracing::Instrument;
 use version_compare::Cmp;
 
 use crate::cfg::file::{FirmwareConfig, SiteExplorerConfig};
-use crate::rack::rms_client::{RmsApi, RmsNodeType};
 use crate::{CarbideError, CarbideResult};
 
 mod endpoint_explorer;
@@ -778,7 +779,7 @@ impl SiteExplorer {
                     explored_endpoint.address.to_string(),
                     443,
                     expected_shelf.bmc_mac_address,
-                    RmsNodeType::PowerShelf,
+                    RmsNodeType::Powershelf,
                 )
                 .await
                 {

@@ -139,6 +139,7 @@ pub async fn handle_show_version(
         r!(table, config, dpa_subnet_mask);
 
         r!(table, config, dpu_secure_boot_enabled);
+        r!(table, config, dpf_enabled);
 
         _ = table.print_tty(true);
     }

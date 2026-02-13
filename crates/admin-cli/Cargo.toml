@@ -38,11 +38,7 @@ carbide-version = { path = "../version" }
 carbide-secrets = { path = "../secrets" }
 carbide-health-report = { path = "../health-report" }
 carbide-measured-boot = { path = "../measured-boot", features = ["cli"] }
-carbide-mlxconfig-device = { path = "../mlxconfig-device" }
-carbide-mlxconfig-lockdown = { path = "../mlxconfig-lockdown" }
-carbide-mlxconfig-profile = { path = "../mlxconfig-profile" }
-carbide-mlxconfig-runner = { path = "../mlxconfig-runner" }
-carbide-mlxconfig-variables = { path = "../mlxconfig-variables" }
+carbide-libmlx = { path = "../libmlx" }
 carbide-rpc = { path = "../rpc", features = ["cli"] }
 carbide-utils = { path = "../utils" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
@@ -56,6 +52,7 @@ eyre = { workspace = true }
 futures = { workspace = true }
 ipnet = { workspace = true }
 libredfish = { workspace = true }
+librms = { workspace = true }
 mac_address = { workspace = true }
 prettytable-rs = { workspace = true }
 reqwest = { workspace = true }

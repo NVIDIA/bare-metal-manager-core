@@ -21,13 +21,15 @@ use ::rpc::protos::mlx_device::{
     PublishMlxObservationReportResponse,
 };
 use carbide_uuid::machine::MachineId;
-use mlxconfig_device::discovery;
-use mlxconfig_device::report::MlxDeviceReport;
-use mlxconfig_lockdown::{LockStatus, LockdownManager, MlxResult, StatusReport};
-use mlxconfig_profile::MlxProfileError;
-use mlxconfig_profile::serialization::SerializableProfile;
-use mlxconfig_registry::registries;
-use mlxconfig_runner::{ComparisonResult, MlxConfigRunner, SyncResult};
+use libmlx::device::discovery;
+use libmlx::device::report::MlxDeviceReport;
+use libmlx::lockdown::error::MlxResult;
+use libmlx::lockdown::lockdown::{LockStatus, LockdownManager, StatusReport};
+use libmlx::profile::error::MlxProfileError;
+use libmlx::profile::serialization::SerializableProfile;
+use libmlx::registry::registries;
+use libmlx::runner::result_types::{ComparisonResult, SyncResult};
+use libmlx::runner::runner::MlxConfigRunner;
 use rpc::protos::mlx_device as mlx_device_pb;
 use scout::CarbideClientResult;
 
@@ -517,7 +519,7 @@ pub fn handle_info_report(
     tracing::info!("[scout_stream::mlx_device] device report requested");
 
     let report = if let Some(filter_set_pb) = request.filters {
-        match mlxconfig_device::filters::DeviceFilterSet::try_from(filter_set_pb) {
+        match libmlx::device::filters::DeviceFilterSet::try_from(filter_set_pb) {
             Ok(filters) => MlxDeviceReport::new().with_filter_set(filters),
             Err(e) => {
                 tracing::error!(
