@@ -1,0 +1,23 @@
+[package]
+name = "carbide-ranger"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "ranger-agent"
+path = "src/main.rs"
+
+[dependencies]
+carbide-version = { path = "../version" }
+clap = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[build-dependencies]
+carbide-version = { path = "../version" }
+
+[lints]
+workspace = true

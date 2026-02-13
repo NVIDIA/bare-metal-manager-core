@@ -1,0 +1,22 @@
+[Unit]
+Description=Ranger Agent - Carbide Rack Validation Test Executor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/opt/ranger/ranger-agent.env
+ExecStartPre=/opt/ranger/ranger-agent-pre.sh
+ExecStart=/opt/ranger/ranger-agent --api=${RANGER_API_URI} --machine-interface-id=${RANGER_MACHINE_ID}
+User=root
+Group=root
+WorkingDirectory=/opt/ranger
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=255
+OOMScoreAdjust=-1000
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

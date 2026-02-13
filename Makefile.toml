@@ -159,7 +159,7 @@ docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
     "carbide-scout"
 docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64:latest "aarch64-linux-gnu-strip" \
     "/carbide/target/aarch64-unknown-linux-gnu/release/carbide-admin-cli" \
-    "/carbide/target/aarch64-unknown-linux-gnu/release/forge-scout"   
+    "/carbide/target/aarch64-unknown-linux-gnu/release/forge-scout"
 '''
 dependencies = ["check-cargo-home-set", "build-cross-docker-image"]
 
@@ -431,6 +431,8 @@ do
 done
 '''
 
+# SCOUT BUILD TASKS
+
 [tasks.build-scout-x86_64-release-local]
 workspace = false
 env = { "CARBIDE_PACKAGE" = "scout", "CARBIDE_CRATE" = "carbide-scout", "CARBIDE_CRATE_DIR" = "crates/scout", "CARBIDE_ARCH" = "x86_64", "CARBIDE_PROFILE" = "release" }
@@ -445,6 +447,8 @@ run_task = "build-component-local"
 workspace = false
 env = { "CARBIDE_PACKAGE" = "scout", "CARBIDE_CRATE" = "carbide-scout", "CARBIDE_CRATE_DIR" = "crates/scout", "CARBIDE_ARCH" = "aarch64", "CARBIDE_PROFILE" = "release" }
 run_task = "build-component-in-container"
+
+# SCOUT PACKAGE TASKS
 
 [tasks.package-scout-x86_64-release-local]
 workspace = false
@@ -465,6 +469,47 @@ run_task = "package-component-in-container"
 workspace = false
 env = { "CARBIDE_PACKAGE" = "scout", "CARBIDE_CRATE" = "carbide-scout", "CARBIDE_CRATE_DIR" = "crates/scout", "CARBIDE_ARCH" = "x86_64", "CARBIDE_PROFILE" = "release" }
 run_task = "package-component-in-container"
+
+# RANGER BUILD TASKS
+
+[tasks.build-ranger-x86_64-release-local]
+workspace = false
+env = { "CARBIDE_PACKAGE" = "ranger", "CARBIDE_CRATE" = "carbide-ranger", "CARBIDE_CRATE_DIR" = "crates/ranger", "CARBIDE_ARCH" = "x86_64", "CARBIDE_PROFILE" = "release" }
+run_task = "build-component-local"
+
+[tasks.build-ranger-aarch64-release-local]
+workspace = false
+env = { "CARBIDE_PACKAGE" = "ranger", "CARBIDE_CRATE" = "carbide-ranger", "CARBIDE_CRATE_DIR" = "crates/ranger", "CARBIDE_ARCH" = "aarch64", "CARBIDE_PROFILE" = "release" }
+run_task = "build-component-local"
+
+[tasks.build-ranger-aarch64-release-cross]
+workspace = false
+env = { "CARBIDE_PACKAGE" = "ranger", "CARBIDE_CRATE" = "carbide-ranger", "CARBIDE_CRATE_DIR" = "crates/ranger", "CARBIDE_ARCH" = "aarch64", "CARBIDE_PROFILE" = "release" }
+run_task = "build-component-in-container"
+
+# RANGER PACKAGE TASKS
+
+[tasks.package-ranger-x86_64-release-local]
+workspace = false
+env = { "CARBIDE_PACKAGE" = "ranger", "CARBIDE_CRATE" = "carbide-ranger", "CARBIDE_CRATE_DIR" = "crates/ranger", "CARBIDE_ARCH" = "x86_64", "CARBIDE_PROFILE" = "release", "INSTALL_DIR" = "/opt/ranger" }
+run_task = "package-component-local"
+
+[tasks.package-ranger-aarch64-release-local]
+workspace = false
+env = { "CARBIDE_PACKAGE" = "ranger", "CARBIDE_CRATE" = "carbide-ranger", "CARBIDE_CRATE_DIR" = "crates/ranger", "CARBIDE_ARCH" = "aarch64", "CARBIDE_PROFILE" = "release", "INSTALL_DIR" = "/opt/ranger" }
+run_task = "package-component-local"
+
+[tasks.package-ranger-aarch64-release-cross]
+workspace = false
+env = { "CARBIDE_PACKAGE" = "ranger", "CARBIDE_CRATE" = "carbide-ranger", "CARBIDE_CRATE_DIR" = "crates/ranger", "CARBIDE_ARCH" = "aarch64", "CARBIDE_PROFILE" = "release", "INSTALL_DIR" = "/opt/ranger" }
+run_task = "package-component-in-container"
+
+[tasks.package-ranger-cross-x86_64-release]
+workspace = false
+env = { "CARBIDE_PACKAGE" = "ranger", "CARBIDE_CRATE" = "carbide-ranger", "CARBIDE_CRATE_DIR" = "crates/ranger", "CARBIDE_ARCH" = "x86_64", "CARBIDE_PROFILE" = "release", "INSTALL_DIR" = "/opt/ranger" }
+run_task = "package-component-in-container"
+
+# ---
 
 [tasks.setup-nightly-rust]
 description = "Install pinned nightly toolchain and components for running format-nightly and carbide-lints tasks"

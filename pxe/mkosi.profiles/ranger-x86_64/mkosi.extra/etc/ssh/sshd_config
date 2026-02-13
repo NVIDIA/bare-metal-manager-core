@@ -1,0 +1,35 @@
+# Ranger SSH Server Configuration
+# Standard OpenSSH configuration for rack validation testing
+
+# Basic settings
+Port 22
+AddressFamily any
+ListenAddress 0.0.0.0
+ListenAddress ::
+
+# Authentication
+PermitRootLogin yes
+PubkeyAuthentication yes
+PasswordAuthentication yes
+PermitEmptyPasswords no
+ChallengeResponseAuthentication no
+
+# Security
+X11Forwarding no
+PrintMotd no
+AcceptEnv LANG LC_*
+
+# Subsystems
+Subsystem sftp /usr/lib/openssh/sftp-server
+
+# Logging
+SyslogFacility AUTH
+LogLevel INFO
+
+# Keep connections alive
+ClientAliveInterval 60
+ClientAliveCountMax 3
+
+# Allow TCP forwarding for debugging if needed
+AllowTcpForwarding yes
+GatewayPorts no
