@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use carbide_uuid::rack::RackId;
-use db::{rack as db_rack};
+use db::rack as db_rack;
 use model::rack::{Rack, RackMaintenanceState, RackReadyState, RackState, RackValidationState};
 use rpc::forge::RackStateHistoryRecord;
 use rpc::forge::forge_server::Forge;
@@ -82,19 +82,17 @@ impl StateHandler for TestRackStateHandler {
                 RackReadyState::Partial => RackState::Ready {
                     rack_ready: RackReadyState::Full,
                 },
-                RackReadyState::Full => {
-                    RackState::Maintenance {
-                        rack_maintenance: RackMaintenanceState::RackValidation {
-                            rack_validation: RackValidationState::Topology,
-                        },
-                    }
-                }
+                RackReadyState::Full => RackState::Maintenance {
+                    rack_maintenance: RackMaintenanceState::RackValidation {
+                        rack_validation: RackValidationState::Topology,
+                    },
+                },
             },
 
             _ => return Ok(StateHandlerOutcome::do_nothing().with_txn(None)),
         };
 
-        Ok(StateHandlerOutcome::transition(state.clone()).with_txn(None))
+        Ok(StateHandlerOutcome::transition(state).with_txn(None))
     }
 }
 
@@ -227,7 +225,7 @@ async fn test_rack_state_transitions(pool: sqlx::PgPool) -> Result<(), Box<dyn s
         .build_for_manual_iterations()
         .unwrap();
 
-    // iterate a few times 
+    // iterate a few times
     controller.run_single_iteration().await;
     controller.run_single_iteration().await;
     controller.run_single_iteration().await;
@@ -312,7 +310,7 @@ async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     // The count might increase slightly due to timing, but should not increase significantly
     // since deleted racks are excluded from processing
     assert!(
-        count_increase < 5, 
+        count_increase < 5,
         "State handler should not process deleted racks significantly. Count increase: {}",
         count_increase
     );
