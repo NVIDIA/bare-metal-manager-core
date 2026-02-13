@@ -39,11 +39,7 @@ carbide-uuid = { path = "../uuid" }
 carbide-version = { path = "../version" }
 carbide-utils = { path = "../utils" }
 carbide-machine-validation = { path = "../machine-validation" }
-carbide-mlxconfig-device = { path = "../mlxconfig-device" }
-carbide-mlxconfig-lockdown = { path = "../mlxconfig-lockdown" }
-carbide-mlxconfig-profile = { path = "../mlxconfig-profile" }
-carbide-mlxconfig-registry = { path = "../mlxconfig-registry" }
-carbide-mlxconfig-runner = { path = "../mlxconfig-runner" }
+carbide-libmlx = { path = "../libmlx" }
 
 chrono = { workspace = true }
 clap = { workspace = true }

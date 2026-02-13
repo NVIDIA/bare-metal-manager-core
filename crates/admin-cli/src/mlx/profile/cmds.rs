@@ -18,8 +18,8 @@
 // profile/cmds.rs
 // Command handlers for profile operations.
 
-use mlxconfig_profile::serialization::SerializableProfile;
-use mlxconfig_runner::{ComparisonResult, SyncResult};
+use libmlx::profile::serialization::SerializableProfile;
+use libmlx::runner::result_types::{ComparisonResult, SyncResult};
 use prettytable::{Cell, Row, Table};
 use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use rpc::protos::mlx_device as mlx_device_pb;

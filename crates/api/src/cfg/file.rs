@@ -32,8 +32,8 @@ use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
-use mlxconfig_profile::MlxConfigProfile;
-use mlxconfig_profile::serialization::{
+use libmlx::profile::profile::MlxConfigProfile;
+use libmlx::profile::serialization::{
     deserialize_option_profile_map, serialize_option_profile_map,
 };
 use model::DpuModel;
@@ -2621,8 +2621,8 @@ mod tests {
     use chrono::Datelike;
     use figment::Figment;
     use figment::providers::{Env, Format, Toml};
+    use libmlx::variables::value::MlxValueType;
     use libredfish::model::service_root::RedfishVendor;
-    use mlxconfig_variables::MlxValueType;
     use model::resource_pool;
 
     use super::*;

@@ -19,7 +19,7 @@ use ::rpc::forge::{scout_stream_api_bound_message, scout_stream_scout_bound_mess
 use ::rpc::protos::forge::ScoutStreamScoutBoundMessage;
 use ::rpc::protos::mlx_device;
 use carbide_uuid::machine::MachineId;
-use mlxconfig_profile::serialization::SerializableProfile;
+use libmlx::profile::serialization::SerializableProfile;
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_request_data};
