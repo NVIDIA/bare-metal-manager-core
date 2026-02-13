@@ -24,7 +24,7 @@ use carbide_uuid::machine::MachineId;
 use libmlx::device::discovery;
 use libmlx::device::report::MlxDeviceReport;
 use libmlx::lockdown::error::MlxResult;
-use libmlx::lockdown::lockdown::{LockdownManager, StatusReport};
+use libmlx::lockdown::lockdown::{LockStatus, LockdownManager, StatusReport};
 use libmlx::profile::error::MlxProfileError;
 use libmlx::profile::serialization::SerializableProfile;
 use libmlx::registry::registries;
