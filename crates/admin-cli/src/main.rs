@@ -269,16 +269,17 @@ async fn main() -> color_eyre::Result<()> {
 pub async fn get_output_file_or_stdout(
     output_filename: Option<&str>,
 ) -> Result<Pin<Box<dyn tokio::io::AsyncWrite>>, CarbideCliError> {
-    if let Some(filename) = output_filename {
+    let output: Pin<Box<dyn tokio::io::AsyncWrite>> = if let Some(filename) = output_filename {
         let file = tokio::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(filename)
             .await?;
-        Ok(Box::pin(file))
+        Box::pin(file)
     } else {
-        Ok(Box::pin(tokio::io::stdout()))
-    }
+        Box::pin(tokio::io::stdout())
+    };
+    Ok(output)
 }
 
 pub(crate) trait IntoOnlyOne<T> {
