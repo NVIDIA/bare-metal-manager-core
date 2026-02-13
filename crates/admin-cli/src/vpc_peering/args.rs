@@ -36,6 +36,9 @@ pub struct CreateVpcPeering {
 
     #[clap(help = "The ID of other VPC ID to peer")]
     pub vpc2_id: VpcId,
+
+    #[clap(long, help = "Optional desired ID for the VPC peering")]
+    pub id: Option<VpcPeeringId>,
 }
 
 #[derive(Parser, Debug)]

@@ -30,6 +30,7 @@ pub async fn create(
     txn: &mut PgConnection,
     vpc_id_1: VpcId,
     vpc_id_2: VpcId,
+    id: VpcPeeringId,
 ) -> Result<VpcPeering, DatabaseError> {
     let uuid1: Uuid = vpc_id_1.into();
     let uuid2: Uuid = vpc_id_2.into();
@@ -49,15 +50,16 @@ pub async fn create(
     }
 
     let query = r#"
-            INSERT INTO vpc_peerings (vpc1_id, vpc2_id)
-            SELECT $1, $2
+            INSERT INTO vpc_peerings (id, vpc1_id, vpc2_id)
+            SELECT $1, $2, $3
             WHERE NOT EXISTS (
-                SELECT 1 FROM vpc_peerings WHERE vpc1_id = $1 AND vpc2_id = $2
+                SELECT 1 FROM vpc_peerings WHERE id = $1 OR (vpc1_id = $2 AND vpc2_id = $3)
             )
             RETURNING *
         "#;
 
     match sqlx::query_as::<_, VpcPeering>(query)
+        .bind(id)
         .bind(vpc1_id)
         .bind(vpc2_id)
         .fetch_one(txn)
@@ -66,7 +68,7 @@ pub async fn create(
         Ok(vpc_peering) => Ok(vpc_peering),
         Err(sqlx::Error::RowNotFound) => Err(DatabaseError::AlreadyFoundError {
             kind: "VpcPeering",
-            id: format!("{vpc_id_1} and {vpc_id_2}"),
+            id: format!("id={id} between vpc1_id={vpc_id_1} and vpc2_id={vpc_id_2}"),
         }),
 
         Err(e) => Err(DatabaseError::query(query, e)),

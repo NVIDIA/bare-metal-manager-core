@@ -17,8 +17,10 @@
 
 use ::db::{ObjectColumnFilter, vpc, vpc_peering as db};
 use ::rpc::forge as rpc;
+use carbide_uuid::vpc_peering::VpcPeeringId;
 use forge_network::virtualization::VpcVirtualizationType;
 use tonic::{Request, Response, Status};
+use uuid::Uuid;
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
@@ -33,7 +35,13 @@ pub async fn create(
     let rpc::VpcPeeringCreationRequest {
         vpc_id,
         peer_vpc_id,
+        id,
     } = request.into_inner();
+
+    let id = match id {
+        None => VpcPeeringId::from(Uuid::new_v4()),
+        Some(id) => id,
+    };
 
     let vpc_id = vpc_id.ok_or_else(|| CarbideError::MissingArgument("vpc_id cannot be null"))?;
 
@@ -80,7 +88,7 @@ pub async fn create(
         }
     }
 
-    let vpc_peering = db::create(&mut txn, vpc_id, peer_vpc_id).await?;
+    let vpc_peering = db::create(&mut txn, vpc_id, peer_vpc_id, id).await?;
 
     txn.commit().await?;
 

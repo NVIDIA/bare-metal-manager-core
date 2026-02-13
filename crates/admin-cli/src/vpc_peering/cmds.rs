@@ -38,6 +38,7 @@ pub async fn create(
         .create_vpc_peering(VpcPeeringCreationRequest {
             vpc_id: Some(args.vpc1_id),
             peer_vpc_id: Some(args.vpc2_id),
+            id: args.id,
         })
         .await?;
 
