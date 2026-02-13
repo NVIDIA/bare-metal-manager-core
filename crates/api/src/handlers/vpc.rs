@@ -103,15 +103,56 @@ pub(crate) async fn create(
         }
     }
 
+    let requested_profile_type = match (
+        vpc_creation_request
+            .routing_profile_type
+            .map(rpc::RoutingProfileType::try_from)
+            .transpose()
+            .map_err(|e| {
+                CarbideError::from(RpcDataConversionError::InvalidValue(
+                    e.to_string(),
+                    "RoutingProfileType".to_string(),
+                ))
+            })?
+            .map(RoutingProfileType::try_from)
+            .transpose()
+            .map_err(CarbideError::from)?,
+        tenant,
+    ) {
+        // No VPC routing profile requested, and no tenant.  Nothing to do.
+        (None, None) => None,
+        // No VPC routing profile requested, so default to the tenant's routing-profile.
+        (None, Some(t)) => t.routing_profile_type,
+        // VPC profile requested, but no tenant.  Can't validate anything, so reject.
+        (Some(_), None) => {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "VPC routing-profile type requested but no tenant found for organization id `{}`",
+                vpc_creation_request.tenant_organization_id.clone()
+            ))
+            .into());
+        }
+        // VPC profile requested, and tenant found.
+        // Do a little validation and accept if it all looks good.
+        (Some(profile_type), Some(t)) => {
+            let Some(tenant_routing_profile_type) = t.routing_profile_type else {
+                return Err(CarbideError::FailedPrecondition(
+                    format!("VPC routing-profile type requested for tenant (`{}`) with no routing-profile type", t.organization_id)
+                )
+                .into());
+            };
+            if profile_type > tenant_routing_profile_type {
+                return Err(CarbideError::FailedPrecondition(format!("requested VPC routing-profile type (`{}`) is greater than associated tenant routing-profile type (`{}`)", profile_type, tenant_routing_profile_type)).into());
+            }
+
+            Some(profile_type)
+        }
+    };
+
     let requested_vni = vpc_creation_request.vni;
 
     let mut new_vpc = NewVpc::try_from(request.into_inner())?;
 
-    // Default to the tenant's routing-profile.
-    // If we choose to allow the gRPC consumer to control routing profiles
-    // at the VPC-level, this would be the spot after updating the
-    // VpcCreationRequest proto.
-    new_vpc.routing_profile_type = tenant.and_then(|t| t.routing_profile_type);
+    new_vpc.routing_profile_type = requested_profile_type;
 
     let mut vpc = db::vpc::persist(new_vpc, &mut txn).await?;
 

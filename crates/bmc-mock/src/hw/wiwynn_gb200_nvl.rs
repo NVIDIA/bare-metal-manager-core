@@ -23,7 +23,8 @@ use serde_json::json;
 use crate::{PowerControl, hw, redfish};
 
 pub struct WiwynnGB200Nvl<'a> {
-    pub product_serial_number: Cow<'a, str>,
+    pub system_serial_number: Cow<'a, str>,
+    pub chassis_serial_number: Cow<'a, str>,
     pub dpu1: hw::bluefield3::Bluefield3<'a>,
     pub dpu2: hw::bluefield3::Bluefield3<'a>,
 }
@@ -49,7 +50,7 @@ impl WiwynnGB200Nvl<'_> {
     pub fn system_config(&self, pc: Arc<dyn PowerControl>) -> redfish::computer_system::Config {
         let system_id = "System_0";
         let power_control = Some(pc);
-        let serial_number = Some(self.product_serial_number.to_string().into());
+        let serial_number = Some(self.system_serial_number.to_string().into());
         let boot_opt_builder = |id: &str| {
             redfish::boot_option::builder(&redfish::boot_option::resource(system_id, id))
                 .boot_option_reference(id)
@@ -81,6 +82,7 @@ impl WiwynnGB200Nvl<'_> {
                     chassis: vec!["BMC_0".into()],
                     boot_options: Some(boot_options),
                     bios_mode: redfish::computer_system::BiosMode::Generic,
+                    oem: redfish::computer_system::Oem::Generic,
                     base_bios: Some(
                         redfish::bios::builder(&redfish::bios::resource(system_id))
                             .attributes(json!({
@@ -88,6 +90,7 @@ impl WiwynnGB200Nvl<'_> {
                             }))
                             .build(),
                     ),
+                    log_services: None,
                 },
                 redfish::computer_system::SingleSystemConfig {
                     id: "HGX_Baseboard_0".into(),
@@ -99,8 +102,10 @@ impl WiwynnGB200Nvl<'_> {
                     boot_options: None,
                     serial_number: None,
                     boot_order_mode: redfish::computer_system::BootOrderMode::Generic,
+                    oem: redfish::computer_system::Oem::Generic,
                     bios_mode: redfish::computer_system::BiosMode::Generic,
                     base_bios: None,
+                    log_services: None,
                 },
             ],
         }
@@ -128,10 +133,23 @@ impl WiwynnGB200Nvl<'_> {
                 network_adapters,
                 pcie_devices: Some(vec![]),
                 sensors: None,
+                assembly: None,
             }
         };
         redfish::chassis::ChassisConfig {
             chassis: vec![
+                redfish::chassis::SingleChassisConfig {
+                    id: "BMC_0".into(),
+                    chassis_type: "Module".into(),
+                    manufacturer: Some("WIWYNN".into()),
+                    part_number: Some("B81.11810.0005".into()),
+                    model: Some("GB200 NVL".into()),
+                    serial_number: None,
+                    network_adapters: None,
+                    pcie_devices: Some(vec![]),
+                    sensors: None,
+                    assembly: None,
+                },
                 redfish::chassis::SingleChassisConfig {
                     id: "Chassis_0".into(),
                     chassis_type: "RackMount".into(),
@@ -142,6 +160,17 @@ impl WiwynnGB200Nvl<'_> {
                     network_adapters: None,
                     pcie_devices: None,
                     sensors: None,
+                    assembly: Some(
+                        redfish::assembly::builder(&redfish::assembly::chassis_resource(
+                            "Chassis_0",
+                        ))
+                        .add_data(
+                            redfish::assembly::data_builder("0".into())
+                                .serial_number(&self.chassis_serial_number)
+                                .build(),
+                        )
+                        .build(),
+                    ),
                 },
                 dpu_chassis("Riser_Slot1_BlueField_3_Card", &self.dpu1),
                 dpu_chassis("Riser_Slot2_BlueField_3_Card", &self.dpu2),

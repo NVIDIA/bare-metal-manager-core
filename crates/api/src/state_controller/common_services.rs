@@ -18,6 +18,7 @@
 use std::sync::Arc;
 
 use db::db_read::PgPoolReader;
+use librms::RmsApi;
 use model::resource_pool::common::IbPools;
 use sqlx::PgPool;
 
@@ -25,7 +26,6 @@ use crate::cfg::file::CarbideConfig;
 use crate::dpa::handler::DpaInfo;
 use crate::ib::IBFabricManager;
 use crate::ipmitool::IPMITool;
-use crate::rack::rms_client::RmsApi;
 use crate::redfish::RedfishClientPool;
 
 /// Services that are accessible to all statehandlers within carbide-core
@@ -55,7 +55,5 @@ pub struct CommonStateHandlerServices {
     pub dpa_info: Option<Arc<DpaInfo>>,
 
     /// Rack Manager Service client
-    /// Optional for now, but will be required in the future.
-    #[allow(dead_code)]
     pub rms_client: Option<Arc<dyn RmsApi>>,
 }

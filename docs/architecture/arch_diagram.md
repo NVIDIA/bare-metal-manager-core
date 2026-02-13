@@ -1,6 +1,6 @@
-# Carbide Architecture Diagram
+# Bare Metal Manager Architecture Diagram
 
-Refer to the following diagram for a high-level overview of the Carbide architecture.
+Refer to the following diagram for a high-level overview of the NVIDIA Bare Metal Manager architecture.
 
-![Carbide Architecture Diagram](/images/carbide_arch_diagram.png)
+![BMM Architecture Diagram](/images/bmm_arch_diagram.png)
 

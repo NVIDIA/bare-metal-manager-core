@@ -17,6 +17,7 @@
 
 // src/lib.rs
 // Library for the mlxconfig-runner crate.
+pub mod applier;
 pub mod command_builder;
 pub mod error;
 pub mod exec_options;
@@ -27,6 +28,7 @@ pub mod runner;
 pub mod traits;
 
 // Re-export main types for convenience
+pub use applier::MlxConfigApplier;
 pub use error::MlxRunnerError;
 pub use exec_options::ExecOptions;
 // Re-export from dependencies for convenience

@@ -30,7 +30,6 @@ use ::rpc::forge::{
     VpcCreationRequest, VpcSearchFilter, VpcVirtualizationType, VpcsByIdsRequest,
 };
 use ::rpc::forge_api_client::ForgeApiClient;
-use ::rpc::protos::rack_manager_client::RackManagerApiClient;
 use ::rpc::{Machine, NetworkSegment};
 use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::dpu_remediations::RemediationId;
@@ -775,11 +774,12 @@ impl ApiClient {
             .0
             .create_vpc(VpcCreationRequest {
                 name: name.to_string(),
+                vni: None,
+                routing_profile_type: None,
                 tenant_organization_id: "devenv_test_org".to_string(),
                 tenant_keyset_id: None,
-                vni: None,
                 network_virtualization_type: Some(
-                    VpcVirtualizationType::EthernetVirtualizerWithNvue as i32,
+                    VpcVirtualizationType::EthernetVirtualizerWithNvue.into(),
                 ),
                 id: Some(vpc_id),
                 metadata: Some(rpc::Metadata {
@@ -866,7 +866,7 @@ impl ApiClient {
         let request = rpc::VpcUpdateVirtualizationRequest {
             id: vpc.id,
             if_version_match: None,
-            network_virtualization_type: Some(virtualizer as i32),
+            network_virtualization_type: Some(virtualizer.into()),
         };
         self.0.update_vpc_virtualization(request).await?;
 
@@ -2137,203 +2137,5 @@ impl ApiClient {
         }
 
         Ok(all_dpf_states)
-    }
-}
-
-/// [`RmsApiClient`] is a thin wrapper around [`RackManagerApiClient`], which adds some
-/// convenience methods.
-#[derive(Clone)]
-pub struct RmsApiClient(pub RackManagerApiClient);
-
-// Note: You do *not* need to add every gRPC method to this wrapper. Callers can use `.0` to get
-// access to the underlying RackManagerApiClient, if they want to simply call the gRPC methods themselves.
-
-// TODO: Add correct return types, for now just return a json string
-impl RmsApiClient {
-    pub async fn inventory_get(&self) -> CarbideCliResult<String> {
-        let cmd: ::rpc::protos::rack_manager::inventory_request::Command =
-            ::rpc::protos::rack_manager::inventory_request::Command::GetInventory(
-                Default::default(),
-            );
-        let message = ::rpc::protos::rack_manager::InventoryRequest {
-            metadata: None,
-            command: Some(cmd),
-        };
-        let inventory_response = self
-            .0
-            .inventory_control(message)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .response;
-
-        Ok(serde_json::to_string_pretty(&inventory_response)?)
-    }
-
-    pub async fn add_node(
-        &self,
-        new_nodes: Vec<::rpc::protos::rack_manager::NewNodeInfo>,
-    ) -> CarbideCliResult<String> {
-        let add_node_command = ::rpc::protos::rack_manager::AddNodeCommand {
-            node_info: new_nodes,
-        };
-        let cmd =
-            ::rpc::protos::rack_manager::inventory_request::Command::AddNode(add_node_command);
-        let message = ::rpc::protos::rack_manager::InventoryRequest {
-            metadata: None,
-            command: Some(cmd),
-        };
-        let add_node_response = self
-            .0
-            .inventory_control(message)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .response;
-        Ok(serde_json::to_string_pretty(&add_node_response)?)
-    }
-
-    pub async fn remove_node(&self, rack_id: String, node_id: String) -> CarbideCliResult<String> {
-        let remove_node_command =
-            ::rpc::protos::rack_manager::RemoveNodeCommand { rack_id, node_id };
-        let cmd = ::rpc::protos::rack_manager::inventory_request::Command::RemoveNode(
-            remove_node_command,
-        );
-        let message = ::rpc::protos::rack_manager::InventoryRequest {
-            metadata: None,
-            command: Some(cmd),
-        };
-        let remove_node_response = self
-            .0
-            .inventory_control(message)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .response;
-        Ok(serde_json::to_string_pretty(&remove_node_response)?)
-    }
-
-    pub async fn get_poweron_order(&self, rack_id: String) -> CarbideCliResult<String> {
-        let get_poweron_order_command =
-            ::rpc::protos::rack_manager::GetPowerOnOrderCommand { rack_id };
-        let cmd = ::rpc::protos::rack_manager::inventory_request::Command::GetPowerOnOrder(
-            get_poweron_order_command,
-        );
-        let message = ::rpc::protos::rack_manager::InventoryRequest {
-            metadata: None,
-            command: Some(cmd),
-        };
-        let get_poweron_order_response = self
-            .0
-            .inventory_control(message)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .response;
-        Ok(serde_json::to_string_pretty(&get_poweron_order_response)?)
-    }
-
-    pub async fn get_power_state(
-        &self,
-        rack_id: String,
-        node_id: String,
-    ) -> CarbideCliResult<String> {
-        let get_power_state_command =
-            ::rpc::protos::rack_manager::GetPowerStateCommand { rack_id, node_id };
-        let cmd = ::rpc::protos::rack_manager::power_control_request::Command::GetPowerState(
-            get_power_state_command,
-        );
-        let message = ::rpc::protos::rack_manager::PowerControlRequest {
-            metadata: None,
-            command: Some(cmd),
-        };
-        let get_power_state_response = self
-            .0
-            .power_control(message)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .response;
-        Ok(serde_json::to_string_pretty(&get_power_state_response)?)
-    }
-
-    pub async fn get_firmware_inventory(
-        &self,
-        rack_id: String,
-        node_id: String,
-    ) -> CarbideCliResult<String> {
-        let get_firmware_inventory_command =
-            ::rpc::protos::rack_manager::GetFirmwareInventoryCommand { rack_id, node_id };
-        let cmd = ::rpc::protos::rack_manager::firmware_request::Command::GetFirmwareInventory(
-            get_firmware_inventory_command,
-        );
-        let message = ::rpc::protos::rack_manager::FirmwareRequest {
-            metadata: None,
-            command: Some(cmd),
-        };
-        let get_firmware_inventory_response = self
-            .0
-            .firmware_control(message)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .response;
-        Ok(serde_json::to_string_pretty(
-            &get_firmware_inventory_response,
-        )?)
-    }
-
-    pub async fn get_available_fw_images(
-        &self,
-        rack_id: Option<String>,
-        node_id: Option<String>,
-    ) -> CarbideCliResult<String> {
-        let get_available_fw_images_command =
-            ::rpc::protos::rack_manager::GetAvailableFwImagesCommand { rack_id, node_id };
-        let cmd = ::rpc::protos::rack_manager::firmware_request::Command::GetAvailableFwImages(
-            get_available_fw_images_command,
-        );
-        let message = ::rpc::protos::rack_manager::FirmwareRequest {
-            metadata: None,
-            command: Some(cmd),
-        };
-        let get_available_fw_images_response = self
-            .0
-            .firmware_control(message)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .response;
-        Ok(serde_json::to_string_pretty(
-            &get_available_fw_images_response,
-        )?)
-    }
-
-    pub async fn get_bkc_files(&self) -> CarbideCliResult<String> {
-        let cmd =
-            ::rpc::protos::rack_manager::firmware_request::Command::GetBkcFiles(Default::default());
-        let message = ::rpc::protos::rack_manager::FirmwareRequest {
-            metadata: None,
-            command: Some(cmd),
-        };
-        let get_bkc_files_response = self
-            .0
-            .firmware_control(message)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .response;
-        Ok(serde_json::to_string_pretty(&get_bkc_files_response)?)
-    }
-
-    pub async fn check_bkc_compliance(&self) -> CarbideCliResult<String> {
-        let cmd = ::rpc::protos::rack_manager::firmware_request::Command::CheckBkcCompliance(
-            Default::default(),
-        );
-        let message = ::rpc::protos::rack_manager::FirmwareRequest {
-            metadata: None,
-            command: Some(cmd),
-        };
-        let check_bkc_compliance_response = self
-            .0
-            .firmware_control(message)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)?
-            .response;
-        Ok(serde_json::to_string_pretty(
-            &check_bkc_compliance_response,
-        )?)
     }
 }

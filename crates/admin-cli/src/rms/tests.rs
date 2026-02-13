@@ -51,48 +51,17 @@ fn parse_inventory() {
     assert!(matches!(cmd, Cmd::Inventory));
 }
 
-// parse_poweron_order ensures poweron-order subcommand
-// parses with rack_id.
+// parse_poweron_sequence ensures poweron-sequence subcommand
+// parses with no args.
 #[test]
-fn parse_poweron_order() {
-    let cmd = Cmd::try_parse_from(["rms", "poweron-order", "rack-123"])
-        .expect("should parse poweron-order");
+fn parse_poweron_sequence() {
+    let cmd = Cmd::try_parse_from(["rms", "power-on-sequence", "rack-123"])
+        .expect("should parse power-on-sequence");
     match cmd {
-        Cmd::PoweronOrder(args) => {
+        Cmd::PowerOnSequence(args) => {
             assert_eq!(args.rack_id, "rack-123");
         }
-        _ => panic!("expected PoweronOrder variant"),
-    }
-}
-
-// parse_bkc_files ensures bkc-files subcommand parses with no args.
-#[test]
-fn parse_bkc_files() {
-    let cmd = Cmd::try_parse_from(["rms", "bkc-files"]).expect("should parse bkc-files");
-    assert!(matches!(cmd, Cmd::BkcFiles));
-}
-
-// parse_check_bkc_compliance ensures check-bkc-compliance
-// subcommand parses with no args.
-#[test]
-fn parse_check_bkc_compliance() {
-    let cmd = Cmd::try_parse_from(["rms", "check-bkc-compliance"])
-        .expect("should parse check-bkc-compliance");
-    assert!(matches!(cmd, Cmd::CheckBkcCompliance));
-}
-
-// parse_remove_node ensures remove-node parses with rack_id and node_id.
-#[test]
-fn parse_remove_node() {
-    let cmd = Cmd::try_parse_from(["rms", "remove-node", "rack-123", "node-123"])
-        .expect("should parse remove-node");
-
-    match cmd {
-        Cmd::RemoveNode(args) => {
-            assert_eq!(args.rack_id, "rack-123");
-            assert_eq!(args.node_id, "node-123");
-        }
-        _ => panic!("expected RemoveNode variant"),
+        _ => panic!("expected power-on-sequence variant"),
     }
 }
 
@@ -106,6 +75,7 @@ fn parse_power_state() {
         Cmd::PowerState(args) => {
             assert_eq!(args.rack_id, "rack-123");
             assert_eq!(args.node_id, "node-123");
+            assert_eq!(args.rack_id, "rack-123");
         }
         _ => panic!("expected PowerState variant"),
     }
@@ -122,50 +92,8 @@ fn parse_firmware_inventory() {
         Cmd::FirmwareInventory(args) => {
             assert_eq!(args.rack_id, "rack-123");
             assert_eq!(args.node_id, "node-123");
+            assert_eq!(args.rack_id, "rack-123");
         }
         _ => panic!("expected FirmwareInventory variant"),
     }
-}
-
-// parse_available_fw_images ensures available-fw-images
-// parses with optional rack_id and node_id.
-#[test]
-fn parse_available_fw_images() {
-    let cmd = Cmd::try_parse_from(["rms", "available-fw-images"])
-        .expect("should parse available-fw-images with no args");
-
-    match cmd {
-        Cmd::AvailableFwImages(args) => {
-            assert!(args.rack_id.is_none());
-            assert!(args.node_id.is_none());
-        }
-        _ => panic!("expected AvailableFwImages variant"),
-    }
-}
-
-// parse_available_fw_images_with_args ensures available-fw-images
-// parses with rack_id and node_id.
-#[test]
-fn parse_available_fw_images_with_args() {
-    let cmd = Cmd::try_parse_from(["rms", "available-fw-images", "rack-123", "node-123"])
-        .expect("should parse available-fw-images with args");
-
-    match cmd {
-        Cmd::AvailableFwImages(args) => {
-            assert_eq!(args.rack_id.as_deref(), Some("rack-123"));
-            assert_eq!(args.node_id.as_deref(), Some("node-123"));
-        }
-        _ => panic!("expected AvailableFwImages variant"),
-    }
-}
-
-// parse_remove_node_requires_args ensures remove-node
-// requires both rack_id and node_id.
-#[test]
-fn parse_remove_node_requires_args() {
-    let result = Cmd::try_parse_from(["rms", "remove-node"]);
-    assert!(result.is_err(), "should fail without rack_id and node_id");
-
-    let result = Cmd::try_parse_from(["rms", "remove-node", "rack-123"]);
-    assert!(result.is_err(), "should fail without node_id");
 }

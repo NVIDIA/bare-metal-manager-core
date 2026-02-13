@@ -19,12 +19,12 @@ use std::panic::Location;
 use carbide_uuid::machine::MachineId;
 use db::DatabaseError;
 use libredfish::RedfishError;
+use librms::RackManagerError;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::machine::ManagedHostState;
 use model::resource_pool::ResourcePoolError;
 use sqlx::PgTransaction;
 
-use crate::rack::rms_client::RackManagerError;
 use crate::redfish::RedfishClientCreationError;
 
 /// The collection of generic objects which are referenced in StateHandlerContext

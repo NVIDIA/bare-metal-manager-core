@@ -223,7 +223,8 @@ impl HostMachineInfo {
     fn wiwynn_gb200_nvl(&self) -> hw::wiwynn_gb200_nvl::WiwynnGB200Nvl<'_> {
         let mut dpus = self.dpus.iter();
         hw::wiwynn_gb200_nvl::WiwynnGB200Nvl {
-            product_serial_number: Cow::Borrowed(&self.serial),
+            system_serial_number: Cow::Borrowed(&self.serial),
+            chassis_serial_number: Cow::Borrowed(&self.serial),
             dpu1: dpus
                 .next()
                 .expect("Two DPUs must present for GB200 NVL")

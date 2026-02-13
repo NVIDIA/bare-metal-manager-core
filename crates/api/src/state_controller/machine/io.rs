@@ -233,6 +233,8 @@ impl StateControllerIO for MachineStateControllerIO {
             }
         }
         match state {
+            ManagedHostState::RegisterRmsMembership => ("registerrmsmembership", ""),
+            ManagedHostState::VerifyRmsMembership => ("verifyrmsmembership", ""),
             ManagedHostState::DpuDiscoveringState { dpu_states } => {
                 // Min state indicates the least processed DPU. The state machine is blocked
                 // becasue of this.

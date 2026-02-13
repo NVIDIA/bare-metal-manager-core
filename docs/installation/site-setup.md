@@ -1,6 +1,6 @@
 # Site Setup Guide
 
-This page outlines the software dependencies for a Kubernetes-based Carbide install. It includes the *validated baseline* of software dependencies,
+This page outlines the software dependencies for a Kubernetes-based install of NVIDIA Bare Metal Manager (BMM). It includes the *validated baseline* of software dependencies,
 as well as the *order of operations* for site bringup, including what you must configure if you already operate some of the common services yourself.
 
 **Important Notes**
@@ -16,7 +16,7 @@ as well as the *order of operations* for site bringup, including what you must c
 
 ## Validated Baseline
 
-This section lists all software dependencies, including the versions validated for this release of Carbide.
+This section lists all software dependencies, including the versions validated for this release of BMM.
 
 ### Kubernetes and Node Runtime
 
@@ -58,7 +58,7 @@ This section lists all software dependencies, including the versions validated f
 
 ### Monitoring and Telemetry (OPTIONAL)
 
-These components are not required for Carbide setup, but are recommended site metrics.
+These components are not required for BMM setup, but are recommended site metrics.
 
 - **Monitoring System**:  Prometheus Operator v0.68.0; Prometheus v2.47.0; Alertmanager v0.26.0
 
@@ -70,9 +70,9 @@ These components are not required for Carbide setup, but are recommended site me
 
 - **Host Monitoring** Node exporter v1.6.1
 
-### Carbide Components
+### BMM Components
 
-The following services are installed during the Carbide installation process.
+The following services are installed during the BMM installation process.
 
 - **Carbide core (forge‑system)**: nvmetal-carbide:latest
 

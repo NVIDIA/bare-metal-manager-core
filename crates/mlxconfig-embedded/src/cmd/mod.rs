@@ -18,5 +18,5 @@
 pub mod args;
 pub mod cmds;
 
-pub use args::Cli;
+pub use args::{Cli, LogLevel};
 pub use cmds::run_cli;

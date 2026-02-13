@@ -2351,6 +2351,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .subnet_ip
                 .to_string(),
             dpa_subnet_mask: value.dpa_config.unwrap_or_default().subnet_mask,
+            dpf_enabled: value.dpf.enabled,
         }
     }
 }

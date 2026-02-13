@@ -15,19 +15,17 @@
  * limitations under the License.
  */
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use carbide_uuid::machine::MachineId;
 use db::{ObjectColumnFilter, Transaction};
+use librms::RmsApi;
 use model::bmc_info::BmcInfo;
 use model::expected_machine::ExpectedMachine;
 use model::hardware_info::HardwareInfo;
 use model::machine::machine_id::host_id_from_dpu_hardware_info;
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{
-    DpuDiscoveringState, DpuDiscoveringStates, Machine, MachineInterfaceSnapshot, ManagedHostState,
-};
+use model::machine::{Machine, MachineInterfaceSnapshot, ManagedHostState};
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::metadata::Metadata;
 use model::network_segment::NetworkSegmentType;
@@ -47,6 +45,8 @@ pub struct MachineCreator {
     database_connection: PgPool,
     config: SiteExplorerConfig,
     common_pools: Arc<CommonPools>,
+    #[allow(dead_code)]
+    rms_client: Option<Arc<dyn RmsApi>>,
 }
 
 impl MachineCreator {
@@ -54,11 +54,13 @@ impl MachineCreator {
         database_connection: PgPool,
         config: SiteExplorerConfig,
         common_pools: Arc<CommonPools>,
+        rms_client: Option<Arc<dyn RmsApi>>,
     ) -> Self {
         Self {
             database_connection,
             config,
             common_pools,
+            rms_client,
         }
     }
 
@@ -184,14 +186,7 @@ impl MachineCreator {
         db::machine::update_state(
             &mut txn,
             &host_machine_id,
-            &ManagedHostState::DpuDiscoveringState {
-                dpu_states: DpuDiscoveringStates {
-                    states: dpu_ids
-                        .into_iter()
-                        .map(|x| (x, DpuDiscoveringState::Initializing))
-                        .collect::<HashMap<MachineId, DpuDiscoveringState>>(),
-                },
-            },
+            &ManagedHostState::VerifyRmsMembership,
         )
         .await?;
 
@@ -200,7 +195,7 @@ impl MachineCreator {
         Ok(true)
     }
 
-    // Returns MachineId if machene was created.
+    // Returns MachineId if machine was created.
     async fn create_zero_dpu_machine(
         &self,
         txn: &mut PgConnection,

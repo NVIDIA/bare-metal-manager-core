@@ -29,7 +29,10 @@ use serde_json::json;
 use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch, json_patch};
 use crate::redfish::Builder;
-use crate::{MockPowerState, POWER_CYCLE_DELAY, PowerControl, SetSystemPowerError, http, redfish};
+use crate::{
+    LogServices, MockPowerState, POWER_CYCLE_DELAY, PowerControl, SetSystemPowerError, http,
+    redfish,
+};
 
 pub fn collection() -> redfish::Collection<'static> {
     redfish::Collection {
@@ -60,6 +63,7 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
     const SYSTEM_ID: &str = "{system_id}";
     const ETH_ID: &str = "{eth_id}";
     const BOOT_OPTION_ID: &str = "{boot_option_id}";
+    const LOG_SERVICE_ID: &str = "{log_service_id}";
     let bios = redfish::bios::resource(SYSTEM_ID);
     r.route(&collection().odata_id, get(get_system_collection))
         .route(
@@ -93,6 +97,18 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
         )
         .route(&bios.odata_id, get(get_bios))
         .route(
+            &redfish::log_service::system_collection(SYSTEM_ID).odata_id,
+            get(get_log_services_collection),
+        )
+        .route(
+            &redfish::log_service::system_resource(SYSTEM_ID, LOG_SERVICE_ID).odata_id,
+            get(get_log_service),
+        )
+        .route(
+            &redfish::log_service::system_entries_collection(SYSTEM_ID, LOG_SERVICE_ID).odata_id,
+            get(get_log_service_entries),
+        )
+        .route(
             &bmc_vendor.make_settings_odata_id(&bios),
             patch(patch_bios_settings),
         )
@@ -114,6 +130,8 @@ pub struct SingleSystemConfig {
     pub boot_options: Option<Vec<redfish::boot_option::BootOption>>,
     pub bios_mode: BiosMode,
     pub base_bios: Option<serde_json::Value>,
+    pub log_services: Option<Arc<dyn LogServices>>,
+    pub oem: Oem,
 }
 
 pub struct Config {
@@ -141,6 +159,12 @@ pub enum BootOrderMode {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BiosMode {
     DellOem,
+    Generic,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Oem {
+    NvidiaBluefield,
     Generic,
 }
 
@@ -211,6 +235,7 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
         .ethernet_interfaces(redfish::ethernet_interface::system_collection(&system_id))
         .boot_options(&redfish::boot_option::collection(&system_id))
         .bios(&redfish::bios::resource(&system_id))
+        .secure_boot(&redfish::secure_boot::resource(&system_id))
         .link_chassis(&system_state.config.chassis);
 
     let config = &system_state.config;
@@ -236,6 +261,11 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
         );
     }
 
+    b = match config.oem {
+        Oem::Generic => b,
+        Oem::NvidiaBluefield => b.oem_nvidia(&redfish::oem::nvidia::bluefield::resource()),
+    };
+
     let pcie_devices = config
         .chassis
         .iter()
@@ -243,9 +273,15 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
         .flat_map(|chassis| chassis.pcie_devices_resources().into_iter())
         .collect::<Vec<_>>();
 
+    let log_services = config
+        .log_services
+        .is_some()
+        .then_some(redfish::log_service::system_collection(&system_id));
+
     b.maybe_with(SystemBuilder::serial_number, &config.serial_number)
         .maybe_with(SystemBuilder::manufacturer, &config.manufacturer)
         .maybe_with(SystemBuilder::model, &config.model)
+        .maybe_with(SystemBuilder::log_services, &log_services)
         .pcie_devices(&pcie_devices)
         .build()
         .into_ok_response()
@@ -473,6 +509,74 @@ async fn get_boot_option(
         .unwrap_or_else(http::not_found)
 }
 
+async fn get_log_services_collection(
+    State(state): State<BmcState>,
+    Path(system_id): Path<String>,
+) -> Response {
+    state
+        .system_state
+        .find(&system_id)
+        .and_then(|system_state| system_state.config.log_services.as_ref())
+        .map(|log_services| {
+            let members = log_services
+                .services()
+                .into_iter()
+                .map(|service| {
+                    redfish::log_service::system_resource(&system_id, service.id()).entity_ref()
+                })
+                .collect::<Vec<_>>();
+            redfish::boot_option::collection(&system_id)
+                .with_members(&members)
+                .into_ok_response()
+        })
+        .unwrap_or_else(http::not_found)
+}
+
+async fn get_log_service(
+    State(state): State<BmcState>,
+    Path((system_id, log_service_id)): Path<(String, String)>,
+) -> Response {
+    state
+        .system_state
+        .find(&system_id)
+        .and_then(|system_state| system_state.config.log_services.as_ref())
+        .and_then(|log_services| log_services.find(&log_service_id))
+        .map(|_log_service| {
+            redfish::log_service::builder(&redfish::log_service::system_resource(
+                &system_id,
+                &log_service_id,
+            ))
+            .entries(&redfish::log_service::system_entries_collection(
+                &system_id,
+                &log_service_id,
+            ))
+            .build()
+            .into_ok_response()
+        })
+        .unwrap_or_else(http::not_found)
+}
+
+async fn get_log_service_entries(
+    State(state): State<BmcState>,
+    Path((system_id, log_service_id)): Path<(String, String)>,
+) -> Response {
+    state
+        .system_state
+        .find(&system_id)
+        .and_then(|system_state| system_state.config.log_services.as_ref())
+        .and_then(|log_services| log_services.find(&log_service_id))
+        .map(|log_service| {
+            let collection =
+                redfish::log_service::system_entries_collection(&system_id, &log_service_id);
+            let members = log_service.entries(&collection);
+            collection
+                .with_members(&members)
+                .patch(json!({"Description": "Log services collection"})) // Required by libredfish
+                .into_ok_response()
+        })
+        .unwrap_or_else(http::not_found)
+}
+
 async fn get_bios(State(state): State<BmcState>, Path(system_id): Path<String>) -> Response {
     state
         .system_state
@@ -583,6 +687,10 @@ impl SystemBuilder {
         self.apply_patch(json!({"Boot": boot_options.nav_property("BootOptions")}))
     }
 
+    pub fn secure_boot(self, secure_boot: &redfish::Resource<'_>) -> Self {
+        self.apply_patch(secure_boot.nav_property("SecureBoot"))
+    }
+
     pub fn pcie_devices(self, devices: &[redfish::Resource<'_>]) -> Self {
         let devices = devices.iter().map(|r| r.entity_ref()).collect::<Vec<_>>();
         self.apply_patch(json!({"PCIeDevices": devices}))
@@ -607,12 +715,20 @@ impl SystemBuilder {
         self.add_str_field("PowerState", power_state)
     }
 
+    pub fn log_services(self, log_services: &redfish::Collection<'_>) -> Self {
+        self.apply_patch(log_services.nav_property("LogServices"))
+    }
+
     pub fn link_chassis(self, ids: &[Cow<'static, str>]) -> Self {
         let chassis = ids
             .iter()
             .map(|id| redfish::chassis::resource(id).entity_ref())
             .collect::<Vec<_>>();
         self.apply_patch(json!({"Links": {"Chassis": chassis}}))
+    }
+
+    pub fn oem_nvidia(self, resource: &redfish::Resource<'_>) -> Self {
+        self.apply_patch(json!({"Oem": {"Nvidia": resource.entity_ref()}}))
     }
 
     pub fn build(self) -> serde_json::Value {

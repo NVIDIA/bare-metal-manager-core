@@ -568,14 +568,14 @@ impl<'r> sqlx::FromRow<'r, PgRow> for TenantKeyset {
 /*                                    */
 /* ********************************** */
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd)]
 pub enum RoutingProfileType {
-    Admin,
-    Internal,
-    PrivilegedInternal,
-    Maintenance,
     #[default]
     External,
+    Internal,
+    Maintenance,
+    PrivilegedInternal,
+    Admin,
 }
 
 /// A string is not a valid profile type

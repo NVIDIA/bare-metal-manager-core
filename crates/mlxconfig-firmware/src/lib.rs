@@ -15,15 +15,9 @@
  * limitations under the License.
  */
 
-use std::borrow::Cow;
-
-use crate::redfish;
-
-pub fn manager_collection(manager_id: &str) -> redfish::Collection<'static> {
-    let odata_id = format!("/redfish/v1/Managers/{manager_id}/LogServices");
-    redfish::Collection {
-        odata_id: Cow::Owned(odata_id),
-        odata_type: Cow::Borrowed("#LogServiceCollection.LogServiceCollection"),
-        name: Cow::Borrowed("Log Service Collection"),
-    }
-}
+pub mod config;
+pub mod credentials;
+pub mod error;
+pub mod flasher;
+pub mod reset;
+pub mod source;

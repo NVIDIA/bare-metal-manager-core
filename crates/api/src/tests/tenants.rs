@@ -20,11 +20,20 @@ use rpc::forge::{CreateTenantKeysetResponse, TenantKeysetIdentifier};
 use tonic::Code;
 
 use crate::tests::common;
-use crate::tests::common::api_fixtures::create_managed_host;
+use crate::tests::common::api_fixtures::{
+    TestEnvOverrides, create_managed_host, create_test_env_with_overrides,
+};
 
 #[crate::sqlx_test]
 async fn test_tenant(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            ..Default::default()
+        }
+        .with_fnn_config(None),
+    )
+    .await;
 
     // Reject generally invalid metadata with just a name that is too short
     let tenant_create = env
@@ -305,6 +314,31 @@ async fn test_tenant(pool: sqlx::PgPool) {
         }))
         .await
         .unwrap();
+
+    // Now perform one more good create just to confirm that we can set
+    // the routing profile to something other than default
+    let tenant_create = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "Org2".to_string(),
+            routing_profile_type: Some(rpc::forge::RoutingProfileType::Internal.into()),
+            metadata: Some(rpc::forge::Metadata {
+                name: "Name".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let tenant = tenant_create.tenant.unwrap();
+
+    assert_eq!(
+        tenant.routing_profile_type,
+        Some(rpc::forge::RoutingProfileType::Internal.into())
+    );
+    assert_eq!(tenant.organization_id, "Org2");
 }
 
 #[crate::sqlx_test]

@@ -1,6 +1,6 @@
-# Building Carbide Containers
+# Building BMM Containers
 
-This section provides instructions for building the Carbide containers.
+This section provides instructions for building the containers for NVIDIA Bare Metal Manager (BMM).
 
 ## Installing Prerequisite Software
 
@@ -15,8 +15,8 @@ assume an `apt`-based distribution such as Ubuntu 24.04.
 2. [Add the correct hook for your shell](https://direnv.net/docs/hook.html)
 3. Install rustup: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` (select Option 1)
 4. Start a new shell to pick up changes made from direnv and rustup.
-5. Clone Carbide - `git clone git@github.com:NVIDIA/carbide-core-snapshot.git carbide`
-6. `cd carbide`
+5. Clone BMM - `git clone git@github.com:NVIDIA/bare-metal-manager-core.git bare-metal-manager`
+6. `cd bare-metal-manager`
 7. `direnv allow`
 8. `cd $REPO_ROOT/pxe`
 9. `git clone https://github.com/systemd/mkosi.git`
@@ -35,18 +35,18 @@ assume an `apt`-based distribution such as Ubuntu 24.04.
 
 ## Building X86_64 Containers
 
-**NOTE**: Execute these tasks in order. All commands are run from the top of the Carbide directory.
+**NOTE**: Execute these tasks in order. All commands are run from the top of the `bare-metal-manager` directory.
 
 ### Building the X86 build container
 
 ```sh
-docker build --file dev/docker/Dockerfile.build-container-x86_64 -t carbide-buildcontainer-x86_64 .
+docker build --file dev/docker/Dockerfile.build-container-x86_64 -t bmm-buildcontainer-x86_64 .
 ```
 
 ### Building the X86 runtime container
 
 ```sh
-docker build --file dev/docker/Dockerfile.runtime-container-x86_64 -t carbide-runtime-container-x86_64 .
+docker build --file dev/docker/Dockerfile.runtime-container-x86_64 -t bmm-runtime-container-x86_64 .
 ```
 
 ### Building the boot artifact containers
@@ -59,21 +59,21 @@ docker build --build-arg "CONTAINER_RUNTIME_X86_64=alpine:latest" -t boot-artifa
 ## Building the Machine Validation images
 
 ```sh
-docker build --build-arg CONTAINER_RUNTIME_X86_64=carbide-runtime-container-x86_64 -t machine-validation-runner -f dev/docker/Dockerfile.machine-validation-runner .
+docker build --build-arg CONTAINER_RUNTIME_X86_64=bmm-runtime-container-x86_64 -t machine-validation-runner -f dev/docker/Dockerfile.machine-validation-runner .
 
 docker save --output crates/machine-validation/images/machine-validation-runner.tar machine-validation-runner:latest 
 
 // This copies `machine-validation-runner.tar` into the `/images` directory on the `machine-validation-config` container.  When using a kubernetes deployment model
 // this is the only `machine-validation` container you need to configure on the `carbide-pxe` pod.
 
-docker build --build-arg CONTAINER_RUNTIME_X86_64=carbide-runtime-container-x86_64 -t machine-validation-config -f dev/docker/Dockerfile.machine-validation-config .
+docker build --build-arg CONTAINER_RUNTIME_X86_64=bmm-runtime-container-x86_64 -t machine-validation-config -f dev/docker/Dockerfile.machine-validation-config .
 
 ```
 
-## Building carbide-core container
+## Building bmm-core container
 
 ```sh
-docker build --build-arg "CONTAINER_RUNTIME_X86_64=carbide-runtime-container-x86_64" --build-arg "CONTAINER_BUILD_X86_64=carbide-buildcontainer-x86_64" -f dev/docker/Dockerfile.release-container-sa-x86_64 -t carbide .
+docker build --build-arg "CONTAINER_RUNTIME_X86_64=bmm-runtime-container-x86_64" --build-arg "CONTAINER_BUILD_X86_64=bmm-buildcontainer-x86_64" -f dev/docker/Dockerfile.release-container-sa-x86_64 -t bmm .
 ```
 
 ## Building the AARCH64 Containers and artifacts

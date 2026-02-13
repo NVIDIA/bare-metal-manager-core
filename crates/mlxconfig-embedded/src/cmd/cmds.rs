@@ -21,6 +21,9 @@ use std::time::Duration;
 use mlxconfig_device::cmd::device::args::DeviceArgs;
 use mlxconfig_device::cmd::device::cmds::handle as handle_device;
 use mlxconfig_device::info::MlxDeviceInfo;
+use mlxconfig_firmware::credentials::Credentials;
+use mlxconfig_firmware::flasher::FirmwareFlasher;
+use mlxconfig_firmware::source::FirmwareSource;
 use mlxconfig_lockdown::cmd::cmds::handle_lockdown;
 use mlxconfig_profile::MlxConfigProfile;
 use mlxconfig_registry::registries;
@@ -28,13 +31,13 @@ use mlxconfig_runner::{ExecOptions, MlxConfigRunner, MlxRunnerError, QueryResult
 use mlxconfig_variables::{MlxConfigVariable, MlxVariableRegistry, MlxVariableSpec};
 use prettytable::{Cell, Row, Table};
 use regex::Regex;
-use serde_json;
+use {serde_json, tracing};
 
 use crate::cmd::args::{
-    Cli, Commands, OutputFormat, ProfileCommands, RegistryAction, RunnerCommands,
+    Cli, Commands, FirmwareAction, OutputFormat, ProfileCommands, RegistryAction, RunnerCommands,
 };
 
-pub fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         Some(Commands::Version) => {
             cmd_version();
@@ -109,6 +112,13 @@ pub fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(Commands::Lockdown { action }) => {
             handle_lockdown(action)?;
+        }
+        Some(Commands::Firmware {
+            dry_run,
+            work_dir,
+            firmware_action,
+        }) => {
+            run_firmware_command(dry_run, work_dir, firmware_action).await?;
         }
         None => {
             cmd_show_default_info();
@@ -977,4 +987,162 @@ fn profile_compare_command(
     }
 
     Ok(())
+}
+
+// run_firmware_command dispatches firmware subcommands.
+async fn run_firmware_command(
+    dry_run: bool,
+    work_dir: Option<std::path::PathBuf>,
+    action: FirmwareAction,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match action {
+        FirmwareAction::Flash {
+            device,
+            firmware_url,
+            device_conf_url,
+            firmware_bearer_token,
+            firmware_basic_auth,
+            firmware_ssh_key,
+            firmware_ssh_agent,
+            device_conf_bearer_token,
+            device_conf_basic_auth,
+            device_conf_ssh_key,
+            device_conf_ssh_agent,
+            expected_version,
+        } => {
+            let firmware_source = build_fw_source(
+                &firmware_url,
+                firmware_bearer_token.as_deref(),
+                firmware_basic_auth.as_deref(),
+                firmware_ssh_key.as_ref(),
+                firmware_ssh_agent,
+            )?;
+
+            let mut flasher = FirmwareFlasher::new(&device)
+                .with_firmware(firmware_source)
+                .with_dry_run(dry_run);
+
+            if let Some(ref dir) = work_dir {
+                flasher = flasher.with_work_dir(dir);
+            }
+
+            if let Some(ref version) = expected_version {
+                flasher = flasher.with_expected_version(version);
+            }
+
+            if let Some(ref conf_url) = device_conf_url {
+                let conf_source = build_fw_source(
+                    conf_url,
+                    device_conf_bearer_token.as_deref(),
+                    device_conf_basic_auth.as_deref(),
+                    device_conf_ssh_key.as_ref(),
+                    device_conf_ssh_agent,
+                )?;
+                flasher = flasher.with_device_conf(conf_source);
+            }
+
+            flasher.flash().await?;
+        }
+
+        FirmwareAction::FlashConfig {
+            device,
+            config_file,
+        } => {
+            let flasher = FirmwareFlasher::from_config_file(&device, &config_file)?;
+            let flasher = flasher.with_dry_run(dry_run);
+
+            let flasher = match work_dir {
+                Some(ref dir) => flasher.with_work_dir(dir),
+                None => flasher,
+            };
+
+            flasher.flash().await?;
+        }
+
+        FirmwareAction::VerifyImage {
+            device,
+            image_url,
+            bearer_token,
+            basic_auth,
+            ssh_key,
+            ssh_agent,
+        } => {
+            let image_source = build_fw_source(
+                &image_url,
+                bearer_token.as_deref(),
+                basic_auth.as_deref(),
+                ssh_key.as_ref(),
+                ssh_agent,
+            )?;
+
+            let staging_dir =
+                work_dir.unwrap_or_else(|| std::env::temp_dir().join("mlxconfig-firmware"));
+            std::fs::create_dir_all(&staging_dir)
+                .map_err(|e| format!("Failed to create staging dir: {e}"))?;
+
+            let image_path = image_source.resolve(&staging_dir).await?;
+
+            let flasher = FirmwareFlasher::new(&device).with_dry_run(dry_run);
+
+            flasher.verify_image(&image_path)?;
+        }
+
+        FirmwareAction::VerifyVersion {
+            device,
+            expected_version,
+        } => {
+            let flasher = FirmwareFlasher::new(&device)
+                .with_dry_run(dry_run)
+                .with_expected_version(&expected_version);
+
+            flasher.verify_version()?;
+        }
+
+        FirmwareAction::Reset { device, level } => {
+            let flasher = FirmwareFlasher::new(&device)
+                .with_dry_run(dry_run)
+                .with_reset_level(level);
+
+            flasher.reset()?;
+        }
+
+        FirmwareAction::ConfigReset { device } => {
+            let exec_options = ExecOptions::new().with_dry_run(dry_run);
+            let applier = mlxconfig_runner::MlxConfigApplier::with_options(&device, exec_options);
+            applier.reset_config()?;
+
+            tracing::info!("Configuration reset complete");
+        }
+    }
+
+    Ok(())
+}
+
+// build_fw_source constructs a FirmwareSource from CLI arguments.
+// URL parsing and source type detection is handled by
+// FirmwareSource::from_url(). Credential flags are applied based
+// on which ones are set.
+fn build_fw_source(
+    url: &str,
+    bearer_token: Option<&str>,
+    basic_auth: Option<&str>,
+    ssh_key: Option<&std::path::PathBuf>,
+    ssh_agent: bool,
+) -> Result<FirmwareSource, Box<dyn std::error::Error>> {
+    let mut source = FirmwareSource::from_url(url)?;
+
+    if let Some(token) = bearer_token {
+        source = source.with_credentials(Credentials::bearer_token(token));
+    } else if let Some(auth) = basic_auth {
+        let (username, password) = auth
+            .split_once(':')
+            .ok_or("Basic auth must be in user:password format")?;
+        source = source.with_credentials(Credentials::basic_auth(username, password));
+    } else if ssh_agent {
+        source = source.with_credentials(Credentials::ssh_agent());
+    } else if let Some(key_path) = ssh_key {
+        source = source.with_credentials(Credentials::ssh_key(key_path.to_string_lossy()));
+    }
+
+    Ok(source)
 }

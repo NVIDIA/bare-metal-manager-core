@@ -57,7 +57,7 @@ use model::metadata::Metadata;
 use model::network_security_group;
 use model::resource_pool::common::CommonPools;
 use model::resource_pool::{self};
-use model::tenant::TenantOrganizationId;
+use model::tenant::{RoutingProfileType, TenantOrganizationId};
 use nras::{
     DeviceAttestationInfo, NrasError, ProcessedAttestationOutcome, RawAttestationOutcome,
     VerifierClient,
@@ -273,6 +273,36 @@ impl TestEnvOverrides {
         self
     }
 
+    pub fn with_fnn_config(mut self, fnn_config: Option<FnnConfig>) -> Self {
+        self.fnn_config = fnn_config.or_else(|| {
+            Some(FnnConfig {
+                admin_vpc: None,
+                common_internal_route_target: None,
+                additional_route_target_imports: vec![],
+                routing_profiles: HashMap::from([
+                    (
+                        RoutingProfileType::External.to_string(),
+                        crate::cfg::file::FnnRoutingProfileConfig {
+                            internal: false,
+                            route_target_imports: vec![],
+                            route_targets_on_exports: vec![],
+                        },
+                    ),
+                    (
+                        RoutingProfileType::Internal.to_string(),
+                        crate::cfg::file::FnnRoutingProfileConfig {
+                            internal: true,
+                            route_target_imports: vec![],
+                            route_targets_on_exports: vec![],
+                        },
+                    ),
+                ]),
+            })
+        });
+
+        self
+    }
+
     pub fn no_network_segments() -> Self {
         Self {
             create_network_segments: Some(false),
@@ -355,6 +385,8 @@ impl TestEnv {
     ) -> ManagedHostState {
         //This block is to fill data that is populated within statemachine
         match state.clone() {
+            ManagedHostState::RegisterRmsMembership => state.clone(),
+            ManagedHostState::VerifyRmsMembership => state.clone(),
             ManagedHostState::DpuDiscoveringState { .. } => state.clone(),
             ManagedHostState::DPUInit { .. } => state.clone(),
             ManagedHostState::HostInit { machine_state } => {
@@ -1367,7 +1399,7 @@ pub async fn create_test_env_with_overrides(
         scout_reporting_timeout: config.machine_state_controller.scout_reporting_timeout,
     };
 
-    let rms_sim = Arc::new(RmsSim);
+    let rms_sim = Arc::new(RmsSim::default());
 
     let api = Arc::new(Api {
         kube_client_provider: Arc::new(TestDpfKubeClient {}),
@@ -1442,7 +1474,7 @@ pub async fn create_test_env_with_overrides(
         ipmi_tool: ipmi_tool.clone(),
         site_config: config.clone(),
         dpa_info: None,
-        rms_client: None,
+        rms_client: rms_sim.as_rms_client(),
     });
 
     let state_controller_id = uuid::Uuid::new_v4().to_string();

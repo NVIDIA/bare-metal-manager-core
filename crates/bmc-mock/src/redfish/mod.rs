@@ -16,13 +16,14 @@
  */
 
 pub mod account_service;
+pub mod assembly;
 pub mod bios;
 pub mod boot_option;
 pub mod chassis;
 pub mod collection;
 pub mod computer_system;
 pub mod ethernet_interface;
-pub mod log_services;
+pub mod log_service;
 pub mod manager;
 pub mod manager_network_protocol;
 pub mod network_adapter;

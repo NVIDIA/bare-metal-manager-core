@@ -48,6 +48,12 @@ impl<'a> Resource<'a> {
     }
 }
 
+impl<'a> AsRef<Resource<'a>> for Resource<'a> {
+    fn as_ref(&self) -> &Self {
+        self
+    }
+}
+
 impl JsonPatch for Resource<'_> {
     fn json_patch(&self) -> serde_json::Value {
         json!({
