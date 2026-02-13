@@ -20,7 +20,7 @@ use carbide_host_support::dpa_cmds::{DpaCommand, OpCode};
 use carbide_uuid::machine::MachineId;
 use db::dpa_interface;
 use eyre::eyre;
-use mlxconfig_device::report::MlxDeviceReport;
+use libmlx::device::report::MlxDeviceReport;
 use model::dpa_interface::{
     CardState, DpaInterface, DpaInterfaceControllerState, DpaInterfaceNetworkStatusObservation,
     DpaLockMode, NewDpaInterface,

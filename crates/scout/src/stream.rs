@@ -18,7 +18,7 @@
 use std::time::Duration;
 
 use carbide_uuid::machine::MachineId;
-use mlxconfig_profile::MlxProfileError;
+use libmlx::profile::error::MlxProfileError;
 use rpc::forge::ScoutStreamApiBoundMessage;
 use rpc::protos::forge::{scout_stream_api_bound_message, scout_stream_scout_bound_message};
 use tokio::sync::mpsc;

@@ -17,7 +17,7 @@
 
 use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use clap::Parser;
-use mlxconfig_runner::{ComparisonResult, SyncResult};
+use libmlx::runner::result_types::{ComparisonResult, SyncResult};
 use prettytable::{Cell, Row, Table};
 
 use crate::cfg::dispatch::Dispatch;
