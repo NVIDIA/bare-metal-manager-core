@@ -23,6 +23,7 @@ use config_version::ConfigVersionParseError;
 use db::ip_allocator::DhcpError;
 use db::resource_pool::ResourcePoolDatabaseError;
 use db::{AnnotatedSqlxError, DatabaseError};
+use librms::RackManagerError;
 use mac_address::MacAddress;
 use model::errors::ModelError;
 use model::hardware_info::HardwareInfoError;
@@ -32,7 +33,6 @@ use model::tenant::TenantError;
 use model::{ConfigValidationError, resource_pool};
 use tonic::Status;
 
-use crate::rack::rms_client::RackManagerError;
 use crate::redfish::RedfishClientCreationError;
 
 /// Represents various Errors that can occur throughout the system.

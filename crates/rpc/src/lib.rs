@@ -70,7 +70,6 @@ pub mod admin_cli;
 pub mod forge_api_client;
 pub mod forge_resolver;
 pub mod nmx_c_client;
-pub mod rack_manager_client;
 
 pub const REFLECTION_API_SERVICE_DESCRIPTOR: &[u8] = tonic::include_file_descriptor_set!("forge");
 pub const MAX_ERR_MSG_SIZE: i32 = 1500;

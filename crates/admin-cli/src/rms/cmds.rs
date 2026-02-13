@@ -15,70 +15,53 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use std::sync::Arc;
 
-use super::args::{
-    AddNode, AvailableFwImages, FirmwareInventory, PowerState, PoweronOrder, RemoveNode,
-};
-use crate::rack;
-use crate::rpc::RmsApiClient;
+use librms::RmsApi;
 
-pub async fn inventory(api_client: &RmsApiClient) -> CarbideCliResult<()> {
-    rack::cmds::get_inventory(api_client)
-        .await
-        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
-}
+use crate::rms::args::{FirmwareInventory, PowerOnSequence, PowerState};
 
-pub async fn add_node(args: AddNode, api_client: &RmsApiClient) -> CarbideCliResult<()> {
-    rack::cmds::add_node(api_client, args)
-        .await
-        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
-}
-
-pub async fn remove_node(args: RemoveNode, api_client: &RmsApiClient) -> CarbideCliResult<()> {
-    rack::cmds::remove_node(api_client, args)
-        .await
-        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
-}
-
-pub async fn poweron_order(args: PoweronOrder, api_client: &RmsApiClient) -> CarbideCliResult<()> {
-    let response = api_client.get_poweron_order(args.rack_id).await?;
-    println!("{}", response);
+pub async fn get_all_inventory(rms_client: &Arc<dyn RmsApi>) -> eyre::Result<()> {
+    let cmd = librms::protos::rack_manager::GetAllInventoryRequest::default();
+    let response = rms_client.get_all_inventory(cmd).await?;
+    println!("{}", serde_json::to_string_pretty(&response)?);
     Ok(())
 }
 
-pub async fn power_state(args: PowerState, api_client: &RmsApiClient) -> CarbideCliResult<()> {
-    rack::cmds::get_power_state(api_client, args)
-        .await
-        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
+pub async fn power_on_sequence(
+    args: &PowerOnSequence,
+    rms_client: &Arc<dyn RmsApi>,
+) -> eyre::Result<()> {
+    let cmd = librms::protos::rack_manager::GetRackPowerOnSequenceRequest {
+        metadata: None,
+        rack_id: args.rack_id.clone(),
+    };
+    let response = rms_client.get_rack_power_on_sequence(cmd).await?;
+    println!("{}", serde_json::to_string_pretty(&response)?);
+    Ok(())
 }
 
-pub async fn firmware_inventory(
-    args: FirmwareInventory,
-    api_client: &RmsApiClient,
-) -> CarbideCliResult<()> {
-    rack::cmds::get_firmware_inventory(api_client, args)
-        .await
-        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
+pub async fn power_state(args: &PowerState, rms_client: &Arc<dyn RmsApi>) -> eyre::Result<()> {
+    let cmd = librms::protos::rack_manager::GetPowerStateRequest {
+        metadata: None,
+        node_id: args.node_id.clone(),
+        rack_id: args.rack_id.clone(),
+    };
+    let response = rms_client.get_power_state(cmd).await?;
+    println!("{}", serde_json::to_string_pretty(&response)?);
+    Ok(())
 }
 
-pub async fn available_fw_images(
-    args: AvailableFwImages,
-    api_client: &RmsApiClient,
-) -> CarbideCliResult<()> {
-    rack::cmds::get_available_fw_images(api_client, args)
-        .await
-        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
-}
-
-pub async fn bkc_files(api_client: &RmsApiClient) -> CarbideCliResult<()> {
-    rack::cmds::get_bkc_files(api_client)
-        .await
-        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
-}
-
-pub async fn check_bkc_compliance(api_client: &RmsApiClient) -> CarbideCliResult<()> {
-    rack::cmds::check_bkc_compliance(api_client)
-        .await
-        .map_err(|e| CarbideCliError::GenericError(e.to_string()))
+pub async fn get_firmware_inventory(
+    args: &FirmwareInventory,
+    rms_client: &Arc<dyn RmsApi>,
+) -> eyre::Result<()> {
+    let cmd = librms::protos::rack_manager::GetNodeFirmwareInventoryRequest {
+        metadata: None,
+        node_id: args.node_id.clone(),
+        rack_id: args.rack_id.clone(),
+    };
+    let response = rms_client.get_node_firmware_inventory(cmd).await?;
+    println!("{}", serde_json::to_string_pretty(&response)?);
+    Ok(())
 }

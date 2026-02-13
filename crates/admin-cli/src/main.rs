@@ -22,21 +22,20 @@ use std::pin::Pin;
 use ::rpc::admin_cli::CarbideCliError;
 use ::rpc::forge_api_client::ForgeApiClient;
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
-use ::rpc::protos::rack_manager_client::RackManagerApiClient;
 use cfg::cli_options::{CliCommand, CliOptions};
 use clap::CommandFactory;
+use eyre::eyre;
 use forge_tls::client_config::{
     get_carbide_api_url, get_client_cert_info, get_config_from_file, get_forge_root_ca_path,
     get_proxy_info,
 };
-use forge_tls::rms_client_config::{get_rms_api_url, rms_client_cert_info, rms_root_ca_path};
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::fmt;
 use tracing_subscriber::prelude::*;
 
 use crate::cfg::dispatch::Dispatch;
 use crate::cfg::runtime::{RuntimeConfig, RuntimeContext};
-use crate::rpc::{ApiClient, RmsApiClient};
+use crate::rpc::ApiClient;
 
 mod async_write;
 mod bmc_machine;
@@ -154,21 +153,14 @@ async fn main() -> color_eyre::Result<()> {
             }
         }
     }
+    if let Some(CliCommand::Rms(ref rms)) = config.commands {
+        // do rms same as redfish above
+        return rms::action(rms.clone(), &config).await;
+    }
 
     let url = get_carbide_api_url(config.carbide_api, file_config.as_ref());
     let forge_root_ca_path =
         get_forge_root_ca_path(config.forge_root_ca_path, file_config.as_ref());
-
-    // RMS client configuration with optional CLI overrides
-    let rms_url = get_rms_api_url(config.rms_api_url);
-    let rms_root_ca = rms_root_ca_path(config.rms_root_ca_path.clone(), file_config.as_ref());
-    let rms_client_cert = rms_client_cert_info(
-        config.rms_client_cert_path.clone(),
-        config.rms_client_key_path.clone(),
-    );
-    let rms_client_config = ForgeClientConfig::new(rms_root_ca, rms_client_cert);
-    let rms_api_config = ApiConfig::new(&rms_url, &rms_client_config);
-    let rms_client = RmsApiClient(RackManagerApiClient::new(&rms_api_config));
 
     let command = match config.commands {
         None => {
@@ -202,7 +194,6 @@ async fn main() -> color_eyre::Result<()> {
             sort_by: config.sort_by,
         },
         output_file: get_output_file_or_stdout(config.output.as_deref()).await?,
-        rms_client,
     };
 
     // Command to talk to Carbide API.
@@ -244,7 +235,6 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::PowerShelf(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Rack(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ResourcePool(cmd) => cmd.dispatch(ctx).await?,
-        CliCommand::Rms(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::RouteServer(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ScoutStream(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Set(cmd) => cmd.dispatch(ctx).await?,
@@ -270,6 +260,7 @@ async fn main() -> color_eyre::Result<()> {
             // Handled earlier
             unreachable!();
         }
+        _ => return Err(eyre!("Unsupported command")),
     }
 
     Ok(())

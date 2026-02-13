@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 use carbide_uuid::machine::MachineId;
 use db::{ObjectColumnFilter, Transaction};
+use librms::RmsApi;
 use model::bmc_info::BmcInfo;
 use model::expected_machine::ExpectedMachine;
 use model::hardware_info::HardwareInfo;
@@ -33,7 +34,6 @@ use model::resource_pool::common::CommonPools;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
 use sqlx::{PgConnection, PgPool};
 
-use crate::rack::rms_client::RmsApi;
 use crate::site_explorer::SiteExplorerConfig;
 use crate::site_explorer::explored_endpoint_index::ExploredEndpointIndex;
 use crate::site_explorer::managed_host::ManagedHost;
