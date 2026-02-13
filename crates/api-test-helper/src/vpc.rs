@@ -19,12 +19,13 @@ use std::net::SocketAddr;
 
 use super::grpcurl::grpcurl_id;
 
-pub async fn create(carbide_api_addrs: &[SocketAddr]) -> eyre::Result<String> {
+pub async fn create(carbide_api_addrs: &[SocketAddr], tenant_org_id: &str) -> eyre::Result<String> {
     tracing::info!("Creating VPC");
 
     let data = serde_json::json!({
         "name": "tenant_vpc",
-        "tenantOrganizationId": "tenant_organization1"
+        "tenantOrganizationId": tenant_org_id,
+        "routing_profile_type": 0, // EXTERNAL
     });
     let vpc_id = grpcurl_id(carbide_api_addrs, "CreateVpc", &data.to_string()).await?;
     tracing::info!("VPC created with ID {vpc_id}");

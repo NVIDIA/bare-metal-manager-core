@@ -24,7 +24,7 @@ use std::time::{self, Duration};
 use ::machine_a_tron::{BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig};
 use ::utils::HostPortPair;
 use api_test_helper::{
-    IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, utils, vpc,
+    IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, tenant, utils, vpc,
 };
 use bmc_mock::{HostHardwareType, ListenerOrAddress};
 use eyre::ContextCompat;
@@ -99,7 +99,9 @@ async fn test_integration() -> eyre::Result<()> {
         .await?,
     );
 
-    let tenant1_vpc = vpc::create(carbide_api_addrs).await?;
+    let tenant_org_id = "tenant_organization";
+    tenant::create(carbide_api_addrs, tenant_org_id, "Tenant Organization").await?;
+    let tenant1_vpc = vpc::create(carbide_api_addrs, tenant_org_id).await?;
     let domain_id = domain::create(carbide_api_addrs, "tenant-1.local").await?;
     let managed_segment_id =
         subnet::create(carbide_api_addrs, &tenant1_vpc, &domain_id, 10, false).await?;
@@ -313,7 +315,9 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                     "machine_reboot_attempts_in_booting_with_discovery_image",
                 );
 
-                let vpc_id = vpc::create(&carbide_api_addrs).await?;
+                let tenant_org_id = "tenant_organization";
+                tenant::create(&carbide_api_addrs, tenant_org_id, "Tenant Organization").await?;
+                let vpc_id = vpc::create(&carbide_api_addrs, tenant_org_id).await?;
                 let domain_id = domain::create(&carbide_api_addrs, "tenant-1.local").await?;
                 let segment_id = subnet::create(&carbide_api_addrs, &vpc_id, &domain_id, 10, false).await?;
                 let host_machine_id = machine_handle.observed_machine_id().expect("Should have gotten a machine ID by now");

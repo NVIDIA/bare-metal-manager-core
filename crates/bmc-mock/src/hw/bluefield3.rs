@@ -172,6 +172,7 @@ impl Bluefield3<'_> {
                             "NicMode": nic_mode,
                             "HostPrivilegeLevel": "Unavailable",
                             "InternalCPUModel": "Unavailable",
+                            "CurrentUefiPassword": "",
                         }))
                         .build(),
                 ),
