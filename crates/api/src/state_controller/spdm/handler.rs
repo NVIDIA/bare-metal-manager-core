@@ -803,10 +803,12 @@ async fn perform_attestation(
         });
     };
 
+
     let device_attestation_info = DeviceAttestationInfo {
         ec: vec![EvidenceCertificate {
             evidence: evidence.signed_measurements.clone(),
-            certificate: ca_certificate.certificate_string.clone(),
+            certificate: nras::certificate_to_base64(&ca_certificate.certificate_string),
+            firmware_version: device.metadata.as_ref().and_then(|m| m.firmware_version.clone()).unwrap_or_default(),
         }],
         architecture: nras::MachineArchitecture::Blackwell,
         nonce: device.nonce.to_string(),

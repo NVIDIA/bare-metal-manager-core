@@ -23,6 +23,8 @@ authors.workspace = true
 
 [dependencies]
 async-trait.workspace = true
+base64 = { workspace = true }
+clap = { workspace = true }
 fmt = { workspace = true }
 jsonwebtoken = { features = ["rust_crypto"], workspace = true }
 mockito = { workspace = true }
