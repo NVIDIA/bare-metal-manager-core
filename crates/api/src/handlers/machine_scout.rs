@@ -27,6 +27,7 @@ use model::machine_validation::{MachineValidationState, MachineValidationStatus}
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
+use crate::api::metrics::ApiMetricsEmitter;
 use crate::api::{Api, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
 
@@ -300,6 +301,53 @@ pub(crate) async fn forge_agent_control(
     }))
 }
 
+/// Records reboot duration metric for a machine if applicable
+fn record_reboot_duration_metric(
+    metric_emitter: &ApiMetricsEmitter,
+    machine: &model::machine::Machine,
+) {
+    let Some(last_reboot_requested) = &machine.last_reboot_requested else {
+        return;
+    };
+
+    // Skip recording metrics for PowerOff requests
+    if matches!(
+        last_reboot_requested.mode,
+        model::machine::MachineLastRebootRequestedMode::PowerOff
+    ) {
+        return;
+    }
+
+    let reboot_duration_secs = (chrono::Utc::now() - last_reboot_requested.time).num_seconds();
+
+    // Only record positive durations (in case of clock skew)
+    if reboot_duration_secs <= 0 {
+        return;
+    }
+
+    // Extract product name and vendor from hardware info
+    let product_name = machine
+        .hardware_info
+        .as_ref()
+        .and_then(|hi| hi.dmi_data.as_ref())
+        .map(|dmi| dmi.product_name.clone())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let vendor = machine
+        .hardware_info
+        .as_ref()
+        .and_then(|hi| hi.dmi_data.as_ref())
+        .map(|dmi| dmi.sys_vendor.clone())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    metric_emitter.record_machine_reboot_duration(
+        reboot_duration_secs as u64,
+        product_name,
+        vendor,
+        last_reboot_requested.mode.to_string(),
+    );
+}
+
 // Host has rebooted
 pub(crate) async fn reboot_completed(
     api: &Api,
@@ -313,6 +361,9 @@ pub(crate) async fn reboot_completed(
     let (machine, mut txn) = api
         .load_machine(&machine_id, MachineSearchConfig::default())
         .await?;
+
+    record_reboot_duration_metric(&api.metric_emitter, &machine);
+
     db::machine::update_reboot_time(&machine, &mut txn).await?;
 
     txn.commit().await?;
