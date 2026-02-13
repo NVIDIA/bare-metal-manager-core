@@ -146,7 +146,7 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
             get(get_network_protocol).patch(patch_network_protocol),
         )
         .route(
-            &redfish::log_services::manager_collection(MGR_ID).odata_id,
+            &redfish::log_service::manager_collection(MGR_ID).odata_id,
             get(get_log_services),
         )
 }
@@ -225,7 +225,7 @@ async fn get_manager(State(state): State<BmcState>, Path(manager_id): Path<Strin
         .ethernet_interfaces(redfish::ethernet_interface::manager_collection(&manager_id))
         .enable_reset_action()
         .firmware_version(&this.firmware_version)
-        .log_services(redfish::log_services::manager_collection(&manager_id))
+        .log_services(redfish::log_service::manager_collection(&manager_id))
         .status(redfish::resource::Status::Ok)
         .uuid("3347314f-c0c6-5080-3410-00354c4c4544")
         .date_time(Utc::now())

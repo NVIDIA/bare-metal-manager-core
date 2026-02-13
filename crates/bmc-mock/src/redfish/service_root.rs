@@ -56,6 +56,7 @@ async fn get_service_root(State(state): State<BmcState>) -> Response {
         .account_service(&redfish::account_service::resource())
         .chassis_collection(&redfish::chassis::collection())
         .system_collection(&redfish::computer_system::collection())
+        .manager_collection(&redfish::manager::collection())
         .update_service(&redfish::update_service::resource())
         .build()
         .into_ok_response()
@@ -96,6 +97,10 @@ impl ServiceRootBuilder {
 
     pub fn system_collection(self, v: &redfish::Collection<'_>) -> Self {
         self.apply_patch(v.nav_property("Systems"))
+    }
+
+    pub fn manager_collection(self, v: &redfish::Collection<'_>) -> Self {
+        self.apply_patch(v.nav_property("Managers"))
     }
 
     pub fn update_service(self, v: &redfish::Resource<'_>) -> Self {
