@@ -85,13 +85,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let mut join_handles = vec![];
-    let dhcp_timestamps = Arc::new(Mutex::new(DhcpTimestamps::new(
-        if let ServerMode::Dpu = args.mode {
+
+    let dhcp_timestamps = Arc::new(Mutex::new({
+        let d = DhcpTimestamps::new(if let ServerMode::Dpu = args.mode {
             DhcpTimestampsFilePath::Hbn
         } else {
             DhcpTimestampsFilePath::NotSet
-        },
-    )));
+        });
+
+        // It looks like we can only expect the file to be present
+        // if something has successfully DHCP'ed, after write() has been
+        // called at least once.  That means there's a possible window of time
+        // where the file might be _expected_ to not exist, but read() will complain
+        // and pollute the logs. We could have read() skip NotFound errors, but that
+        // could be misleading in other scenarios.  Let's just "init" the file.
+        d.write()?;
+        d
+    }));
 
     // Rate limiter limits the packet processing from all interfaces.
     let rate_limiter_ = Arc::new(tokio::sync::Semaphore::new(
@@ -502,11 +512,31 @@ mod test {
             std::num::NonZeroUsize::new(cache::MACHINE_CACHE_SIZE).unwrap(),
         )));
 
+        // Remove any timestamps file left behind from a previous run.
+        if std::fs::exists(DhcpTimestampsFilePath::Test.path_str()).unwrap() {
+            std::fs::remove_file(DhcpTimestampsFilePath::Test.path_str()).unwrap();
+        }
+
+        // Try a read() to show that it will fail if the timestamps file
+        // hasn't been initialized.
+        let _ = DhcpTimestamps::new(DhcpTimestampsFilePath::Test)
+            .read()
+            .unwrap_err();
+
         let before_dhcp = Utc::now();
         let udp_socket_addr: SocketAddrV4 = "127.0.0.1:1236".parse().unwrap();
-        let dhcp_timestamps = Arc::new(Mutex::new(DhcpTimestamps::new(
-            DhcpTimestampsFilePath::Test,
-        )));
+        let dhcp_timestamps = Arc::new(Mutex::new({
+            let d = DhcpTimestamps::new(DhcpTimestampsFilePath::Test);
+            // Init the file like we would do during live operation.
+            d.write().unwrap();
+            d
+        }));
+
+        // Try a read() to show that the "init" of the timestamps file was
+        // successful.
+        DhcpTimestamps::new(DhcpTimestampsFilePath::Test)
+            .read()
+            .unwrap();
 
         process(
             "1.2.3.4:0".parse().unwrap(),
