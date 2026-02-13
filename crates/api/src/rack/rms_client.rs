@@ -67,7 +67,6 @@ pub mod test_support {
     }
 
     #[derive(Debug, Clone)]
-    #[allow(dead_code)] // strangely, these 3 fields are used during tests, but the compiler thinks otherwise.
     pub struct MockRmsClient {
         fail_add_node: Arc<AtomicBool>,
         fail_inventory_get: Arc<AtomicBool>,
@@ -98,12 +97,40 @@ pub mod test_support {
             &self,
             _cmd: rms::GetAllInventoryRequest,
         ) -> Result<rms::GetAllInventoryResponse, RackManagerError> {
-            Ok(rms::GetAllInventoryResponse::default())
+            if self.fail_inventory_get.load(Ordering::Relaxed) {
+                return Err(RackManagerError::ApiInvocationError(
+                    tonic::Status::unavailable("mock RMS inventory_get failure"),
+                ));
+            }
+            let nodes = self.registered_nodes.lock().await.clone();
+            Ok(rms::GetAllInventoryResponse {
+                nodes,
+                ..Default::default()
+            })
         }
         async fn add_node(
             &self,
-            _cmd: rms::AddNodeRequest,
+            cmd: rms::AddNodeRequest,
         ) -> Result<rms::AddNodeResponse, RackManagerError> {
+            if self.fail_add_node.load(Ordering::Relaxed) {
+                return Err(RackManagerError::ApiInvocationError(
+                    tonic::Status::unavailable("mock RMS add_node failure"),
+                ));
+            }
+            // Track registered nodes so inventory_get can find them,
+            // just like a real RMS would.
+            let mut registered = self.registered_nodes.lock().await;
+            for node in cmd.node_info {
+                registered.push(librms::protos::rack_manager::NodeInventoryInfo {
+                    node_id: node.node_id.clone(),
+                    ip_address: node.ip_address.clone(),
+                    port: node.port,
+                    mac_address: node.mac_address.clone(),
+                    rack_id: node.rack_id.clone(),
+                    r#type: node.r#type.unwrap_or(0),
+                    ..Default::default()
+                });
+            }
             Ok(rms::AddNodeResponse::default())
         }
         async fn update_node(
