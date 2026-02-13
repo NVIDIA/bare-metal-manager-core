@@ -1369,6 +1369,9 @@ message VpcPeeringList {
 message VpcPeeringCreationRequest {
   common.VpcId vpc_id = 1;
   common.VpcId peer_vpc_id = 2;
+
+  // The desired ID for this VPC peering. If the ID is not provided, a random one will be generated.
+  optional common.VpcPeeringId id = 3; 
 }
 
 message VpcPeeringSearchFilter {
