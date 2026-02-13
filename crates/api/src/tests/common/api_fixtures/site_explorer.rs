@@ -21,12 +21,14 @@ use std::net::IpAddr;
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
+use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
 use db::machine_interface::find_by_mac_address;
-use db::{power_shelf as db_power_shelf, switch as db_switch};
+use db::{DatabaseError, power_shelf as db_power_shelf, rack as db_rack, switch as db_switch};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use futures_util::FutureExt;
 use health_report::HealthReport;
+use mac_address::MacAddress;
 use model::hardware_info::HardwareInfo;
 use model::machine::{
     BomValidating, BomValidatingContext, DpfState, DpuInitState, FailureCause, FailureDetails,
@@ -35,6 +37,7 @@ use model::machine::{
 };
 use model::power_shelf::power_shelf_id::from_hardware_info;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
+use model::rack::RackConfig;
 use model::site_explorer::EndpointExplorationReport;
 use model::switch::switch_id::from_hardware_info as switch_from_hardware_info;
 use model::switch::{NewSwitch, SwitchConfig};
@@ -43,6 +46,7 @@ use rpc::forge::{self, HardwareHealthReport};
 use rpc::forge_agent_control_response::Action;
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{DiscoveryData, DiscoveryInfo};
+use sqlx::PgConnection;
 use tonic::Request;
 use uuid;
 
@@ -1532,8 +1536,114 @@ pub async fn new_power_shelfs(env: &TestEnv, count: u32) -> eyre::Result<Vec<Pow
     Ok(power_shelf_ids)
 }
 
+pub struct TestRackDbBuilder {
+    compute_trays: Vec<MachineId>,
+    power_shelves: Vec<PowerShelfId>,
+    // TODO: unhide this when we have machine-a-tron support for switch
+    _switches: Vec<SwitchId>,
+    expected_compute_trays: Vec<MacAddress>,
+    expected_power_shelves: Vec<MacAddress>,
+    expected_switches: Vec<MacAddress>,
+    rack_id: RackId,
+}
+
+impl Default for TestRackDbBuilder {
+    fn default() -> Self {
+        TestRackDbBuilder {
+            compute_trays: vec![],
+            power_shelves: vec![],
+            // TODO: unhide this when we have machine-a-tron support for switch
+            _switches: vec![],
+            expected_compute_trays: vec![],
+            expected_power_shelves: vec![],
+            expected_switches: vec![],
+            rack_id: RackId::from(uuid::Uuid::new_v4()),
+        }
+    }
+}
+
+impl TestRackDbBuilder {
+    pub fn new() -> TestRackDbBuilder {
+        TestRackDbBuilder {
+            ..Default::default()
+        }
+    }
+
+    pub fn with_rack_id(mut self, id: RackId) -> Self {
+        self.rack_id = id;
+        self
+    }
+
+    /// TODO: unhide this when we have a test that prefills the discovered
+    /// compute trays  
+    pub fn _with_compute_trays(mut self, compute_trays: Vec<MachineId>) -> Self {
+        self.compute_trays = compute_trays;
+        self
+    }
+
+    /// TODO: unhide this when we have a test that prefills the discovered
+    /// power shelfs
+    pub fn _with_power_shelves(mut self, power_shelves: Vec<PowerShelfId>) -> Self {
+        self.power_shelves = power_shelves;
+        self
+    }
+
+    /// TODO: unhide this when we have a test that prefills the discovered
+    /// switches
+    pub fn _with_switches(mut self, switches: Vec<SwitchId>) -> Self {
+        self._switches = switches;
+        self
+    }
+
+    pub fn with_expected_compute_trays(mut self, expected_compute_trays: Vec<[u8; 6]>) -> Self {
+        self.expected_compute_trays = expected_compute_trays
+            .into_iter()
+            .map(MacAddress::new)
+            .collect();
+        self
+    }
+
+    pub fn with_expected_power_shelves(mut self, expected_power_shelves: Vec<[u8; 6]>) -> Self {
+        self.expected_power_shelves = expected_power_shelves
+            .into_iter()
+            .map(MacAddress::new)
+            .collect();
+        self
+    }
+
+    /// TODO: unhide this when we have a test that sets expected switches (presumably, but
+    /// not necessarily when machine-a-tron supports switches)
+    pub fn _with_expected_switches(mut self, expected_switches: Vec<[u8; 6]>) -> Self {
+        self.expected_switches = expected_switches.into_iter().map(MacAddress::new).collect();
+        self
+    }
+
+    pub async fn persist(&self, txn: &mut PgConnection) -> Result<RackId, DatabaseError> {
+        db_rack::create(
+            txn,
+            self.rack_id,
+            self.expected_compute_trays.clone(),
+            self.expected_switches.clone(),
+            self.expected_power_shelves.clone(),
+        )
+        .await?;
+
+        if !self.compute_trays.is_empty() || !self.power_shelves.is_empty() {
+            let cfg = RackConfig {
+                compute_trays: self.compute_trays.clone(),
+                power_shelves: self.power_shelves.clone(),
+                expected_compute_trays: self.expected_compute_trays.clone(),
+                expected_power_shelves: self.expected_power_shelves.clone(),
+            };
+
+            db_rack::update(txn, self.rack_id, &cfg).await?;
+        }
+
+        Ok(self.rack_id)
+    }
+}
+
 /// Creates a new switch for testing purposes
-#[allow(dead_code)]
 pub async fn new_switch(
     env: &TestEnv,
     name: Option<String>,
