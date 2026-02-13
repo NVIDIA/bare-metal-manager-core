@@ -20,16 +20,15 @@ pub mod test_support {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    use tokio::sync::Mutex;
-
     use librms::protos::rack_manager as rms;
     use librms::{RackManagerError, RmsApi};
+    use tokio::sync::Mutex;
 
     /// RMS simulation for testing, similar to RedfishSim
     pub struct RmsSim {
         fail_add_node: Arc<AtomicBool>,
         fail_inventory_get: Arc<AtomicBool>,
-        registered_nodes: Arc<Mutex<Vec<rpc::protos::rack_manager::NodeInventoryInfo>>>,
+        registered_nodes: Arc<Mutex<Vec<rms::NodeInventoryInfo>>>,
     }
 
     impl Default for RmsSim {
@@ -68,10 +67,11 @@ pub mod test_support {
     }
 
     #[derive(Debug, Clone)]
+    #[allow(dead_code)] // strangely, these 3 fields are used during tests, but the compiler thinks otherwise.
     pub struct MockRmsClient {
         fail_add_node: Arc<AtomicBool>,
         fail_inventory_get: Arc<AtomicBool>,
-        registered_nodes: Arc<Mutex<Vec<rpc::protos::rack_manager::NodeInventoryInfo>>>,
+        registered_nodes: Arc<Mutex<Vec<rms::NodeInventoryInfo>>>,
     }
 
     #[async_trait::async_trait]
@@ -171,6 +171,12 @@ pub mod test_support {
             _cmd: rms::PushFirmwareToSwitchCommand,
         ) -> Result<rms::PushFirmwareToSwitchResponse, RackManagerError> {
             Ok(rms::PushFirmwareToSwitchResponse::default())
+        }
+        async fn upgrade_firmware_on_switch(
+            &self,
+            _cmd: rms::UpgradeFirmwareOnSwitchCommand,
+        ) -> Result<rms::UpgradeFirmwareOnSwitchResponse, RackManagerError> {
+            Ok(rms::UpgradeFirmwareOnSwitchResponse::default())
         }
         async fn configure_scale_up_fabric_manager(
             &self,
