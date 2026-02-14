@@ -327,9 +327,31 @@ impl SpdmAttestationStateHandler {
                     .map(|x| from_component_integrity(x.clone(), machine_id))
                     .collect_vec();
 
-                db::attestation::spdm::insert_devices(txn, &machine_id, devices)
+                db::attestation::spdm::insert_devices(txn, &machine_id, devices.clone())
                     .await
                     .map_err(StateHandlerError::from)?;
+
+                // Record initial device state in history to prevent race condition where
+                // FetchMetadata state might be missed if device transitions quickly
+                for device in &devices {
+                    let state_snapshot = SpdmMachineStateSnapshot {
+                        machine_state: controller_state.machine_state.clone(),
+                        devices_state: HashMap::from([(
+                            device.device_id.clone(),
+                            device.state.clone(),
+                        )]),
+                        device_state: Some(device.state.clone()),
+                        machine_version: controller_state.machine_version,
+                        device_version: Some(device.state_version),
+                        update_machine_version: false,
+                        update_device_version: true,
+                    };
+
+                    let object_id = SpdmObjectId(machine_id, Some(device.device_id.clone()));
+                    db::attestation::spdm::update_history(txn, &object_id, &state_snapshot)
+                        .await
+                        .map_err(StateHandlerError::from)?;
+                }
 
                 Ok(StateHandlerOutcome::transition(next_state_snapshot(
                     &controller_state.machine_state,

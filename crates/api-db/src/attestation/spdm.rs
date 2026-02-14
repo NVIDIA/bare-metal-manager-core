@@ -466,7 +466,7 @@ pub async fn persist_controller_state(
             RETURNING *
         "#;
 
-        sqlx::query(query)
+        let result = sqlx::query(query)
             .bind(sqlx::types::Json(&new_state.machine_state))
             .bind(new_version)
             .bind(object_id.0)
@@ -474,6 +474,14 @@ pub async fn persist_controller_state(
             .execute(&mut *txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))?;
+
+        // Check if the update actually affected any rows (optimistic lock check)
+        // If 0 rows were affected, another device already performed this transition
+        if result.rows_affected() == 0 {
+            // This is not an error - just skip device updates and history recording
+            // The other device that won the race will handle updating devices and history
+            return Ok(());
+        }
 
         // Sync state is achieved, update all devices state .
         if new_state.update_device_version {
@@ -561,7 +569,7 @@ pub async fn persist_controller_state(
     update_history(txn, object_id, new_state).await
 }
 
-async fn update_history(
+pub async fn update_history(
     txn: &mut PgConnection,
     object_id: &SpdmObjectId,
     state_snapshot: &SpdmMachineStateSnapshot,
