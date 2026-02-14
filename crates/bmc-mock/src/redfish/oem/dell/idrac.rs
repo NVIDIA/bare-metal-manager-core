@@ -88,6 +88,7 @@ async fn get_managers_oem_dell_attributes(State(state): State<BmcState>) -> Resp
                 "Racadm.1.Enable": "Enabled",
                 "SSH.1.Enable": "Enabled",
                 "SerialRedirection.1.Enable": "Enabled",
+                "ServerPwr.1.PSRapidOn": "Enabled",
                 "WebServer.1.HostHeaderCheck": "Disabled",
             }
         }));

@@ -51,6 +51,25 @@ mod metrics;
 
 const NOT_FOUND: u16 = 404;
 
+/// Check if endpoint is a Dell PowerEdge R760 that needs PSU configuration
+fn should_configure_dell_psu(endpoint: &ExploredEndpoint) -> bool {
+    use bmc_vendor::BMCVendor;
+
+    // Check if Dell vendor
+    if endpoint.report.vendor != Some(BMCVendor::Dell) {
+        return false;
+    }
+
+    // Check model (case-insensitive match for "PowerEdge R760")
+    match endpoint.report.model.as_deref() {
+        Some(model) => {
+            let model_lower = model.to_lowercase();
+            model_lower.contains("poweredge") && model_lower.contains("r760")
+        }
+        None => false,
+    }
+}
+
 pub struct PreingestionManager {
     static_info: Arc<PreingestionManagerStatic>,
     metric_holder: Arc<metrics::MetricHolder>,
@@ -269,7 +288,48 @@ async fn one_endpoint(
             // Check BMC time sync first before proceeding with firmware checks
             match static_info.check_bmc_time_sync(db, endpoint).await {
                 Ok(true) => {
-                    // Time is in sync, proceed with firmware version check
+                    // Time is in sync, configure Dell PSU settings if applicable
+                    if should_configure_dell_psu(endpoint) {
+                        tracing::info!(
+                            "Dell PowerEdge R760 detected at {}, configuring PSU settings",
+                            endpoint.address
+                        );
+
+                        let redfish_client_result = static_info
+                            .redfish_client_pool
+                            .create_client_for_ingested_host(endpoint.address, None, db)
+                            .await;
+
+                        match redfish_client_result {
+                            Ok(redfish_client) => {
+                                match redfish_client.disable_psu_hot_spare().await {
+                                    Ok(()) => {
+                                        tracing::info!(
+                                            "Successfully disabled PSU Hot Spare on Dell R760 at {}",
+                                            endpoint.address
+                                        );
+                                    }
+                                    Err(e) => {
+                                        // Non-blocking: log warning but continue pre-ingestion
+                                        tracing::warn!(
+                                            "Failed to configure PSU on Dell R760 at {}: {:?}. Continuing pre-ingestion.",
+                                            endpoint.address,
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to create Redfish client for PSU configuration on {}: {:?}. Continuing pre-ingestion.",
+                                    endpoint.address,
+                                    e
+                                );
+                            }
+                        }
+                    }
+
+                    // Proceed with firmware version check
                     static_info
                         .check_firmware_versions_below_preingestion(db, endpoint)
                         .await?

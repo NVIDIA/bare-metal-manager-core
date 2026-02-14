@@ -820,6 +820,7 @@ pub mod test_support {
         Power(libredfish::SystemPowerControl),
         BmcReset,
         SetUtcTimezone,
+        DisablePsuHotSpare,
     }
 
     pub struct RedfishSimActions {
@@ -2009,6 +2010,18 @@ pub mod test_support {
                 .unwrap()
                 .actions
                 .push(RedfishSimAction::SetUtcTimezone);
+            Ok(())
+        }
+
+        async fn disable_psu_hot_spare(&self) -> Result<(), RedfishError> {
+            self.state
+                .lock()
+                .unwrap()
+                .hosts
+                .get_mut(&self._host)
+                .unwrap()
+                .actions
+                .push(RedfishSimAction::DisablePsuHotSpare);
             Ok(())
         }
     }
