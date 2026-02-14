@@ -2011,6 +2011,10 @@ pub mod test_support {
                 .push(RedfishSimAction::SetUtcTimezone);
             Ok(())
         }
+
+        async fn disable_psu_hot_spare(&self) -> Result<(), RedfishError> {
+            todo!()
+        }
     }
 
     #[async_trait]
