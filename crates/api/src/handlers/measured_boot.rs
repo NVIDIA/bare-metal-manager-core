@@ -16,16 +16,21 @@
  */
 
 use ::rpc::protos::measured_boot as pb;
+#[cfg(feature = "linux-build")]
 pub use ::rpc::{forge as rpc_forge, machine_discovery as rpc_md};
-use carbide_uuid::machine::MachineId;
-use db::attestation::secret_ak_pub;
-use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
+#[cfg(feature = "linux-build")]
+use {
+    crate::{CarbideError, attestation as attest},
+    carbide_uuid::machine::MachineId,
+    db::attestation::secret_ak_pub,
+    sqlx::PgConnection,
+};
 
 use crate::api::Api;
 use crate::measured_boot::rpc::{bundle, journal, machine, profile, report, site};
-use crate::{CarbideError, attestation as attest};
 
+#[cfg(feature = "linux-build")]
 pub(crate) async fn create_attest_key_bind_challenge(
     txn: &mut PgConnection,
     attest_key_info: &rpc_md::AttestKeyInfo,
