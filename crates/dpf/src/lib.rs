@@ -43,7 +43,8 @@ use crate::crds::dpu_set_generated::{
     DpuSetStrategyType,
 };
 
-pub const NAMESPACE: &str = "dpf-operator-system";
+pub const DPF_NAMESPACE: &str = "dpf-operator-system";
+pub const FORGE_NAMESPACE: &str = "forge-system";
 const BFB_NAME: &str = "bf-bundle";
 const DPUSET_NAME: &str = "carbide-dpu-set";
 const DPUFLAVOR_NAME: &str = "carbide-dpu-flavor";
@@ -53,21 +54,21 @@ const BFCFG_CONFIGMAP_NAME: &str = "carbide-dpf-bf-cfg-template";
 const BF_CFG_DATA_TEMPLATE: &str = include_str!("../files/bf.cfg");
 const BF_CFG_FW_UPDATE_DATA_TEMPLATE: &str = include_str!("../../../pxe/templates/bmc_fw_update");
 
-const BFB_URL: &str = "http://carbide-pxe.forge/public/blobs/internal/aarch64/forge.bfb";
+const BFB_URL: &str = "http://{pxe-ip}/public/blobs/internal/aarch64/forge.bfb";
 
 static DPF_INIT: OnceLock<Result<(), eyre::Report>> = OnceLock::new();
 
 /// Creates a BFB object with the given input.
-fn bfb_crd(name: &str) -> BFB {
+fn bfb_crd(name: &str, pxe_ip: &str) -> BFB {
     BFB {
         metadata: ObjectMeta {
             name: Some(name.to_string()),
-            namespace: Some(NAMESPACE.to_string()),
+            namespace: Some(DPF_NAMESPACE.to_string()),
             ..Default::default()
         },
         spec: BfbSpec {
             file_name: None,
-            url: BFB_URL.to_string(),
+            url: BFB_URL.replace("{pxe-ip}", pxe_ip),
         },
         status: None,
     }
@@ -245,7 +246,7 @@ async fn create_secret_for_bmc_password(
     kube_impl: &impl KubeImpl,
 ) -> Result<(), DpfError> {
     let client = kube_impl.get_kube_client().await?;
-    let secrets = Api::<Secret>::namespaced(client, NAMESPACE);
+    let secrets = Api::<Secret>::namespaced(client, DPF_NAMESPACE);
 
     if let Some(existing_secret) = secrets.get_opt(SECRET_NAME).await? {
         tracing::info!(
@@ -292,14 +293,14 @@ pub async fn create_bfcfg_configmap(
 
     // Initialize Kubernetes client and construct the API object for ConfigMaps.
     let client = kube_impl.get_kube_client().await?;
-    let configmaps = Api::<ConfigMap>::namespaced(client, NAMESPACE);
+    let configmaps = Api::<ConfigMap>::namespaced(client, DPF_NAMESPACE);
 
     // Build the ConfigMap object.
     let configmap_cr = ConfigMap {
         immutable: Some(false),
         metadata: ObjectMeta {
             name: Some(BFCFG_CONFIGMAP_NAME.to_string()),
-            namespace: Some(NAMESPACE.to_string()),
+            namespace: Some(DPF_NAMESPACE.to_string()),
             ..Default::default()
         },
         data,
@@ -336,7 +337,7 @@ pub fn get_fw_update_data() -> String {
 async fn create_dpuflavor_if_not_exists(kube_impl: &impl KubeImpl) -> Result<(), DpfError> {
     // Initialize Kubernetes client and the API object for DPUFlavor in the given namespace.
     let client = kube_impl.get_kube_client().await?;
-    let dpuflavors = Api::<DPUFlavor>::namespaced(client, NAMESPACE);
+    let dpuflavors = Api::<DPUFlavor>::namespaced(client, DPF_NAMESPACE);
 
     // Attempt to retrieve the DPUFlavor CR; proceed if it does not exist.
     if dpuflavors
@@ -349,7 +350,7 @@ async fn create_dpuflavor_if_not_exists(kube_impl: &impl KubeImpl) -> Result<(),
         let dpuflavor_cr = DPUFlavor {
             metadata: ObjectMeta {
                 name: Some(DPUFLAVOR_NAME.to_string()),
-                namespace: Some(NAMESPACE.to_string()),
+                namespace: Some(DPF_NAMESPACE.to_string()),
                 ..Default::default()
             },
             spec: DpuFlavorSpec {
@@ -385,13 +386,13 @@ async fn create_dpuflavor_if_not_exists(kube_impl: &impl KubeImpl) -> Result<(),
 /// - Returns `Ok(())` if successful, or a wrapped error if the Kubernetes client or API calls fail.
 async fn create_dpuset_crd(bfb_name: &str, kube_impl: &impl KubeImpl) -> Result<(), DpfError> {
     let client = kube_impl.get_kube_client().await?;
-    let dpusets = Api::<DPUSet>::namespaced(client, NAMESPACE);
+    let dpusets = Api::<DPUSet>::namespaced(client, DPF_NAMESPACE);
 
     // Construct the DPUSet CR with default/empty fields.
     let dpuset_cr = DPUSet {
         metadata: ObjectMeta {
             name: Some(DPUSET_NAME.to_string()),
-            namespace: Some(NAMESPACE.to_string()),
+            namespace: Some(DPF_NAMESPACE.to_string()),
             ..Default::default()
         },
         spec: DpuSetSpec {
@@ -456,7 +457,7 @@ pub async fn check_if_bfb_exists(
     kube_impl: &impl KubeImpl,
 ) -> Result<Option<BFB>, DpfError> {
     let client = kube_impl.get_kube_client().await?;
-    let bfb = Api::<BFB>::namespaced(client, NAMESPACE);
+    let bfb = Api::<BFB>::namespaced(client, DPF_NAMESPACE);
     let bfb_crd = bfb.get_opt(name).await.map_err(DpfError::KubeError)?;
     Ok(bfb_crd)
 }
@@ -468,7 +469,7 @@ pub async fn check_if_bfb_exists(
 /// - Returns `Ok(true)` if successful, or a wrapped error if the Kubernetes client or API calls fail.
 pub async fn delete_bfb_crd(name: &str, kube_impl: &impl KubeImpl) -> Result<(), DpfError> {
     let client = kube_impl.get_kube_client().await?;
-    let bfb = Api::<BFB>::namespaced(client, NAMESPACE);
+    let bfb = Api::<BFB>::namespaced(client, DPF_NAMESPACE);
     bfb.delete(name, &Default::default())
         .await
         .map_err(DpfError::KubeError)?;
@@ -488,7 +489,7 @@ async fn delete_all_old_bfb_crds(
     kube_impl: &impl KubeImpl,
 ) -> Result<(), DpfError> {
     let client = kube_impl.get_kube_client().await?;
-    let bfb = Api::<BFB>::namespaced(client, NAMESPACE);
+    let bfb = Api::<BFB>::namespaced(client, DPF_NAMESPACE);
     let bfb_crds = bfb.list(&ListParams::default()).await?;
     for bfb_crd in bfb_crds {
         let name = bfb_crd.metadata.name.unwrap_or_default();
@@ -526,12 +527,13 @@ pub async fn create_and_wait_for_bfb(kube_impl: &impl KubeImpl) -> Result<String
     tracing::info!("Starting creation and waiting for BFB to become ready");
 
     let client = kube_impl.get_kube_client().await?;
-    let bfb = Api::<BFB>::namespaced(client, NAMESPACE);
+    let bfb = Api::<BFB>::namespaced(client, DPF_NAMESPACE);
+    let pxe_ip = pxe_ip(kube_impl).await?;
 
     for attempt in 0..3 {
         let bfb_name = format!("{}-{}", BFB_NAME, uuid::Uuid::new_v4());
         tracing::info!("Creating new BFB CRD {}...", bfb_name);
-        bfb.create(&PostParams::default(), &bfb_crd(&bfb_name))
+        bfb.create(&PostParams::default(), &bfb_crd(&bfb_name, &pxe_ip))
             .await
             .map_err(DpfError::KubeError)?;
 
@@ -583,4 +585,29 @@ pub async fn create_and_wait_for_bfb(kube_impl: &impl KubeImpl) -> Result<String
         TIMEOUT_SECONDS
     );
     Err(DpfError::BFBNotReady(TIMEOUT_SECONDS))
+}
+
+/// Retrieves the load balancer IP address for the carbide-pxe-external service.
+///
+/// # Arguments
+/// * `kube_impl` - Kubernetes implementation for cluster interaction
+///
+/// # Returns
+/// * `Ok(String)` - The load balancer IP address
+/// * `Err(DpfError)` - If the service or IP is not found, or on Kubernetes API errors
+async fn pxe_ip(kube_impl: &impl KubeImpl) -> Result<String, DpfError> {
+    let client = kube_impl.get_kube_client().await?;
+    let services = Api::<k8s_openapi::api::core::v1::Service>::namespaced(client, FORGE_NAMESPACE);
+
+    let pxe_service = services.get("carbide-pxe-external").await?;
+
+    let load_balancer_ip = pxe_service
+        .status
+        .and_then(|status| status.load_balancer)
+        .and_then(|lb| lb.ingress)
+        .and_then(|x| x.first().cloned())
+        .and_then(|x| x.ip)
+        .ok_or_else(|| DpfError::NotFound("loadbalancer IP", "carbide-pxe-external".to_string()))?;
+
+    Ok(load_balancer_ip)
 }

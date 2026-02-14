@@ -29,7 +29,7 @@ use crate::crds::dpu_node_generated::{
     DPUNode, DpuNodeDpus, DpuNodeNodeRebootMethod, DpuNodeNodeRebootMethodExternal, DpuNodeSpec,
 };
 use crate::crds::dpu_node_maintenance_generated::DPUNodeMaintenance;
-use crate::{DpfError, KubeImpl, NAMESPACE};
+use crate::{DPF_NAMESPACE, DpfError, KubeImpl};
 
 const RESTART_ANNOTATION: &str = "provisioning.dpu.nvidia.com/dpunode-external-reboot-required";
 const HOST_BMC_IP_LABEL: &str = "carbide.nvidia.com/host-bmc-ip";
@@ -48,7 +48,7 @@ pub fn dpu_device(
     DPUDevice {
         metadata: ObjectMeta {
             name: Some(machine_id.to_string()),
-            namespace: Some(NAMESPACE.to_string()),
+            namespace: Some(DPF_NAMESPACE.to_string()),
             labels: Some(BTreeMap::from([
                 (
                     CARBIDE_CONTROLLED_DEVICE_LABEL.to_string(),
@@ -84,7 +84,7 @@ pub async fn create_dpu_device(
 ) -> Result<(), DpfError> {
     let dpu_device = dpu_device(machine_id, dpu_bmc_ip, host_bmc_ip, serial_number);
     let client = kube_impl.get_kube_client().await?;
-    let dpu_devices = Api::<DPUDevice>::namespaced(client, NAMESPACE);
+    let dpu_devices = Api::<DPUDevice>::namespaced(client, DPF_NAMESPACE);
     if dpu_devices
         .get_opt(&machine_id.to_string())
         .await?
@@ -104,7 +104,7 @@ pub async fn check_if_dpu_device_is_ready(
     kube_impl: &dyn KubeImpl,
 ) -> Result<bool, DpfError> {
     let client = kube_impl.get_kube_client().await?;
-    let dpu_devices = Api::<DPUDevice>::namespaced(client, NAMESPACE);
+    let dpu_devices = Api::<DPUDevice>::namespaced(client, DPF_NAMESPACE);
     let dpu_device = dpu_devices.get_opt(&machine_id.to_string()).await?;
     let Some(dpu_device) = dpu_device else {
         return Err(DpfError::NotFound("DPUDevice", machine_id.to_string()));
@@ -133,7 +133,7 @@ pub fn dpu_node(host_bmc_ip: &str, dpu_machine_ids: &[&MachineId]) -> DPUNode {
     DPUNode {
         metadata: ObjectMeta {
             name: Some(dpu_node_name(host_bmc_ip)),
-            namespace: Some(NAMESPACE.to_string()),
+            namespace: Some(DPF_NAMESPACE.to_string()),
             labels: Some(BTreeMap::from([(
                 CARBIDE_CONTROLLED_NODE_LABEL.to_string(),
                 "true".to_string(),
@@ -168,7 +168,7 @@ pub async fn create_dpu_node(
 ) -> Result<(), DpfError> {
     let dpu_node = dpu_node(host_bmc_ip, dpu_machine_ids);
     let client = kube_impl.get_kube_client().await?;
-    let dpu_nodes = Api::<DPUNode>::namespaced(client, NAMESPACE);
+    let dpu_nodes = Api::<DPUNode>::namespaced(client, DPF_NAMESPACE);
     if dpu_nodes
         .get_opt(&dpu_node_name(host_bmc_ip))
         .await?
@@ -190,7 +190,7 @@ pub async fn remove_restart_annotation_from_node(
 ) -> Result<(), DpfError> {
     // Acquire the Api handle for DPUNode CRs
     let client = kube_impl.get_kube_client().await?;
-    let dpu_nodes = Api::<DPUNode>::namespaced(client, NAMESPACE);
+    let dpu_nodes = Api::<DPUNode>::namespaced(client, DPF_NAMESPACE);
 
     if !check_if_restart_annotation_exists(&dpu_nodes, host_bmc_ip).await? {
         // Restart annotation does not exist, nothing to do.
@@ -240,7 +240,7 @@ pub async fn get_dpu_node(
 ) -> Result<DPUNode, DpfError> {
     // Attempt to get the DPUNode for the given BMC IP (if it exists)
     let client = kube_impl.get_kube_client().await?;
-    let dpu_nodes = Api::<DPUNode>::namespaced(client, NAMESPACE);
+    let dpu_nodes = Api::<DPUNode>::namespaced(client, DPF_NAMESPACE);
     get_dpu_node_with_api(&dpu_nodes, host_bmc_ip).await
 }
 
@@ -258,7 +258,7 @@ pub async fn get_dpu_status_phase(
 ) -> Result<DpuStatusPhase, DpfError> {
     // Step 1: Fetch the DPU CRs Api handle
     let client = kube_impl.get_kube_client().await?;
-    let dpu_nodes = Api::<DPU>::namespaced(client, NAMESPACE);
+    let dpu_nodes = Api::<DPU>::namespaced(client, DPF_NAMESPACE);
     // Step 2: Try to get the specific DPU CR instance for (dpu_id, host_bmc_ip)
     // This can return None if resource doesn't exist
     let dpu_node = dpu_nodes.get_opt(&dpu_name(dpu_id, host_bmc_ip)).await?;
@@ -286,7 +286,7 @@ pub async fn update_dpu_node_maintenance_annotation(
 ) -> Result<(), DpfError> {
     // Step 1: Get the Api handle for DPUNodeMaintenance resources
     let client = kube_impl.get_kube_client().await?;
-    let dpu_node_maintenance = Api::<DPUNodeMaintenance>::namespaced(client, NAMESPACE);
+    let dpu_node_maintenance = Api::<DPUNodeMaintenance>::namespaced(client, DPF_NAMESPACE);
 
     // Step 2: Try to fetch the maintenance CR by name; if missing, error out
     let Some(node) = dpu_node_maintenance
@@ -353,7 +353,7 @@ pub async fn delete_dpu(
     let dpu_name = dpu_name(dpu_id, host_bmc_ip);
     // Step 2: Get Api handle for DPU CRs
     let client = kube_impl.get_kube_client().await?;
-    let dpu_api = Api::<DPU>::namespaced(client, NAMESPACE);
+    let dpu_api = Api::<DPU>::namespaced(client, DPF_NAMESPACE);
     // Step 3: Request deletion in Kubernetes (may fail if not present)
     dpu_api.delete(&dpu_name, &DeleteParams::default()).await?;
     Ok(())
@@ -364,7 +364,7 @@ async fn try_delete_dpu_device(
     kube_impl: &dyn KubeImpl,
 ) -> Result<(), DpfError> {
     let client = kube_impl.get_kube_client().await?;
-    let dpu_devices = Api::<DPUDevice>::namespaced(client, NAMESPACE);
+    let dpu_devices = Api::<DPUDevice>::namespaced(client, DPF_NAMESPACE);
     if dpu_devices.get_opt(&dpu_id.to_string()).await?.is_none() {
         return Ok(());
     }
@@ -383,7 +383,7 @@ pub async fn force_dpu_status_failed(
     // Step 1: Compute name and get API handle
     let dpu_name = dpu_name(dpu_id, host_bmc_ip);
     let client = kube_impl.get_kube_client().await?;
-    let dpu_api = Api::<DPU>::namespaced(client, NAMESPACE);
+    let dpu_api = Api::<DPU>::namespaced(client, DPF_NAMESPACE);
     // Step 2: Ensure DPU CR exists -- error if missing
     let Some(_dpu) = dpu_api.get_opt(&dpu_name).await? else {
         return Err(DpfError::NotFound("DPU", dpu_name));
@@ -410,7 +410,7 @@ pub async fn force_delete_managed_host(
     dpu_ids: &[String],
 ) -> Result<(), DpfError> {
     let client = api.get_kube_client().await?;
-    let dpu_nodes = Api::<DPUNode>::namespaced(client, NAMESPACE);
+    let dpu_nodes = Api::<DPUNode>::namespaced(client, DPF_NAMESPACE);
     let dpu_node_name = dpu_node_name(ip);
     let Ok(Some(dpu_node)) = dpu_nodes.get_opt(&dpu_node_name).await else {
         tracing::info!("Failed to get DPU node {dpu_node_name} for host {ip}");
