@@ -21,7 +21,7 @@ use std::sync::Arc;
 use mac_address::MacAddress;
 use serde_json::json;
 
-use crate::{PowerControl, hw, redfish};
+use crate::{LogService, LogServices, PowerControl, hw, redfish};
 
 pub struct Bluefield3<'a> {
     pub product_serial_number: Cow<'a, str>,
@@ -83,7 +83,7 @@ impl Bluefield3<'_> {
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "CPU_0".into(),
-                    chassis_type: "CPU".into(),
+                    chassis_type: "Component".into(),
                     manufacturer: Some("https://www.mellanox.com".into()),
                     model: Some("Mellanox BlueField-3 [A1] A78(D42) 16 Cores r0p1".into()),
                     network_adapters: Some(vec![]),
@@ -165,15 +165,25 @@ impl Bluefield3<'_> {
                 power_control: Some(pc),
                 boot_options: Some(boot_options),
                 bios_mode: redfish::computer_system::BiosMode::Generic,
+                oem: redfish::computer_system::Oem::NvidiaBluefield,
                 base_bios: Some(
                     redfish::bios::builder(&redfish::bios::resource(system_id))
                         .attributes(json!({
                             "NicMode": nic_mode,
                             "HostPrivilegeLevel": "Unavailable",
                             "InternalCPUModel": "Unavailable",
+                            "CurrentUefiPassword": "",
                         }))
                         .build(),
                 ),
+                log_services: Some(Arc::new(Bf3LogServices {
+                    event_log: DpuEventLog {
+                        // Simulate that we always completed reboot
+                        // when requested. Better implementation
+                        // should work together with power control...
+                        entries: vec!["DPU Warm Reset".to_string()],
+                    },
+                })),
             }],
         }
     }
@@ -261,5 +271,42 @@ impl Bluefield3<'_> {
             Mode::SuperNIC { nic_mode: true } => "9009D3B400CCEA",
             Mode::SuperNIC { nic_mode: false } => "9009D3B600CVAA",
         }
+    }
+}
+
+struct DpuEventLog {
+    entries: Vec<String>,
+}
+
+impl LogService for DpuEventLog {
+    fn id(&self) -> &str {
+        "EventLog"
+    }
+
+    fn entries(&self, collection: &redfish::Collection<'_>) -> Vec<serde_json::Value> {
+        self.entries
+            .iter()
+            .enumerate()
+            .map(|(idx, entry)| {
+                redfish::log_service::event_entry(collection, &idx.to_string())
+                    .message(entry)
+                    // These are not required by specification but
+                    // required by libredfish. Making it happy. However, in future
+                    // we may want to simulate these fields as well.
+                    .severity("OK")
+                    .created("2026-02-12T02:06:58+00:00")
+                    .build()
+            })
+            .collect()
+    }
+}
+
+struct Bf3LogServices {
+    event_log: DpuEventLog,
+}
+
+impl LogServices for Bf3LogServices {
+    fn services(&self) -> Vec<&(dyn LogService + '_)> {
+        vec![&self.event_log as &dyn LogService]
     }
 }

@@ -43,6 +43,8 @@ use libredfish::model::oem::nvidia_dpu::HostPrivilegeLevel;
 use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{Boot, EnabledDisabled, PowerState, Redfish, RedfishError, SystemPowerControl};
+use librms::RackManagerError;
+use librms::protos::rack_manager::NodeType as RmsNodeType;
 use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
 use measured_boot::records::MeasurementMachineState;
 use model::DpuModel;
@@ -89,7 +91,6 @@ use crate::cfg::file::{
     PowerManagerOptions, TimePeriod,
 };
 use crate::firmware_downloader::FirmwareDownloader;
-use crate::rack::rms_client::{RackManagerError, RmsNodeType};
 use crate::redfish::{
     self, host_power_control, host_power_control_with_location, set_host_uefi_password,
 };
@@ -738,19 +739,14 @@ impl MachineStateHandler {
 
                 let node_id_str = host_machine_id.to_string();
 
-                match rms_client.inventory_get().await {
+                match rms_client
+                    .get_all_inventory(
+                        librms::protos::rack_manager::GetAllInventoryRequest::default(),
+                    )
+                    .await
+                {
                     Ok(response) => {
-                        let node_found = response
-                            .response
-                            .as_ref()
-                            .is_some_and(|r| {
-                                if let rpc::protos::rack_manager::inventory_response::Response::GetInventory(inv) = r {
-                                    inv.nodes.iter().any(|n| n.node_id == node_id_str)
-                                } else {
-                                    false
-                                }
-                            });
-
+                        let node_found = response.nodes.iter().any(|n| n.node_id == node_id_str);
                         if node_found {
                             tracing::info!(
                                 machine_id = %host_machine_id,

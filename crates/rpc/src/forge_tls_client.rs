@@ -43,18 +43,9 @@ use crate::forge_resolver::resolver::ResolverError;
 use crate::forge_tls_client::ConfigurationError::CouldNotReadRootCa;
 use crate::protos::forge::forge_client::ForgeClient;
 use crate::protos::nmx_c::nmx_controller_client::NmxControllerClient;
-use crate::protos::rack_manager::rack_manager_client::RackManagerClient;
 use crate::{forge_resolver, protos};
 
 pub type NmxCClientT = NmxControllerClient<
-    BoxCloneService<
-        hyper::Request<Body>,
-        hyper::Response<Incoming>,
-        hyper_util::client::legacy::Error,
-    >,
->;
-
-pub type RackManagerClientT = RackManagerClient<
     BoxCloneService<
         hyper::Request<Body>,
         hyper::Response<Incoming>,
@@ -686,109 +677,7 @@ impl<'a> ForgeTlsClient<'a> {
         Ok(connector)
     }
 
-    /// Builds a new Client for the Rack Manager API which uses a HTTPS/TLS connector
-    /// and appropriate certificates for connecting to the Rack Manager service.
-    ///
-    /// Note that calling this API will not establish any connection.
-    /// The connection attempt happens lazily at the first request.
-    /// Note also that if TLS certificates would not change, only a single client
-    /// would be required for the whole application - since hyper already manages
-    /// connection establishment internally.
-    /// However using a fresh client could avoid getting a stale connection from
-    /// a pool.
-    pub async fn build_rms_client<S: AsRef<str>>(
-        &self,
-        url: S,
-    ) -> ForgeTlsClientResult<RackManagerClientT> {
-        let uri = Uri::from_str(url.as_ref()).map_err(|e| ConfigurationError::InvalidUri {
-            uri_string: url.as_ref().to_string(),
-            error: e,
-        })?;
-        let connector = self.build_https_client(url.as_ref()).await?;
-        // ping interval + ping timeout should add up to less than tcp_user_timeout,
-        // so that the application gets a chance to fix things before the kernel.
-        let hyper_client = legacy::Client::builder(TokioExecutor::new())
-            .http2_only(true)
-            // Send a PING frame every this
-            .http2_keep_alive_interval(Some(Duration::from_secs(10)))
-            // The server will have this much time to respond with a PONG
-            .http2_keep_alive_timeout(Duration::from_secs(15))
-            // Send PING even when no active http2 streams
-            .http2_keep_alive_while_idle(true)
-            // How many connections will be kept open, per host.
-            // We never make more than a single connection to carbide at a time.
-            .pool_max_idle_per_host(2)
-            .timer(TokioTimer::new())
-            .build(connector)
-            .boxed_clone();
-
-        let mut rms_client = RackManagerClient::with_origin(hyper_client, uri);
-
-        if let Some(max_decoding_message_size) = self.forge_client_config.max_decoding_message_size
-        {
-            rms_client = rms_client.max_decoding_message_size(max_decoding_message_size);
-        }
-
-        Ok(rms_client)
-    }
-
-    /// retry_build creates a new ForgeTlsClient from
-    /// the given API URL and ForgeClientConfig, then attempts to build
-    /// and return a client, integrating retries into the
-    /// building attempts.
-    pub async fn retry_build_rms(
-        api_config: &ApiConfig<'a>,
-    ) -> ForgeTlsClientResult<RackManagerClientT> {
-        // In the retrying function, if the ForgeTlsClient just fails to even build, return _that_
-        // error early by putting it in the Ok(Err(e)) variant, so that tryhard doesn't keep
-        // retrying a configuration error.
-        let result: Result<Result<RackManagerClientT, ForgeTlsClientError>, ForgeTlsClientError> =
-            tryhard::retry_fn(|| async move {
-                let mut client = match ForgeTlsClient::new(api_config.client_config)
-                    .build_rms_client(api_config.url)
-                    .await
-                {
-                    Ok(client) => client,
-                    // Don't let tryhard retry this, just push the error into the Ok variant
-                    Err(e) => return Ok(Err(e)),
-                };
-
-                // The thing we actually want to retry is a test connection
-                client
-                    .version(tonic::Request::new(()))
-                    .await
-                    .inspect_err(|err| {
-                        tracing::error!(
-                            "error connecting client to forge api (url: {}), will retry: {}",
-                            api_config.url,
-                            err
-                        );
-                    })
-                    .map_err(|e| ForgeTlsClientError::Connection(e.to_string()))?;
-
-                // ok, ok
-                Ok(Ok(client))
-            })
-            .with_config(api_config.retry_config())
-            .await
-            .inspect_err(|err| {
-                tracing::error!(
-                    "error connecting client to rack manager api (url: {}, attempts: {}): {}",
-                    api_config.url,
-                    api_config.retry_config.retries,
-                    err
-                );
-            });
-
-        match result {
-            Ok(Ok(client)) => Ok(client),
-            Ok(Err(e)) => Err(e),
-            Err(e) => Err(e),
-        }
-    }
-
     /// Builds a new Client for the NMX-C API which uses a HTTPS/TLS connector
-    /// and appropriate certificates for connecting to the Rack Manager service.
     ///
     /// Note that calling this API will not establish any connection.
     /// The connection attempt happens lazily at the first request.

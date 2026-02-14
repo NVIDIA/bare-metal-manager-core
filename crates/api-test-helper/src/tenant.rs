@@ -28,6 +28,7 @@ pub async fn create(
 
     let data = serde_json::json!({
         "organization_id": organization_id,
+        "routing_profile_type": 0, // EXTERNAL
         "metadata": {
             "name": name,
         }

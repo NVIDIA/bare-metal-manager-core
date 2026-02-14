@@ -18,8 +18,8 @@
 // info/cmds.rs
 // Command handlers for info operations.
 
-use mlxconfig_device::info::MlxDeviceInfo;
-use mlxconfig_device::report::MlxDeviceReport;
+use libmlx::device::info::MlxDeviceInfo;
+use libmlx::device::report::MlxDeviceReport;
 use prettytable::{Cell, Row, Table};
 use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use rpc::protos::mlx_device as mlx_device_pb;

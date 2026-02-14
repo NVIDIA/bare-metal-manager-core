@@ -1162,12 +1162,8 @@ version = "0.0.1"
 dependencies = [
  "bmc-vendor",
  "carbide-health-report",
+ "carbide-libmlx",
  "carbide-measured-boot",
- "carbide-mlxconfig-device",
- "carbide-mlxconfig-lockdown",
- "carbide-mlxconfig-profile",
- "carbide-mlxconfig-runner",
- "carbide-mlxconfig-variables",
  "carbide-network",
  "carbide-rpc",
  "carbide-secrets",
@@ -1185,6 +1181,7 @@ dependencies = [
  "futures",
  "ipnet",
  "libredfish",
+ "librms",
  "mac_address",
  "prettytable-rs",
  "reqwest",
@@ -1306,11 +1303,9 @@ dependencies = [
  "carbide-dpf",
  "carbide-health-report",
  "carbide-host-support",
+ "carbide-libmlx",
  "carbide-macros",
  "carbide-measured-boot",
- "carbide-mlxconfig-device",
- "carbide-mlxconfig-profile",
- "carbide-mlxconfig-variables",
  "carbide-network",
  "carbide-prost-builder",
  "carbide-rpc",
@@ -1351,6 +1346,7 @@ dependencies = [
  "lazy_static",
  "libnmxm",
  "libredfish",
+ "librms",
  "logfmt",
  "mac_address",
  "md5",
@@ -1877,6 +1873,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbide-libmlx"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-ssh2-tokio",
+ "backon",
+ "base64 0.22.1",
+ "carbide-rpc",
+ "carbide-uuid",
+ "chrono",
+ "clap",
+ "hex",
+ "hostname 0.3.1",
+ "mac_address",
+ "once_cell",
+ "prettytable-rs",
+ "prost-types 0.14.1",
+ "quick-xml 0.31.0",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-test",
+ "toml 0.8.23",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+ "wait-timeout",
+]
+
+[[package]]
 name = "carbide-log-parser"
 version = "0.0.2"
 dependencies = [
@@ -1980,123 +2012,6 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.17",
  "tonic 0.14.2",
-]
-
-[[package]]
-name = "carbide-mlxconfig-device"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "carbide-rpc",
- "carbide-uuid",
- "chrono",
- "clap",
- "hostname 0.3.1",
- "mac_address",
- "prettytable-rs",
- "prost-types 0.14.1",
- "quick-xml 0.31.0",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "thiserror 2.0.17",
- "tokio",
- "tokio-test",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "carbide-mlxconfig-embedded"
-version = "0.0.1"
-dependencies = [
- "carbide-mlxconfig-device",
- "carbide-mlxconfig-lockdown",
- "carbide-mlxconfig-profile",
- "carbide-mlxconfig-registry",
- "carbide-mlxconfig-runner",
- "carbide-mlxconfig-variables",
- "clap",
- "prettytable-rs",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
-]
-
-[[package]]
-name = "carbide-mlxconfig-lockdown"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "carbide-rpc",
- "chrono",
- "clap",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "thiserror 2.0.17",
-]
-
-[[package]]
-name = "carbide-mlxconfig-profile"
-version = "0.0.1"
-dependencies = [
- "carbide-mlxconfig-registry",
- "carbide-mlxconfig-runner",
- "carbide-mlxconfig-variables",
- "carbide-rpc",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "thiserror 2.0.17",
- "toml 0.8.23",
-]
-
-[[package]]
-name = "carbide-mlxconfig-registry"
-version = "0.0.1"
-dependencies = [
- "carbide-mlxconfig-device",
- "carbide-mlxconfig-variables",
- "once_cell",
- "serde",
- "serde_yaml",
-]
-
-[[package]]
-name = "carbide-mlxconfig-runner"
-version = "0.0.1"
-dependencies = [
- "backon",
- "carbide-mlxconfig-device",
- "carbide-mlxconfig-variables",
- "carbide-rpc",
- "hex",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "thiserror 2.0.17",
- "uuid",
- "wait-timeout",
-]
-
-[[package]]
-name = "carbide-mlxconfig-variables"
-version = "0.0.1"
-dependencies = [
- "carbide-mlxconfig-device",
- "carbide-rpc",
- "hex",
- "mac_address",
- "serde",
- "serde_json",
- "serde_yaml",
 ]
 
 [[package]]
@@ -2214,7 +2129,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tonic 0.14.2",
- "tonic-client-wrapper",
+ "tonic-client-wrapper 0.1.0",
  "tonic-prost",
  "tonic-prost-build",
  "tower 0.5.2",
@@ -2229,12 +2144,8 @@ name = "carbide-scout"
 version = "0.0.1"
 dependencies = [
  "carbide-host-support",
+ "carbide-libmlx",
  "carbide-machine-validation",
- "carbide-mlxconfig-device",
- "carbide-mlxconfig-lockdown",
- "carbide-mlxconfig-profile",
- "carbide-mlxconfig-registry",
- "carbide-mlxconfig-runner",
  "carbide-rpc",
  "carbide-tls",
  "carbide-utils",
@@ -5563,6 +5474,33 @@ dependencies = [
  "bitflags",
  "libc",
  "redox_syscall",
+]
+
+[[package]]
+name = "librms"
+version = "0.0.3"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.3#59efb801b6a4e16457e3daea030a0b58159a7351"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "eyre",
+ "hyper",
+ "hyper-rustls",
+ "hyper-timeout",
+ "hyper-util",
+ "prost 0.14.1",
+ "rustls 0.23.34",
+ "rustls-pemfile",
+ "serde",
+ "thiserror 2.0.17",
+ "tokio",
+ "tonic 0.14.2",
+ "tonic-client-wrapper 1.0.0",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tower 0.5.2",
+ "tracing",
+ "tryhard",
 ]
 
 [[package]]
@@ -10000,6 +9938,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "tonic-client-wrapper"
+version = "1.0.0"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.3#59efb801b6a4e16457e3daea030a0b58159a7351"
+dependencies = [
+ "async-trait",
+ "heck 0.5.0",
+ "lazy_static",
+ "prettyplease",
+ "proc-macro2",
+ "prost-types 0.14.1",
+ "quote",
+ "syn 2.0.108",
+ "thiserror 2.0.17",
+ "tonic 0.14.2",
+ "tonic-prost-build",
+]
+
+[[package]]
 name = "tonic-prost"
 version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10012,9 +9968,9 @@ dependencies = [
 
 [[package]]
 name = "tonic-prost-build"
-version = "0.14.2"
+version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4a16cba4043dc3ff43fcb3f96b4c5c154c64cbd18ca8dce2ab2c6a451d058a2"
+checksum = "a4556786613791cfef4ed134aa670b61a85cfcacf71543ef33e8d801abae988f"
 dependencies = [
  "prettyplease",
  "proc-macro2",

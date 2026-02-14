@@ -18,7 +18,7 @@
 // registry/cmds.rs
 // Command handlers for registry operations.
 
-use mlxconfig_variables::MlxVariableRegistry;
+use libmlx::variables::registry::MlxVariableRegistry;
 use prettytable::{Cell, Row, Table};
 use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use rpc::protos::mlx_device as mlx_device_pb;

@@ -16,7 +16,7 @@
  */
 
 use ::rpc::admin_cli::OutputFormat;
-use mlxconfig_runner::{ComparisonResult, QueryResult, SyncResult};
+use libmlx::runner::result_types::{ComparisonResult, QueryResult, SyncResult};
 use prettytable::{Cell, Row, Table};
 use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use rpc::protos::mlx_device as mlx_device_pb;
