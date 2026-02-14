@@ -17,6 +17,7 @@
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::vpc::VpcId;
+use carbide_uuid::vpc_peering::VpcPeeringId;
 use model::metadata::Metadata;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
@@ -25,6 +26,7 @@ use rpc::forge::{
 };
 use sqlx::PgPool;
 use tonic::{Request, Response, Status};
+use uuid::Uuid;
 
 use super::common::api_fixtures::{self, TestEnv};
 use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
@@ -98,6 +100,7 @@ async fn test_create_vpc_peering(pool: PgPool) -> Result<(), Box<dyn std::error:
     let vpc_peering_request = Request::new(VpcPeeringCreationRequest {
         vpc_id: Some(vpc_id_1),
         peer_vpc_id: Some(vpc_id_2),
+        id: None,
     });
 
     let response = env.api.create_vpc_peering(vpc_peering_request).await;
@@ -117,9 +120,11 @@ async fn test_vpc_peering_full(pool: PgPool) -> Result<(), Box<dyn std::error::E
     let vpc_id_2 = find_vpc_id_by_name(&env, "test vpc 2").await?;
     let vpc_id_3 = find_vpc_id_by_name(&env, "test vpc 3").await?;
 
+    let id = Some(VpcPeeringId::from(Uuid::new_v4()));
     let vpc_peering_request_12 = Request::new(VpcPeeringCreationRequest {
         vpc_id: Some(vpc_id_1),
         peer_vpc_id: Some(vpc_id_2),
+        id,
     });
     let response_12 = env.api.create_vpc_peering(vpc_peering_request_12).await;
     assert!(response_12.is_ok());
@@ -129,13 +134,28 @@ async fn test_vpc_peering_full(pool: PgPool) -> Result<(), Box<dyn std::error::E
     let vpc_peering_request_12 = Request::new(VpcPeeringCreationRequest {
         vpc_id: Some(vpc_id_1),
         peer_vpc_id: Some(vpc_id_2),
+        id: None,
     });
     let response_12 = env.api.create_vpc_peering(vpc_peering_request_12).await;
     assert!(response_12.is_err());
 
+    // This should fail because the id is already in use
+    let vpc_peering_request_same_id = Request::new(VpcPeeringCreationRequest {
+        vpc_id: Some(vpc_id_3),
+        peer_vpc_id: Some(vpc_id_1),
+        id,
+    });
+    let response_same_id = env
+        .api
+        .create_vpc_peering(vpc_peering_request_same_id)
+        .await;
+    assert!(response_same_id.is_err());
+    println!("response_same_id: {:?}", response_same_id);
+
     let vpc_peering_request_13 = Request::new(VpcPeeringCreationRequest {
         vpc_id: Some(vpc_id_1),
         peer_vpc_id: Some(vpc_id_3),
+        id: None,
     });
     let response_13 = env.api.create_vpc_peering(vpc_peering_request_13).await;
     assert!(response_13.is_ok());
@@ -172,6 +192,7 @@ async fn test_vpc_peering_full(pool: PgPool) -> Result<(), Box<dyn std::error::E
     let vpc_peering_request_12 = Request::new(VpcPeeringCreationRequest {
         vpc_id: Some(vpc_id_1),
         peer_vpc_id: Some(vpc_id_2),
+        id: None,
     });
     let response_12 = env.api.create_vpc_peering(vpc_peering_request_12).await;
     assert!(response_12.is_ok());
@@ -179,6 +200,7 @@ async fn test_vpc_peering_full(pool: PgPool) -> Result<(), Box<dyn std::error::E
     let vpc_peering_request_13 = Request::new(VpcPeeringCreationRequest {
         vpc_id: Some(vpc_id_1),
         peer_vpc_id: Some(vpc_id_3),
+        id: None,
     });
     let _ = env.api.create_vpc_peering(vpc_peering_request_13).await;
 
@@ -214,6 +236,7 @@ async fn test_vpc_peering_constraint(pool: PgPool) -> Result<(), Box<dyn std::er
     let vpc_peering_request_12 = Request::new(VpcPeeringCreationRequest {
         vpc_id: Some(vpc_id_1),
         peer_vpc_id: Some(vpc_id_2),
+        id: Some(VpcPeeringId::from(Uuid::new_v4())),
     });
     let response_12 = env.api.create_vpc_peering(vpc_peering_request_12).await;
     assert!(response_12.is_ok());
@@ -222,6 +245,7 @@ async fn test_vpc_peering_constraint(pool: PgPool) -> Result<(), Box<dyn std::er
     let vpc_peering_request_21 = Request::new(VpcPeeringCreationRequest {
         vpc_id: Some(vpc_id_2),
         peer_vpc_id: Some(vpc_id_1),
+        id: None,
     });
     let response_21 = env.api.create_vpc_peering(vpc_peering_request_21).await;
     assert!(response_21.is_err());
@@ -232,6 +256,7 @@ async fn test_vpc_peering_constraint(pool: PgPool) -> Result<(), Box<dyn std::er
     let dup_vpc_id_request = Request::new(VpcPeeringCreationRequest {
         vpc_id: Some(vpc_id_1),
         peer_vpc_id: Some(vpc_id_1),
+        id: None,
     });
     let response = env.api.create_vpc_peering(dup_vpc_id_request).await;
     assert!(response.is_err());
@@ -240,6 +265,7 @@ async fn test_vpc_peering_constraint(pool: PgPool) -> Result<(), Box<dyn std::er
     let fake_vpc_id_request = Request::new(VpcPeeringCreationRequest {
         vpc_id: Some(vpc_id_1),
         peer_vpc_id: Some(fake_vpc_id),
+        id: None,
     });
     let response = env.api.create_vpc_peering(fake_vpc_id_request).await;
     assert!(response.is_err());
@@ -266,6 +292,7 @@ async fn create_vpc_peering(
     let vpc_peering_request = Request::new(VpcPeeringCreationRequest {
         vpc_id: Some(vpc_id),
         peer_vpc_id: Some(peer_vpc_id),
+        id: None,
     });
     let _ = env.api.create_vpc_peering(vpc_peering_request).await?;
 
