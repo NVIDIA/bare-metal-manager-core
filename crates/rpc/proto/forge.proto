@@ -181,6 +181,7 @@ service Forge {
   rpc FindMachineStateHistories(MachineStateHistoriesRequest) returns (MachineStateHistories);
   rpc FindMachineHealthHistories(MachineHealthHistoriesRequest) returns (MachineHealthHistories);
   rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (PowerShelfStateHistories);
+  rpc FindRackStateHistories(RackStateHistoriesRequest) returns (RackStateHistories);
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (SwitchStateHistories);
   rpc FindTenantOrganizationIds(TenantSearchFilter) returns (TenantOrganizationIdList);
   rpc FindTenantsByOrganizationIds(TenantByOrganizationIdsRequest) returns (TenantList);
@@ -5671,6 +5672,24 @@ message Rack {
   google.protobuf.Timestamp created = 9;
   google.protobuf.Timestamp updated = 10;
   google.protobuf.Timestamp deleted = 11;
+}
+
+message RackStateHistoryRecord {
+  string state = 1;
+  string version = 2;
+  google.protobuf.Timestamp time = 3;
+}
+
+message RackStateHistoriesRequest {
+  repeated common.RackId rack_ids = 1;
+}
+
+message RackStateHistories {
+  map<string, RackStateHistoryRecords> histories = 1;
+}
+
+message RackStateHistoryRecords {
+  repeated RackStateHistoryRecord records = 1;
 }
 
 message DeleteRackRequest {

@@ -22,9 +22,10 @@ use std::time::Duration;
 
 use carbide_uuid::rack::RackId;
 use db::rack as db_rack;
-use model::rack::{Rack, RackMaintenanceState, RackReadyState, RackState};
+use model::rack::{Rack, RackMaintenanceState, RackReadyState, RackState, RackValidationState};
+use rpc::forge::RackStateHistoryRecord;
+use rpc::forge::forge_server::Forge;
 
-use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::controller::StateController;
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
@@ -34,6 +35,7 @@ use crate::state_controller::state_handler::{
     StateHandlerOutcomeWithTransaction,
 };
 use crate::tests::common::api_fixtures::create_test_env;
+use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 
 mod fixtures;
 use fixtures::rack::{mark_rack_as_deleted, set_rack_controller_state};
@@ -57,7 +59,7 @@ impl StateHandler for TestRackStateHandler {
         &self,
         rack_id: &RackId,
         state: &mut Rack,
-        _controller_state: &Self::ControllerState,
+        controller_state: &Self::ControllerState,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcomeWithTransaction<Self::ControllerState>, StateHandlerError> {
         assert_eq!(state.id, *rack_id);
@@ -66,26 +68,124 @@ impl StateHandler for TestRackStateHandler {
             let mut guard = self.counts_per_id.lock().unwrap();
             *guard.entry(rack_id.to_string()).or_default() += 1;
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        Ok(StateHandlerOutcome::do_nothing().with_txn(None))
+
+        let state = match controller_state {
+            RackState::Expected => RackState::Discovering,
+
+            RackState::Discovering => RackState::Ready {
+                rack_ready: RackReadyState::Partial,
+            },
+
+            RackState::Ready {
+                rack_ready: ready_state,
+            } => match ready_state {
+                RackReadyState::Partial => RackState::Ready {
+                    rack_ready: RackReadyState::Full,
+                },
+                RackReadyState::Full => RackState::Maintenance {
+                    rack_maintenance: RackMaintenanceState::RackValidation {
+                        rack_validation: RackValidationState::Topology,
+                    },
+                },
+            },
+
+            _ => return Ok(StateHandlerOutcome::do_nothing().with_txn(None)),
+        };
+
+        Ok(StateHandlerOutcome::transition(state).with_txn(None))
     }
 }
 
-/// Helper function to create a rack for testing
-async fn create_test_rack(
-    pool: &sqlx::PgPool,
-    rack_id: RackId,
-) -> Result<Rack, Box<dyn std::error::Error>> {
+fn validate_state_change_history(
+    histories: &[RackStateHistoryRecord],
+    expected: &Vec<&str>,
+) -> bool {
+    for &s in expected {
+        if !histories.iter().any(|e| e.state == s) {
+            return false;
+        }
+    }
+    true
+}
+
+#[crate::sqlx_test]
+async fn test_can_retrieve_rack_state_history(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+
+    // Create a rack
     let mut txn = pool.acquire().await?;
-    let rack = db_rack::create(
-        &mut txn,
-        rack_id,
-        vec![], // expected_compute_trays
-        vec![], // expected_nvlink_switches
-        vec![], // expected_power_shelves
-    )
-    .await?;
-    Ok(rack)
+    let rack_id = TestRackDbBuilder::new()
+        .with_expected_compute_trays(vec![
+            [0x00, 0x1A, 0x2B, 0x3C, 0x4D, 0x50],
+            [0x00, 0x1A, 0x2B, 0x3C, 0x4D, 0x51],
+        ])
+        .with_expected_power_shelves(vec![
+            [0x01, 0x1A, 0x2B, 0x3C, 0x4D, 0x50],
+            [0x01, 0x1A, 0x2B, 0x3C, 0x4D, 0x51],
+        ])
+        .persist(&mut txn)
+        .await?;
+
+    // Verify rack exists
+    db_rack::get(&mut *txn, rack_id).await?;
+
+    // Start the state controller to process the rack while it's active
+    let rack_handler = Arc::new(TestRackStateHandler::default());
+    const ITERATION_TIME: Duration = Duration::from_millis(50);
+
+    let handler_services = Arc::new(env.state_handler_services());
+
+    let mut controller = StateController::<RackStateControllerIO>::builder()
+        .iteration_config(IterationConfig {
+            iteration_time: ITERATION_TIME,
+            processor_dispatch_interval: Duration::from_millis(10),
+            ..Default::default()
+        })
+        .database(pool.clone(), env.api.work_lock_manager_handle.clone())
+        .processor_id(uuid::Uuid::new_v4().to_string())
+        .services(handler_services)
+        .state_handler(rack_handler)
+        .build_for_manual_iterations()
+        .unwrap();
+
+    // iterate a few times to get state history
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+
+    // get state history
+
+    let state_histories_request = rpc::forge::RackStateHistoriesRequest {
+        rack_ids: vec![rack_id],
+    };
+
+    let result = env
+        .api
+        .find_rack_state_histories(tonic::Request::new(state_histories_request))
+        .await?;
+
+    let mut histories = result.into_inner().histories;
+
+    let records = histories
+        .remove(&rack_id.to_string())
+        .unwrap_or_default()
+        .records;
+
+    assert!(records.len() > 1);
+
+    // we should have run through a few states, validate that we did.
+    let expected = vec![
+        "{\"state\": \"discovering\"}",
+        "{\"state\": \"ready\", \"rack_ready\": \"Partial\"}",
+        "{\"state\": \"ready\", \"rack_ready\": \"Full\"}",
+        "{\"state\": \"maintenance\", \"rack_maintenance\": {\"RackValidation\": {\"rack_validation\": \"Topology\"}}}",
+    ];
+    assert!(validate_state_change_history(&records, &expected));
+
+    Ok(())
 }
 
 #[crate::sqlx_test]
@@ -94,7 +194,14 @@ async fn test_rack_state_transitions(pool: sqlx::PgPool) -> Result<(), Box<dyn s
 
     // Create a rack
     let rack_id = RackId::from(uuid::Uuid::new_v4());
-    let rack = create_test_rack(&pool, rack_id).await?;
+    let mut txn = pool.acquire().await?;
+    TestRackDbBuilder::new()
+        .with_rack_id(rack_id)
+        .persist(&mut txn)
+        .await?;
+
+    // Verify rack exists
+    let rack = db_rack::get(&mut *txn, rack_id).await?;
 
     // Verify initial state is Expected
     assert!(matches!(rack.controller_state.value, RackState::Expected));
@@ -102,21 +209,10 @@ async fn test_rack_state_transitions(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     // Start the state controller
     let rack_handler = Arc::new(TestRackStateHandler::default());
     const ITERATION_TIME: Duration = Duration::from_millis(50);
-    const TEST_TIME: Duration = Duration::from_secs(5);
 
-    let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone(),
-        db_reader: pool.clone().into(),
-        redfish_client_pool: env.redfish_sim.clone(),
-        ib_fabric_manager: env.ib_fabric_manager.clone(),
-        ib_pools: env.common_pools.infiniband.clone(),
-        ipmi_tool: env.ipmi_tool.clone(),
-        site_config: env.config.clone(),
-        dpa_info: None,
-        rms_client: None,
-    });
+    let handler_services = Arc::new(env.state_handler_services());
 
-    let handle = StateController::<RackStateControllerIO>::builder()
+    let mut controller = StateController::<RackStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
             processor_dispatch_interval: Duration::from_millis(10),
@@ -126,12 +222,14 @@ async fn test_rack_state_transitions(pool: sqlx::PgPool) -> Result<(), Box<dyn s
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(rack_handler.clone())
-        .build_and_spawn()
+        .build_for_manual_iterations()
         .unwrap();
 
-    tokio::time::sleep(TEST_TIME).await;
-    drop(handle);
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    // iterate a few times
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
 
     // Verify that the handler was called
     let count = rack_handler.count.load(Ordering::SeqCst);
@@ -155,30 +253,23 @@ async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 
     // Create a rack
     let rack_id = RackId::from(uuid::Uuid::new_v4());
-    let _rack = create_test_rack(&pool, rack_id).await?;
+    let mut txn = pool.acquire().await?;
+    TestRackDbBuilder::new()
+        .with_rack_id(rack_id)
+        .persist(&mut txn)
+        .await?;
 
     // Verify rack exists
-    let rack = db_rack::get(&pool, rack_id).await?;
+    let rack = db_rack::get(&mut *txn, rack_id).await?;
     assert_eq!(rack.id, rack_id);
 
     // Start the state controller to process the rack while it's active
     let rack_handler = Arc::new(TestRackStateHandler::default());
     const ITERATION_TIME: Duration = Duration::from_millis(50);
-    const TEST_TIME: Duration = Duration::from_secs(2);
 
-    let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone(),
-        db_reader: pool.clone().into(),
-        redfish_client_pool: env.redfish_sim.clone(),
-        ib_fabric_manager: env.ib_fabric_manager.clone(),
-        ib_pools: env.common_pools.infiniband.clone(),
-        ipmi_tool: env.ipmi_tool.clone(),
-        site_config: env.config.clone(),
-        dpa_info: None,
-        rms_client: None,
-    });
+    let handler_services = Arc::new(env.state_handler_services());
 
-    let handle = StateController::<RackStateControllerIO>::builder()
+    let mut controller = StateController::<RackStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
             processor_dispatch_interval: Duration::from_millis(10),
@@ -188,11 +279,10 @@ async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(rack_handler.clone())
-        .build_and_spawn()
+        .build_for_manual_iterations()
         .unwrap();
 
-    // Let the controller process the active rack
-    tokio::time::sleep(TEST_TIME).await;
+    controller.run_single_iteration().await;
 
     // Verify that the handler was called while the rack was active
     let count_before_deletion = rack_handler.count.load(Ordering::SeqCst);
@@ -204,10 +294,13 @@ async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     // Mark the rack as deleted
     mark_rack_as_deleted(pool.acquire().await?.as_mut(), rack_id).await?;
 
-    // Let the controller run for a bit more after deletion
-    tokio::time::sleep(TEST_TIME).await;
-    drop(handle);
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
 
     // Verify that the handler count didn't increase significantly after deletion
     // (since deleted racks should not be processed)
@@ -217,7 +310,7 @@ async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     // The count might increase slightly due to timing, but should not increase significantly
     // since deleted racks are excluded from processing
     assert!(
-        count_increase <= 5, // Allow for some timing-related calls
+        count_increase < 5,
         "State handler should not process deleted racks significantly. Count increase: {}",
         count_increase
     );
@@ -233,7 +326,11 @@ async fn test_rack_error_state_handling(
 
     // Create a rack
     let rack_id = RackId::from(uuid::Uuid::new_v4());
-    let _rack = create_test_rack(&pool, rack_id).await?;
+    let mut txn = pool.acquire().await?;
+    TestRackDbBuilder::new()
+        .with_rack_id(rack_id)
+        .persist(&mut txn)
+        .await?;
 
     // Manually set the rack to error state for testing
     let error_state = RackState::Error {
@@ -246,21 +343,10 @@ async fn test_rack_error_state_handling(
     // Start the state controller
     let rack_handler = Arc::new(TestRackStateHandler::default());
     const ITERATION_TIME: Duration = Duration::from_millis(50);
-    const TEST_TIME: Duration = Duration::from_secs(5);
 
-    let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone(),
-        db_reader: pool.clone().into(),
-        redfish_client_pool: env.redfish_sim.clone(),
-        ib_fabric_manager: env.ib_fabric_manager.clone(),
-        ib_pools: env.common_pools.infiniband.clone(),
-        ipmi_tool: env.ipmi_tool.clone(),
-        site_config: env.config.clone(),
-        dpa_info: None,
-        rms_client: None,
-    });
+    let handler_services = Arc::new(env.state_handler_services());
 
-    let handle = StateController::<RackStateControllerIO>::builder()
+    let mut controller = StateController::<RackStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
             processor_dispatch_interval: Duration::from_millis(10),
@@ -270,12 +356,10 @@ async fn test_rack_error_state_handling(
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(rack_handler.clone())
-        .build_and_spawn()
+        .build_for_manual_iterations()
         .unwrap();
 
-    tokio::time::sleep(TEST_TIME).await;
-    drop(handle);
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    controller.run_single_iteration().await;
 
     // Verify that the handler was called even in error state
     let count = rack_handler.count.load(Ordering::SeqCst);
@@ -300,11 +384,14 @@ async fn test_rack_error_state_handling(
 async fn test_rack_state_transition_validation(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let _env = create_test_env(pool.clone()).await;
-
     // Create a rack
     let rack_id = RackId::from(uuid::Uuid::new_v4());
-    let rack = create_test_rack(&pool, rack_id).await?;
+    let mut txn = pool.acquire().await?;
+    TestRackDbBuilder::new()
+        .with_rack_id(rack_id)
+        .persist(&mut txn)
+        .await?;
+    let rack = db_rack::get(&mut *txn, rack_id).await?;
 
     // Verify initial state is Expected
     assert!(matches!(rack.controller_state.value, RackState::Expected));
@@ -346,26 +433,19 @@ async fn test_rack_deletion_with_state_controller(
 
     // Create a rack
     let rack_id = RackId::from(uuid::Uuid::new_v4());
-    let _rack = create_test_rack(&pool, rack_id).await?;
+    let mut txn = pool.acquire().await?;
+    TestRackDbBuilder::new()
+        .with_rack_id(rack_id)
+        .persist(&mut txn)
+        .await?;
 
     // Start the state controller
     let rack_handler = Arc::new(TestRackStateHandler::default());
     const ITERATION_TIME: Duration = Duration::from_millis(50);
-    const TEST_TIME: Duration = Duration::from_secs(2);
 
-    let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone(),
-        db_reader: pool.clone().into(),
-        redfish_client_pool: env.redfish_sim.clone(),
-        ib_fabric_manager: env.ib_fabric_manager.clone(),
-        ib_pools: env.common_pools.infiniband.clone(),
-        ipmi_tool: env.ipmi_tool.clone(),
-        site_config: env.config.clone(),
-        dpa_info: None,
-        rms_client: None,
-    });
+    let handler_services = Arc::new(env.state_handler_services());
 
-    let handle = StateController::<RackStateControllerIO>::builder()
+    let mut controller = StateController::<RackStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
             processor_dispatch_interval: Duration::from_millis(10),
@@ -375,11 +455,10 @@ async fn test_rack_deletion_with_state_controller(
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(rack_handler.clone())
-        .build_and_spawn()
+        .build_for_manual_iterations()
         .unwrap();
 
-    // Let the controller run for a bit to process the active rack
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    controller.run_single_iteration().await;
 
     // Verify that the handler was called while the rack was active
     let count_before_deletion = rack_handler.count.load(Ordering::SeqCst);
@@ -392,9 +471,19 @@ async fn test_rack_deletion_with_state_controller(
     mark_rack_as_deleted(pool.acquire().await?.as_mut(), rack_id).await?;
 
     // Let the controller run for a bit more after marking as deleted
-    tokio::time::sleep(TEST_TIME).await;
-    drop(handle);
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
+    controller.run_single_iteration().await;
 
     // Verify that the handler count didn't increase significantly after marking as deleted
     // (since deleted racks should not be processed)

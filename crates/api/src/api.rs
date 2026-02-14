@@ -710,6 +710,13 @@ impl Forge for Api {
         ))
     }
 
+    async fn find_rack_state_histories(
+        &self,
+        request: tonic::Request<rpc::RackStateHistoriesRequest>,
+    ) -> Result<Response<rpc::RackStateHistories>, Status> {
+        crate::handlers::rack::find_rack_state_histories(self, request).await
+    }
+
     async fn find_switch_state_histories(
         &self,
         _request: Request<rpc::SwitchStateHistoriesRequest>,

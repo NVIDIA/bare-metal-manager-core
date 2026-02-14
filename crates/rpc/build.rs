@@ -276,6 +276,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.NetworkSegmentStateHistory",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute(
+            "forge.RackStateHistory",
+            "#[derive(serde::Serialize)]",
+        )
         .type_attribute("forge.Tenant", "#[derive(serde::Serialize)]")
         .type_attribute("forge.TenantContent", "#[derive(serde::Serialize)]")
         .type_attribute("forge.TenantList", "#[derive(serde::Serialize)]")
