@@ -33,6 +33,7 @@ use model::machine::nvlink::{MachineNvLinkGpuStatusObservation, MachineNvLinkSta
 use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
 use sqlx::PgPool;
 use tokio::sync::oneshot;
+use tracing::Instrument;
 
 use crate::api::TransactionVending;
 use crate::cfg::file::NvLinkConfig;
@@ -652,8 +653,10 @@ impl NvlPartitionMonitor {
             otel.status_message = tracing::field::Empty,
             metrics = tracing::field::Empty,
         );
-        let _enter = check_nvl_partition_span.enter();
-        let result = self.run_single_iteration_inner(&mut metrics).await;
+        let result = self
+            .run_single_iteration_inner(&mut metrics)
+            .instrument(check_nvl_partition_span.clone())
+            .await;
         check_nvl_partition_span.record(
             "otel.status_code",
             if result.is_ok() { "ok" } else { "error" },
@@ -755,7 +758,7 @@ impl NvlPartitionMonitor {
             metrics,
         )?;
 
-        self.record_nvlink_status_observation(observations?).await?;
+        self.record_nvlink_status_observation(observations).await?;
 
         let nmx_m_operations = partition_processing_context.nmx_m_operations;
 
