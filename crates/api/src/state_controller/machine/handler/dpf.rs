@@ -360,9 +360,9 @@ async fn handle_wait_for_discovery_and_remove_annotation_state(
         .collect_vec();
 
     if !all_equal(&dpu_states)? {
-        return Ok(StateHandlerOutcome::wait(format!(
-            "Waiting for all dpus to send discovery completed message.",
-        )));
+        return Ok(StateHandlerOutcome::wait(
+            "Waiting for all dpus to send discovery completed message.".to_string(),
+        ));
     }
 
     carbide_dpf::utils::remove_restart_annotation_from_node(
