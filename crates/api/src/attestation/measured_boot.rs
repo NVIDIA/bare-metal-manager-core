@@ -24,27 +24,15 @@ use byteorder::{BigEndian, ByteOrder};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::measured_boot::MeasurementReportId;
 use db::db_read::DbReader;
-use model::hardware_info::TpmEkCertificate;
 use model::machine::MeasuringState;
-use num_bigint_dig::BigUint;
 use pkcs1::LineEnding;
-use rsa::RsaPublicKey;
 use rsa::pkcs1::EncodeRsaPublicKey;
-use sha2::Digest;
 use sqlx::PgConnection;
 use temp_dir::TempDir;
-use tss_esapi::structures::Signature::RsaPss;
-use tss_esapi::structures::{Attest, AttestInfo, Public, Signature};
-use tss_esapi::traits::UnMarshall;
-use x509_parser::certificate::X509Certificate;
-use x509_parser::prelude::FromDer;
-use x509_parser::public_key::PublicKey as x509_parser_pub_key;
 
 use crate::attestation::get_ek_cert_by_machine_id;
 use crate::state_controller::machine::{MeasuringOutcome, handle_measuring_state};
 use crate::{CarbideError, CarbideResult};
-
-const RSA_PUBKEY_EXPONENT: u32 = 65537u32;
 
 /// VerifyQuoteState is a simple enum used to track
 /// the state of a verify_quote call, specifically as
@@ -201,79 +189,47 @@ pub fn cli_make_cred(
     Ok((cred_blob, encr_secret))
 }
 
+#[cfg_attr(not(feature = "linux-build"), allow(unused_variables))]
 pub fn verify_signature(
-    ak_pub: &Public,
-    attest_vec: &Vec<u8>,
-    signature: &Signature,
+    ak_pub: &[u8],
+    attest_vec: &[u8],
+    rsa_signature: &[u8],
 ) -> CarbideResult<bool> {
-    // let's take hash of the original attestation
-    let mut hasher = sha2::Sha256::new();
-    hasher.update(attest_vec.as_slice());
-    let attest_hash = hasher.finalize();
+    #[cfg(feature = "linux-build")]
+    {
+        use tss_esapi::structures::{Public, Signature};
+        use tss_esapi::traits::UnMarshall;
 
-    let unique = match ak_pub {
-        tss_esapi::structures::Public::Rsa { unique, .. } => unique,
-        _ => {
-            return Err(CarbideError::AttestQuoteError(
-                "AK Pub is not an RSA key".to_string(),
-            ));
-        }
-    };
+        let ak_pub = Public::unmarshall(ak_pub).map_err(|e| {
+            CarbideError::AttestQuoteError(format!("Could not unmarshal AK Pub: {e}"))
+        })?;
 
-    // now, we construct the actual public key from the modulus and exponent
-    let modulus = BigUint::from_bytes_be(unique.value());
-    let exponent: BigUint = BigUint::from(RSA_PUBKEY_EXPONENT);
+        let signature = Signature::unmarshall(rsa_signature).map_err(|e| {
+            CarbideError::AttestQuoteError(format!("Could not unmarshall Signature struct: {e}"))
+        })?;
 
-    let pub_key = RsaPublicKey::new(modulus, exponent).map_err(|e| {
-        CarbideError::AttestQuoteError(format!("Could not create RsaPublicKey: {e}"))
-    })?;
-
-    let rsa_signature = match signature {
-        RsaPss(rsa_signature) => rsa_signature,
-        _ => {
-            return Err(CarbideError::AttestQuoteError(
-                "unknown signature type".to_string(),
-            ));
-        }
-    };
-
-    match pub_key.verify(
-        rsa::Pss::new::<sha2::Sha256>(),
-        &attest_hash,
-        rsa_signature.signature().value(),
-    ) {
-        Ok(()) => Ok(true),
-        Err(_) => Ok(false),
+        linux_build::verify_signature(&ak_pub, attest_vec, &signature)
+    }
+    #[cfg(not(feature = "linux-build"))]
+    {
+        Err(attestation_unsupported_error())
     }
 }
 
-pub fn verify_pcr_hash(attest: &Attest, pcr_values: &[Vec<u8>]) -> CarbideResult<bool> {
-    let attest_digest = match attest.attested() {
-        AttestInfo::Quote { info } => info.pcr_digest(),
-        _other => {
-            return Err(CarbideError::AttestQuoteError(
-                "Incorrect Attestation Type".into(),
-            ));
-        }
-    };
-
-    let mut hasher = sha2::Sha256::new();
-
-    pcr_values.iter().for_each(|buf| {
-        hasher.update(buf);
-    });
-
-    let computed_pcr_hash = hasher.finalize();
-
-    // rust --check returns a error about deprecated usage of `as_slice`
-    // an older version of generic-array is used by sha2::digest
-    // but it does not show as_slice as deprecated - https://docs.rs/generic-array/0.14.7/generic_array/struct.GenericArray.html
-    // TODO - fix as_slice() usage
-    #[allow(deprecated)]
-    if attest_digest.value() == computed_pcr_hash.as_slice() {
-        Ok(true)
-    } else {
-        Ok(false)
+#[cfg_attr(not(feature = "linux-build"), allow(unused_variables))]
+pub fn verify_pcr_hash(attestation: &[u8], pcr_values: &[Vec<u8>]) -> CarbideResult<bool> {
+    #[cfg(feature = "linux-build")]
+    {
+        use tss_esapi::structures::Attest;
+        use tss_esapi::traits::UnMarshall;
+        let attest = Attest::unmarshall(attestation).map_err(|e| {
+            CarbideError::AttestQuoteError(format!("Could not unmarshall Attest struct: {e}"))
+        })?;
+        linux_build::verify_pcr_hash(&attest, pcr_values)
+    }
+    #[cfg(not(feature = "linux-build"))]
+    {
+        Err(attestation_unsupported_error())
     }
 }
 
@@ -329,74 +285,21 @@ pub fn event_log_to_string(event_log: &Option<Vec<u8>>) -> String {
         .unwrap_or(String::from("<event log empty>"))
 }
 
+#[cfg_attr(not(feature = "linux-build"), allow(unused_variables))]
 pub async fn compare_pub_key_against_cert(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     ek_pub: &Vec<u8>,
 ) -> CarbideResult<(bool, rsa::RsaPublicKey)> {
     let tpm_ek_cert = get_ek_cert_by_machine_id(txn, machine_id).await?;
-
-    do_compare_pub_key_against_cert(&tpm_ek_cert, ek_pub)
-}
-
-pub fn do_compare_pub_key_against_cert(
-    tpm_ek_cert: &TpmEkCertificate,
-    ek_pub: &Vec<u8>,
-) -> CarbideResult<(bool, rsa::RsaPublicKey)> {
-    // compare the pub key and the cert
-
-    let cert = X509Certificate::from_der(tpm_ek_cert.as_bytes())
-        .map_err(|e| {
-            CarbideError::AttestBindKeyError(format!("Could not unmarshall EK Cert: {e}"))
-        })?
-        .1;
-
-    let pub_key_cert_data = cert.public_key().parsed().map_err(|e| {
-        CarbideError::AttestBindKeyError(format!("Could not get EK Cert Data: {e}"))
-    })?;
-
-    let ek_cert_modulus = match pub_key_cert_data {
-        x509_parser_pub_key::RSA(rsa_pub_key) => rsa_pub_key.modulus,
-        _rest => {
-            return Err(CarbideError::AttestBindKeyError(
-                "TPM EK is not in RSA format".to_string(),
-            ));
-        }
-    };
-
-    // now, we construct the actual public key from the modulus and exponent
-    let modulus = BigUint::from_bytes_be(ek_cert_modulus);
-    let exponent: BigUint = BigUint::from(RSA_PUBKEY_EXPONENT);
-
-    // pub_key_cert has a different type from pub_key_cert_data, even though their type names
-    // actually do coincide!
-    let pub_key_cert = RsaPublicKey::new(modulus, exponent).map_err(|e| {
-        CarbideError::AttestBindKeyError(format!("Could not create RsaPublicKey from EK Cert: {e}"))
-    })?;
-    // construct the Public structure and extract the PublicKeyRsa from it, which is really just the modulus
-    let ek_pub = Public::unmarshall(ek_pub.as_slice())
-        .map_err(|e| CarbideError::AttestBindKeyError(format!("Could not unmarshall EK: {e}")))?;
-
-    let unique = match ek_pub {
-        Public::Rsa { unique, .. } => unique,
-        _ => {
-            return Err(CarbideError::AttestBindKeyError(
-                "EK Pub is not in RSA format".to_string(),
-            ));
-        }
-    };
-
-    // now, we construct the actual public key from the modulus and exponent
-    let modulus = BigUint::from_bytes_be(unique.value());
-    let exponent: BigUint = BigUint::from(RSA_PUBKEY_EXPONENT);
-
-    let pub_key_ek = RsaPublicKey::new(modulus, exponent).map_err(|e| {
-        CarbideError::AttestBindKeyError(format!(
-            "Could not create RsaPublicKey from TPM's EK Pub: {e}"
-        ))
-    })?;
-
-    Ok((pub_key_ek == pub_key_cert, pub_key_ek))
+    #[cfg(feature = "linux-build")]
+    {
+        linux_build::do_compare_pub_key_against_cert(&tpm_ek_cert, ek_pub)
+    }
+    #[cfg(not(feature = "linux-build"))]
+    {
+        Err(attestation_unsupported_error())
+    }
 }
 
 pub async fn has_passed_attestation<DB>(
@@ -417,6 +320,163 @@ where
     .map_err(|e| CarbideError::AttestQuoteError(e.to_string()))?;
 
     Ok(measuring_outcome == MeasuringOutcome::PassedOk)
+}
+
+#[cfg(not(feature = "linux-build"))]
+fn attestation_unsupported_error() -> CarbideError {
+    CarbideError::AttestQuoteError("This server does not support attestation".to_string())
+}
+
+#[cfg(feature = "linux-build")]
+pub mod linux_build {
+    use asn1_rs::FromDer;
+    use model::hardware_info::TpmEkCertificate;
+    use num_bigint_dig::BigUint;
+    use rsa::RsaPublicKey;
+    use sha2::Digest;
+    use tss_esapi::structures::Signature::RsaPss;
+    use tss_esapi::structures::{Attest, AttestInfo, Public, Signature};
+    use tss_esapi::traits::UnMarshall;
+    use x509_parser::certificate::X509Certificate;
+    use x509_parser::public_key::PublicKey as x509_parser_pub_key;
+
+    use crate::errors::{CarbideError, CarbideResult};
+
+    const RSA_PUBKEY_EXPONENT: u32 = 65537u32;
+
+    pub fn verify_pcr_hash(attest: &Attest, pcr_values: &[Vec<u8>]) -> CarbideResult<bool> {
+        let attest_digest = match attest.attested() {
+            AttestInfo::Quote { info } => info.pcr_digest(),
+            _other => {
+                return Err(CarbideError::AttestQuoteError(
+                    "Incorrect Attestation Type".into(),
+                ));
+            }
+        };
+
+        let mut hasher = sha2::Sha256::new();
+
+        pcr_values.iter().for_each(|buf| {
+            hasher.update(buf);
+        });
+
+        let computed_pcr_hash = hasher.finalize();
+
+        if attest_digest.value() == computed_pcr_hash.as_slice() {
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    pub fn do_compare_pub_key_against_cert(
+        tpm_ek_cert: &TpmEkCertificate,
+        ek_pub: &Vec<u8>,
+    ) -> CarbideResult<(bool, rsa::RsaPublicKey)> {
+        // compare the pub key and the cert
+
+        let cert = X509Certificate::from_der(tpm_ek_cert.as_bytes())
+            .map_err(|e| {
+                CarbideError::AttestBindKeyError(format!("Could not unmarshall EK Cert: {e}"))
+            })?
+            .1;
+
+        let pub_key_cert_data = cert.public_key().parsed().map_err(|e| {
+            CarbideError::AttestBindKeyError(format!("Could not get EK Cert Data: {e}"))
+        })?;
+
+        let ek_cert_modulus = match pub_key_cert_data {
+            x509_parser_pub_key::RSA(rsa_pub_key) => rsa_pub_key.modulus,
+            _rest => {
+                return Err(CarbideError::AttestBindKeyError(
+                    "TPM EK is not in RSA format".to_string(),
+                ));
+            }
+        };
+
+        // now, we construct the actual public key from the modulus and exponent
+        let modulus = BigUint::from_bytes_be(ek_cert_modulus);
+        let exponent: BigUint = BigUint::from(RSA_PUBKEY_EXPONENT);
+
+        // pub_key_cert has a different type from pub_key_cert_data, even though their type names
+        // actually do coincide!
+        let pub_key_cert = RsaPublicKey::new(modulus, exponent).map_err(|e| {
+            CarbideError::AttestBindKeyError(format!(
+                "Could not create RsaPublicKey from EK Cert: {e}"
+            ))
+        })?;
+        // construct the Public structure and extract the PublicKeyRsa from it, which is really just the modulus
+        let ek_pub = Public::unmarshall(ek_pub.as_slice()).map_err(|e| {
+            CarbideError::AttestBindKeyError(format!("Could not unmarshall EK: {e}"))
+        })?;
+
+        let unique = match ek_pub {
+            Public::Rsa { unique, .. } => unique,
+            _ => {
+                return Err(CarbideError::AttestBindKeyError(
+                    "EK Pub is not in RSA format".to_string(),
+                ));
+            }
+        };
+
+        // now, we construct the actual public key from the modulus and exponent
+        let modulus = BigUint::from_bytes_be(unique.value());
+        let exponent: BigUint = BigUint::from(RSA_PUBKEY_EXPONENT);
+
+        let pub_key_ek = RsaPublicKey::new(modulus, exponent).map_err(|e| {
+            CarbideError::AttestBindKeyError(format!(
+                "Could not create RsaPublicKey from TPM's EK Pub: {e}"
+            ))
+        })?;
+
+        Ok((pub_key_ek == pub_key_cert, pub_key_ek))
+    }
+
+    pub fn verify_signature(
+        ak_pub: &Public,
+        attest_vec: &[u8],
+        signature: &Signature,
+    ) -> CarbideResult<bool> {
+        // let's take hash of the original attestation
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(attest_vec);
+        let attest_hash = hasher.finalize();
+
+        let unique = match ak_pub {
+            tss_esapi::structures::Public::Rsa { unique, .. } => unique,
+            _ => {
+                return Err(CarbideError::AttestQuoteError(
+                    "AK Pub is not an RSA key".to_string(),
+                ));
+            }
+        };
+
+        // now, we construct the actual public key from the modulus and exponent
+        let modulus = BigUint::from_bytes_be(unique.value());
+        let exponent: BigUint = BigUint::from(RSA_PUBKEY_EXPONENT);
+
+        let pub_key = RsaPublicKey::new(modulus, exponent).map_err(|e| {
+            CarbideError::AttestQuoteError(format!("Could not create RsaPublicKey: {e}"))
+        })?;
+
+        let rsa_signature = match signature {
+            RsaPss(rsa_signature) => rsa_signature,
+            _ => {
+                return Err(CarbideError::AttestQuoteError(
+                    "unknown signature type".to_string(),
+                ));
+            }
+        };
+
+        match pub_key.verify(
+            rsa::Pss::new::<sha2::Sha256>(),
+            &attest_hash,
+            rsa_signature.signature().value(),
+        ) {
+            Ok(()) => Ok(true),
+            Err(_) => Ok(false),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -28,7 +28,7 @@ path = "src/main.rs"
 
 [dependencies]
 # [begin-local-dependencies]
-carbide-host-support = { path = "../host-support" }
+carbide-host-support = { path = "../host-support", default-features = false }
 carbide-tls = { path = "../tls" }
 carbide-version = { path = "../version" }
 carbide-rpc = { path = "../rpc" }

@@ -32,8 +32,5 @@ tokio = { workspace = true }
 # [local-dependencies]
 carbide-api-db = { path = "../api-db", default-features = false }
 
-[features]
-linux-build = ["carbide-api-db/linux-build"]
-
 [lints]
 workspace = true

@@ -15,6 +15,9 @@
  * limitations under the License.
  */
 
+// Some data is used only by linux-build tests, but it's not worth peppering #[cfg] lines everywhere
+#![cfg_attr(not(feature = "linux-build"), allow(dead_code))]
+
 pub const AK_PUB_SERIALIZED: [u8; 280] = [
     0, 1, 0, 11, 0, 5, 0, 114, 0, 0, 0, 16, 0, 22, 0, 11, 8, 0, 0, 0, 0, 0, 1, 0, 197, 213, 201,
     224, 218, 94, 188, 183, 101, 132, 200, 245, 5, 232, 37, 49, 46, 89, 171, 230, 112, 64, 108, 96,
@@ -249,7 +252,6 @@ pub const EK_PUB_SERIALIZED: [u8; 314] = [
     37, 35, 105, 163, 200, 56, 233, 254, 7, 165, 40, 33, 189, 226, 206, 145,
 ];
 
-#[cfg(feature = "linux-build")]
 // attestation as it is sent from scout to carbide
 pub const ATTEST_SERIALIZED: [u8; 129] = [
     255, 84, 67, 71, 128, 24, 0, 34, 0, 11, 86, 42, 234, 64, 215, 49, 217, 219, 109, 205, 122, 208,
@@ -260,7 +262,6 @@ pub const ATTEST_SERIALIZED: [u8; 129] = [
     55, 215, 242, 130, 251, 89, 92, 188, 251, 113, 20, 127, 251, 198, 74, 188,
 ];
 
-#[cfg(feature = "linux-build")]
 // signature as it is sent from scout to carbide
 pub const SIGNATURE_SERIALIZED: [u8; 262] = [
     0, 22, 0, 11, 1, 0, 81, 47, 118, 82, 6, 100, 40, 191, 204, 125, 109, 165, 201, 104, 63, 55,
@@ -278,7 +279,6 @@ pub const SIGNATURE_SERIALIZED: [u8; 262] = [
     233, 168, 30, 69, 134, 181, 227, 106, 220, 218, 166, 242, 45, 93,
 ];
 
-#[cfg(feature = "linux-build")]
 pub const SIGNATURE_SERIALIZED_INVALID: [u8; 262] = [
     0, 22, 0, 11, 1, 0, 171, 33, 190, 68, 89, 71, 190, 125, 172, 120, 100, 63, 101, 236, 168, 171,
     90, 209, 161, 89, 156, 193, 87, 74, 57, 203, 179, 84, 240, 213, 128, 158, 39, 132, 212, 18, 25,
@@ -295,14 +295,12 @@ pub const SIGNATURE_SERIALIZED_INVALID: [u8; 262] = [
     50, 240, 53, 223, 9, 213, 255, 190, 231, 214, 11, 126, 155, 19, 190,
 ];
 
-#[cfg(feature = "linux-build")]
 // credential as it is sent from scout to carbide
 pub const CRED_SERIALIZED: [u8; 32] = [
     47, 191, 142, 91, 237, 86, 32, 168, 119, 196, 199, 149, 110, 183, 182, 192, 193, 99, 101, 208,
     107, 198, 254, 254, 10, 146, 61, 122, 138, 2, 82, 79,
 ];
 
-#[cfg(feature = "linux-build")]
 // pcr values as those are sent from scout to carbide
 pub const PCR_VALUES: [[u8; 32]; 12] = [
     [
@@ -355,20 +353,17 @@ pub const PCR_VALUES: [[u8; 32]; 12] = [
     ],
 ];
 
-#[cfg(feature = "linux-build")]
 // serialized version of the cryptographic name (i.e. some SHA) of the AK
 pub const AK_NAME: [u8; 34] = [
     0, 11, 156, 103, 195, 162, 106, 182, 77, 69, 39, 156, 55, 160, 196, 165, 213, 65, 105, 238,
     251, 75, 243, 144, 166, 24, 132, 177, 159, 77, 184, 23, 17, 253,
 ];
 
-#[cfg(feature = "linux-build")]
 // a credential
 pub const SESSION_KEY: [u8; 14] = [
     141, 70, 165, 215, 36, 253, 82, 215, 110, 6, 82, 11, 100, 242,
 ];
 
-#[cfg(feature = "linux-build")]
 pub const AK_PUB_SERIALIZED_2: [u8; 280] = [
     0, 1, 0, 11, 0, 5, 0, 114, 0, 0, 0, 16, 0, 22, 0, 11, 8, 0, 0, 0, 0, 0, 1, 0, 183, 98, 82, 64,
     227, 242, 101, 235, 94, 190, 115, 98, 139, 145, 176, 117, 64, 80, 27, 131, 8, 234, 223, 32, 34,
@@ -386,7 +381,6 @@ pub const AK_PUB_SERIALIZED_2: [u8; 280] = [
     42, 41, 68, 177,
 ];
 
-#[cfg(feature = "linux-build")]
 pub const SIGNATURE_SERIALIZED_2: [u8; 262] = [
     0, 22, 0, 11, 1, 0, 171, 33, 190, 68, 89, 71, 190, 125, 172, 120, 100, 63, 101, 236, 168, 171,
     90, 209, 161, 89, 156, 193, 87, 74, 57, 203, 179, 84, 240, 213, 128, 158, 39, 132, 212, 18, 25,
@@ -403,7 +397,6 @@ pub const SIGNATURE_SERIALIZED_2: [u8; 262] = [
     50, 240, 53, 223, 9, 213, 255, 190, 231, 214, 11, 126, 155, 19, 190,
 ];
 
-#[cfg(feature = "linux-build")]
 pub const ATTEST_SERIALIZED_2: [u8; 129] = [
     255, 84, 67, 71, 128, 24, 0, 34, 0, 11, 131, 45, 55, 82, 140, 235, 232, 215, 180, 133, 115,
     220, 203, 79, 13, 153, 10, 168, 230, 203, 59, 199, 64, 128, 150, 218, 164, 66, 52, 72, 227,
@@ -413,7 +406,6 @@ pub const ATTEST_SERIALIZED_2: [u8; 129] = [
     128, 145, 55, 215, 242, 130, 251, 89, 92, 188, 251, 113, 20, 127, 251, 198, 74, 188,
 ];
 
-#[cfg(feature = "linux-build")]
 pub const PCR_VALUES_SHORT: [[u8; 32]; 2] = [
     [
         164, 126, 4, 71, 192, 152, 159, 113, 199, 82, 135, 160, 29, 112, 174, 109, 44, 162, 41,
@@ -425,7 +417,6 @@ pub const PCR_VALUES_SHORT: [[u8; 32]; 2] = [
     ],
 ];
 
-#[cfg(feature = "linux-build")]
 pub const ATTEST_SERIALIZED_SHORT: [u8; 129] = [
     255, 84, 67, 71, 128, 24, 0, 34, 0, 11, 44, 93, 55, 234, 83, 198, 195, 90, 85, 14, 189, 234,
     103, 243, 125, 164, 152, 193, 21, 104, 96, 147, 159, 210, 223, 11, 3, 238, 198, 190, 62, 99, 0,

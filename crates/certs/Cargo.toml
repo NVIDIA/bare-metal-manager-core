@@ -34,7 +34,7 @@ tonic = { workspace = true }
 tracing = { workspace = true }
 
 # [local-dependencies]
-carbide-host-support = { path = "../host-support" }
+carbide-host-support = { path = "../host-support", default-features = false }
 carbide-tls = { path = "../tls" }
 carbide-rpc = { path = "../rpc" }
 

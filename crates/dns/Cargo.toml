@@ -47,7 +47,6 @@ trust-dns-resolver = { workspace = true }
 
 # [local-dependencies]
 dns-record = { path = "../dns-record" }
-carbide-host-support = { path = "../host-support" }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 toml = { workspace = true }

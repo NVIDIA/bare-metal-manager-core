@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-#[cfg(feature = "linux-build")]
 pub mod secret_ak_pub;
 
 pub mod ek_cert_verification_status;

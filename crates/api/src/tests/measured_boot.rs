@@ -35,7 +35,8 @@ pub mod tests {
     use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
     use tonic::Code;
 
-    use crate::attestation::{cli_make_cred, do_compare_pub_key_against_cert};
+    use crate::attestation::cli_make_cred;
+    use crate::attestation::linux_build::do_compare_pub_key_against_cert;
     use crate::tests::common;
     use crate::tests::common::api_fixtures::dpu::create_dpu_machine;
     use crate::tests::common::api_fixtures::host::host_discover_dhcp;
@@ -442,7 +443,7 @@ pub mod tests {
     use rsa::RsaPublicKey;
     use tonic::Request;
     use tss_esapi::structures::Signature::RsaPss;
-    use tss_esapi::structures::{Attest, EccPoint, Public, Signature};
+    use tss_esapi::structures::{EccPoint, Public, Signature};
     use tss_esapi::traits::{Marshall, UnMarshall};
 
     use crate::CarbideError::AttestBindKeyError;
@@ -695,11 +696,8 @@ pub mod tests {
 
     #[test]
     fn test_verify_signature_ak_pub_not_rsa_returns_error() {
-        let ak_pub = get_ext_ecc_pub();
-
-        let signature = Signature::unmarshall(&SIGNATURE_SERIALIZED).unwrap();
-
-        let res = verify_signature(&ak_pub, &ATTEST_SERIALIZED.to_vec(), &signature);
+        let ak_pub = get_ext_ecc_pub().marshall().unwrap();
+        let res = verify_signature(&ak_pub, &ATTEST_SERIALIZED, &SIGNATURE_SERIALIZED);
 
         match res {
             Ok(..) => {
@@ -745,9 +743,11 @@ pub mod tests {
             unique: PublicKeyRsa::try_from([0, 34, 56].to_vec()).unwrap(), // injecting invalid value
         };
 
-        let signature = Signature::unmarshall(&SIGNATURE_SERIALIZED).unwrap();
-
-        let res = verify_signature(&ak_pub_copy, &ATTEST_SERIALIZED.to_vec(), &signature);
+        let res = verify_signature(
+            &ak_pub_copy.marshall().unwrap(),
+            &ATTEST_SERIALIZED,
+            &SIGNATURE_SERIALIZED,
+        );
 
         match res {
             Ok(..) => {
@@ -764,10 +764,7 @@ pub mod tests {
 
     #[test]
     fn test_verify_signature_invalid_signature_type_returns_error() {
-        use tss_esapi::structures::Public as TssPublic;
         use tss_esapi::structures::Signature::RsaSsa;
-
-        let ak_pub = TssPublic::unmarshall(AK_PUB_SERIALIZED.as_slice()).unwrap();
 
         let signature = Signature::unmarshall(&SIGNATURE_SERIALIZED).unwrap();
 
@@ -778,7 +775,11 @@ pub mod tests {
 
         let signature = RsaSsa(rsa_signature);
 
-        let res = verify_signature(&ak_pub, &ATTEST_SERIALIZED.to_vec(), &signature);
+        let res = verify_signature(
+            &AK_PUB_SERIALIZED,
+            &ATTEST_SERIALIZED,
+            &signature.marshall().unwrap(),
+        );
 
         match res {
             Ok(..) => {
@@ -795,8 +796,6 @@ pub mod tests {
 
     #[test]
     fn test_verify_signature_invalid_attestation_returns_false() {
-        use tss_esapi::structures::Public as TssPublic;
-
         let bad_attest = [
             255, 84, 67, 53, 10, 168, 230, 203, 59, 199, 64, 128, 150, 218, 164, 66, 52, 72, 227,
             197, 0, 16, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
@@ -806,11 +805,7 @@ pub mod tests {
             127, 251, 198, 74, 188,
         ];
 
-        let ak_pub = TssPublic::unmarshall(AK_PUB_SERIALIZED.as_slice()).unwrap();
-
-        let signature = Signature::unmarshall(&SIGNATURE_SERIALIZED).unwrap();
-
-        let res = verify_signature(&ak_pub, &bad_attest.to_vec(), &signature);
+        let res = verify_signature(&AK_PUB_SERIALIZED, &bad_attest, &SIGNATURE_SERIALIZED);
 
         match res {
             Ok(value) => assert!(!value),
@@ -820,13 +815,11 @@ pub mod tests {
 
     #[test]
     fn test_verify_signature_success_returns_true() {
-        use tss_esapi::structures::Public as TssPublic;
-
-        let ak_pub = TssPublic::unmarshall(AK_PUB_SERIALIZED_2.as_slice()).unwrap();
-
-        let signature = Signature::unmarshall(&SIGNATURE_SERIALIZED_2).unwrap();
-
-        let res = verify_signature(&ak_pub, &ATTEST_SERIALIZED_2.to_vec(), &signature);
+        let res = verify_signature(
+            &AK_PUB_SERIALIZED_2,
+            &ATTEST_SERIALIZED_2,
+            &SIGNATURE_SERIALIZED_2,
+        );
 
         match res {
             Ok(value) => assert!(value),
@@ -836,13 +829,11 @@ pub mod tests {
 
     #[test]
     fn test_verify_pcr_hash_attest_not_match_returns_false() {
-        let attest = Attest::unmarshall(&ATTEST_SERIALIZED_SHORT).unwrap();
         let mut pcr_values_copy = PCR_VALUES_SHORT;
-
         pcr_values_copy[0][10] = 255;
 
         let res = verify_pcr_hash(
-            &attest,
+            &ATTEST_SERIALIZED_SHORT,
             &[pcr_values_copy[0].to_vec(), pcr_values_copy[1].to_vec()],
         );
 
@@ -854,10 +845,8 @@ pub mod tests {
 
     #[test]
     fn test_verify_pcr_hash_success_returns_true() {
-        let attest = Attest::unmarshall(&ATTEST_SERIALIZED_SHORT).unwrap();
-
         let res = verify_pcr_hash(
-            &attest,
+            &ATTEST_SERIALIZED_SHORT,
             &[PCR_VALUES_SHORT[0].to_vec(), PCR_VALUES_SHORT[1].to_vec()],
         );
 

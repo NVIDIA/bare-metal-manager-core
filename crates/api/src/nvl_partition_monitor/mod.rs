@@ -1262,7 +1262,12 @@ impl NvlPartitionMonitor {
                     db_partition_nmx_m_id,
                 )) = partition_ctx.get_db_partition_info(&nmxm_partition.id)
                 else {
-                    tracing::error!("No partition found with nmx_m_id = {}", nmxm_partition.id);
+                    if !is_nmx_m_default_partition(nmxm_partition) {
+                        tracing::error!(
+                            "No partition found with nmx_m_id = {} while processing removal of GPU {gpu:?} in admin network",
+                            nmxm_partition.id,
+                        );
+                    }
                     continue;
                 };
 
@@ -1584,7 +1589,7 @@ impl NvlPartitionMonitor {
                             continue;
                         }
                     };
-                    let result = nmxm_client
+                    let get_operation_result = nmxm_client
                         .get_operation(operation_id.to_string())
                         .await
                         .map_err(|e| {
@@ -1595,10 +1600,10 @@ impl NvlPartitionMonitor {
                             ))
                         })?;
 
-                    match result.status {
+                    match get_operation_result.status {
                         libnmxm::nmxm_model::OperationStatus::Completed => {
                             tracing::info!(
-                                "Operation {operation:?} for logical partition {logical_partition_id} completed successfully"
+                                "Operation {get_operation_result:?} for logical partition {logical_partition_id} completed successfully"
                             );
                             completed_operations_for_this_logical_partition.push(operation.clone());
                             operations_to_remove.push(*logical_partition_id);
@@ -1618,9 +1623,17 @@ impl NvlPartitionMonitor {
                                 .push(start_time.elapsed());
                         }
                         libnmxm::nmxm_model::OperationStatus::Failed => {
-                            tracing::error!(
-                                "Operation {operation:?} for logical partition {logical_partition_id} failed with error"
-                            );
+                            if let Some(result) = get_operation_result.result.as_ref() {
+                                let error = result.error.as_deref().unwrap_or_default();
+                                let error_details = result.details.as_deref().unwrap_or_default();
+                                tracing::error!(
+                                    "Operation {get_operation_result:?} for logical partition {logical_partition_id} failed with error: {error} {error_details}"
+                                );
+                            } else {
+                                tracing::error!(
+                                    "Operation {get_operation_result:?} for logical partition {logical_partition_id} failed with unknown error"
+                                );
+                            }
                             operations_to_remove.push(*logical_partition_id);
 
                             let applied_change = AppliedChange {

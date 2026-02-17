@@ -175,10 +175,6 @@ x509-parser = { features = ["verify"], workspace = true }
 default = ["linux-build"]
 linux-build = [
   "tss-esapi",
-  "carbide-sqlx-testing/linux-build",
-  "carbide-host-support/linux-build",
-  "carbide-api-model/linux-build",
-  "carbide-api-db/linux-build",
 ]
 
 [build-dependencies]

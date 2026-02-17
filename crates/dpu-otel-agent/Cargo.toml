@@ -46,7 +46,7 @@ typed-builder = { workspace = true }
 
 # [local-dependencies]
 carbide-certs = { path = "../certs" }
-carbide-host-support = { path = "../host-support" }
+carbide-host-support = { path = "../host-support", default-features = false }
 carbide-systemd = { path = "../systemd" }
 carbide-tls = { path = "../tls" }
 carbide-rpc = { path = "../rpc" }

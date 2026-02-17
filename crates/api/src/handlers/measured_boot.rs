@@ -31,9 +31,12 @@ pub(crate) async fn create_attest_key_bind_challenge(
     attest_key_info: &rpc_md::AttestKeyInfo,
     machine_id: &MachineId,
 ) -> Result<rpc_forge::AttestKeyBindChallenge, Status> {
-    let (matched, ek_pub_rsa) =
-        attest::compare_pub_key_against_cert(txn, machine_id, attest_key_info.ek_pub.as_ref())
-            .await?;
+    let (matched, ek_pub_rsa) = attest::measured_boot::compare_pub_key_against_cert(
+        txn,
+        machine_id,
+        attest_key_info.ek_pub.as_ref(),
+    )
+    .await?;
     if !matched {
         return Err(Status::from(CarbideError::AttestBindKeyError(
             "Certificate's public key did not match EK Pub Key".to_string(),
@@ -44,7 +47,7 @@ pub(crate) async fn create_attest_key_bind_challenge(
     let secret_bytes: [u8; 32] = rand::random();
 
     let (cli_cred_blob, cli_secret) =
-        attest::cli_make_cred(ek_pub_rsa, &attest_key_info.ak_name, &secret_bytes)?;
+        attest::measured_boot::cli_make_cred(ek_pub_rsa, &attest_key_info.ak_name, &secret_bytes)?;
 
     secret_ak_pub::insert(txn, &Vec::from(secret_bytes), &attest_key_info.ak_pub).await?;
 

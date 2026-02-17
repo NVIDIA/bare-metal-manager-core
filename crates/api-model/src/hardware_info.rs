@@ -17,16 +17,13 @@
 
 //! Describes hardware that is discovered by Forge
 
-#[cfg(not(feature = "linux-build"))]
-use std::collections::HashSet;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
 use base64::prelude::*;
-#[cfg(feature = "linux-build")]
-use carbide_host_support::hardware_enumeration::aggregate_cpus;
+use carbide_host_support::cpu::aggregate_cpus;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use forge_network::{MELLANOX_SF_VF_MAC_ADDRESS_IN, MELLANOX_SF_VF_MAC_ADDRESS_OUT};
 use mac_address::{MacAddress, MacParseError};
@@ -65,24 +62,6 @@ struct HardwareInfoDeserialized {
     cpus: Vec<Cpu>, // Deprecated in favor of `cpu_info`
     #[serde(default)]
     tpm_description: Option<TpmDescription>,
-}
-
-#[cfg(not(feature = "linux-build"))]
-fn aggregate_cpus(cpus: &[rpc::machine_discovery::Cpu]) -> Vec<rpc::machine_discovery::CpuInfo> {
-    if cpus.is_empty() {
-        return Vec::new();
-    }
-
-    let socket_count = HashSet::<_>::from_iter(cpus.iter().map(|cpu| cpu.socket)).len();
-    let core_count = HashSet::<_>::from_iter(cpus.iter().map(|cpu| (cpu.socket, cpu.core))).len();
-
-    vec![rpc::machine_discovery::CpuInfo {
-        model: cpus[0].model.clone(),
-        vendor: cpus[0].vendor.clone(),
-        sockets: socket_count as u32,
-        cores: core_count as u32,
-        threads: cpus.len() as u32,
-    }]
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

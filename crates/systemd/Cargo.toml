@@ -27,17 +27,10 @@ name = "carbide_systemd"
 
 [dependencies]
 eyre = { workspace = true }
-rand = { workspace = true }
-serde = { features = ["derive"], workspace = true }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
 tokio = { workspace = true }
-tonic = { workspace = true }
 tracing = { workspace = true }
 
 # [local-dependencies]
-carbide-host-support = { path = "../host-support" }
-carbide-rpc = { path = "../rpc" }
 
 [lints]
 workspace = true

@@ -323,41 +323,25 @@ pub(crate) async fn discover_machine(
     // Whoever was able to decrypt it (activate credential), possesses
     // the TPM that the endorsement key (EK) and the attestation key (AK) that they came from.
     // if attestation is not enabled, or it is a DPU, then issue machine certificates immediately
-    #[cfg(feature = "linux-build")]
-    let mut attest_key_bind_challenge_opt: Option<rpc::AttestKeyBindChallenge> = None;
-    let mut make_machine_certificate = false;
-    #[cfg(not(feature = "linux-build"))]
-    let attest_key_bind_challenge_opt: Option<rpc::AttestKeyBindChallenge> = None;
-
-    if api.runtime_config.attestation_enabled && !hardware_info.is_dpu() {
-        #[cfg(feature = "linux-build")]
-        if let Some(attest_key_info) = attest_key_info_opt {
-            tracing::info!(
-                "It is not a DPU and attestation is enabled. Generating Attest Key Bind Challenge ..."
-            );
-
-            attest_key_bind_challenge_opt = Some(
-                crate::handlers::measured_boot::create_attest_key_bind_challenge(
-                    &mut txn,
-                    &attest_key_info,
-                    &stable_machine_id,
-                )
-                .await?,
-            );
-        } else {
+    let attest_key_challenge = if api.runtime_config.attestation_enabled && !hardware_info.is_dpu()
+    {
+        let Some(attest_key_info) = attest_key_info_opt else {
             return Err(Status::invalid_argument(
                 "Internal Error: This should have been handled above! AttestKeyInfo is not populated.",
             ));
-        }
+        };
 
-        #[cfg(not(feature = "linux-build"))]
-        {
-            tracing::warn!(
-                %stable_machine_id,
-                "Attestation enabled but linux-build feature disabled; vending certificate without attestation challenge"
-            );
-            make_machine_certificate = true;
-        }
+        tracing::info!(
+            "It is not a DPU and attestation is enabled. Generating Attest Key Bind Challenge ..."
+        );
+        Some(
+            crate::handlers::measured_boot::create_attest_key_bind_challenge(
+                &mut txn,
+                &attest_key_info,
+                &stable_machine_id,
+            )
+            .await?,
+        )
     } else {
         tracing::info!(
             "Attestation enabled is {}. Is_DPU is {}. Vending certs to machine with id {}",
@@ -366,12 +350,8 @@ pub(crate) async fn discover_machine(
             stable_machine_id,
         );
 
-        // Don't make the certificate here, wait until we commit the transaction
-        #[cfg(feature = "linux-build")]
-        {
-            make_machine_certificate = true;
-        }
-    }
+        None
+    };
 
     if let Some(nvlink_info) = nvlink_info {
         db::machine::update_nvlink_info(&mut txn, &machine_id, nvlink_info).await?;
@@ -379,15 +359,16 @@ pub(crate) async fn discover_machine(
 
     txn.commit().await?;
 
-    let machine_certificate = if make_machine_certificate {
+    let machine_certificate = if attest_key_challenge.is_none() {
         if std::env::var("UNSUPPORTED_CERTIFICATE_PROVIDER").is_ok() {
-            Some(forge_secrets::certificates::Certificate::default())
+            Some(rpc::MachineCertificate::default())
         } else {
             Some(
                 api.certificate_provider
                     .get_certificate(&stable_machine_id.to_string(), None, None)
                     .await
-                    .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?,
+                    .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?
+                    .into(),
             )
         }
     } else {
@@ -396,8 +377,8 @@ pub(crate) async fn discover_machine(
 
     let response = Ok(Response::new(rpc::MachineDiscoveryResult {
         machine_id: Some(stable_machine_id),
-        machine_certificate: machine_certificate.map(Into::into),
-        attest_key_challenge: attest_key_bind_challenge_opt,
+        machine_certificate,
+        attest_key_challenge,
         machine_interface_id: Some(interface.id),
     }));
 

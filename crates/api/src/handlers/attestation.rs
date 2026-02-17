@@ -23,13 +23,7 @@ use db::attestation::spdm::{
 use itertools::Itertools;
 use model::attestation::spdm::SpdmMachineAttestation;
 use tonic::{Request, Response, Status};
-#[cfg(feature = "linux-build")]
-use tss_esapi::{
-    structures::{Attest, Public as TssPublic, Signature},
-    traits::UnMarshall,
-};
 
-#[cfg(feature = "linux-build")]
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
@@ -112,7 +106,6 @@ pub(crate) async fn list_machines_under_attestation(
     }))
 }
 
-#[cfg(feature = "linux-build")]
 pub(crate) async fn attest_quote(
     api: &Api,
     request: Request<rpc::AttestQuoteRequest>,
@@ -137,38 +130,31 @@ pub(crate) async fn attest_quote(
             }
         };
 
-    let ak_pub = TssPublic::unmarshall(ak_pub_bytes.as_slice())
-        .map_err(|e| CarbideError::AttestQuoteError(format!("Could not unmarshal AK Pub: {e}")))?;
-
-    let attest = Attest::unmarshall(&request.attestation).map_err(|e| {
-        CarbideError::AttestQuoteError(format!("Could not unmarshall Attest struct: {e}"))
-    })?;
-
-    let signature = Signature::unmarshall(&request.signature).map_err(|e| {
-        CarbideError::AttestQuoteError(format!("Could not unmarshall Signature struct: {e}"))
-    })?;
-
     // Make sure sure the signature can at least be verified
     // as valid or invalid. If it can't be verified in any
     // way at all, return an error.
-    let signature_valid =
-        crate::attestation::verify_signature(&ak_pub, &request.attestation, &signature)
-            .inspect_err(|_| {
-                tracing::warn!(
-                    "PCR signature verification failed (event log: {})",
-                    crate::attestation::event_log_to_string(&request.event_log)
-                );
-            })?;
+    let signature_valid = crate::attestation::verify_signature(
+        &ak_pub_bytes,
+        &request.attestation,
+        &request.signature,
+    )
+    .inspect_err(|_| {
+        tracing::warn!(
+            "PCR signature verification failed (event log: {})",
+            crate::attestation::event_log_to_string(&request.event_log)
+        );
+    })?;
 
     // Make sure we can verify the the PCR hash one way
     // or another. If it can't be, return an error.
-    let pcr_hash_matches = crate::attestation::verify_pcr_hash(&attest, &request.pcr_values)
-        .inspect_err(|_| {
-            tracing::warn!(
-                "PCR hash verification failed (event log: {})",
-                crate::attestation::event_log_to_string(&request.event_log)
-            );
-        })?;
+    let pcr_hash_matches =
+        crate::attestation::verify_pcr_hash(&request.attestation, &request.pcr_values)
+            .inspect_err(|_| {
+                tracing::warn!(
+                    "PCR hash verification failed (event log: {})",
+                    crate::attestation::event_log_to_string(&request.event_log)
+                );
+            })?;
 
     // And now pass on through the computed signature
     // validity and PCR hash match to see if execution can
@@ -249,12 +235,4 @@ pub(crate) async fn attest_quote(
         success: true,
         machine_certificate: Some(certificate.into()),
     }))
-}
-
-#[cfg(not(feature = "linux-build"))]
-pub(crate) async fn attest_quote(
-    _api: &Api,
-    _request: Request<rpc::AttestQuoteRequest>,
-) -> std::result::Result<Response<rpc::AttestQuoteResponse>, Status> {
-    unimplemented!()
 }

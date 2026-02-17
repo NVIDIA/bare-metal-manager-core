@@ -1450,7 +1450,6 @@ dependencies = [
  "tonic 0.14.2",
  "tracing",
  "tracing-subscriber",
- "tss-esapi",
  "uuid",
  "version-compare 0.2.1",
 ]
@@ -1636,7 +1635,6 @@ name = "carbide-dns"
 version = "0.0.1"
 dependencies = [
  "async-trait",
- "carbide-host-support",
  "carbide-rpc",
  "carbide-tls",
  "carbide-version",
@@ -2298,15 +2296,8 @@ dependencies = [
 name = "carbide-systemd"
 version = "0.0.0"
 dependencies = [
- "carbide-host-support",
- "carbide-rpc",
  "eyre",
- "rand 0.9.2",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
  "tokio",
- "tonic 0.14.2",
  "tracing",
 ]
 

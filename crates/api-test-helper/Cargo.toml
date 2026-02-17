@@ -76,6 +76,3 @@ carbide-version = { path = "../version" }
 
 [lints]
 workspace = true
-
-[features]
-linux-build = ["carbide-api/linux-build"]
