@@ -1665,11 +1665,6 @@ pub enum ReprovisioningPhase {
     WaitingForAllDpusUnderReprovisioningToBeDeleted,
 }
 
-pub enum WaitForNetworkConfigAndRemoveAnnotationResult {
-    NetworkConfigPending(MachineId),
-    ConfigSyncedAndAnnotationRemoved,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum PerformPowerOperation {

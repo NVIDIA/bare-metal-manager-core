@@ -16,10 +16,10 @@
  */
 
 use carbide_uuid::machine::MachineId;
+use itertools::Itertools as _;
 use model::machine::{
     DpfState, DpuInitNextStateResolver, DpuInitState, Machine, ManagedHostState,
     ManagedHostStateSnapshot, PerformPowerOperation, ReprovisionState, ReprovisioningPhase,
-    WaitForNetworkConfigAndRemoveAnnotationResult,
 };
 use sqlx::PgConnection;
 
@@ -27,8 +27,7 @@ use crate::state_controller::machine::context::MachineStateHandlerContextObjects
 use crate::state_controller::machine::handler::helpers::{ManagedHostStateHelper, NextState};
 use crate::state_controller::machine::handler::{
     DpfConfig, DpuInitStateHelper, ReachabilityParams, all_equal,
-    discovered_after_state_transition, handler_restart_dpu,
-    managed_host_network_config_version_synced_and_dpu_healthy, trigger_reboot_if_needed,
+    discovered_after_state_transition, trigger_reboot_if_needed,
 };
 use crate::state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -102,16 +101,13 @@ pub async fn handle_dpf_state(
             .await
         }
         DpfState::WaitForNetworkConfigAndRemoveAnnotation => {
+            let next_state = DpuInitState::WaitingForPlatformPowercycle {
+                substate: PerformPowerOperation::Off,
+            }
+            .next_state_with_all_dpus_updated(&state.managed_state)?;
             // This is a sync state
-            handle_wait_for_discovery_and_remove_annotation_state(
-                state,
-                dpu_snapshot,
-                txn,
-                ctx,
-                reachability_params,
-                dpf_config,
-            )
-            .await
+            handle_wait_for_discovery_and_remove_annotation_state(state, dpf_config, next_state)
+                .await
         }
         _ => Err(StateHandlerError::InvalidState(format!(
             "Unhandled {dpf_state:?} state for dpf state."
@@ -199,17 +195,15 @@ pub async fn handle_dpf_state_with_reprovision(
             .await
         }
         DpfState::WaitForNetworkConfigAndRemoveAnnotation => {
-            // This is a sync state
-            handle_wait_for_discovery_and_remove_annotation_state_with_reprovision(
+            let next_state = state_resolver.next_state_with_all_dpus_updated(
                 state,
-                dpu_snapshot,
-                txn,
-                ctx,
-                reachability_params,
-                dpf_config,
-                state_resolver,
-            )
-            .await
+                &ReprovisionState::DpfStates {
+                    substate: DpfState::WaitForNetworkConfigAndRemoveAnnotation,
+                },
+            )?;
+            // This is a sync state
+            handle_wait_for_discovery_and_remove_annotation_state(state, dpf_config, next_state)
+                .await
         }
         _ => Err(StateHandlerError::InvalidState(format!(
             "Unhandled {dpf_state:?} state for dpf state with reprovision."
@@ -344,141 +338,31 @@ fn handle_waiting_for_all_dpus_to_be_deleted_state(
 }
 
 /// Handles waiting for all DPUs to be rediscovered and removes the maintenance/restart annotation from the k8s DPU node.
-/// If not yet rediscovered, this will instruct the caller to wait; otherwise removes the annotation and transitions to platform powercycle.
+/// If not yet rediscovered, this will instruct the caller to wait; otherwise removes the annotation and transitions to the provided next state.
 ///
 /// # Arguments
 /// * `state` - Full host and DPU managed state snapshot.
-/// * `dpu_snapshot` - The current DPU's state snapshot.
-/// * `txn` - The database connection/transaction.
-/// * `ctx` - Context object giving access to services and state control.
-/// * `reachability_params` - Parameters for host/network reachability.
 /// * `dpf_config` - DPF controller configuration options.
-///
-/// # Returns
-/// * `Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError>` outcome for the handler.
-#[allow(txn_held_across_await)]
-async fn handle_wait_for_discovery_and_remove_annotation_state(
-    state: &ManagedHostStateSnapshot,
-    dpu_snapshot: &Machine,
-    txn: &mut PgConnection,
-    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-    reachability_params: &ReachabilityParams,
-    dpf_config: &DpfConfig,
-) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    if let WaitForNetworkConfigAndRemoveAnnotationResult::NetworkConfigPending(dpu_id) =
-        handle_wait_for_network_config_and_remove_annotation(
-            state,
-            dpu_snapshot,
-            txn,
-            ctx,
-            reachability_params,
-            dpf_config,
-        )
-        .await?
-    {
-        return Ok(StateHandlerOutcome::wait(format!(
-            "Waiting for DPU {dpu_id} discovery."
-        )));
-    }
-    // Regular flow of legacy state machine.
-    let next_state = DpuInitState::WaitingForPlatformPowercycle {
-        substate: PerformPowerOperation::Off,
-    }
-    .next_state_with_all_dpus_updated(&state.managed_state)?;
-    Ok(StateHandlerOutcome::transition(next_state))
-}
-
-/// Handles waiting for discovery and removal of annotation, in the reprovisioning flow.
-///
-/// # Arguments
-/// * `state` - The full managed host state snapshot.
-/// * `dpu_snapshot` - The current DPU's state snapshot.
-/// * `txn` - The database transaction.
-/// * `ctx` - Service/container context.
-/// * `reachability_params` - Parameters for network reachability checks.
-/// * `dpf_config` - DPF controller configuration.
-/// * `state_resolver` - State resolver for reprovisioning.
+/// * `next_state` - The state to transition to after successful completion.
 ///
 /// # Returns
 /// * `Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError>`
 #[allow(txn_held_across_await)]
-async fn handle_wait_for_discovery_and_remove_annotation_state_with_reprovision(
+async fn handle_wait_for_discovery_and_remove_annotation_state(
     state: &ManagedHostStateSnapshot,
-    dpu_snapshot: &Machine,
-    txn: &mut PgConnection,
-    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-    reachability_params: &ReachabilityParams,
     dpf_config: &DpfConfig,
-    state_resolver: &impl NextState,
+    next_state: ManagedHostState,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    if let WaitForNetworkConfigAndRemoveAnnotationResult::NetworkConfigPending(dpu_id) =
-        handle_wait_for_network_config_and_remove_annotation(
-            state,
-            dpu_snapshot,
-            txn,
-            ctx,
-            reachability_params,
-            dpf_config,
-        )
-        .await?
-    {
-        return Ok(StateHandlerOutcome::wait(format!(
-            "Waiting for DPU {dpu_id} discovery."
-        )));
-    }
+    let dpu_states = state
+        .dpu_snapshots
+        .iter()
+        .map(|x| x.state.value.clone())
+        .collect_vec();
 
-    // Regular flow of legacy state machine.
-    let next_state = state_resolver.next_state_with_all_dpus_updated(
-        state,
-        &ReprovisionState::DpfStates {
-            substate: DpfState::WaitForNetworkConfigAndRemoveAnnotation,
-        },
-    )?;
-    Ok(StateHandlerOutcome::transition(next_state))
-}
-
-/// Handles DPU discovery-wait and removal of restart annotation (internal utility).
-///
-/// # Arguments
-/// * `state` - The full managed host state snapshot.
-/// * `dpu_snapshot` - The current DPU's state snapshot.
-/// * `txn` - The database transaction.
-/// * `ctx` - Service/container context.
-/// * `reachability_params` - Parameters for network reachability checks.
-/// * `dpf_config` - DPF controller configuration.
-/// * `reprovision_case` - Boolean for reprovisioning flow.
-///
-/// # Returns
-/// * `Result<(), StateHandlerError>`
-#[allow(txn_held_across_await)]
-async fn handle_wait_for_network_config_and_remove_annotation(
-    state: &ManagedHostStateSnapshot,
-    dpu_snapshot: &Machine,
-    txn: &mut PgConnection,
-    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-    reachability_params: &ReachabilityParams,
-    dpf_config: &DpfConfig,
-) -> Result<WaitForNetworkConfigAndRemoveAnnotationResult, StateHandlerError> {
-    for dsnapshot in &state.dpu_snapshots {
-        // Even if a DPU is not under reprovisioing, we need to check if the network config is synced and the DPU is healthy.
-        if !managed_host_network_config_version_synced_and_dpu_healthy(dsnapshot) {
-            // Only reboot the DPU which is targeted in this event loop.
-            if dsnapshot.id == dpu_snapshot.id {
-                trigger_reboot_if_needed(
-                    dsnapshot,
-                    state,
-                    None,
-                    reachability_params,
-                    ctx.services,
-                    txn,
-                )
-                .await?;
-            }
-
-            return Ok(
-                WaitForNetworkConfigAndRemoveAnnotationResult::NetworkConfigPending(dsnapshot.id),
-            );
-        }
+    if !all_equal(&dpu_states)? {
+        return Ok(StateHandlerOutcome::wait(
+            "Waiting for all dpus to send discovery completed message.".to_string(),
+        ));
     }
 
     carbide_dpf::utils::remove_restart_annotation_from_node(
@@ -487,7 +371,8 @@ async fn handle_wait_for_network_config_and_remove_annotation(
     )
     .await?;
 
-    Ok(WaitForNetworkConfigAndRemoveAnnotationResult::ConfigSyncedAndAnnotationRemoved)
+    // Regular flow of legacy state machine.
+    Ok(StateHandlerOutcome::transition(next_state))
 }
 
 /// Handles the transition for a DPU after a reboot is triggered. Initiates the reboot and transitions to discovery/removal annotation state.
@@ -542,7 +427,8 @@ async fn handle_wait_for_os_install_and_discovery(
         )));
     }
 
-    handler_restart_dpu(dpu_snapshot, ctx.services, txn).await?;
+    // No need to reboot as in next state host power-off will be performed.
+
     Ok(StateHandlerOutcome::transition(next_state))
 }
 
