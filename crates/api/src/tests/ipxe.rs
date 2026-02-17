@@ -17,11 +17,12 @@
 use std::collections::HashMap;
 
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use chrono::Utc;
 use common::api_fixtures::{TestEnv, create_test_env};
 use db::{self};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
-use model::machine::{DpuInitState, MachineState, ManagedHostState};
+use model::machine::{DpuInitState, HostReprovisionState, MachineState, ManagedHostState};
 use rpc::forge::CloudInitInstructionsRequest;
 use rpc::forge::forge_server::Forge;
 
@@ -308,6 +309,27 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
             machine_state: MachineState::Discovered {
                 skip_reboot_wait: false,
             },
+        },
+        &env.pool,
+    )
+    .await;
+
+    let instructions = get_pxe_instructions(
+        &env,
+        host_interface_id,
+        rpc::forge::MachineArchitecture::X86,
+        None,
+    )
+    .await;
+    assert!(instructions.pxe_script.contains("x86_64/scout.efi"));
+
+    move_machine_to_needed_state(
+        host_id,
+        &ManagedHostState::HostReprovision {
+            reprovision_state: HostReprovisionState::WaitingForManualUpgrade {
+                manual_upgrade_started: Utc::now(),
+            },
+            retry_count: 0,
         },
         &env.pool,
     )
