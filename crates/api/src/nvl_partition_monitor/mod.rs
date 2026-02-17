@@ -33,6 +33,7 @@ use model::machine::nvlink::{MachineNvLinkGpuStatusObservation, MachineNvLinkSta
 use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
 use sqlx::PgPool;
 use tokio::sync::oneshot;
+use tracing::Instrument;
 
 use crate::api::TransactionVending;
 use crate::cfg::file::NvLinkConfig;
@@ -642,7 +643,36 @@ impl NvlPartitionMonitor {
 
     pub async fn run_single_iteration(&self) -> CarbideResult<usize> {
         let mut metrics = NvlPartitionMonitorMetrics::new();
+        let span_id: String = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
+        let check_nvl_partition_span = tracing::span!(
+            parent: None,
+            tracing::Level::INFO,
+            "nvl_partition_monitor",
+            span_id,
+            otel.status_code = tracing::field::Empty,
+            otel.status_message = tracing::field::Empty,
+            metrics = tracing::field::Empty,
+        );
+        let result = self
+            .run_single_iteration_inner(&mut metrics)
+            .instrument(check_nvl_partition_span.clone())
+            .await;
+        check_nvl_partition_span.record(
+            "otel.status_code",
+            if result.is_ok() { "ok" } else { "error" },
+        );
+        if let Err(ref e) = result {
+            check_nvl_partition_span.record("otel.status_message", format!("{e:?}"));
+        }
+        check_nvl_partition_span.record("metrics", metrics.to_string());
+        self.metric_holder.update_metrics(metrics);
+        result
+    }
 
+    async fn run_single_iteration_inner(
+        &self,
+        metrics: &mut NvlPartitionMonitorMetrics,
+    ) -> CarbideResult<usize> {
         let _lock = match self
             .work_lock_manager_handle
             .try_acquire_lock(Self::ITERATION_WORK_KEY.into())
@@ -661,29 +691,12 @@ impl NvlPartitionMonitor {
             "NvlPartitionMonitor acquired the lock",
         );
 
-        let span_id: String = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
-        let check_nvl_partition_span = tracing::span!(
-            parent: None,
-            tracing::Level::INFO,
-            "nvlink_partition_monitor",
-            span_id,
-            otel.status_code = tracing::field::Empty,
-            otel.status_message = tracing::field::Empty,
-            metrics = tracing::field::Empty,
-        );
-
         let nmxm_client = self
             .nmxm_client_pool
             .create_client(&self.config.nmx_m_endpoint, None)
             .await
             .map_err(|e| {
                 metrics.nmxm.connect_error = "Failed to create NMXM client".to_string();
-                check_nvl_partition_span.record("otel.status_code", "error");
-                check_nvl_partition_span.record(
-                    "otel.status_message",
-                    format!("Failed to create NMMX client {e:?}"),
-                );
-
                 CarbideError::internal(format!("Failed to create NMXM client: {e}"))
             })?;
 
@@ -707,24 +720,11 @@ impl NvlPartitionMonitor {
 
         let nmx_m_partitions = nmxm_client.get_partitions_list().await.map_err(|e| {
             metrics.nmxm.connect_error = "Failed to get NMXM partitions list".to_string();
-
-            check_nvl_partition_span.record("otel.status_code", "error");
-            check_nvl_partition_span.record(
-                "otel.status_message",
-                format!("Failed to get NMXM partitions list {e:?}"),
-            );
-
             CarbideError::internal(format!("Failed to get NMXM partitions list: {e}"))
         })?;
 
         let nmx_m_gpus = nmxm_client.get_gpu(None).await.map_err(|e| {
             metrics.nmxm.connect_error = "Failed to get NMXM gpu list".to_string();
-            check_nvl_partition_span.record("otel.status_code", "error");
-            check_nvl_partition_span.record(
-                "otel.status_message",
-                format!("Failed to get NMXM gpu list {e:?}"),
-            );
-
             CarbideError::internal(format!("Failed to get NMXM gpu list: {e}"))
         })?;
 
@@ -736,7 +736,7 @@ impl NvlPartitionMonitor {
                 &nmx_m_gpus,
                 db_nvl_partitions,
                 &nmx_m_partitions,
-                &mut metrics,
+                metrics,
             )
             .await?;
 
@@ -755,10 +755,10 @@ impl NvlPartitionMonitor {
         let observations = self.check_nv_link_partitions(
             &mut partition_processing_context,
             managed_host_snapshots,
-            &mut metrics,
-        );
+            metrics,
+        )?;
 
-        self.record_nvlink_status_observation(observations?).await?;
+        self.record_nvlink_status_observation(observations).await?;
 
         let nmx_m_operations = partition_processing_context.nmx_m_operations;
 
@@ -775,7 +775,7 @@ impl NvlPartitionMonitor {
 
         // Poll NMX-M operation IDs with timeout
         let completed_nmx_m_operations = self
-            .poll_nmx_m_operations_with_timeout(pending_nmx_m_operations, &mut metrics)
+            .poll_nmx_m_operations_with_timeout(pending_nmx_m_operations, metrics)
             .await?;
 
         if !completed_nmx_m_operations.is_empty() {
@@ -788,23 +788,12 @@ impl NvlPartitionMonitor {
         let num_completed_operations = completed_nmx_m_operations.len();
         metrics.num_completed_operations = num_completed_operations;
 
-        check_nvl_partition_span.record("metrics", metrics.to_string());
-
         // Get a fresh list of partitions from NMX-M.
         let nmx_m_partitions = nmxm_client.get_partitions_list().await.map_err(|e| {
             metrics.nmxm.connect_error =
                 "Failed to get NMXM partitions list when updating db".to_string();
-            check_nvl_partition_span.record("otel.status_code", "error");
-            check_nvl_partition_span.record(
-                "otel.status_message",
-                format!("Failed to get NMXM partitions list when updating db {e:?}"),
-            );
             CarbideError::internal(format!("Failed to get NMXM partitions list: {e}"))
         })?;
-
-        check_nvl_partition_span.record("otel.status_code", "ok");
-
-        self.metric_holder.update_metrics(metrics);
 
         // Update db.
         let mut txn = self.db_pool.txn_begin().await?;
@@ -1609,7 +1598,11 @@ impl NvlPartitionMonitor {
                             operations_to_remove.push(*logical_partition_id);
 
                             let applied_change = AppliedChange {
-                                operation: operation.operation_type.clone().into(),
+                                operation: operation
+                                    .original_operation_type
+                                    .clone()
+                                    .unwrap_or_else(|| operation.operation_type.clone())
+                                    .into(),
                                 status: NmxmPartitionOperationStatus::Completed,
                             };
                             *metrics
@@ -1637,7 +1630,11 @@ impl NvlPartitionMonitor {
                             operations_to_remove.push(*logical_partition_id);
 
                             let applied_change = AppliedChange {
-                                operation: operation.operation_type.clone().into(),
+                                operation: operation
+                                    .original_operation_type
+                                    .clone()
+                                    .unwrap_or_else(|| operation.operation_type.clone())
+                                    .into(),
                                 status: NmxmPartitionOperationStatus::Failed,
                             };
                             *metrics
@@ -1661,7 +1658,11 @@ impl NvlPartitionMonitor {
                             operations_to_remove.push(*logical_partition_id);
 
                             let applied_change = AppliedChange {
-                                operation: operation.operation_type.clone().into(),
+                                operation: operation
+                                    .original_operation_type
+                                    .clone()
+                                    .unwrap_or_else(|| operation.operation_type.clone())
+                                    .into(),
                                 status: NmxmPartitionOperationStatus::Cancelled,
                             };
                             *metrics
@@ -1697,7 +1698,11 @@ impl NvlPartitionMonitor {
         for (logical_partition_id, operation) in pending_nmx_m_operations {
             for op in &operation {
                 let applied_change = AppliedChange {
-                    operation: op.operation_type.clone().into(),
+                    operation: op
+                        .original_operation_type
+                        .clone()
+                        .unwrap_or_else(|| op.operation_type.clone())
+                        .into(),
                     status: NmxmPartitionOperationStatus::Timedout,
                 };
                 *metrics
