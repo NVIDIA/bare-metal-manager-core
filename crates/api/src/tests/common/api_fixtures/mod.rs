@@ -332,9 +332,7 @@ pub struct TestEnv {
     pub machine_state_handler: SwapHandler<MachineStateHandler>,
     network_segment_controller: Arc<Mutex<StateController<NetworkSegmentStateControllerIO>>>,
     ib_partition_controller: Arc<Mutex<StateController<IBPartitionStateControllerIO>>>,
-    #[allow(dead_code)]
     power_shelf_controller: Arc<Mutex<StateController<PowerShelfStateControllerIO>>>,
-    #[allow(dead_code)]
     switch_controller: Arc<Mutex<StateController<SwitchStateControllerIO>>>,
     pub reachability_params: ReachabilityParams,
     pub test_meter: TestMeter,
@@ -589,7 +587,6 @@ impl TestEnv {
     /// Runs one iteration of the power shelf state controller handler with the services
     /// in this test environment
     #[allow(clippy::await_holding_refcell_ref)]
-    #[allow(dead_code)]
     pub async fn run_power_shelf_controller_iteration(&self) {
         self.power_shelf_controller
             .lock()
@@ -601,7 +598,6 @@ impl TestEnv {
     /// Runs one iteration of the switch state controller handler with the services
     /// in this test environment
     #[allow(clippy::await_holding_refcell_ref)]
-    #[allow(dead_code)]
     pub async fn run_switch_controller_iteration(&self) {
         self.switch_controller
             .lock()
@@ -611,7 +607,6 @@ impl TestEnv {
     }
 
     /// Runs power shelf controller iterations until a condition is met
-    #[allow(dead_code)]
     pub async fn run_power_shelf_controller_iteration_until_condition(
         &self,
         max_iterations: u32,
@@ -630,7 +625,6 @@ impl TestEnv {
     }
 
     /// Runs switch controller iterations until a condition is met
-    #[allow(dead_code)]
     pub async fn run_switch_controller_iteration_until_condition(
         &self,
         max_iterations: u32,
@@ -1666,10 +1660,8 @@ pub async fn create_test_env_with_overrides(
         machine_state_handler: machine_swap,
         ib_fabric_monitor: Arc::new(ib_fabric_monitor),
         ib_partition_controller: Arc::new(Mutex::new(ib_controller)),
-        #[allow(dead_code)]
         switch_controller: Arc::new(Mutex::new(switch_controller)),
         network_segment_controller: Arc::new(Mutex::new(network_controller)),
-        #[allow(dead_code)]
         power_shelf_controller: Arc::new(Mutex::new(power_shelf_controller)),
         reachability_params,
         attestation_enabled,

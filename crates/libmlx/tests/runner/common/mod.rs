@@ -25,7 +25,6 @@ use libmlx::variables::variable::MlxConfigVariable;
 use serde_json::json;
 
 /// Creates a test registry with common variable types for testing
-#[allow(dead_code)]
 pub fn create_test_registry() -> MlxVariableRegistry {
     let variables = vec![
         // Boolean variable
@@ -131,7 +130,6 @@ pub fn create_test_registry() -> MlxVariableRegistry {
 }
 
 /// Creates a simple registry with minimal variables for focused testing
-#[allow(dead_code)]
 pub fn create_minimal_test_registry() -> MlxVariableRegistry {
     let variables = vec![
         MlxConfigVariable::builder()
@@ -152,7 +150,6 @@ pub fn create_minimal_test_registry() -> MlxVariableRegistry {
 }
 
 /// Creates sample mlxconfig JSON response for testing
-#[allow(dead_code)]
 pub fn create_sample_json_response(device: &str) -> serde_json::Value {
     json!({
         "Device #1": {
@@ -202,7 +199,6 @@ pub fn create_sample_json_response(device: &str) -> serde_json::Value {
 }
 
 /// Creates sample JSON response with array variables
-#[allow(dead_code)]
 pub fn create_array_json_response(device: &str) -> serde_json::Value {
     json!({
         "Device #1": {
@@ -343,7 +339,6 @@ pub fn create_array_json_response(device: &str) -> serde_json::Value {
 }
 
 /// Creates test device info
-#[allow(dead_code)]
 pub fn create_test_device_info() -> QueriedDeviceInfo {
     QueriedDeviceInfo::new()
         .with_device_id("01:00.0")

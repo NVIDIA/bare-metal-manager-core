@@ -93,8 +93,8 @@ pub fn build_lockdown_key(
 // version.
 //
 // TODO(chet): Once I update the unlock flow to support
-// multiple unlock keys, I'll remove this.
-#[allow(dead_code)]
+// multiple unlock keys, I'll remove the #[cfg(test)].
+#[cfg(test)]
 pub fn derive_candidate_keys(
     site_wide_root: &[u8],
     ctx: &KdfContext,
@@ -153,25 +153,6 @@ pub async fn build_supernic_lockdown_key(
     let ctx = build_kdf_context(txn, dpa_interface_id).await?;
     let secret = fetch_kdf_secret(credential_provider).await?;
     build_lockdown_key(secret.as_bytes(), &ctx, KdfContextVersion::V1)
-}
-
-// build_supernic_lockdown_keys builds all candidate lockdown keys
-// for the given SuperNIC, covering all KdfContextVersions. Use
-// this for unlocking a card, where we may need to try multiple
-// key versions.
-//
-// TODO(chet): Once I update the unlock flow to support
-// multiple unlock keys, I'll remove this.
-#[allow(dead_code)]
-#[allow(txn_held_across_await)]
-pub async fn build_supernic_lockdown_keys(
-    txn: &mut PgConnection,
-    dpa_interface_id: DpaInterfaceId,
-    credential_provider: &dyn CredentialProvider,
-) -> Result<Vec<String>, eyre::Report> {
-    let ctx = build_kdf_context(txn, dpa_interface_id).await?;
-    let secret = fetch_kdf_secret(credential_provider).await?;
-    derive_candidate_keys(secret.as_bytes(), &ctx)
 }
 
 #[cfg(test)]

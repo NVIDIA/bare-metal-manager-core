@@ -100,19 +100,6 @@ impl<T> TestHandler<T> {
             count: Arc::new(AtomicUsize::new(0)),
         }
     }
-
-    #[allow(dead_code)]
-    async fn get_messages(&self) -> Vec<(T, String)>
-    where
-        T: Clone,
-    {
-        self.messages.lock().await.clone()
-    }
-
-    #[allow(dead_code)]
-    fn message_count(&self) -> usize {
-        self.count.load(Ordering::Relaxed)
-    }
 }
 
 // Verify rumqttc client is async.

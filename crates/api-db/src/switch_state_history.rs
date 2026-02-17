@@ -81,7 +81,6 @@ pub async fn find_by_switch_ids(
 }
 
 #[cfg(test)] // only used in tests today
-#[allow(dead_code)]
 pub async fn for_switch(
     txn: &mut PgConnection,
     id: &SwitchId,
@@ -119,7 +118,6 @@ pub async fn persist(
 }
 
 /// Renames all history entries using one Switch ID into using another Switch ID
-#[allow(dead_code)]
 pub async fn update_switch_ids(
     txn: &mut PgConnection,
     old_switch_id: &SwitchId,

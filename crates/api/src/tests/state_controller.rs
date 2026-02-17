@@ -393,10 +393,10 @@ async fn test_queue_objects(pool: sqlx::PgPool) -> sqlx::Result<()> {
 struct TestStateControllerIO {}
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct TestObject {
     pub id: String,
     pub controller_state: Versioned<TestObjectControllerState>,
+    #[allow(dead_code)]
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
 }
 

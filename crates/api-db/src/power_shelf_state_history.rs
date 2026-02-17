@@ -80,7 +80,6 @@ pub async fn find_by_power_shelf_ids(
     Ok(histories)
 }
 
-#[allow(dead_code)]
 pub async fn for_power_shelf(
     txn: &mut PgConnection,
     id: &PowerShelfId,
@@ -118,7 +117,6 @@ pub async fn persist(
 }
 
 /// Renames all history entries using one Power Shelf ID into using another Power Shelf ID
-#[allow(dead_code)]
 pub async fn update_power_shelf_ids(
     txn: &mut PgConnection,
     old_power_shelf_id: &PowerShelfId,

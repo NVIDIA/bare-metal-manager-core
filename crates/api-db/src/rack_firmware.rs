@@ -116,7 +116,6 @@ impl RackFirmware {
     }
 
     /// Update the configuration
-    #[allow(dead_code)]
     pub async fn update_config(
         txn: &mut PgConnection,
         id: &str,
@@ -133,7 +132,6 @@ impl RackFirmware {
     }
 
     /// Update the available flag
-    #[allow(dead_code)]
     pub async fn set_available(
         txn: &mut PgConnection,
         id: &str,

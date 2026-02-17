@@ -1514,26 +1514,8 @@ pub async fn new_power_shelf(
     Ok(power_shelf_id)
 }
 
-#[allow(dead_code)]
-pub async fn new_power_shelfs(env: &TestEnv, count: u32) -> eyre::Result<Vec<PowerShelfId>> {
-    let mut power_shelf_ids = Vec::new();
-    for i in 0..count {
-        power_shelf_ids.push(
-            new_power_shelf(
-                env,
-                Some(format!("Test Power Shelf {}", i)),
-                None,
-                None,
-                None,
-            )
-            .await?,
-        );
-    }
-    Ok(power_shelf_ids)
-}
-
 /// Creates a new switch for testing purposes
-#[allow(dead_code)]
+#[cfg(test)]
 pub async fn new_switch(
     env: &TestEnv,
     name: Option<String>,

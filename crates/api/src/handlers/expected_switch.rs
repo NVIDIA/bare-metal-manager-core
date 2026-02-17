@@ -297,7 +297,6 @@ pub async fn get_all_expected_switches_linked(
 
 // Utility method called by `explore`. Not a grpc handler.
 // TODO(chet): Remove dead_code once wired up with the explorer.
-#[allow(dead_code)]
 pub(crate) async fn query(
     api: &Api,
     mac: MacAddress,

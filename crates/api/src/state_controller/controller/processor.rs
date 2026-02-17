@@ -111,10 +111,10 @@ impl std::default::Default for DataSinceStartOfIteration {
 }
 
 #[derive(Debug, Copy, Clone)]
-#[allow(dead_code)]
 pub(super) struct SingleIterationResult {
     /// The amount of object handling tasks that have been dequeued from the database
     /// and dispatched for handling
+    #[allow(dead_code)]
     pub(super) num_dispatched_tasks: usize,
     /// The amount of object handling tasks which completed
     pub(super) num_completed_tasks: usize,
@@ -138,9 +138,9 @@ pub(super) struct StatsSinceLastLog {
 }
 
 #[derive(Debug, Default, Clone)]
-#[allow(dead_code)]
 struct QueueStats {
     /// The ID of the latest iteration that had been started
+    #[allow(dead_code)]
     latest_iteration: Option<ControllerIterationId>,
     /// The ID of the last iteration (before the most recent one)
     previous_iteration: Option<ControllerIterationId>,
@@ -768,6 +768,7 @@ async fn process_object<IO: StateControllerIO>(
     if let Some(next_state) = &metrics.common.next_state {
         state_change_emitter.emit(StateChangeEvent {
             object_id: &object_id,
+            #[cfg(test)]
             previous_state: metrics.common.initial_state.as_ref(),
             new_state: next_state,
             timestamp: chrono::Utc::now(),

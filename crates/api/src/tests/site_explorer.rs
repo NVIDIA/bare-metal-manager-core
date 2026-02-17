@@ -144,9 +144,7 @@ struct FakePowerShelf {
     pub bmc_password: String,
     #[allow(dead_code)]
     pub dhcp_vendor: String,
-    #[allow(dead_code)]
     pub segment: NetworkSegmentId,
-    #[allow(dead_code)]
     pub ip: String, // DHCP assigned IP (may be different from ip_address)
 }
 

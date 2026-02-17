@@ -51,7 +51,6 @@ pub fn from_hardware_info(
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, thiserror::Error)]
-#[allow(dead_code)]
 pub enum MissingHardwareInfo {
     #[error("The TPM certificate has no bytes")]
     TPMCertEmpty,

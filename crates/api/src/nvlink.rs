@@ -52,7 +52,6 @@ pub trait NmxmClientPool: Send + Sync + 'static {
     ) -> Result<Box<dyn Nmxm>, NvLinkPartitionError>;
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct NmxmClientPoolImpl<C> {
     pool: libnmxm::NmxmClientPool,

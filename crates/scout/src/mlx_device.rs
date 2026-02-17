@@ -24,7 +24,7 @@ use carbide_uuid::machine::MachineId;
 use libmlx::device::discovery;
 use libmlx::device::report::MlxDeviceReport;
 use libmlx::lockdown::error::MlxResult;
-use libmlx::lockdown::lockdown::{LockStatus, LockdownManager, StatusReport};
+use libmlx::lockdown::lockdown::{LockdownManager, StatusReport};
 use libmlx::profile::error::MlxProfileError;
 use libmlx::profile::serialization::SerializableProfile;
 use libmlx::registry::registries;
@@ -106,16 +106,6 @@ pub fn unlock_device(device_address: &str, key: &str) -> MlxResult<()> {
     let manager = LockdownManager::new()?;
     manager.unlock_device(device_address, key)?;
     Ok(())
-}
-
-// device_lockdown_status returns the current lockdown status of
-// a device (locked or unlocked). See above comments in lock_device
-// about the device_address argument formatting options.
-#[allow(dead_code)]
-pub fn device_lockdown_status(device_address: &str) -> MlxResult<LockStatus> {
-    let manager = LockdownManager::new()?;
-    let status = manager.get_status(device_address)?;
-    Ok(status)
 }
 
 pub fn handle_profile_sync(

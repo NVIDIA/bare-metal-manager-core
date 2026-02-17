@@ -166,7 +166,6 @@ pub async fn mark_as_deleted(rack: &Rack, txn: &mut PgConnection) -> DatabaseRes
     Ok(updated_rack)
 }
 
-#[allow(dead_code)]
 pub async fn final_delete(txn: &mut PgConnection, rack_id: RackId) -> DatabaseResult<()> {
     let query = "DELETE from racks WHERE id=$1";
     sqlx::query(query)

@@ -79,8 +79,7 @@ struct VersionXml {
     #[serde(rename = "@current")]
     current: String,
     #[serde(rename = "@available")]
-    #[allow(dead_code)]
-    available: String,
+    _available: String,
 }
 
 // MacsXml represents MAC address information from

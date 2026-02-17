@@ -35,8 +35,6 @@ use util::ssh_console_test_helper;
 use crate::util::ssh_client::PermissiveSshClient;
 use crate::util::{BaselineTestAssertion, MockBmcType, run_baseline_test_environment};
 
-#[allow(dead_code)]
-static TENANT_SSH_KEY: &str = include_str!("fixtures/tenant_ssh_key");
 static TENANT_SSH_PUBKEY: &str = include_str!("fixtures/tenant_ssh_key.pub");
 
 lazy_static! {

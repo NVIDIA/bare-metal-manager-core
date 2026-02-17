@@ -21,10 +21,10 @@ use jsonwebtoken as jst;
 
 use crate::NrasError;
 
-#[allow(dead_code)]
 #[derive(Debug, serde::Deserialize)]
 struct Jwk {
     kty: String,
+    #[allow(dead_code)]
     crv: Option<String>,
     kid: String,
     x: Option<String>,
