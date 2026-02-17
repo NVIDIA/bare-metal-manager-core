@@ -2,6 +2,33 @@
 # These templates are loaded at compile time into DefaultIpxeOsRenderer
 
 templates:
+  - name: raw-ipxe
+    description: Allows for raw iPXE scripting but provides base_url, console and arch variables
+    required_params:
+      - ipxe
+    reserved_params:
+      - base_url
+      - console
+    template: |
+      #!ipxe
+
+      # 1. Discover running architecture:
+      iseq ${buildarch} x86_64 && set arch amd64 && goto arch_done ||
+      iseq ${buildarch} arm64 && set arch arm64 && goto arch_done ||
+      set arch unknown
+      :arch_done
+      echo
+      echo Identified architecture: ${buildarch} -> ${arch}
+      # Safety check:
+      iseq ${arch} unknown && echo "Unsupported architecture." && sleep 5 && exit 1 ||
+
+      # 2. Get carbide-core-generated reserved values (base URL for local artifacts and console specific to hardware):
+      set base_url {{base_url}}
+      set console {{console}}
+
+      # 3. Insert raw iPXE:
+      {{ipxe}}
+
   - name: qcow-image
     description: Generic multi-platform template iPXE script for qcow images
     required_params:
