@@ -9137,8 +9137,8 @@ async fn handle_instance_host_platform_config(
                         mh_snapshot.host_snapshot.id,
                         vendor.to_string()
                     );
-                    // TODO: remove this vendor specific check once we have tested it against Lenovos
-                    !vendor.is_lenovo()
+
+                    true
                 } else {
                     tracing::info!(
                         "Tenant has released {} and the {} has its boot order configured properly",

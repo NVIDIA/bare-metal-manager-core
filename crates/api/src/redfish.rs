@@ -461,12 +461,6 @@ pub async fn host_power_control_with_location(
     db::machine::update_reboot_requested_time(&machine.id, txn, action.into()).await?;
     match machine.bmc_vendor() {
         bmc_vendor::BMCVendor::Lenovo => {
-            // Lenovos prepend the users OS to the boot order once it is installed and this cleans up the mess
-            redfish_client
-                .boot_once(libredfish::Boot::Pxe)
-                .await
-                .map_err(CarbideError::RedfishError)?;
-
             redfish_client
                 .power(action)
                 .await
