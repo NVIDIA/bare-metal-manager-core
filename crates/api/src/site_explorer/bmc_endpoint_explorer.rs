@@ -691,7 +691,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
                         response_body,
                         response_code,
                     }) if vendor == RedfishVendor::Hpe => {
-                        const MAX_AUTH_RETRIES: u32 = 3;
+                        const MAX_AUTH_RETRIES: u32 = 5;
 
                         let previous_count = last_report
                             .and_then(|r| r.last_exploration_error.as_ref())
