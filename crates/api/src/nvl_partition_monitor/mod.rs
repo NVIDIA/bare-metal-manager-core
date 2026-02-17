@@ -1600,9 +1600,9 @@ impl NvlPartitionMonitor {
                                 .push(start_time.elapsed());
                         }
                         libnmxm::nmxm_model::OperationStatus::Failed => {
-                            if let Some(result) = get_operation_result.result.clone() {
-                                let error = result.error.unwrap_or_default();
-                                let error_details = result.details.unwrap_or_default();
+                            if let Some(result) = get_operation_result.result.as_ref() {
+                                let error = result.error.as_deref().unwrap_or_default();
+                                let error_details = result.details.as_deref().unwrap_or_default();
                                 tracing::error!(
                                     "Operation {get_operation_result:?} for logical partition {logical_partition_id} failed with error: {error} {error_details}"
                                 );
