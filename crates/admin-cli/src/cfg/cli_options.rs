@@ -283,7 +283,7 @@ pub enum CliCommand {
     )]
     RackFirmware(rack_firmware::Cmd),
 
-    #[clap(about = "RMS Actions", visible_alias = "rms")]
+    #[clap(about = "RMS Actions")]
     Rms(rms::args::RmsAction),
 
     #[clap(about = "Firmware related actions", subcommand)]
