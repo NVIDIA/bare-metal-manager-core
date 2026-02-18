@@ -31,7 +31,6 @@ use sqlx::{FromRow, PgConnection, Row};
 
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::controller::{self, Enqueuer, QueuedObject, StateController};
-use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::metrics::NoopMetricsEmitter;
 use crate::state_controller::state_change_emitter::{
@@ -644,10 +643,6 @@ impl StateHandler for TestConcurrencyStateHandler {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         Ok(StateHandlerOutcome::do_nothing())
     }
-
-    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
-        None
-    }
 }
 
 #[crate::sqlx_test]
@@ -748,10 +743,6 @@ impl StateHandler for TestTransitionStateHandler {
             TestObjectControllerState::C => Ok(StateHandlerOutcome::do_nothing()),
         }
     }
-
-    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
-        None
-    }
 }
 
 /// A state handler that transitions from A -> B -> A
@@ -781,10 +772,6 @@ impl StateHandler for CyclicTransitionStateHandler {
             )),
             TestObjectControllerState::C => Err(StateHandlerError::InvalidState("C".to_string())),
         }
-    }
-
-    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
-        None
     }
 }
 

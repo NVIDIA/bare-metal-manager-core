@@ -26,7 +26,6 @@ use model::network_segment::{
 };
 use model::resource_pool::ResourcePool;
 
-use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::network_segment::context::NetworkSegmentStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -187,9 +186,5 @@ impl StateHandler for NetworkSegmentStateHandler {
                 }
             }
         }
-    }
-
-    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
-        None
     }
 }

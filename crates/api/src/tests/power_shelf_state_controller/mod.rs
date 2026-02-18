@@ -39,7 +39,6 @@ mod fixtures;
 use fixtures::power_shelf::{mark_power_shelf_as_deleted, set_power_shelf_controller_state};
 
 use crate::state_controller::common_services::CommonStateHandlerServices;
-use crate::state_controller::db_write_batch::DbWriteBatch;
 
 #[derive(Debug, Default, Clone)]
 pub struct TestPowerShelfStateHandler {
@@ -71,10 +70,6 @@ impl StateHandler for TestPowerShelfStateHandler {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
         Ok(StateHandlerOutcome::do_nothing())
-    }
-
-    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
-        None
     }
 }
 

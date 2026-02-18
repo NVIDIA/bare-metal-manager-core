@@ -49,6 +49,7 @@ pub struct StateHandlerContext<'a, T: StateHandlerContextObjects> {
     pub services: &'a mut T::Services,
     /// Metrics that are produced as a result of acting on an object
     pub metrics: &'a mut T::ObjectMetrics,
+    pub pending_db_writes: &'a mut DbWriteBatch,
 }
 
 /// Defines a function that will be called to determine the next step in
@@ -70,8 +71,6 @@ pub trait StateHandler: std::fmt::Debug + Send + Sync + 'static {
         controller_state: &Self::ControllerState,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError>;
-
-    async fn take_pending_writes(&self) -> Option<DbWriteBatch>;
 }
 
 pub enum StateHandlerOutcome<S> {
@@ -187,18 +186,20 @@ impl<S> StateHandlerOutcome<S> {
         .take()
     }
 
-    pub async fn in_transaction<'a, T>(
-        &'a mut self,
-        pg_pool: &PgPool,
+    /// Ensures this StateHandlerOutcome contains a PgTransaction (starting a new one if not) then
+    /// calls the passed async closure with it. If successful, returns self.
+    pub async fn in_transaction<'a, E>(
+        mut self,
+        pg_pool: &'a PgPool,
         f: impl for<'txn> FnOnce(
             &'txn mut PgTransaction<'static>,
-        ) -> futures::future::BoxFuture<'txn, T>
+        ) -> futures::future::BoxFuture<'txn, Result<(), E>>
         + Send,
-    ) -> sqlx::Result<T>
+    ) -> sqlx::Result<Result<Self, E>>
     where
-        T: Send,
+        E: Send,
     {
-        let txn_opt = match self {
+        let txn_opt = match &mut self {
             StateHandlerOutcome::Wait { txn, .. } => txn,
             StateHandlerOutcome::Transition { txn, .. } => txn,
             StateHandlerOutcome::DoNothing { txn, .. } => txn,
@@ -210,7 +211,7 @@ impl<S> StateHandlerOutcome<S> {
             None => txn_opt.insert(pg_pool.begin().await?),
         };
 
-        Ok(f(txn).await)
+        Ok(f(txn).await.map(|()| self))
     }
 }
 
@@ -377,10 +378,6 @@ impl<
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
         Ok(StateHandlerOutcome::do_nothing())
-    }
-
-    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
-        None
     }
 }
 

@@ -31,7 +31,6 @@ use sqlx::PgTransaction;
 
 use crate::dpa::handler::DpaInfo;
 use crate::state_controller::common_services::CommonStateHandlerServices;
-use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::dpa_interface::context::DpaInterfaceStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -283,10 +282,6 @@ impl StateHandler for DpaInterfaceStateHandler {
                 }
             }
         }
-    }
-
-    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
-        None
     }
 }
 

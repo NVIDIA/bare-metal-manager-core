@@ -103,7 +103,6 @@ use crate::scout_stream;
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::controller::{Enqueuer, StateController};
-use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::ib_partition::handler::IBPartitionStateHandler;
 use crate::state_controller::ib_partition::io::IBPartitionStateControllerIO;
 use crate::state_controller::machine::handler::{
@@ -2595,10 +2594,6 @@ where
             .await
             .handle_object_state(object_id, state, controller_state, ctx)
             .await
-    }
-
-    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
-        self.inner.lock().await.take_pending_writes().await
     }
 }
 

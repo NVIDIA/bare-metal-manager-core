@@ -26,9 +26,11 @@ use sqlx::{PgConnection, PgTransaction};
 
 use super::{HostHandlerParams, discovered_after_state_transition};
 use crate::state_controller::common_services::CommonStateHandlerServices;
-use crate::state_controller::db_write_batch::DbWriteBatch;
+use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::handler::trigger_reboot_if_needed;
-use crate::state_controller::state_handler::{StateHandlerError, StateHandlerOutcome};
+use crate::state_controller::state_handler::{
+    StateHandlerContext, StateHandlerError, StateHandlerOutcome,
+};
 
 fn get_bom_validation_context(state: &ManagedHostState) -> BomValidatingContext {
     if let ManagedHostState::BomValidating {
@@ -207,12 +209,12 @@ pub(crate) async fn handle_bom_validation_requested(
     mh_snapshot: &ManagedHostStateSnapshot,
     services: &CommonStateHandlerServices,
 ) -> Result<Option<StateHandlerOutcome<ManagedHostState>>, StateHandlerError> {
-    let mut txn = services.db_pool.begin().await?;
     if !host_handler_params.bom_validation.enabled {
         tracing::debug!("BOM validation disabled");
         return Ok(None);
     }
 
+    let mut txn = services.db_pool.begin().await?;
     // Case 1: Machine has no SKU assigned
     if mh_snapshot.host_snapshot.hw_sku.is_none() {
         // Always try to find a matching SKU for machine regardless of configs
@@ -432,14 +434,13 @@ async fn skip_bom_validation_and_advance(
 }
 
 pub(crate) async fn handle_bom_validation_state(
-    pending_db_writes: &DbWriteBatch,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     host_handler_params: &HostHandlerParams,
-    services: &CommonStateHandlerServices,
     mh_snapshot: &mut ManagedHostStateSnapshot,
     bom_validating_state: &BomValidating,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let outcome = if !host_handler_params.bom_validation.enabled {
-        let txn = services.db_pool.begin().await?;
+        let txn = ctx.services.db_pool.begin().await?;
         skip_bom_validation_and_advance(
             txn,
             host_handler_params,
@@ -451,7 +452,7 @@ pub(crate) async fn handle_bom_validation_state(
         match bom_validating_state {
             BomValidating::MatchingSku(bom_validating_context) => {
                 if mh_snapshot.host_snapshot.hw_sku.is_none() {
-                    let mut txn = services.db_pool.begin().await?;
+                    let mut txn = ctx.services.db_pool.begin().await?;
                     if let Some(sku) =
                         match_sku_for_machine(&mut txn, host_handler_params, mh_snapshot).await?
                     {
@@ -483,8 +484,7 @@ pub(crate) async fn handle_bom_validation_state(
                         mh_snapshot,
                         bom_validating_context.reboot_retry_count,
                         &host_handler_params.reachability_params,
-                        services,
-                        pending_db_writes,
+                        ctx,
                     )
                     .await
                     {
@@ -546,7 +546,7 @@ pub(crate) async fn handle_bom_validation_state(
                     ));
                 };
 
-                let mut txn = services.db_pool.begin().await?;
+                let mut txn = ctx.services.db_pool.begin().await?;
 
                 let Some(expected_sku) = db::sku::find(&mut txn, std::slice::from_ref(&sku_id))
                     .await?
@@ -606,7 +606,7 @@ pub(crate) async fn handle_bom_validation_state(
             }
             BomValidating::SkuVerificationFailed(bom_validating_context) => {
                 // If SKU was unassigned, transition to waiting for SKU assignment
-                let txn = services.db_pool.begin().await?;
+                let txn = ctx.services.db_pool.begin().await?;
                 if mh_snapshot.host_snapshot.hw_sku.is_none() {
                     Ok(
                         StateHandlerOutcome::transition(ManagedHostState::BomValidating {
@@ -643,7 +643,7 @@ pub(crate) async fn handle_bom_validation_state(
             }
             BomValidating::WaitingForSkuAssignment(_) => {
                 // Check if SKU was assigned or a matching SKU was found
-                let mut txn = services.db_pool.begin().await?;
+                let mut txn = ctx.services.db_pool.begin().await?;
                 if mh_snapshot.host_snapshot.hw_sku.is_some()
                     || match_sku_for_machine(&mut txn, host_handler_params, mh_snapshot)
                         .await?
@@ -665,7 +665,7 @@ pub(crate) async fn handle_bom_validation_state(
                 }
             }
             BomValidating::SkuMissing(_) => {
-                let mut txn = services.db_pool.begin().await?;
+                let mut txn = ctx.services.db_pool.begin().await?;
                 let mut outcome = if let Some(sku_id) = mh_snapshot.host_snapshot.hw_sku.clone() {
                     // SKU is still assigned, check if it now exists or can be auto-generated
                     if db::sku::find(&mut txn, std::slice::from_ref(&sku_id))
@@ -721,7 +721,7 @@ pub(crate) async fn handle_bom_validation_state(
             let mut txn = if let Some(txn) = outcome.take_transaction() {
                 txn
             } else {
-                services.db_pool.begin().await?
+                ctx.services.db_pool.begin().await?
             };
 
             // if leaving BOM validation states, clear any health reports

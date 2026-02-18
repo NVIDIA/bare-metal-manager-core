@@ -22,7 +22,6 @@ use model::machine::{
     ManagedHostStateSnapshot, PerformPowerOperation, ReprovisionState, ReprovisioningPhase,
 };
 
-use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::handler::helpers::{ManagedHostStateHelper, NextState};
 use crate::state_controller::machine::handler::{
@@ -56,7 +55,6 @@ pub async fn handle_dpf_state(
     state: &ManagedHostStateSnapshot,
     dpu_snapshot: &Machine,
     dpf_state: &DpfState,
-    pending_db_writes: &DbWriteBatch,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     dpf_config: &DpfConfig,
     reachability_params: &ReachabilityParams,
@@ -92,7 +90,6 @@ pub async fn handle_dpf_state(
                 state,
                 dpu_snapshot,
                 false,
-                pending_db_writes,
                 ctx,
                 reachability_params,
                 &DpuInitNextStateResolver {},
@@ -133,7 +130,6 @@ pub async fn handle_dpf_state_with_reprovision(
     state: &ManagedHostStateSnapshot,
     dpu_snapshot: &Machine,
     dpf_state: &DpfState,
-    pending_db_writes: &DbWriteBatch,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     dpf_config: &DpfConfig,
     reachability_params: &ReachabilityParams,
@@ -185,7 +181,6 @@ pub async fn handle_dpf_state_with_reprovision(
                 state,
                 dpu_snapshot,
                 true,
-                pending_db_writes,
                 ctx,
                 reachability_params,
                 state_resolver,
@@ -387,7 +382,6 @@ async fn handle_wait_for_os_install_and_discovery(
     state: &ManagedHostStateSnapshot,
     dpu_snapshot: &Machine,
     reprovision_case: bool,
-    pending_db_writes: &DbWriteBatch,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     reachability_params: &ReachabilityParams,
     next_state_resolver: &impl NextState,
@@ -407,15 +401,8 @@ async fn handle_wait_for_os_install_and_discovery(
         dpu_snapshot.state.version,
         dpu_snapshot.last_discovery_time,
     ) {
-        let _status = trigger_reboot_if_needed(
-            dpu_snapshot,
-            state,
-            None,
-            reachability_params,
-            ctx.services,
-            pending_db_writes,
-        )
-        .await?;
+        let _status =
+            trigger_reboot_if_needed(dpu_snapshot, state, None, reachability_params, ctx).await?;
 
         return Ok(StateHandlerOutcome::wait(format!(
             "Waiting for DPU {} to be discovered.",

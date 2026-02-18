@@ -18,7 +18,6 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use db::power_shelf as db_power_shelf;
 use model::power_shelf::{PowerShelf, PowerShelfControllerState};
 
-use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::power_shelf::context::PowerShelfStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -118,9 +117,5 @@ impl StateHandler for PowerShelfStateHandler {
                 }
             }
         }
-    }
-
-    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
-        None
     }
 }

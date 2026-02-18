@@ -23,7 +23,6 @@ use model::machine_validation::{MachineValidationState, MachineValidationStatus}
 
 use super::{HostHandlerParams, is_machine_validation_requested, machine_validation_completed};
 use crate::state_controller::common_services::CommonStateHandlerServices;
-use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::handler::{
     handler_host_power_control, rebooted, trigger_reboot_if_needed,
@@ -33,7 +32,6 @@ use crate::state_controller::state_handler::{
 };
 
 pub(crate) async fn handle_machine_validation_state(
-    pending_db_writes: &DbWriteBatch,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     machine_validation: &MachineValidatingState,
     host_handler_params: &HostHandlerParams,
@@ -42,13 +40,7 @@ pub(crate) async fn handle_machine_validation_state(
     match machine_validation {
         MachineValidatingState::RebootHost { validation_id } => {
             // Handle reboot host case
-            handler_host_power_control(
-                mh_snapshot,
-                ctx.services,
-                SystemPowerControl::ForceRestart,
-                pending_db_writes,
-            )
-            .await?;
+            handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceRestart).await?;
             let machine_validation =
                 db::machine_validation::find_by_id(&mut ctx.services.db_reader, validation_id)
                     .await
@@ -88,8 +80,7 @@ pub(crate) async fn handle_machine_validation_state(
                     mh_snapshot,
                     None,
                     &host_handler_params.reachability_params,
-                    ctx.services,
-                    pending_db_writes,
+                    ctx,
                 )
                 .await?;
                 return Ok(StateHandlerOutcome::wait(status.status));
@@ -151,13 +142,8 @@ pub(crate) async fn handle_machine_validation_state(
                             machine_validation.context.clone().unwrap_or_default(),
                         ))
                         .or_default() = status.total - status.completed;
-                    handler_host_power_control(
-                        mh_snapshot,
-                        ctx.services,
-                        SystemPowerControl::ForceRestart,
-                        pending_db_writes,
-                    )
-                    .await?;
+                    handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceRestart)
+                        .await?;
                     return Ok(StateHandlerOutcome::transition(
                         ManagedHostState::HostInit {
                             machine_state: MachineState::Discovered {

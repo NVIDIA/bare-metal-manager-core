@@ -18,7 +18,6 @@ use carbide_uuid::switch::SwitchId;
 use db::switch as db_switch;
 use model::switch::{Switch, SwitchControllerState};
 
-use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
@@ -116,9 +115,5 @@ impl StateHandler for SwitchStateHandler {
                 }
             }
         }
-    }
-
-    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
-        None
     }
 }

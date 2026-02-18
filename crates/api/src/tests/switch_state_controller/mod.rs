@@ -39,8 +39,6 @@ use crate::tests::common::api_fixtures::create_test_env;
 mod fixtures;
 use fixtures::switch::{mark_switch_as_deleted, set_switch_controller_state};
 
-use crate::state_controller::db_write_batch::DbWriteBatch;
-
 #[derive(Debug, Default, Clone)]
 pub struct TestSwitchStateHandler {
     /// The total count for the handler
@@ -71,10 +69,6 @@ impl StateHandler for TestSwitchStateHandler {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
         Ok(StateHandlerOutcome::do_nothing())
-    }
-
-    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
-        None
     }
 }
 

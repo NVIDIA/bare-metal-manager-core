@@ -26,7 +26,6 @@ use model::rack::{
 };
 use sqlx::PgTransaction;
 
-use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -243,9 +242,5 @@ impl StateHandler for RackStateHandler {
             }
             RackState::Unknown => Ok(StateHandlerOutcome::do_nothing()),
         }
-    }
-
-    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
-        None
     }
 }

@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 
-use std::sync::Mutex;
-
 use async_trait::async_trait;
 use futures_util::future::BoxFuture;
 use sqlx::PgTransaction;
@@ -47,7 +45,7 @@ use crate::state_controller::state_handler::StateHandlerError;
 /// reused.
 #[derive(Default)]
 pub struct DbWriteBatch {
-    writes: Mutex<Vec<Box<dyn WriteOp>>>,
+    writes: Vec<Box<dyn WriteOp>>,
 }
 
 #[async_trait]
@@ -61,10 +59,7 @@ pub trait WriteOp: Send {
 impl std::fmt::Debug for DbWriteBatch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DbWriteBatch")
-            .field(
-                "writes",
-                &self.writes.lock().map(|w| w.len()).unwrap_or_default(),
-            )
+            .field("writes", &self.writes.len())
             .finish()
     }
 }
@@ -91,32 +86,20 @@ impl DbWriteBatch {
         Self::default()
     }
 
-    pub fn push(&self, op: impl WriteOp + 'static) {
-        self.writes
-            .lock()
-            .expect("lock poisoned")
-            .push(Box::new(op));
+    pub fn push(&mut self, op: impl WriteOp + 'static) {
+        self.writes.push(Box::new(op));
     }
 
     pub async fn apply_all(self, txn: &mut PgTransaction<'_>) -> Result<(), StateHandlerError> {
-        let writes = self.writes.into_inner().expect("lock poisoned");
-        for w in writes {
+        for w in self.writes {
             w.apply(txn).await?;
         }
         Ok(())
-    }
-
-    /// Move all pending writes out of self (making self empty) and return them as a new DbWriteBatch.
-    pub fn take(&self) -> DbWriteBatch {
-        let writes = std::mem::take(&mut *self.writes.lock().expect("lock poisoned"));
-        DbWriteBatch::from(writes)
     }
 }
 
 impl From<Vec<Box<dyn WriteOp>>> for DbWriteBatch {
     fn from(writes: Vec<Box<dyn WriteOp>>) -> Self {
-        Self {
-            writes: Mutex::new(writes),
-        }
+        Self { writes }
     }
 }

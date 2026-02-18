@@ -43,9 +43,12 @@ use rpc::forge_agent_control_response::Action;
 use tonic::Request;
 
 use crate::state_controller::db_write_batch::DbWriteBatch;
+use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::handler::{
     MachineStateHandlerBuilder, handler_host_power_control,
 };
+use crate::state_controller::machine::metrics::MachineMetrics;
+use crate::state_controller::state_handler::StateHandlerContext;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::{
     TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION, TEST_DPU_AGENT_VERSION,
@@ -1324,12 +1327,18 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
 
     let mut txn = env.db_txn().await;
     let snapshot = mh.snapshot(&mut txn).await;
-    let write_batch = DbWriteBatch::new();
+    let mut write_batch = DbWriteBatch::new();
+    let mut services = env.state_handler_services();
+    let mut metrics = MachineMetrics::default();
+    let mut ctx = StateHandlerContext::<MachineStateHandlerContextObjects> {
+        services: &mut services,
+        metrics: &mut metrics,
+        pending_db_writes: &mut write_batch,
+    };
     handler_host_power_control(
         &snapshot,
-        &env.state_handler_services(),
+        &mut ctx,
         libredfish::SystemPowerControl::ForceOff,
-        &write_batch,
     )
     .await
     .unwrap();
@@ -1355,15 +1364,17 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     }
 
     let mut txn = env.db_txn().await;
-    let write_batch = DbWriteBatch::new();
-    handler_host_power_control(
-        &snapshot,
-        &env.state_handler_services(),
-        libredfish::SystemPowerControl::On,
-        &write_batch,
-    )
-    .await
-    .unwrap();
+    let mut write_batch = DbWriteBatch::new();
+    let mut services = env.state_handler_services();
+    let mut metrics = MachineMetrics::default();
+    let mut ctx = StateHandlerContext::<MachineStateHandlerContextObjects> {
+        services: &mut services,
+        metrics: &mut metrics,
+        pending_db_writes: &mut write_batch,
+    };
+    handler_host_power_control(&snapshot, &mut ctx, libredfish::SystemPowerControl::On)
+        .await
+        .unwrap();
     write_batch.apply_all(&mut txn).await.unwrap();
     txn.commit().await.unwrap();
 
@@ -1385,12 +1396,18 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     }
 
     let mut txn = env.db_txn().await;
-    let write_batch = DbWriteBatch::new();
+    let mut write_batch = DbWriteBatch::new();
+    let mut services = env.state_handler_services();
+    let mut metrics = MachineMetrics::default();
+    let mut ctx = StateHandlerContext::<MachineStateHandlerContextObjects> {
+        services: &mut services,
+        metrics: &mut metrics,
+        pending_db_writes: &mut write_batch,
+    };
     handler_host_power_control(
         &snapshot,
-        &env.state_handler_services(),
+        &mut ctx,
         libredfish::SystemPowerControl::ForceRestart,
-        &write_batch,
     )
     .await
     .unwrap();

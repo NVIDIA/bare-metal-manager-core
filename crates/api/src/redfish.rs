@@ -33,9 +33,9 @@ use model::machine::Machine;
 use sqlx::PgPool;
 use utils::HostPortPair;
 
-use crate::ipmitool::IPMITool;
-use crate::state_controller::db_write_batch::DbWriteBatch;
+use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::write_ops::MachineWriteOp;
+use crate::state_controller::state_handler::StateHandlerContext;
 use crate::{CarbideError, CarbideResult};
 
 #[derive(thiserror::Error, Debug)]
@@ -419,18 +419,10 @@ pub fn host_power_control(
     redfish_client: &dyn Redfish,
     machine: &Machine,
     action: SystemPowerControl,
-    ipmi_tool: Arc<dyn IPMITool>,
-    write_batch: &DbWriteBatch,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> impl Future<Output = CarbideResult<()>> {
     let trigger_location = std::panic::Location::caller();
-    host_power_control_with_location(
-        redfish_client,
-        machine,
-        action,
-        ipmi_tool,
-        write_batch,
-        trigger_location,
-    )
+    host_power_control_with_location(redfish_client, machine, action, ctx, trigger_location)
 }
 
 /// redfish utility functions
@@ -440,8 +432,7 @@ pub async fn host_power_control_with_location(
     redfish_client: &dyn Redfish,
     machine: &Machine,
     action: SystemPowerControl,
-    ipmi_tool: Arc<dyn IPMITool>,
-    write_batch: &DbWriteBatch,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     trigger_location: &std::panic::Location<'_>,
 ) -> CarbideResult<()> {
     let action = if action == SystemPowerControl::ACPowercycle
@@ -459,11 +450,12 @@ pub async fn host_power_control_with_location(
         trigger_location = %trigger_location,
         "Host Power Control"
     );
-    write_batch.push(MachineWriteOp::UpdateRebootRequestedTime {
-        machine_id: machine.id,
-        mode: action.into(),
-        time: Utc::now(),
-    });
+    ctx.pending_db_writes
+        .push(MachineWriteOp::UpdateRebootRequestedTime {
+            machine_id: machine.id,
+            mode: action.into(),
+            time: Utc::now(),
+        });
 
     match machine.bmc_vendor() {
         bmc_vendor::BMCVendor::Lenovo => {
@@ -532,7 +524,8 @@ pub async fn host_power_control_with_location(
                     credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
                 };
 
-                ipmi_tool
+                ctx.services
+                    .ipmi_tool
                     .restart(&machine.id, ip, false, &credential_key)
                     .await
                     .map_err(|e: eyre::ErrReport| {

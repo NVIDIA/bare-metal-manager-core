@@ -24,7 +24,6 @@ use model::power_manager::{
     update_power_options_for_desired_on_state_on,
 };
 
-use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::handler::{
     PowerOptionConfig, handler_host_power_control, host_power_state,
@@ -34,21 +33,13 @@ use crate::state_controller::state_handler::{StateHandlerContext, StateHandlerEr
 // Handle power related stuff and return updated power options.
 pub async fn handle_power(
     mh_snapshot: &ManagedHostStateSnapshot,
-    pending_db_writes: &DbWriteBatch,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     power_options_config: &PowerOptionConfig,
 ) -> Result<PowerHandlingOutcome, StateHandlerError> {
     if let Some(power_options) = &mh_snapshot.host_snapshot.power_options {
         match power_options.desired_power_state {
             model::power_manager::PowerState::On => {
-                handle_power_desired_on(
-                    power_options,
-                    mh_snapshot,
-                    ctx,
-                    power_options_config,
-                    pending_db_writes,
-                )
-                .await
+                handle_power_desired_on(power_options, mh_snapshot, ctx, power_options_config).await
             }
             model::power_manager::PowerState::Off => {
                 get_updated_power_options_desired_off(
@@ -78,7 +69,6 @@ pub async fn handle_power_desired_on(
     mh_snapshot: &ManagedHostStateSnapshot,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     power_options_config: &PowerOptionConfig,
-    pending_db_writes: &DbWriteBatch,
 ) -> Result<PowerHandlingOutcome, StateHandlerError> {
     let mut update_done = false;
     let mut updated_power_options = current_power_options.clone();
@@ -102,13 +92,7 @@ pub async fn handle_power_desired_on(
                 );
                 if try_power_on {
                     // Try power on here.
-                    handler_host_power_control(
-                        mh_snapshot,
-                        ctx.services,
-                        SystemPowerControl::On,
-                        pending_db_writes,
-                    )
-                    .await?;
+                    handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::On).await?;
                 }
 
                 return Ok(ret_val);
@@ -154,13 +138,7 @@ pub async fn handle_power_desired_on(
         }
 
         // all DPUs are UP or don't wait for the DPUs. Reboot the host;
-        handler_host_power_control(
-            mh_snapshot,
-            ctx.services,
-            SystemPowerControl::ForceRestart,
-            pending_db_writes,
-        )
-        .await?;
+        handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceRestart).await?;
 
         updated_power_options.wait_until_time_before_performing_next_power_action = now;
         return Ok(PowerHandlingOutcome::new(

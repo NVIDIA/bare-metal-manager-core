@@ -21,7 +21,6 @@ use model::ib_partition::IBPartitionControllerState;
 
 use crate::CarbideError;
 use crate::ib::{GetPartitionOptions, IBFabricManagerConfig};
-use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::ib_partition::context::IBPartitionStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -238,10 +237,6 @@ impl StateHandler for IBPartitionStateHandler {
                 }
             }
         }
-    }
-
-    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
-        None
     }
 }
 

@@ -34,7 +34,6 @@ use model::attestation::spdm::{
 use model::bmc_info::BmcInfo;
 use nras::{DeviceAttestationInfo, EvidenceCertificate, RawAttestationOutcome, VerifierClient};
 
-use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::spdm::context::SpdmStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -339,6 +338,12 @@ impl StateHandler for SpdmAttestationStateHandler {
                     .handle_object_state(object_id, state, controller_state, ctx)
                     .await?;
 
+                if matches!(outcome, StateHandlerOutcome::Transition { .. })
+                    || matches!(outcome, StateHandlerOutcome::Wait { .. })
+                {
+                    return Ok(outcome);
+                }
+
                 // If device_handler's handle_object_state started a transaction, use that for
                 // writes. Otherwise start our own.
                 let mut txn = if let Some(txn) = outcome.take_transaction() {
@@ -346,12 +351,6 @@ impl StateHandler for SpdmAttestationStateHandler {
                 } else {
                     ctx.services.db_pool.begin().await?
                 };
-
-                if matches!(outcome, StateHandlerOutcome::Transition { .. })
-                    || matches!(outcome, StateHandlerOutcome::Wait { .. })
-                {
-                    return Ok(outcome.with_txn(txn));
-                }
 
                 // Nothing to be done. Check if sync state is achieved.
                 if sync_state_achieved(
@@ -384,10 +383,6 @@ impl StateHandler for SpdmAttestationStateHandler {
             }
             AttestationState::Completed => Ok(StateHandlerOutcome::do_nothing()),
         }
-    }
-
-    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
-        None
     }
 }
 
@@ -746,10 +741,6 @@ impl StateHandler for SpdmAttestationDeviceStateHandler {
             }
             AttestationDeviceState::NotApplicable => Ok(StateHandlerOutcome::do_nothing()),
         }
-    }
-
-    async fn take_pending_writes(&self) -> Option<DbWriteBatch> {
-        None
     }
 }
 
