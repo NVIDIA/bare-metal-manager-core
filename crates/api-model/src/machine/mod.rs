@@ -1539,6 +1539,8 @@ pub enum FailureCause {
     MeasurementsRevoked { err: String },
 
     MeasurementsCAValidationFailed { err: String },
+
+    DpfProvisioning { err: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -2004,6 +2006,7 @@ impl Display for FailureCause {
             FailureCause::MeasurementsCAValidationFailed { .. } => {
                 write!(f, "MeasurementsCAValidationFailed")
             }
+            FailureCause::DpfProvisioning { .. } => write!(f, "DpfProvisioning"),
         }
     }
 }

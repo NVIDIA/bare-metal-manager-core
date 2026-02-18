@@ -38,7 +38,8 @@ pub trait NextState {
     fn next_dpf_state(
         &self,
         current_state: &ManagedHostState,
-        dpu_id: &MachineId,
+        // if dpu_id is None, means update state for all DPUs.
+        dpu_id: Option<&MachineId>,
         next_dpf_state: DpfState,
     ) -> Result<ManagedHostState, StateHandlerError>;
 
@@ -146,6 +147,20 @@ pub trait NextState {
             _ => Err(StateHandlerError::InvalidState(format!(
                 "Unhandled {current_reprovision_state} state for all dpu handling."
             ))),
+        }
+    }
+}
+
+fn update_state_values<T: Clone>(
+    dpu_id: Option<&MachineId>,
+    states: &mut HashMap<MachineId, T>,
+    next_state: T,
+) {
+    if let Some(dpu_id) = dpu_id {
+        states.insert(*dpu_id, next_state);
+    } else {
+        for value in states.values_mut() {
+            *value = next_state.clone();
         }
     }
 }
@@ -313,7 +328,7 @@ impl NextState for MachineNextStateResolver {
     fn next_dpf_state(
         &self,
         current_state: &ManagedHostState,
-        dpu_id: &MachineId,
+        dpu_id: Option<&MachineId>,
         next_dpf_state: DpfState,
     ) -> Result<ManagedHostState, StateHandlerError> {
         match current_state {
@@ -322,7 +337,7 @@ impl NextState for MachineNextStateResolver {
                 let next_state = ReprovisionState::DpfStates {
                     substate: next_dpf_state,
                 };
-                states.insert(*dpu_id, next_state);
+                update_state_values(dpu_id, &mut states, next_state);
                 Ok(ManagedHostState::DPUReprovision {
                     dpu_states: DpuReprovisionStates { states },
                 })
@@ -428,7 +443,7 @@ impl NextState for InstanceNextStateResolver {
     fn next_dpf_state(
         &self,
         current_state: &ManagedHostState,
-        dpu_id: &MachineId,
+        dpu_id: Option<&MachineId>,
         next_dpf_state: DpfState,
     ) -> Result<ManagedHostState, StateHandlerError> {
         match current_state {
@@ -439,7 +454,7 @@ impl NextState for InstanceNextStateResolver {
                 let next_state = ReprovisionState::DpfStates {
                     substate: next_dpf_state,
                 };
-                states.insert(*dpu_id, next_state);
+                update_state_values(dpu_id, &mut states, next_state);
                 Ok(ManagedHostState::Assigned {
                     instance_state: InstanceState::DPUReprovision {
                         dpu_states: DpuReprovisionStates { states },
@@ -523,7 +538,7 @@ impl NextState for DpuInitNextStateResolver {
     fn next_dpf_state(
         &self,
         current_state: &ManagedHostState,
-        dpu_id: &MachineId,
+        dpu_id: Option<&MachineId>,
         next_dpf_state: DpfState,
     ) -> Result<ManagedHostState, StateHandlerError> {
         match current_state {
@@ -532,7 +547,7 @@ impl NextState for DpuInitNextStateResolver {
                 let next_state = DpuInitState::DpfStates {
                     state: next_dpf_state,
                 };
-                states.insert(*dpu_id, next_state);
+                update_state_values(dpu_id, &mut states, next_state);
                 Ok(ManagedHostState::DPUInit {
                     dpu_states: DpuInitStates { states },
                 })

@@ -463,6 +463,16 @@ impl TestDpfTowerServer {
                 "false",
             )));
 
+            let (req, send) = handle.next_request().await.unwrap();
+            let dpu_name = req.uri().path().split('/').next_back().unwrap();
+            assert_eq!(
+                req.uri().path(),
+                format!(
+                    "/apis/provisioning.dpu.nvidia.com/v1alpha1/namespaces/dpf-operator-system/dpus/{dpu_name}"
+                )
+            );
+            send.send_response(Self::ok_json(dpu_cr(dpu_name, "OS Installing")));
+
             // Exter-reboot annotation handling.
             let (req, send) = handle.next_request().await.unwrap();
             assert_eq!(
@@ -482,6 +492,81 @@ impl TestDpfTowerServer {
             );
             assert_eq!(req.method(), http::Method::PATCH);
             send.send_response(Self::ok_json(dpu_node(node_name, false)));
+        });
+        tracing::info!("Server started");
+        server
+    }
+
+    pub fn start_server_mh_reprovisioning_failed(
+        &self,
+        mut handle: Handle<Request<Body>, Response<Body>>,
+    ) -> tokio::task::JoinHandle<()> {
+        let server = tokio::spawn(async move {
+            let (req, send) = handle.next_request().await.unwrap();
+            let dpu_name = req.uri().path().split("/").last().unwrap();
+            assert_eq!(
+                req.uri().path(),
+                format!(
+                    "/apis/provisioning.dpu.nvidia.com/v1alpha1/namespaces/dpf-operator-system/dpus/{dpu_name}"
+                )
+            );
+            send.send_response(Self::ok_json(dpu_cr(dpu_name, "OS Installing")));
+
+            let (req, send) = handle.next_request().await.unwrap();
+            assert_eq!(
+                req.uri().path(),
+                format!(
+                    "/apis/provisioning.dpu.nvidia.com/v1alpha1/namespaces/dpf-operator-system/dpus/{dpu_name}/status"
+                )
+            );
+            assert_eq!(req.method(), http::Method::PATCH);
+            send.send_response(Self::ok_json(dpu_cr(dpu_name, "Error")));
+
+            let (req, send) = handle.next_request().await.unwrap();
+            assert_eq!(
+                req.uri().path(),
+                format!(
+                    "/apis/provisioning.dpu.nvidia.com/v1alpha1/namespaces/dpf-operator-system/dpus/{dpu_name}"
+                )
+            );
+            assert_eq!(req.method(), http::Method::DELETE);
+            send.send_response(Self::deleted_json());
+
+            // Fetch and update node effect annotation.
+            let (req, send) = handle.next_request().await.unwrap();
+            let maintenancenode_name = req.uri().path().split("/").last().unwrap();
+            assert_eq!(
+                req.uri().path(),
+                format!(
+                    "/apis/provisioning.dpu.nvidia.com/v1alpha1/namespaces/dpf-operator-system/dpunodemaintenances/{maintenancenode_name}"
+                )
+            );
+            send.send_response(Self::ok_json(dpu_node_maintenance(
+                req.uri().path(),
+                "true",
+            )));
+            let (req, send) = handle.next_request().await.unwrap();
+            assert_eq!(
+                req.uri().path(),
+                format!(
+                    "/apis/provisioning.dpu.nvidia.com/v1alpha1/namespaces/dpf-operator-system/dpunodemaintenances/{maintenancenode_name}"
+                )
+            );
+            assert_eq!(req.method(), http::Method::PATCH);
+            send.send_response(Self::ok_json(dpu_node_maintenance(
+                req.uri().path(),
+                "false",
+            )));
+
+            let (req, send) = handle.next_request().await.unwrap();
+            let dpu_name = req.uri().path().split('/').next_back().unwrap();
+            assert_eq!(
+                req.uri().path(),
+                format!(
+                    "/apis/provisioning.dpu.nvidia.com/v1alpha1/namespaces/dpf-operator-system/dpus/{dpu_name}"
+                )
+            );
+            send.send_response(Self::ok_json(dpu_cr(dpu_name, "Error")));
         });
         tracing::info!("Server started");
         server
@@ -547,6 +632,16 @@ impl TestDpfTowerServer {
                 req.uri().path(),
                 "false",
             )));
+
+            let (req, send) = handle.next_request().await.unwrap();
+            let dpu_name = req.uri().path().split('/').next_back().unwrap();
+            assert_eq!(
+                req.uri().path(),
+                format!(
+                    "/apis/provisioning.dpu.nvidia.com/v1alpha1/namespaces/dpf-operator-system/dpus/{dpu_name}"
+                )
+            );
+            send.send_response(Self::ok_json(dpu_cr(dpu_name, "OS Installing")));
 
             // Exter-reboot annotation handling.
             let (req, send) = handle.next_request().await.unwrap();
@@ -1010,4 +1105,76 @@ async fn test_dpu_and_host_force_delete(pool: sqlx::PgPool) {
     if !force_delete_server.is_finished() {
         force_delete_server.abort();
     }
+}
+
+#[crate::sqlx_test]
+async fn test_dpu_and_host_till_ready_with_reprovisioning_failed(pool: sqlx::PgPool) {
+    let mut kube_impl = TestDpfTowerServer::new();
+    let handle = kube_impl.init().await;
+    let server = kube_impl.start_server_mh_ready(handle);
+
+    let mut config = get_config();
+    config.dpf = crate::cfg::file::DpfConfig { enabled: true };
+    let dpf_config = crate::state_controller::machine::handler::DpfConfig::from(
+        config.dpf.clone(),
+        Arc::new(kube_impl),
+    );
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config).with_dpf_config(dpf_config),
+    )
+    .await;
+    let mh = create_managed_host_with_dpf(&env).await;
+
+    // Server has done handling.
+    if !server.is_finished() {
+        server.abort();
+    }
+
+    let mut reprovisioning_api = TestDpfTowerServer::new();
+    let reprovisioning_handle = reprovisioning_api.init().await;
+    let reprovisioning_server =
+        reprovisioning_api.start_server_mh_reprovisioning_failed(reprovisioning_handle);
+
+    env.machine_state_handler
+        .inner
+        .lock()
+        .await
+        .dpu_handler
+        .dpf_config
+        .kube_client_provider = Arc::new(reprovisioning_api);
+
+    mh.mark_machine_for_updates().await;
+    mh.host()
+        .trigger_dpu_reprovisioning(rpc::forge::dpu_reprovisioning_request::Mode::Set, true)
+        .await;
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.id,
+        9,
+        ManagedHostState::DPUReprovision {
+            dpu_states: model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    mh.dpu().id,
+                    ReprovisionState::DpfStates {
+                        substate: DpfState::WaitingForOsInstallToComplete,
+                    },
+                )]),
+            },
+        },
+    )
+    .await;
+    env.run_machine_state_controller_iteration().await;
+    if !reprovisioning_server.is_finished() {
+        reprovisioning_server.abort();
+    }
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+
+    assert!(matches!(
+        host.current_state(),
+        ManagedHostState::Failed { .. }
+    ));
+    txn.rollback().await.unwrap();
 }

@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
+use carbide_dpf::crds::dpu_generated::DpuStatusPhase;
 use carbide_uuid::machine::MachineId;
 use itertools::Itertools as _;
 use model::machine::{
-    DpfState, DpuInitNextStateResolver, DpuInitState, Machine, ManagedHostState,
+    DpfState, DpuInitNextStateResolver, DpuInitState, FailureDetails, Machine, ManagedHostState,
     ManagedHostStateSnapshot, PerformPowerOperation, ReprovisionState, ReprovisioningPhase,
 };
 use sqlx::PgConnection;
@@ -82,7 +83,6 @@ pub async fn handle_dpf_state(
         DpfState::UpdateNodeEffectAnnotation => {
             handle_update_node_effect_annotation_state(
                 state,
-                dpu_snapshot,
                 dpf_config,
                 &DpuInitNextStateResolver {},
             )
@@ -96,6 +96,7 @@ pub async fn handle_dpf_state(
                 txn,
                 ctx,
                 reachability_params,
+                dpf_config,
                 &DpuInitNextStateResolver {},
             )
             .await
@@ -174,13 +175,7 @@ pub async fn handle_dpf_state_with_reprovision(
             }
         },
         DpfState::UpdateNodeEffectAnnotation => {
-            handle_update_node_effect_annotation_state(
-                state,
-                dpu_snapshot,
-                dpf_config,
-                state_resolver,
-            )
-            .await
+            handle_update_node_effect_annotation_state(state, dpf_config, state_resolver).await
         }
         DpfState::WaitingForOsInstallToComplete => {
             handle_wait_for_os_install_and_discovery(
@@ -190,6 +185,7 @@ pub async fn handle_dpf_state_with_reprovision(
                 txn,
                 ctx,
                 reachability_params,
+                dpf_config,
                 state_resolver,
             )
             .await
@@ -247,7 +243,7 @@ async fn handle_update_dpu_status_to_error_state(
 
     let next_state = next_state_resolver.next_dpf_state(
         &state.managed_state,
-        &dpu_snapshot.id,
+        Some(&dpu_snapshot.id),
         DpfState::TriggerReprovisioning {
             phase: ReprovisioningPhase::DeleteDpu,
         },
@@ -279,7 +275,7 @@ async fn handle_delete_dpu_state(
 
     let next_state = next_state_resolver.next_dpf_state(
         &state.managed_state,
-        &dpu_snapshot.id,
+        Some(&dpu_snapshot.id),
         DpfState::TriggerReprovisioning {
             phase: ReprovisioningPhase::WaitingForAllDpusUnderReprovisioningToBeDeleted,
         },
@@ -375,6 +371,66 @@ async fn handle_wait_for_discovery_and_remove_annotation_state(
     Ok(StateHandlerOutcome::transition(next_state))
 }
 
+/// Creates a failed state based on the current managed host state.
+/// Maps different state types to their appropriate failure representations with proper error details.
+///
+/// # Arguments
+/// * `current_state` - The current managed host state to transition from.
+/// * `machine_id` - The machine identifier for the failed state.
+/// * `err` - Error message describing the failure.
+///
+/// # Returns
+/// * `Result<ManagedHostState, StateHandlerError>` with the appropriate failed state.
+///
+/// # State Mappings
+/// * `Assigned` - Returns Assigned with InstanceState::Failed (Reprovisioning cause)
+/// * `DPUReprovision` - Returns Failed state with Reprovisioning cause
+/// * `DPUInit` - Returns Failed state with DpfProvisioning cause
+fn get_failed_state(
+    current_state: &ManagedHostState,
+    machine_id: MachineId,
+    err: String,
+) -> Result<ManagedHostState, StateHandlerError> {
+    let create_failed_state =
+        |cause: model::machine::FailureCause, area: model::machine::StateMachineArea| {
+            ManagedHostState::Failed {
+                details: FailureDetails {
+                    cause,
+                    failed_at: chrono::Utc::now(),
+                    source: model::machine::FailureSource::StateMachineArea(area),
+                },
+                machine_id,
+                retry_count: 0,
+            }
+        };
+
+    match current_state {
+        ManagedHostState::Assigned { .. } => Ok(ManagedHostState::Assigned {
+            instance_state: model::machine::InstanceState::Failed {
+                details: FailureDetails {
+                    cause: model::machine::FailureCause::Reprovisioning { err },
+                    failed_at: chrono::Utc::now(),
+                    source: model::machine::FailureSource::StateMachineArea(
+                        model::machine::StateMachineArea::AssignedInstance,
+                    ),
+                },
+                machine_id,
+            },
+        }),
+        ManagedHostState::DPUReprovision { .. } => Ok(create_failed_state(
+            model::machine::FailureCause::Reprovisioning { err },
+            model::machine::StateMachineArea::Default,
+        )),
+        ManagedHostState::DPUInit { .. } => Ok(create_failed_state(
+            model::machine::FailureCause::DpfProvisioning { err },
+            model::machine::StateMachineArea::Default,
+        )),
+        _ => Err(StateHandlerError::InvalidState(format!(
+            "State {current_state:?} is not handled."
+        ))),
+    }
+}
+
 /// Handles the transition for a DPU after a reboot is triggered. Initiates the reboot and transitions to discovery/removal annotation state.
 ///
 /// # Arguments
@@ -387,6 +443,7 @@ async fn handle_wait_for_discovery_and_remove_annotation_state(
 /// # Returns
 /// * `Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError>`
 #[allow(txn_held_across_await)]
+#[allow(clippy::too_many_arguments)]
 async fn handle_wait_for_os_install_and_discovery(
     state: &ManagedHostStateSnapshot,
     dpu_snapshot: &Machine,
@@ -394,16 +451,35 @@ async fn handle_wait_for_os_install_and_discovery(
     txn: &mut PgConnection,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     reachability_params: &ReachabilityParams,
+    dpf_config: &DpfConfig,
     next_state_resolver: &impl NextState,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let next_state = next_state_resolver.next_dpf_state(
         &state.managed_state,
-        &dpu_snapshot.id,
+        Some(&dpu_snapshot.id),
         DpfState::WaitForNetworkConfigAndRemoveAnnotation,
     )?;
 
     // In case of reprovisioning, we will not restart DPU if reprovisioing is not requested for this DPU.
     if reprovision_case && dpu_snapshot.reprovision_requested.is_none() {
+        return Ok(StateHandlerOutcome::transition(next_state));
+    }
+
+    let dpu_state = carbide_dpf::utils::get_dpu_status_phase(
+        bmc_ip(&state.host_snapshot)?,
+        &dpu_snapshot.id,
+        &*dpf_config.kube_client_provider,
+    )
+    .await?;
+
+    // If DPU CR failed during provisioing, move the managedhost to Failed State.
+    if matches!(dpu_state, DpuStatusPhase::Error) {
+        let next_state = get_failed_state(
+            &state.managed_state,
+            dpu_snapshot.id,
+            "DPU CR moved to Error phase.".to_string(),
+        )?;
+
         return Ok(StateHandlerOutcome::transition(next_state));
     }
 
@@ -437,14 +513,12 @@ async fn handle_wait_for_os_install_and_discovery(
 ///
 /// # Arguments
 /// * `state` - The managed host state snapshot.
-/// * `dpu_snapshot` - The DPU machine snapshot.
 /// * `dpf_config` - DPF controller configuration.
 ///
 /// # Returns
 /// * `Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError>`
 async fn handle_update_node_effect_annotation_state(
     state: &ManagedHostStateSnapshot,
-    dpu_snapshot: &Machine,
     dpf_config: &DpfConfig,
     next_state_resolver: &impl NextState,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
@@ -461,7 +535,7 @@ async fn handle_update_node_effect_annotation_state(
 
     let next_state = next_state_resolver.next_dpf_state(
         &state.managed_state,
-        &dpu_snapshot.id,
+        None,
         DpfState::WaitingForOsInstallToComplete,
     )?;
     Ok(StateHandlerOutcome::transition(next_state))
