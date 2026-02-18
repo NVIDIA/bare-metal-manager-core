@@ -20,10 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::Router;
-use bmc_mock::{
-    CombinedServer, HostnameQuerying, ListenerOrAddress, MachineInfo, MockPowerState,
-    POWER_CYCLE_DELAY, PowerControl,
-};
+use bmc_mock::{CombinedServer, HostnameQuerying, ListenerOrAddress, MachineInfo, PowerControl};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -170,17 +167,3 @@ pub struct BmcMockWrapperHandle {
 /// BmcMockRegistry is shared state that MachineATron's mock hosts can use to register their BMC
 /// mock routers, so that a single shared instance of BMC mock can delegate to them.
 pub type BmcMockRegistry = Arc<RwLock<HashMap<String, Router>>>;
-
-pub fn convert_power_state(val: MockPowerState) -> libredfish::PowerState {
-    match val {
-        MockPowerState::On => libredfish::PowerState::On,
-        MockPowerState::Off => libredfish::PowerState::Off,
-        MockPowerState::PowerCycling { since } => {
-            if since.elapsed() < POWER_CYCLE_DELAY {
-                libredfish::PowerState::Off
-            } else {
-                libredfish::PowerState::On
-            }
-        }
-    }
-}

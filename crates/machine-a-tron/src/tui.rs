@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::time::Duration;
 
+use bmc_mock::MockPowerState;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use crossterm::ExecutableCommand;
@@ -26,7 +27,6 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use futures::StreamExt;
-use libredfish::PowerState;
 use ratatui::prelude::*;
 use ratatui::symbols::DOT;
 use ratatui::widgets::*;
@@ -92,7 +92,7 @@ impl SubnetDetails {
 pub struct HostDetails {
     pub mat_id: Uuid,
     pub machine_id: Option<String>,
-    pub power_state: PowerState,
+    pub power_state: MockPowerState,
     pub mat_state: String,
     pub api_state: String,
     pub oob_ip: String,

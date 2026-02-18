@@ -29,7 +29,6 @@ use tokio::time::Interval;
 use tracing::instrument;
 use uuid::Uuid;
 
-use crate::bmc_mock_wrapper::convert_power_state;
 use crate::config::{MachineATronContext, PersistedDpuMachine};
 use crate::dhcp_wrapper::{DhcpRelayResult, DhcpResponseInfo, DpuDhcpRelay, DpuDhcpRelayServer};
 use crate::host_machine::HandleMessageResult;
@@ -390,7 +389,7 @@ impl DpuMachineHandle {
                 .unwrap_or_default(),
             dpus: Vec::default(),
             booted_os: guard.booted_os.to_string(),
-            power_state: convert_power_state(guard.power_state),
+            power_state: guard.power_state,
         }
     }
 

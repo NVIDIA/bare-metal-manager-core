@@ -31,7 +31,6 @@ use tracing::instrument;
 use uuid::Uuid;
 
 use crate::api_client::ApiClient;
-use crate::bmc_mock_wrapper::convert_power_state;
 use crate::config::{MachineATronContext, MachineConfig, PersistedHostMachine};
 use crate::dhcp_wrapper::{DhcpRelayResult, DhcpResponseInfo, DpuDhcpRelay};
 use crate::dpu_machine::{DpuMachine, DpuMachineHandle};
@@ -438,7 +437,7 @@ impl HostMachine {
                 .unwrap_or_default(),
             dpus: dpu_details,
             booted_os: live_state.booted_os.to_string(),
-            power_state: convert_power_state(live_state.power_state),
+            power_state: live_state.power_state,
         }
     }
 

@@ -49,7 +49,6 @@ ratatui = { workspace = true }
 mac_address = { workspace = true }
 futures = { workspace = true }
 figment = { features = ["toml"], workspace = true }
-libredfish = { workspace = true }
 reqwest = { default-features = false, features = [
   "json",
   "rustls-tls",

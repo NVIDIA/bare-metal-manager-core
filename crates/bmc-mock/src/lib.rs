@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use std::borrow::Cow;
+use std::fmt;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -56,6 +57,16 @@ pub enum MockPowerState {
     PowerCycling {
         since: Instant,
     },
+}
+
+impl fmt::Display for MockPowerState {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::On => "On".fmt(f),
+            Self::Off => "Off".fmt(f),
+            Self::PowerCycling { since } => write!(f, "PowerCycling {:?}", since.elapsed()),
+        }
+    }
 }
 
 // Simulate a 5-second power cycle
