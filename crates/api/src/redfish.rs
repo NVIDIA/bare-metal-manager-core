@@ -443,7 +443,7 @@ pub async fn host_power_control_with_location(
     } else {
         action
     };
-    // Always log to ensure we can see that forge is doing the power controlling
+    // Always log to ensure we can see that carbide is doing the power controlling
     tracing::info!(
         machine_id = machine.id.to_string(),
         action = action.to_string(),
@@ -457,120 +457,28 @@ pub async fn host_power_control_with_location(
             time: Utc::now(),
         });
 
-    match machine.bmc_vendor() {
-        bmc_vendor::BMCVendor::Lenovo => {
-            redfish_client
-                .power(action)
-                .await
-                .map_err(CarbideError::RedfishError)?;
-        }
-        bmc_vendor::BMCVendor::Nvidia
-            if (action == SystemPowerControl::GracefulRestart)
-                || (action == SystemPowerControl::ForceRestart) =>
-        {
-            let service_root = redfish_client
-                .get_service_root()
-                .await
-                .map_err(CarbideError::RedfishError)?;
-            let system = redfish_client
-                .get_system()
-                .await
-                .map_err(CarbideError::RedfishError)?;
-            let manager = redfish_client
-                .get_manager()
-                .await
-                .map_err(CarbideError::RedfishError)?;
-            let is_viking = service_root
-                .vendor()
-                .unwrap_or(libredfish::model::service_root::RedfishVendor::Unknown)
-                == libredfish::model::service_root::RedfishVendor::AMI
-                && system.id == "DGX"
-                && manager.id == "BMC";
-
-            /*
-                TODO: This logic has been here for a while, and we have upgraded the Vikings many times since.
-                See if we can remove the ipmitool path here and instead use standard redfish power control for Vikings.
-                Previous investigation seemed to indicate that using SystemPowerControl::GracefulRestart
-                instead of ForceRestart avoids bringing down the DPUs, but we need more testing.
-            */
-            if is_viking {
-                // vikings reboot their DPU's if redfish reset is used. \
-                // ipmitool is verified to not cause it to reset, so we use it, hackily, here.
-                //
-                // TODO(ajf) none of this IPMI code should be in the redfish module, and constructing an IPMI requires duplicate
-                // work that we did in the calling function.
-                //
-                let machine_id = &machine.id;
-                let maybe_ip = machine.bmc_info.ip.as_ref().ok_or_else(|| {
-                    CarbideError::internal(format!("IP address is missing for {machine_id}"))
-                })?;
-
-                let ip = maybe_ip.parse().map_err(|_| {
-                    CarbideError::internal(format!("Invalid IP address for {machine_id}"))
-                })?;
-
-                let Some(bmc_mac_address) = machine.bmc_info.mac else {
-                    return Err(CarbideError::RedfishClientCreation {
-                        inner: RedfishClientCreationError::MissingBmcEndpoint(format!(
-                            "BMC Endpoint Information (bmc_info.ip) is missing for {}",
-                            machine.id,
-                        ))
-                        .into(),
-                        machine_id: machine.id,
-                    });
-                };
-
-                let credential_key = CredentialKey::BmcCredentials {
-                    credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
-                };
-
-                ctx.services
-                    .ipmi_tool
-                    .restart(&machine.id, ip, false, &credential_key)
-                    .await
-                    .map_err(|e: eyre::ErrReport| {
-                        CarbideError::internal(format!("Failed to restart machine: {e}"))
-                    })?;
-            } else {
+    if (action == SystemPowerControl::GracefulRestart)
+        || (action == SystemPowerControl::ForceRestart)
+    {
+        let power_result: Result<PowerState, RedfishError> = redfish_client.get_power_state().await;
+        if let Ok(power_state) = power_result {
+            tracing::info!(
+                machine_id = machine.id.to_string(),
+                action = power_state.to_string(),
+                "Host Power State"
+            );
+            if power_state == PowerState::Off {
+                tracing::info!(
+                    machine_id = machine.id.to_string(),
+                    action = "Manual intervention required to initiate power-on".to_string(),
+                    "Host Power Action"
+                );
+                /* // reserve for future proactive power on action
                 redfish_client
-                    .power(action)
-                    .await
-                    .map_err(CarbideError::RedfishError)?;
-            }
-        }
-
-        _ => {
-            if (action == SystemPowerControl::GracefulRestart)
-                || (action == SystemPowerControl::ForceRestart)
-            {
-                let power_result: Result<PowerState, RedfishError> =
-                    redfish_client.get_power_state().await;
-                if let Ok(power_state) = power_result {
-                    tracing::info!(
-                        machine_id = machine.id.to_string(),
-                        action = power_state.to_string(),
-                        "Host Power State"
-                    );
-                    if power_state == PowerState::Off {
-                        tracing::info!(
-                            machine_id = machine.id.to_string(),
-                            action =
-                                "Manual intervention required to initiate power-on".to_string(),
-                            "Host Power Action"
-                        );
-                        /* // reserve for future proactive power on action
-                        redfish_client
-                        .power(SystemPowerControl::On)
-                        .await
-                        .map_err(CarbideError::RedfishError)?
-                        */
-                    } else {
-                        redfish_client
-                            .power(action)
-                            .await
-                            .map_err(CarbideError::RedfishError)?
-                    }
-                }
+                .power(SystemPowerControl::On)
+                .await
+                .map_err(CarbideError::RedfishError)?
+                */
             } else {
                 redfish_client
                     .power(action)
@@ -578,6 +486,11 @@ pub async fn host_power_control_with_location(
                     .map_err(CarbideError::RedfishError)?
             }
         }
+    } else {
+        redfish_client
+            .power(action)
+            .await
+            .map_err(CarbideError::RedfishError)?
     }
 
     Ok(())

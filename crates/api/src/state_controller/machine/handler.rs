@@ -4655,16 +4655,7 @@ async fn handle_host_uefi_setup(
             ))
         }
         UefiSetupState::PowercycleHost => {
-            host_power_control(
-                redfish_client.as_ref(),
-                &state.host_snapshot,
-                SystemPowerControl::ForceRestart,
-                ctx,
-            )
-            .await
-            .map_err(|e| {
-                StateHandlerError::GenericError(eyre!("handler_host_power_control failed: {}", e))
-            })?;
+            handler_host_power_control(state, ctx, SystemPowerControl::ForceRestart).await?;
             Ok(StateHandlerOutcome::transition(
                 ManagedHostState::HostInit {
                     machine_state: MachineState::UefiSetup {
@@ -8584,17 +8575,26 @@ pub async fn handler_host_power_control_with_location(
             tracing::warn!(%power_state, %action, "Power state is Off and requested action is restart. Trying to power on the host.");
             action = SystemPowerControl::On;
         }
-        host_power_control_with_location(
-            redfish_client.as_ref(),
-            &managedhost_snapshot.host_snapshot,
-            action,
-            ctx,
-            location,
-        )
-        .await
-        .map_err(|e| {
-            StateHandlerError::GenericError(eyre!("handler_host_power_control failed: {}", e))
-        })?;
+
+        let machine = &managedhost_snapshot.host_snapshot;
+        let is_restart = action == SystemPowerControl::ForceRestart
+            || action == SystemPowerControl::GracefulRestart;
+
+        if is_restart && needs_ipmi_restart(machine, ctx).await? {
+            do_ipmi_restart(machine, ctx, action, location).await?;
+        } else {
+            host_power_control_with_location(
+                redfish_client.as_ref(),
+                machine,
+                action,
+                ctx,
+                location,
+            )
+            .await
+            .map_err(|e| {
+                StateHandlerError::GenericError(eyre!("handler_host_power_control failed: {}", e))
+            })?;
+        }
     }
 
     // If host is forcedOff/ACPowercycled/On, it will impact DPU also. So DPU timestamp should also be updated
@@ -8649,6 +8649,92 @@ async fn restart_dpu(
     }
 
     Ok(())
+}
+
+/// Returns true if this machine needs IPMI restart to avoid killing its DPUs.
+/// Redfish restart kills the DPU on some machines
+async fn needs_ipmi_restart(
+    machine: &Machine,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<bool, StateHandlerError> {
+    let addr = machine
+        .bmc_info
+        .ip_addr()
+        .map_err(StateHandlerError::GenericError)?;
+    let endpoints =
+        db::explored_endpoints::find_by_ips(&mut ctx.services.db_reader, vec![addr]).await?;
+    let Some(ep) = endpoints.first() else {
+        return Ok(false);
+    };
+
+    Ok(match ep.report.vendor {
+        Some(bmc_vendor::BMCVendor::Lenovo) => {
+            let model = ep.report.model.as_deref().unwrap_or("");
+            model.contains("SR650 V4")
+        }
+        Some(bmc_vendor::BMCVendor::Nvidia) => {
+            ep.report.systems.iter().any(|s| s.id == "DGX")
+                && ep.report.managers.iter().any(|m| m.id == "BMC")
+        }
+        _ => false,
+    })
+}
+
+/// Perform an IPMI chassis power reset for the given machine
+async fn do_ipmi_restart(
+    machine: &Machine,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    action: SystemPowerControl,
+    trigger_location: &std::panic::Location<'_>,
+) -> Result<(), StateHandlerError> {
+    tracing::info!(
+        machine_id = machine.id.to_string(),
+        action = action.to_string(),
+        trigger_location = %trigger_location,
+        "IPMI Host Power Control"
+    );
+    ctx.pending_db_writes
+        .push(MachineWriteOp::UpdateRebootRequestedTime {
+            machine_id: machine.id,
+            mode: action.into(),
+            time: Utc::now(),
+        });
+
+    let bmc_mac = machine
+        .bmc_info
+        .mac
+        .ok_or_else(|| StateHandlerError::MissingData {
+            object_id: machine.id.to_string(),
+            missing: "bmc_mac",
+        })?;
+    let ip: IpAddr = machine
+        .bmc_info
+        .ip
+        .as_ref()
+        .ok_or_else(|| StateHandlerError::MissingData {
+            object_id: machine.id.to_string(),
+            missing: "bmc_ip",
+        })?
+        .parse()
+        .map_err(|e| {
+            StateHandlerError::GenericError(eyre!(
+                "parsing BMC IP address for {} failed: {}",
+                machine.id,
+                e
+            ))
+        })?;
+    let credential_key = CredentialKey::BmcCredentials {
+        credential_type: BmcCredentialType::BmcRoot {
+            bmc_mac_address: bmc_mac,
+        },
+    };
+    ctx.services
+        .ipmi_tool
+        .restart(&machine.id, ip, false, &credential_key)
+        .await
+        .map_err(|e| {
+            StateHandlerError::GenericError(eyre!("IPMI restart failed for {}: {}", machine.id, e))
+        })
 }
 
 /// find_explored_refreshed_endpoint will locate the explored endpoint for the given state.
