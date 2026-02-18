@@ -22,7 +22,7 @@
 //! This is maintained for backward compatibility during migration to the PowerDNS backend.
 
 use std::iter;
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,7 +38,7 @@ use trust_dns_resolver::proto::rr::{DNSClass, Name, RData};
 use trust_dns_server::ServerFuture;
 use trust_dns_server::authority::MessageResponseBuilder;
 use trust_dns_server::proto::rr::Record;
-use trust_dns_server::proto::rr::RecordType::A;
+use trust_dns_server::proto::rr::RecordType::{A, AAAA};
 use trust_dns_server::server::{Request, RequestHandler, ResponseHandler, ResponseInfo};
 
 use crate::config::Config;
@@ -61,13 +61,19 @@ impl RequestHandler for LegacyDnsServer {
 
         let message = MessageResponseBuilder::from_message_request(request);
 
-        match request.query().query_type() {
-            A => {
+        let query_type = request.query().query_type();
+        match query_type {
+            A | AAAA => {
+                let q_type_num = match query_type {
+                    AAAA => 28,
+                    _ => 1,
+                };
+
                 // Build the legacy DnsQuestion request
                 let carbide_dns_request = tonic::Request::new(forge::dns_message::DnsQuestion {
                     q_name: Some(request_info.query.name().to_string()),
                     q_class: Some(1),
-                    q_type: Some(1),
+                    q_type: Some(q_type_num),
                 });
 
                 info!("Sending {} to api server", request_info.query.original());
@@ -76,16 +82,20 @@ impl RequestHandler for LegacyDnsServer {
                     match Self::retrieve_record(self.forge_client.clone(), carbide_dns_request)
                         .await
                     {
-                        Ok(value) => {
+                        Ok(ip) => {
                             response_header.set_response_code(ResponseCode::NoError);
-                            let a_record = Record::new()
+                            let (rtype, rdata) = match ip {
+                                IpAddr::V4(v4) => (A, RData::A(v4.into())),
+                                IpAddr::V6(v6) => (AAAA, RData::AAAA(v6.into())),
+                            };
+                            let dns_record = Record::new()
                                 .set_ttl(30)
                                 .set_name(Name::from(request_info.query.name()))
-                                .set_record_type(A)
+                                .set_record_type(rtype)
                                 .set_dns_class(DNSClass::IN)
-                                .set_data(Some(RData::A(value.into())))
+                                .set_data(Some(rdata))
                                 .clone();
-                            Some(a_record)
+                            Some(dns_record)
                         }
                         Err(e) => {
                             warn!(
@@ -134,7 +144,7 @@ impl LegacyDnsServer {
     async fn retrieve_record(
         forge_client: Arc<Mutex<ForgeClientT>>,
         request: tonic::Request<forge::dns_message::DnsQuestion>,
-    ) -> Result<Ipv4Addr, tonic::Status> {
+    ) -> Result<IpAddr, tonic::Status> {
         let mut client = forge_client.lock().await;
         #[allow(deprecated)]
         let response = client.lookup_record_legacy(request).await?.into_inner();
@@ -145,13 +155,10 @@ impl LegacyDnsServer {
             .rrs
             .first()
             .ok_or_else(|| tonic::Status::internal("Resource Record list is empty".to_string()))?;
-        let ip =
-            Ipv4Addr::from_str(record.rdata.as_ref().unwrap_or(&String::new())).map_err(|_e| {
-                tonic::Status::internal(format!(
-                    "Can not parse record data \"{}\" as IP",
-                    record.rdata.as_ref().unwrap_or(&String::new())
-                ))
-            })?;
+        let rdata = record.rdata.as_deref().unwrap_or("");
+        let ip = IpAddr::from_str(rdata).map_err(|_e| {
+            tonic::Status::internal(format!("Can not parse record data \"{rdata}\" as IP"))
+        })?;
 
         Ok(ip)
     }
