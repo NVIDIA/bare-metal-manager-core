@@ -116,6 +116,7 @@ pub struct SingleChassisConfig {
     pub sensors: Option<Vec<redfish::sensor::Sensor>>,
     pub chassis_type: Cow<'static, str>,
     pub assembly: Option<serde_json::Value>,
+    pub oem: Option<serde_json::Value>,
 }
 
 pub struct ChassisConfig {
@@ -218,7 +219,7 @@ async fn get_chassis(State(state): State<BmcState>, Path(chassis_id): Path<Strin
         .is_some()
         .then_some(redfish::assembly::chassis_resource(&chassis_id));
 
-    builder(&resource(&chassis_id))
+    let mut b = builder(&resource(&chassis_id))
         .chassis_type(&config.chassis_type)
         .maybe_with(ChassisBuilder::assembly, &assembly)
         .maybe_with(ChassisBuilder::pcie_devices, &pcie_devices)
@@ -227,9 +228,13 @@ async fn get_chassis(State(state): State<BmcState>, Path(chassis_id): Path<Strin
         .maybe_with(ChassisBuilder::serial_number, &config.serial_number)
         .maybe_with(ChassisBuilder::manufacturer, &config.manufacturer)
         .maybe_with(ChassisBuilder::part_number, &config.part_number)
-        .maybe_with(ChassisBuilder::model, &config.model)
-        .build()
-        .into_ok_response()
+        .maybe_with(ChassisBuilder::model, &config.model);
+
+    if let Some(oem) = &config.oem {
+        b = b.oem(oem)
+    }
+
+    b.build().into_ok_response()
 }
 
 async fn get_chassis_network_adapters(
@@ -450,6 +455,10 @@ impl ChassisBuilder {
 
     pub fn sensors(self, v: &redfish::Collection<'_>) -> Self {
         self.apply_patch(v.nav_property("Sensors"))
+    }
+
+    pub fn oem(self, v: &serde_json::Value) -> Self {
+        self.apply_patch(json!({"Oem": v}))
     }
 
     pub fn build(self) -> serde_json::Value {

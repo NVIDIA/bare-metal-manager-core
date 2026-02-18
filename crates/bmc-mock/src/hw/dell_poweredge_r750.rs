@@ -224,6 +224,7 @@ impl DellPowerEdgeR750<'_> {
                     Self::sensor_layout(),
                 )),
                 assembly: None,
+                oem: None,
             }],
         }
     }

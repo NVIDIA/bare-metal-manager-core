@@ -134,8 +134,31 @@ impl WiwynnGB200Nvl<'_> {
                 pcie_devices: Some(vec![]),
                 sensors: None,
                 assembly: None,
+                oem: None,
             }
         };
+        let cbc_chassis = |chassis_id: &'static str| redfish::chassis::SingleChassisConfig {
+            id: chassis_id.into(),
+            chassis_type: "Component".into(),
+            manufacturer: Some("Nvidia".into()),
+            part_number: Some("750-0567-002".into()),
+            model: Some("18x1RU CBL Cartridge".into()),
+            serial_number: Some("1821220000000".into()),
+            network_adapters: None,
+            pcie_devices: Some(vec![]),
+            sensors: None,
+            assembly: None,
+            oem: Some(json!({
+                "Nvidia": {
+                    "@odata.type": "#NvidiaChassis.v1_4_0.NvidiaCBCChassis",
+                    "ChassisPhysicalSlotNumber": 24,
+                    "ComputeTrayIndex": 14,
+                    "RevisionId": 2,
+                    "TopologyId": 128
+                }
+            })),
+        };
+
         redfish::chassis::ChassisConfig {
             chassis: vec![
                 redfish::chassis::SingleChassisConfig {
@@ -149,6 +172,7 @@ impl WiwynnGB200Nvl<'_> {
                     pcie_devices: Some(vec![]),
                     sensors: None,
                     assembly: None,
+                    oem: None,
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "Chassis_0".into(),
@@ -171,7 +195,12 @@ impl WiwynnGB200Nvl<'_> {
                         )
                         .build(),
                     ),
+                    oem: None,
                 },
+                cbc_chassis("CBC_0"),
+                cbc_chassis("CBC_1"),
+                cbc_chassis("CBC_2"),
+                cbc_chassis("CBC_3"),
                 dpu_chassis("Riser_Slot1_BlueField_3_Card", &self.dpu1),
                 dpu_chassis("Riser_Slot2_BlueField_3_Card", &self.dpu2),
             ],
