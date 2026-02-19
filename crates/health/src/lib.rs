@@ -20,7 +20,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use nv_redfish_bmc_http::reqwest::BmcError;
+use nv_redfish::bmc_http::reqwest::BmcError;
 use prometheus::{Gauge, GaugeVec, Opts};
 
 pub mod api_client;
@@ -83,7 +83,7 @@ impl From<BmcError> for HealthError {
     }
 }
 
-impl<B: nv_redfish_core::Bmc + 'static> From<nv_redfish::Error<B>> for HealthError {
+impl<B: nv_redfish::core::Bmc + 'static> From<nv_redfish::Error<B>> for HealthError {
     fn from(err: nv_redfish::Error<B>) -> Self {
         HealthError::BmcError(Box::new(err))
     }

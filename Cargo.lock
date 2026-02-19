@@ -1795,9 +1795,6 @@ dependencies = [
  "logfmt",
  "mac_address",
  "nv-redfish",
- "nv-redfish-bmc-http",
- "nv-redfish-core",
- "nv-redfish-csdl-compiler",
  "prometheus",
  "rand 0.9.2",
  "reqwest",
@@ -6273,10 +6270,11 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish"
-version = "0.1.4"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99dd5b5d03d23bff3e0f2871e1dc628a9a660aedeb1a765723fdcaff5e2cac21"
+checksum = "ca113684a2d0cb711c29f3f51d25907aac9ad0b6526adae8d23c96b407db6c3b"
 dependencies = [
+ "nv-redfish-bmc-http",
  "nv-redfish-core",
  "nv-redfish-csdl-compiler",
  "serde",
@@ -6286,9 +6284,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-bmc-http"
-version = "0.1.4"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a03fc0524afd4300caf22edab5d784845648d9145a3031d563950c1fd865e85"
+checksum = "d8a6dfe6d097a69d4bd2279eec9d803ea98d9d88af7e165fdf3975d8b29b2389"
 dependencies = [
  "http",
  "nv-redfish-core",
@@ -6303,9 +6301,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-core"
-version = "0.1.4"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fc042e4aae20a4c7963cea1717d0b4901ae0eb935ee6d47bdbfe00e85e89792"
+checksum = "3ea68852277f04aedaa16b87ad343d97ea00708274a9837eb755cc185e11022f"
 dependencies = [
  "rust_decimal",
  "serde",
@@ -6316,9 +6314,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-csdl-compiler"
-version = "0.1.4"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0785e1b51046234f3e298527395c5ade7251561c1feb2faf1bec2099dc19be8b"
+checksum = "5eddb6aef1fabe23b5288a9255577554dd1eefa5877da8530003cdfd773576be"
 dependencies = [
  "clap",
  "clap_derive",

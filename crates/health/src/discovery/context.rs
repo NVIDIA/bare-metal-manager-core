@@ -19,8 +19,8 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use nv_redfish_bmc_http::HttpBmc;
-use nv_redfish_bmc_http::reqwest::{
+use nv_redfish::bmc_http::HttpBmc;
+use nv_redfish::bmc_http::reqwest::{
     BmcError, Client as ReqwestClient, ClientParams as ReqwestClientParams,
 };
 use prometheus::{Histogram, HistogramOpts};

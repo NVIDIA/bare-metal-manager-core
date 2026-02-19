@@ -22,8 +22,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use nv_redfish::ServiceRoot;
+use nv_redfish::core::{Bmc, FilterQuery, ODataId};
 use nv_redfish::log_service::LogService;
-use nv_redfish_core::{Bmc, FilterQuery, ODataId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use tokio::io::AsyncWriteExt;

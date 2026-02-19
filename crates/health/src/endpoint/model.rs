@@ -93,9 +93,9 @@ impl BmcAddr {
     }
 }
 
-impl From<BmcCredentials> for nv_redfish_bmc_http::BmcCredentials {
+impl From<BmcCredentials> for nv_redfish::bmc_http::BmcCredentials {
     fn from(value: BmcCredentials) -> Self {
-        nv_redfish_bmc_http::BmcCredentials::new(value.username, value.password)
+        nv_redfish::bmc_http::BmcCredentials::new(value.username, value.password)
     }
 }
 

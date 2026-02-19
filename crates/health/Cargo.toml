@@ -53,9 +53,6 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 nv-redfish = { workspace = true }
-nv-redfish-core = { workspace = true }
-nv-redfish-bmc-http = { workspace = true }
-nv-redfish-csdl-compiler = { workspace = true }
 rand = { workspace = true }
 url = { workspace = true }
 

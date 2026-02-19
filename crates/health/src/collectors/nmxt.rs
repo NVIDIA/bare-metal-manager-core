@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use nv_redfish_core::Bmc;
+use nv_redfish::core::Bmc;
 use prometheus::{GaugeVec, Opts};
 
 use crate::HealthError;

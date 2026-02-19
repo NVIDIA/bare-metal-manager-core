@@ -24,8 +24,8 @@ use futures::{StreamExt, stream};
 use nv_redfish::ServiceRoot;
 use nv_redfish::chassis::{Chassis, PowerSupply};
 use nv_redfish::computer_system::{ComputerSystem, Drive, Memory, Processor, Storage};
+use nv_redfish::core::{Bmc, EntityTypeRef, ToSnakeCase};
 use nv_redfish::sensor::SensorRef;
-use nv_redfish_core::{Bmc, EntityTypeRef, ToSnakeCase};
 
 use crate::HealthError;
 use crate::collectors::{IterationResult, PeriodicCollector};

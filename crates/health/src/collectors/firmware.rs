@@ -19,7 +19,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use nv_redfish::ServiceRoot;
-use nv_redfish_core::Bmc;
+use nv_redfish::core::Bmc;
 
 use crate::HealthError;
 use crate::collectors::{IterationResult, PeriodicCollector};

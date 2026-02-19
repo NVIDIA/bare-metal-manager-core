@@ -21,9 +21,9 @@ use std::time::{Duration, Instant};
 
 use http::header::InvalidHeaderValue;
 use http::{HeaderMap, header};
-use nv_redfish_bmc_http::reqwest::Client as ReqwestClient;
-use nv_redfish_bmc_http::{CacheSettings, HttpBmc};
-use nv_redfish_core::Bmc;
+use nv_redfish::bmc_http::reqwest::Client as ReqwestClient;
+use nv_redfish::bmc_http::{CacheSettings, HttpBmc};
+use nv_redfish::core::Bmc;
 use prometheus::{Counter, Gauge, Histogram, HistogramOpts, Opts};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
