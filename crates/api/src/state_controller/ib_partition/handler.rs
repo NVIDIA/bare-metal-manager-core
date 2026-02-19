@@ -112,7 +112,7 @@ impl StateHandler for IBPartitionStateHandler {
                                         return Ok(StateHandlerOutcome::wait(format!(
                                             "Waiting for {instance_count} instance(s) to release IB partition"
                                         ))
-                                        .with_txn(Some(txn)));
+                                        .with_txn(txn));
                                     }
 
                                     // Release pkey after ib_partition deleted.
