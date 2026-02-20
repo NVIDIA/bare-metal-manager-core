@@ -1,12 +1,16 @@
 #!/bin/bash -p
 
+HOSTNAME=$(hostname)
+
+if [[ "$HOSTNAME" == "localhost" ]]; then
+    echo "hostname cannot be 'localhost'"
+    exit 1
+fi
+
 CERT_PATH=/etc/otelcol-contrib/certs/otel-cert.pem
 KEY_PATH=/etc/otelcol-contrib/certs/private/otel-key.pem
 MAX_INTERVAL=30
 MAX_INTERVAL_REPEATED_COUNT=5
-
-CONFIG_FRAGMENTS_DIR=/etc/otelcol-contrib/config-fragments
-ADDITIONAL_CONFIGS=$(ls ${CONFIG_FRAGMENTS_DIR}/*.yaml 2>/dev/null | awk 'FNR==1 {printf " --config="$1} FNR>1 {printf " --config="$1}')
 
 interval=1
 interval_repeated_count=0
@@ -31,3 +35,5 @@ while [[ ! -f "$CERT_PATH" || ! -f "$KEY_PATH" ]]; do
     fi
 done
 
+echo "Found $CERT_PATH and $KEY_PATH"
+exec /usr/bin/otelcol-contrib --config=/etc/otelcol-contrib/config.yaml

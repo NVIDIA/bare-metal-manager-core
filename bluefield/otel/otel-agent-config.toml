@@ -16,9 +16,9 @@
 #
 [forge-system]
 api-server = "https://carbide-api.forge"
-root-ca = "/opt/forge/forge_root.pem"
-client-cert = "/etc/ssl/certs/forge-dpu-otel-agent.pem"
-client-key = "/etc/ssl/private/forge-dpu-otel-agent.key"
+root-ca = "/etc/otelcol-contrib/certs/ca.pem"
+client-cert = "/etc/otelcol-contrib/certs/otel-cert.pem"
+client-key = "/etc/otelcol-contrib/certs/private/otel-key.pem"
 
 [machine]
 is_fake_dpu = false

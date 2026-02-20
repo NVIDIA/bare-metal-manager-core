@@ -8,26 +8,14 @@ if [ "$1" = "configure" ]; then
 	# Must match /proc/sys/kernel/core_pattern
 	mkdir -p /var/support/core
 
-	systemctl daemon-reload
-	systemctl enable local_bmc_dev.service
-	systemctl enable forge-dpu-agent.service
-	systemctl enable otelcol-contrib.service
-	systemctl enable forge-dpu-otel-agent.service
-	systemctl enable node-exporter.service
-	systemctl enable transceiver-exporter.service
+        # otel_post_install.sh is written to be harmless if run a second time.
+        if ! /usr/local/sbin/otel_post_install.sh; then
+            echo "otel_post_install.sh failed, will retry on next configure." >&2
+        fi
 
-	if [ -f /etc/otelcol-contrib/fd_configs/fd_discovery.yaml ]; then
-		rm -f /etc/otelcol-contrib/fd_configs/fd_discovery.yaml
-	fi
-	if [ -d /etc/otelcol-contrib/fd_configs ]; then
-		rmdir --ignore-fail-on-non-empty /etc/otelcol-contrib/fd_configs
-	fi
-	if [ -f /etc/ssl/certs/forge-dpu-otel-agent.pem ]; then
-		rm -f /etc/ssl/certs/forge-dpu-otel-agent.pem
-        fi
-	if [ -f /etc/ssl/private/forge-dpu-otel-agent.key ]; then
-		rm -f /etc/ssl/private/forge-dpu-otel-agent.key
-        fi
+	systemctl daemon-reload
+	systemctl enable otelcol-contrib.service
+	systemctl enable otel-agent.service
 
 	# Do not depend on starting services now, as this package is installed early in setup
 	# and should not hang or cause out of order steps in discovery workflows. The discovery
@@ -39,9 +27,7 @@ if [ "$1" = "configure" ]; then
  		# this is not the discovery workflow and otelcol-contrib can restart without
  		# interfering. Restart is needed to pick up any configuration changes.
 
-		systemctl restart transceiver-exporter.service
-		systemctl restart node-exporter.service
-		systemctl restart forge-dpu-otel-agent.service
+		systemctl restart otel-agent.service
 		systemctl restart otelcol-contrib.service
 	fi
 fi
