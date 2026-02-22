@@ -278,11 +278,7 @@ pub async fn show_discovered_managed_host(
                     })?;
 
                 if output_format == OutputFormat::Json {
-                    async_writeln!(
-                        output_file,
-                        "{}",
-                        serde_json::to_string_pretty(&endpoint)?
-                    )?;
+                    async_writeln!(output_file, "{}", serde_json::to_string_pretty(&endpoint)?)?;
                     return Ok(());
                 }
 
