@@ -53,3 +53,4 @@ rmmod mlx5_ib || true
 udevadm settle
 modprobe mlx5_ib || true
 udevadm settle
+chown nvidia-dcgm:nvidia-dcgm /var/log/nvidia-dcgm
