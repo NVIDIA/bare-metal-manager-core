@@ -4367,10 +4367,8 @@ pub async fn trigger_reboot_if_needed_with_location(
                 if target.id.machine_type().is_dpu() {
                     handler_restart_dpu(target, ctx).await?;
                 } else {
-                    if let Ok(client) = services
-                        .redfish_client_pool
-                        .create_client_from_machine(host, txn)
-                        .await
+                    if let Ok(client) =
+                        ctx.services.create_redfish_client_from_machine(host).await
                     {
                         log_host_config(client.as_ref(), state).await;
                     }
