@@ -187,23 +187,10 @@ impl RedfishClient {
                     .map_err(|err| redact_password(err, curr_password.as_str()))
                     .map_err(map_redfish_error)?;
             }
-            RedfishVendor::Supermicro => {
-                client
-                    .change_password(curr_user.as_str(), new_password.as_str())
-                    .await
-                    .map_err(|err| redact_password(err, new_password.as_str()))
-                    .map_err(|err| redact_password(err, curr_password.as_str()))
-                    .map_err(map_redfish_error)?;
-            }
-            RedfishVendor::Dell => {
-                client
-                    .change_password(curr_user.as_str(), new_password.as_str())
-                    .await
-                    .map_err(|err| redact_password(err, new_password.as_str()))
-                    .map_err(|err| redact_password(err, curr_password.as_str()))
-                    .map_err(map_redfish_error)?;
-            }
-            RedfishVendor::Hpe => {
+            RedfishVendor::LenovoAMI
+            | RedfishVendor::Supermicro
+            | RedfishVendor::Dell
+            | RedfishVendor::Hpe => {
                 client
                     .change_password(curr_user.as_str(), new_password.as_str())
                     .await

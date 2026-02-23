@@ -35,6 +35,7 @@ use libredfish::model::service_root::RedfishVendor;
 )]
 pub enum BMCVendor {
     Lenovo,
+    LenovoAMI,
     Dell,
     Supermicro,
     Hpe,
@@ -56,6 +57,7 @@ impl From<&str> for BMCVendor {
     fn from(s: &str) -> BMCVendor {
         match s.to_lowercase().as_str() {
             "lenovo" => BMCVendor::Lenovo,
+            "lenovoami" => BMCVendor::LenovoAMI,
             "dell" => BMCVendor::Dell,
             "supermicro" => BMCVendor::Supermicro,
             "hpe" => BMCVendor::Hpe,
@@ -97,6 +99,7 @@ impl BMCVendor {
     pub fn to_pascalcase(self) -> String {
         match self {
             BMCVendor::Lenovo => "Lenovo",
+            BMCVendor::LenovoAMI => "LenovoAMI",
             BMCVendor::Dell => "Dell",
             BMCVendor::Supermicro => "Supermicro",
             BMCVendor::Hpe => "Hpe",
@@ -108,6 +111,10 @@ impl BMCVendor {
     }
     pub fn is_lenovo(&self) -> bool {
         *self == Self::Lenovo
+    }
+
+    pub fn is_lenovo_ami(&self) -> bool {
+        *self == Self::LenovoAMI
     }
 
     pub fn is_supermicro(&self) -> bool {
@@ -147,6 +154,7 @@ impl From<RedfishVendor> for BMCVendor {
             RedfishVendor::Dell => BMCVendor::Dell,
             RedfishVendor::Hpe => BMCVendor::Hpe,
             RedfishVendor::Lenovo => BMCVendor::Lenovo,
+            RedfishVendor::LenovoAMI => BMCVendor::LenovoAMI,
             RedfishVendor::LiteOnPowerShelf => BMCVendor::Liteon,
             RedfishVendor::Supermicro => BMCVendor::Supermicro,
             RedfishVendor::Unknown => BMCVendor::Unknown,
