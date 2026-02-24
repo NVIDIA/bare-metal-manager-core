@@ -43,6 +43,7 @@ jobs:
     runs-on: linux-amd64-cpu4
     outputs:
       version: ${{ steps.version.outputs.version }}
+      helm_version: ${{ steps.version.outputs.helm_version }}
       short_sha: ${{ steps.version.outputs.short_sha }}
       build_container_x86_64_run: ${{ steps.base-container-gate.outputs.build_container_x86_64_run }}
       build_container_x86_64_version: ${{ steps.base-container-gate.outputs.build_container_x86_64_version }}
@@ -104,8 +105,9 @@ jobs:
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "Using Git describe to extract version as VERSION and HELM_VERSION"
           VERSION=$(git describe --tags --first-parent --always --long)
-          # HELM_VERSION replaces the last '-' with '.' for Helm compatibility
-          HELM_VERSION=$(echo "$VERSION" | sed 's/\(.*\)-/\1./')
+          # HELM_VERSION strips leading 'v' for strict SemVer and replaces the last '-' with '.'
+          HELM_VERSION_BASE="${VERSION#v}"
+          HELM_VERSION=$(echo "$HELM_VERSION_BASE" | sed 's/\(.*\)-/\1./')
 
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "helm_version=${HELM_VERSION}" >> $GITHUB_OUTPUT
@@ -814,6 +816,79 @@ jobs:
       - name: Run Protolint
         run: protolint lint -config_path=.protolint.yaml crates/rpc/proto/
 
+  # ============================================================================
+  # BUILD STAGE - Helm Chart
+  # ============================================================================
+
+  build-validate-helm-chart:
+    needs:
+      - prepare
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
+    runs-on: linux-amd64-cpu4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Validate Helm chart
+        run: |
+          set -euo pipefail
+          helm dependency build helm
+          helm lint helm
+          helm template carbide ./helm >/dev/null
+
+      - name: Display Helm validation summary
+        run: |
+          echo "  Helm chart validation completed"
+          echo "  Chart path: helm/"
+          echo "  Chart version (CI): ${{ needs.prepare.outputs.helm_version }}"
+
+  build-push-helm-chart:
+    needs:
+      - prepare
+      - build-validate-helm-chart
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-validate-helm-chart.result == 'success' && !contains(github.ref, 'pull-request/') }}
+    runs-on: linux-amd64-cpu4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Configure NGC Helm repository
+        env:
+          NGC_API_KEY: ${{ secrets.NVCR_TOKEN }}
+        run: |
+          set -euo pipefail
+          helm repo add ngc-carbide https://helm.ngc.nvidia.com/0837451325059433/carbide-dev --username='$oauthtoken' --password="${NGC_API_KEY}"
+          helm repo update
+
+      - name: Install Helm push plugin
+        run: |
+          set -euo pipefail
+          helm plugin install https://github.com/chartmuseum/helm-push
+
+      - name: Package and push Helm chart to NGC
+        env:
+          HELM_VERSION: ${{ needs.prepare.outputs.helm_version }}
+          APP_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          helm dependency build helm
+          helm package helm --destination dist --version "${HELM_VERSION}" --app-version "${APP_VERSION}"
+          CHART_PACKAGE="dist/carbide-${HELM_VERSION}.tgz"
+          helm cm-push "${CHART_PACKAGE}" ngc-carbide
+
+      - name: Display Helm push summary
+        run: |
+          echo "  Helm chart pushed successfully"
+          echo "  Repository: https://helm.ngc.nvidia.com/0837451325059433/carbide-dev"
+          echo "  Chart: carbide:${{ needs.prepare.outputs.helm_version }}"
+
 
   # ============================================================================
   # BUILD SBOM
@@ -856,6 +931,8 @@ jobs:
       - build-release-machine-validation-runner
       - build-release-machine-validation-artifacts-x86-host
       - build-powerdns-container
+      - build-validate-helm-chart
+      - build-push-helm-chart
       - build-release-artifacts-x86-host
       - build-release-artifacts-arm-host
     steps:
@@ -947,6 +1024,8 @@ jobs:
       - build-release-machine-validation-runner
       - build-release-machine-validation-artifacts-x86-host
       - build-powerdns-container
+      - build-validate-helm-chart
+      - build-push-helm-chart
       - build-release-artifacts-x86-host
       - build-release-artifacts-arm-host
       - build-sbom-container
