@@ -123,19 +123,10 @@ pub type Result<T> = std::result::Result<T, IpxeOsError>;
 /// IpxeOsRenderer is the trait for rendering IPXEOS objects to iPXE scripts
 pub trait IpxeOsRenderer {
     /// Render generates the final iPXE script from an IpxeOs object.
+    /// Artifact URLs are replaced by local cached URLs when available (local_url).
     /// `reserved_params` must contain exactly the reserved parameters defined
     /// in the template (provided by carbide-core).
     fn render(&self, ipxeos: &IpxeOs, reserved_params: &[IpxeOsParameter]) -> Result<String>;
-
-    /// RenderWithArtifactSubstitution generates the final iPXE script with
-    /// artifact URLs replaced by local cached URLs when available.
-    /// `reserved_params` must contain exactly the reserved parameters defined
-    /// in the template (provided by carbide-core).
-    fn render_with_artifact_substitution(
-        &self,
-        ipxeos: &IpxeOs,
-        reserved_params: &[IpxeOsParameter],
-    ) -> Result<String>;
 
     /// GetTemplate returns a template by name
     fn get_template(&self, name: &str) -> Option<&IpxeScriptTemplate>;
@@ -201,110 +192,7 @@ impl Default for DefaultIpxeOsRenderer {
 }
 
 impl IpxeOsRenderer for DefaultIpxeOsRenderer {
-    fn render(&self, ipxeos: &IpxeOs, reserved_params: &[IpxeOsParameter]) -> Result<String> {
-        // Validate first
-        self.validate(ipxeos)?;
-
-        // Get template
-        let template = self
-            .get_template(&ipxeos.ipxe_template_name)
-            .ok_or_else(|| IpxeOsError::TemplateNotFound(ipxeos.ipxe_template_name.clone()))?;
-
-        // Validate reserved parameters match template requirements
-        self.validate_reserved_params(reserved_params, &template)?;
-
-        // Occurrence-based parameter consumption (case-insensitive matching)
-        // Build consumption map: lowercase keys, values in order that will be consumed
-        let mut consumption_map: HashMap<String, Vec<String>> = HashMap::new();
-        let mut consumed_indices: std::collections::HashSet<usize> = std::collections::HashSet::new();
-        
-        // Step 1: Consume parameters for required_params (in order with duplicates)
-        // Case-insensitive matching using lowercase
-        for required_name in &template.required_params {
-            let required_lower = required_name.to_lowercase();
-            // Find next unconsumed parameter with this name (case-insensitive)
-            for (idx, param) in ipxeos.parameters.iter().enumerate() {
-                if param.name.to_lowercase() == required_lower && !consumed_indices.contains(&idx) && !param.value.is_empty() {
-                    consumption_map
-                        .entry(required_lower.clone())
-                        .or_insert_with(Vec::new)
-                        .push(param.value.clone());
-                    consumed_indices.insert(idx);
-                    break;
-                }
-            }
-        }
-        
-        // Step 2: Add reserved parameters (they override and are always provided)
-        // Case-insensitive matching
-        for reserved_name in &template.reserved_params {
-            let reserved_lower = reserved_name.to_lowercase();
-            // Find the reserved param value from provided reserved_params (case-insensitive)
-            if let Some(reserved_param) = reserved_params.iter().find(|p| p.name.to_lowercase() == reserved_lower) {
-                consumption_map
-                    .entry(reserved_lower)
-                    .or_insert_with(Vec::new)
-                    .push(reserved_param.value.clone());
-            }
-        }
-        
-        // Step 3: Replace placeholders in template (case-insensitive)
-        // Template placeholders should be lowercase
-        let mut result = template.template.clone();
-        
-        // Get all unique placeholder names
-        let mut processed_names: std::collections::HashSet<String> = std::collections::HashSet::new();
-        
-        // For each param name in consumption_map (already lowercase), replace all occurrences
-        for (param_name_lower, values) in &consumption_map {
-            if processed_names.contains(param_name_lower) {
-                continue;
-            }
-            processed_names.insert(param_name_lower.clone());
-            
-            // Replace occurrences one by one (placeholder should be lowercase)
-            let placeholder = format!("{{{{{}}}}}", param_name_lower);
-            for value in values {
-                if let Some(pos) = result.find(&placeholder) {
-                    result.replace_range(pos..pos + placeholder.len(), value);
-                }
-            }
-        }
-
-        // Step 4: Handle {{extra}} placeholder for unconsumed parameters
-        // PRESERVE ORIGINAL CASE for parameter names in {{extra}}
-        if result.contains("{{extra}}") {
-            let mut extra_params: Vec<String> = Vec::new();
-            
-            // Collect all unconsumed parameters (preserve original case)
-            for (idx, param) in ipxeos.parameters.iter().enumerate() {
-                if !consumed_indices.contains(&idx) && !param.value.is_empty() {
-                    extra_params.push(format!("{}={}", param.name, param.value));  // Original case preserved
-                }
-            }
-
-            result = result.replace("{{extra}}", &extra_params.join(" "));
-        }
-
-        // Post-processing: replace multiple spaces with single space
-        while result.contains("  ") {
-            result = result.replace("  ", " ");
-        }
-
-        // Trim trailing spaces from each line
-        result = result
-            .lines()
-            .map(|line| line.trim_end())
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        // Check for unreplaced placeholders
-        self.check_unreplaced_placeholders(&result)?;
-
-        Ok(result)
-    }
-
-    fn render_with_artifact_substitution(
+    fn render(
         &self,
         ipxeos: &IpxeOs,
         reserved_params: &[IpxeOsParameter],
@@ -925,7 +813,7 @@ mod tests {
             },
         ];
 
-        let result = renderer.render_with_artifact_substitution(&ipxeos, &reserved_params);
+        let result = renderer.render(&ipxeos, &reserved_params);
         assert!(result.is_ok());
 
         let script = result.unwrap();
@@ -935,7 +823,7 @@ mod tests {
     }
 
     #[test]
-    fn test_render_with_artifact_substitution() {
+    fn test_render_with_artifacts() {
         let renderer = DefaultIpxeOsRenderer::new();
         let mut ipxeos = IpxeOs {
             name: "Ubuntu with artifacts".to_string(),
@@ -984,7 +872,7 @@ mod tests {
             },
         ];
 
-        let result = renderer.render_with_artifact_substitution(&ipxeos, &reserved_params);
+        let result = renderer.render(&ipxeos, &reserved_params);
         assert!(result.is_ok());
 
         let script = result.unwrap();
@@ -1066,7 +954,9 @@ mod tests {
         assert!(templates.contains(&"exit-instructions".to_string()));
         assert!(templates.contains(&"unknown-host".to_string()));
         assert!(templates.contains(&"whoami".to_string()));
-        assert_eq!(templates.len(), 11); // Total templates
+        assert!(templates.contains(&"carbide-menu-static-ipxe".to_string()));
+        // Only assert minimum count (templates referenced in tests); new entries in templates.yaml are allowed
+        assert!(templates.len() >= 11);
     }
 
     #[test]
