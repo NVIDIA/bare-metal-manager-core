@@ -38,8 +38,19 @@ templates:
 
 ## Current Templates
 
-1. **qcow-image**: Boots qcow disk images using the qcow-imager.efi tool
-2. **ubuntu-autoinstall**: Ubuntu autoinstall using kernel, initrd, and install ISO
+1. **raw-ipxe**: Raw iPXE scripting with base_url, console, and arch variables
+2. **qcow-image**: Boots qcow disk images using the qcow-imager.efi tool
+3. **ubuntu-autoinstall**: Ubuntu autoinstall using kernel, initrd, and install ISO
+4. **kernel-initrd**: Generic kernel + initrd boot (NKE, BCM scout, etc.)
+5. **kernel-only**: Boot kernel/EFI without initrd (ESXi, etc.)
+6. **DGX OS**: DGX OS autoinstall
+7. **openshift-coreos**: OpenShift/Assisted Installer - CoreOS live boot
+8. **chain-efi**: Chain to arbitrary EFI binary (firmware update, custom loader)
+9. **loader-rootfs**: Chain loader.efi with newrootfs
+10. **ipxe-shell**: Drop into iPXE shell for debugging
+11. **discovery-scout-***: Discovery Scout for x86_64, aarch64, aarch64-dpu
+12. **error-instructions**, **exit-instructions**, **unknown-host**: System state templates
+13. **whoami**, **carbide-menu-static-ipxe**: Diagnostic/menu templates
 
 ## Adding New Templates
 
