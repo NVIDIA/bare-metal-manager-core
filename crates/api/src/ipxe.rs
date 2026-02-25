@@ -130,7 +130,7 @@ impl PxeInstructions {
             }
         }
         
-        renderer.render_with_artifact_substitution(ipxeos, &reserved_params)
+        renderer.render(ipxeos, &reserved_params)
             .map_err(|e| CarbideError::InternalError(format!("Failed to render iPXE script: {}", e)))
     }
 
