@@ -423,11 +423,7 @@ pub async fn create(
     if matches!(
         address_strategy,
         AddressSelectionStrategy::NextAvailableIp | AddressSelectionStrategy::Automatic
-    ) && segment
-        .prefixes
-        .iter()
-        .all(|prefix| prefix.prefix.is_ipv4())
-    {
+    ) {
         create_fast_path(txn, segment, macaddr, domain_id, primary_interface).await
     } else {
         create_slow_path(
@@ -471,9 +467,10 @@ async fn create_fast_path(
             }
             Err(err) if err.is_fqdn_conflict() => {
                 // Another simultaneous create got the same FQDN, try again.
-                fast_txn.rollback().await?;
-                tokio::task::yield_now().await;
-                continue;
+            }
+            Err(DatabaseError::TryAgain) => {
+                // All the IP's in the batch we grabbed from the database got taken by other
+                // concurrent calls to create_fast_path. Try again.
             }
             Err(err) => {
                 // Some other error, roll back the inner transaction
@@ -481,15 +478,18 @@ async fn create_fast_path(
                 return Err(err);
             }
         }
+
+        fast_txn.rollback().await?;
+        tokio::task::yield_now().await;
     }
 
     Err(DatabaseError::internal(format!(
-        "unable to create machine interface in v4 fast path for segment {} after {} retries",
+        "unable to create machine interface in fast path for segment {} after {} retries",
         segment.id, FAST_PATH_MAX_RETRIES
     )))
 }
 
-/// Create a machine interface and allocate IP addresses, slow path for IPv6 prefixes.
+/// Create a machine interface and allocate IP addresses, slow path for whole-prefix allocation.
 ///
 /// This uses [`crate::IpAllocator`], which requires:
 ///
@@ -564,7 +564,7 @@ pub async fn create_slow_path(
     )
 }
 
-/// Fast path for IPv4-only single-IP allocation.
+/// Fast path for single-IP allocation.
 ///
 /// This allocates a single candidate IP per prefix entirely in the database, without having to read
 /// all the used IP's.
@@ -577,7 +577,7 @@ async fn try_create_fast_path(
 ) -> DatabaseResult<MachineInterfaceId> {
     let mut allocated_addresses = Vec::with_capacity(segment.prefixes.len());
     for prefix in &segment.prefixes {
-        let address = allocate_next_v4_ip_with_retry(txn, segment, prefix).await?;
+        let address = allocate_next_ip_with_retry(txn, segment, prefix).await?;
         allocated_addresses.push(address);
     }
 
@@ -637,7 +637,7 @@ async fn create_inner(
     Ok(interface_id)
 }
 
-/// Retries IPv4 allocation for a single prefix which may be under contention.
+/// Retries allocation for a single prefix which may be under contention.
 ///
 /// Each iteration fetches a small free-IP batch, tries to take an advisory lock
 /// on each candidate, and returns once one lock is acquired.
@@ -645,7 +645,7 @@ async fn create_inner(
 /// This is for eliminating a big shared lock when we have lots of machines DHCP'ing for the first
 /// time simultaneously: By requesting a batch of free IP's at once and trying locks on each one, we
 /// can process roughly [`FAST_PATH_CANDIDATE_BATCH`] initial DHCP requests concurrently.
-async fn allocate_next_v4_ip_with_retry(
+async fn allocate_next_ip_with_retry(
     txn: &mut PgConnection,
     segment: &NetworkSegment,
     prefix: &NetworkPrefix,
@@ -656,11 +656,16 @@ async fn allocate_next_v4_ip_with_retry(
         prefix.num_reserved.max(1)
     };
 
+    let network_bit_width = match prefix.prefix {
+        IpNetwork::V4(_) => 32,
+        IpNetwork::V6(_) => 128,
+    };
+
     for _ in 0..FAST_PATH_MAX_RETRIES {
         // Grab FAST_PATH_CANDIDATE_BATCH IP's at once
         let query = r#"
 SELECT ($1::inet + ip_series.n)::inet AS ip
-FROM generate_series($3, (1 << (32 - $2)) - 2) AS ip_series(n)
+FROM generate_series($3, (1 << $2) - 2) AS ip_series(n)
 LEFT JOIN machine_interface_addresses AS mia
   ON mia.address = ($1::inet + ip_series.n)::inet
 WHERE mia.address IS NULL
@@ -671,7 +676,7 @@ LIMIT $6;
     "#;
         let candidates = sqlx::query_scalar::<_, IpAddr>(query)
             .bind(prefix.prefix.ip())
-            .bind(prefix.prefix.prefix() as i32)
+            .bind(network_bit_width - prefix.prefix.prefix() as i32)
             .bind(reserved)
             .bind(prefix.gateway)
             .bind(prefix.svi_ip)
@@ -682,7 +687,7 @@ LIMIT $6;
 
         if candidates.is_empty() {
             return Err(DatabaseError::ResourceExhausted(format!(
-                "No IPv4 addresses left in prefix {}",
+                "No IP addresses left in prefix {}",
                 prefix.prefix
             )));
         }
@@ -695,10 +700,7 @@ LIMIT $6;
         }
     }
 
-    Err(DatabaseError::internal(format!(
-        "unable to reserve free IPv4 address in prefix {} after {} retries",
-        prefix.prefix, FAST_PATH_MAX_RETRIES
-    )))
+    Err(DatabaseError::TryAgain)
 }
 
 /// Attempts to acquire a transaction-scoped advisory lock for one IP candidate.

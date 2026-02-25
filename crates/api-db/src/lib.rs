@@ -383,6 +383,8 @@ pub enum DatabaseError {
     DhcpError(#[from] DhcpError),
     #[error("Maximum one association per interface")]
     MaxOneInterfaceAssociation,
+    #[error("Fast-path allocation failed and can be retried")]
+    TryAgain,
 }
 
 impl DatabaseError {

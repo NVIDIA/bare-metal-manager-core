@@ -292,6 +292,9 @@ impl From<DatabaseError> for CarbideError {
             DatabaseError::TenantError(e) => TenantError(e),
             DatabaseError::UuidConversionError(e) => UuidConversionError(e),
             DatabaseError::MaxOneInterfaceAssociation => MaxOneInterfaceAssociation,
+            DatabaseError::TryAgain => Internal {
+                message: DatabaseError::TryAgain.to_string(),
+            },
         }
     }
 }
