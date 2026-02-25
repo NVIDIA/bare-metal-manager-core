@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+pub mod metrics;
+
 use std::collections::HashMap;
 use std::panic::Location;
 use std::pin::Pin;
@@ -44,6 +46,7 @@ use sqlx::{PgPool, PgTransaction};
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status, Streaming};
 
+use self::metrics::ApiMetricsEmitter;
 use self::rpc::forge_server::Forge;
 use crate::cfg::file::CarbideConfig;
 use crate::dynamic_settings::DynamicSettings;
@@ -77,6 +80,7 @@ pub struct Api {
     pub(crate) work_lock_manager_handle: WorkLockManagerHandle,
     pub(crate) kube_client_provider: Arc<dyn KubeImpl>,
     pub(crate) machine_state_handler_enqueuer: Enqueuer<MachineStateControllerIO>,
+    pub(crate) metric_emitter: ApiMetricsEmitter,
 }
 
 pub(crate) type ScoutStreamType =
@@ -2415,6 +2419,13 @@ impl Forge for Api {
         crate::handlers::dpa::find_dpa_interfaces_by_ids(self, request).await
     }
 
+    async fn ensure_dpa_interface(
+        &self,
+        request: Request<rpc::DpaInterfaceCreationRequest>,
+    ) -> Result<Response<rpc::DpaInterface>, Status> {
+        crate::handlers::dpa::ensure(self, request).await
+    }
+
     // create_dpa_interface is mainly for debugging purposes. In practice,
     // when the scout reports its inventory, we will create DPA interfaces
     // for DPA NICs reported in the inventory.
@@ -2654,6 +2665,17 @@ impl Forge for Api {
         request: tonic::Request<rpc::AttestationIdsRequest>,
     ) -> Result<Response<::rpc::common::MachineIdList>, Status> {
         crate::handlers::attestation::list_machine_ids_under_attestation(self, request).await
+    }
+
+    async fn sign_machine_identity(
+        &self,
+        _request: tonic::Request<rpc::MachineIdentityRequest>,
+    ) -> Result<Response<rpc::MachineIdentityResponse>, Status> {
+        // TODO: enable after implementing this function fully
+        //return crate::handlers::machine_identity::sign_machine_identity(self, request).await;
+        Err(tonic::Status::unimplemented(
+            "machine identity API is temporarily disabled",
+        ))
     }
 
     async fn modify_dpf_state(

@@ -1008,6 +1008,8 @@ fn effective_virtualization_type(
     Ok(virtualization_type)
 }
 
+// TODO(chet): We'll eventually want a documented IPv6 address we can
+// configure here for tenants to hit FMDS over IPv6.
 async fn plan_fmds_armos_routing(
     interface: &str,
     proposed_routes: &Vec<IpNetwork>,

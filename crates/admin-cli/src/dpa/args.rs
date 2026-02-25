@@ -16,16 +16,31 @@
  */
 
 use carbide_uuid::dpa_interface::DpaInterfaceId;
+use carbide_uuid::machine::MachineId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
 pub enum Cmd {
     #[clap(about = "Display Dpa information")]
     Show(ShowDpa),
+    #[clap(about = "Ensure a DPA interface exists (creates if missing, returns existing)")]
+    Ensure(EnsureDpa),
 }
 
 #[derive(Parser, Debug)]
 pub struct ShowDpa {
     #[clap(help = "The DPA Interface ID to query, leave empty for all (default)")]
     pub id: Option<DpaInterfaceId>,
+}
+
+#[derive(Parser, Debug)]
+pub struct EnsureDpa {
+    #[clap(help = "Machine ID")]
+    pub machine_id: MachineId,
+    #[clap(help = "MAC address (e.g. 00:11:22:33:44:55)")]
+    pub mac_addr: String,
+    #[clap(help = "Device type (e.g. BlueField3)")]
+    pub device_type: String,
+    #[clap(help = "PCI name (e.g. 5e:00.0)")]
+    pub pci_name: String,
 }

@@ -443,7 +443,7 @@ category = "Ephemeral Image"
 script = '''
   PROFILE="scout-oss-x86_64"
   export PATH=${PATH}:/sbin
-  ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} build
+  ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} --with-network build
 '''
 
 [tasks.mkosi-build-scout-loader-x86_64]
@@ -712,6 +712,11 @@ script = '''
       EMBED=/src/pxe/ipxe/local/embed.ipxe \
       DEBUG=snp,tls \
       EXTRA_CFLAGS="-Wno-unused-parameter -Wno-unused-variable"
+    docker run --rm -u $(id -u):$(id -g) \
+    -v /etc/passwd:/etc/passwd:ro \
+    -v ${REPO_ROOT}:/src \
+    -w /src/pxe/ipxe/upstream/src \
+    build-artifacts-container-cross-aarch64 \
     make -j \
       CROSS_COMPILE=aarch64-linux-gnu- \
       bin-arm64-efi/golan.efi \

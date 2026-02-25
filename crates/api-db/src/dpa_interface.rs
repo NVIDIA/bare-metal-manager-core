@@ -62,6 +62,51 @@ pub async fn persist(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+/// ensure inserts a new interface if one doesn't already exist for
+/// the given (machine_id, mac_address), or returns the existing one if
+/// it does. This makes it so repeated processing of device reports from
+/// scout are handled gracefully.
+pub async fn ensure(
+    value: NewDpaInterface,
+    txn: &mut PgConnection,
+) -> Result<DpaInterface, DatabaseError> {
+    let network_config_version = ConfigVersion::initial();
+    let network_config = DpaInterfaceNetworkConfig::default();
+    let state_version = ConfigVersion::initial();
+    let state = DpaInterfaceControllerState::Provisioning;
+
+    let insert_query = "INSERT INTO dpa_interfaces (machine_id, mac_address, network_config_version, network_config, controller_state_version, controller_state, device_type, pci_name)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (machine_id, mac_address) DO NOTHING RETURNING row_to_json(dpa_interfaces.*)";
+
+    let result: Option<DpaInterface> = sqlx::query_as(insert_query)
+        .bind(value.machine_id.to_string())
+        .bind(value.mac_address)
+        .bind(network_config_version)
+        .bind(sqlx::types::Json(&network_config))
+        .bind(state_version)
+        .bind(sqlx::types::Json(&state))
+        .bind(value.device_type)
+        .bind(value.pci_name)
+        .fetch_optional(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(insert_query, e))?;
+
+    // A new interface was inserted, return it!
+    if let Some(interface) = result {
+        return Ok(interface);
+    }
+
+    // ...nope, we got nothin. Fetch and return
+    // the existing interface instead.
+    let select_query = "SELECT row_to_json(m.*) FROM (SELECT * FROM dpa_interfaces WHERE deleted IS NULL AND machine_id = $1 AND mac_address = $2) m";
+    sqlx::query_as(select_query)
+        .bind(value.machine_id)
+        .bind(value.mac_address)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(select_query, e))
+}
+
 pub async fn update_network_observation(
     value: &DpaInterface,
     txn: &mut PgConnection,
@@ -569,6 +614,59 @@ mod test {
 
         assert_eq!(db_intf.len(), 1);
         assert_eq!(db_intf[0].id, intf.id);
+
+        Ok(())
+    }
+
+    // test_ensure_idempotent verifies that calling ensure() twice with
+    // the same (machine_id, mac_address) returns the same DpaInterface
+    // both times without error, ensuring that ensure ensures as ensured!
+    #[crate::sqlx_test]
+    async fn test_ensure_idempotent(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await.unwrap();
+
+        let machine_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
+        machine::create(
+            &mut txn,
+            None,
+            &machine_id,
+            ManagedHostState::Ready,
+            &Metadata::default(),
+            None,
+            true,
+            2,
+        )
+        .await?;
+
+        let new_intf = NewDpaInterface {
+            machine_id,
+            mac_address: MacAddress::from_str("00:11:22:33:44:55")?,
+            device_type: "BlueField3".to_string(),
+            pci_name: "01:00.0".to_string(),
+        };
+
+        // First call should insert a new interface.
+        let first = crate::dpa_interface::ensure(new_intf, &mut txn).await?;
+        assert_eq!(first.machine_id, machine_id);
+        assert_eq!(
+            first.mac_address,
+            MacAddress::from_str("00:11:22:33:44:55")?
+        );
+        assert_eq!(first.pci_name, "01:00.0");
+
+        // Second call with the same (machine_id, mac_address) should
+        // return the existing interface, not fail.
+        let second_intf = NewDpaInterface {
+            machine_id,
+            mac_address: MacAddress::from_str("00:11:22:33:44:55")?,
+            device_type: "BlueField3".to_string(),
+            pci_name: "01:00.0".to_string(),
+        };
+        let second = crate::dpa_interface::ensure(second_intf, &mut txn).await?;
+        assert_eq!(second.id, first.id);
+        assert_eq!(second.machine_id, first.machine_id);
+        assert_eq!(second.mac_address, first.mac_address);
 
         Ok(())
     }

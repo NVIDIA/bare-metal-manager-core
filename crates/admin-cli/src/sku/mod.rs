@@ -15,80 +15,72 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmds;
+mod assign;
+mod bulk_update_metadata;
+mod common;
+mod create;
+mod delete;
+mod generate;
+mod replace;
+pub mod show;
+mod show_machines;
+mod unassign;
+mod update_metadata;
+mod verify;
 
 #[cfg(test)]
 mod tests;
 
 use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
+use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
+
+#[derive(Parser, Debug)]
+pub enum Cmd {
+    #[clap(about = "Show SKU information", visible_alias = "s")]
+    Show(show::Args),
+    #[clap(about = "Show what machines are assigned a SKU")]
+    ShowMachines(show_machines::Args),
+    #[clap(
+        about = "Generate SKU information from an existing machine",
+        visible_alias = "g"
+    )]
+    Generate(generate::Args),
+    #[clap(about = "Create SKUs from a file", visible_alias = "c")]
+    Create(create::Args),
+    #[clap(about = "Delete a SKU", visible_alias = "d")]
+    Delete(delete::Args),
+    #[clap(about = "Assign a SKU to a machine", visible_alias = "a")]
+    Assign(assign::Args),
+    #[clap(about = "Unassign a SKU from a machine", visible_alias = "u")]
+    Unassign(unassign::Args),
+    #[clap(about = "Verify a machine against its SKU", visible_alias = "v")]
+    Verify(verify::Args),
+    #[clap(about = "Update the metadata of a SKU")]
+    UpdateMetadata(update_metadata::Args),
+    #[clap(about = "Update multiple SKU's metadata from a file")]
+    BulkUpdateMetadata(bulk_update_metadata::Args),
+    #[clap(about = "Replace the component list of a SKU")]
+    Replace(replace::Args),
+}
 
 impl Dispatch for Cmd {
     async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
         match self {
-            Cmd::Show(args) => {
-                cmds::show(
-                    args,
-                    &ctx.api_client,
-                    &mut ctx.output_file,
-                    &ctx.config.format,
-                    ctx.config.extended,
-                )
-                .await
-            }
-            Cmd::ShowMachines(args) => {
-                cmds::show_machines(
-                    args,
-                    &ctx.api_client,
-                    &mut ctx.output_file,
-                    &ctx.config.format,
-                )
-                .await
-            }
-            Cmd::Generate(args) => {
-                cmds::generate(
-                    args,
-                    &ctx.api_client,
-                    &mut ctx.output_file,
-                    &ctx.config.format,
-                    ctx.config.extended,
-                )
-                .await
-            }
-            Cmd::Create(args) => {
-                cmds::create(
-                    args,
-                    &ctx.api_client,
-                    &mut ctx.output_file,
-                    &ctx.config.format,
-                )
-                .await
-            }
-            Cmd::Delete { sku_id } => cmds::delete(sku_id, &ctx.api_client).await,
-            Cmd::Assign {
-                sku_id,
-                machine_id,
-                force,
-            } => cmds::assign(sku_id, machine_id, force, &ctx.api_client).await,
-            Cmd::Unassign(args) => cmds::unassign(args, &ctx.api_client).await,
-            Cmd::Verify { machine_id } => cmds::verify(machine_id, &ctx.api_client).await,
-            Cmd::UpdateMetadata(args) => cmds::update_metadata(args, &ctx.api_client).await,
-            Cmd::BulkUpdateMetadata(args) => {
-                cmds::bulk_update_metadata(args, &ctx.api_client).await
-            }
-            Cmd::Replace(args) => {
-                cmds::replace(
-                    args,
-                    &ctx.api_client,
-                    &mut ctx.output_file,
-                    &ctx.config.format,
-                )
-                .await
-            }
+            Cmd::Show(args) => args.run(&mut ctx).await,
+            Cmd::ShowMachines(args) => args.run(&mut ctx).await,
+            Cmd::Generate(args) => args.run(&mut ctx).await,
+            Cmd::Create(args) => args.run(&mut ctx).await,
+            Cmd::Delete(args) => args.run(&mut ctx).await,
+            Cmd::Assign(args) => args.run(&mut ctx).await,
+            Cmd::Unassign(args) => args.run(&mut ctx).await,
+            Cmd::Verify(args) => args.run(&mut ctx).await,
+            Cmd::UpdateMetadata(args) => args.run(&mut ctx).await,
+            Cmd::BulkUpdateMetadata(args) => args.run(&mut ctx).await,
+            Cmd::Replace(args) => args.run(&mut ctx).await,
         }
     }
 }

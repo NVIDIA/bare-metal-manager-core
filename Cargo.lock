@@ -1342,6 +1342,7 @@ dependencies = [
  "hyper-util",
  "ipnetwork",
  "itertools 0.14.0",
+ "jsonwebtoken",
  "kube",
  "lazy_static",
  "libnmxm",
@@ -5437,7 +5438,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.42.2#d5087966b23277551c2f2d3c57b9e41360787384"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.43.1#ea1aa92e1bd0bc812582fed9d63504a19a8db628"
 dependencies = [
  "async-trait",
  "chrono",

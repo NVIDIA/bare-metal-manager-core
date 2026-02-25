@@ -613,6 +613,7 @@ service Forge {
   rpc FindDpaInterfacesByIds(DpaInterfacesByIdsRequest) returns (DpaInterfaceList);
   // XXX TODO XXX Remove the calls below, as they are only for debug testing
   rpc CreateDpaInterface(DpaInterfaceCreationRequest) returns (DpaInterface);
+  rpc EnsureDpaInterface(DpaInterfaceCreationRequest) returns (DpaInterface);
   rpc DeleteDpaInterface(DpaInterfaceDeletionRequest) returns (DpaInterfaceDeletionResult);
   rpc SetDpaNetworkObservationStatus(DpaNetworkObservationSetRequest) returns (DpaInterface);
 
@@ -674,6 +675,10 @@ service Forge {
   rpc FindMachineIdsUnderAttestation(AttestationIdsRequest) returns (common.MachineIdList);
   rpc FindMachinesUnderAttestation(AttestationMachineList) returns (AttestationResponse);
   // SPDM attestation APIs end
+
+  // SPIFFE Machine Identity APIs
+  // Signs a JWT-SVID token for machine identity
+  rpc SignMachineIdentity(MachineIdentityRequest) returns (MachineIdentityResponse);
 
   // ScoutStream establishes a bidirectional streaming connection between
   // scout agents and carbide-api. The initial use-case for this is for
@@ -818,6 +823,18 @@ message AttestationResponse {
     repeated AttestationDeviceData device_data = 9;
   }
   repeated AttestationMachineData machines = 1;
+}
+
+// Machine Identity - JWT-SVID token signing
+message MachineIdentityRequest {
+  repeated string audience = 1;
+}
+
+message MachineIdentityResponse {
+  string access_token = 1;
+  string issued_token_type = 2;
+  string token_type = 3;
+  string expires_in = 4;
 }
 
 // Determines machine ingestion state in relation to the power on gate

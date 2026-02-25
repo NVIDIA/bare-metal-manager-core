@@ -39,6 +39,7 @@ impl Dispatch for Cmd {
                 )
                 .await
             }
+            Cmd::Ensure(args) => cmds::ensure(&args, ctx.config.format, &ctx.api_client).await,
         }
     }
 }

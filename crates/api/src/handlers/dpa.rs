@@ -61,23 +61,36 @@ pub(crate) async fn create(
     Ok(Response::new(dpa_out))
 }
 
-// This is the normal code path. When scout reports a DPA NIC, we call this
-// routine to create a dpa_interface object and associate it with the machine.
-async fn create_internal(
+/// ensure creates an interface if one doesn't already exist for the given
+/// (machine_id, mac_address), or returns the existing one. Idempotent.
+pub(crate) async fn ensure(
     api: &Api,
-    dpa_info: NewDpaInterface,
-) -> CarbideResult<Response<::rpc::forge::DpaInterface>> {
+    request: Request<::rpc::forge::DpaInterfaceCreationRequest>,
+) -> Result<Response<::rpc::forge::DpaInterface>, Status> {
+    if !api.runtime_config.is_dpa_enabled() {
+        return Err(CarbideError::InvalidArgument(
+            "EnsureDpaInterface cannot be done as dpa_enabled is false".to_string(),
+        )
+        .into());
+    }
+    log_request_data(&request);
+
+    let new_interface = NewDpaInterface::try_from(request.into_inner())?;
+    let interface = ensure_interface(api, new_interface).await?;
+    let response: rpc::forge::DpaInterface = interface.into();
+    Ok(Response::new(response))
+}
+
+/// ensure_interface is the internal helper used by
+/// publish_mlx_device_report and the public ensure handler.
+async fn ensure_interface(
+    api: &Api,
+    new_interface: NewDpaInterface,
+) -> CarbideResult<DpaInterface> {
     let mut txn = api.txn_begin().await?;
-
-    let new_dpa = db::dpa_interface::persist(dpa_info, &mut txn).await?;
-
-    let dpa_out: rpc::forge::DpaInterface = new_dpa.into();
-
+    let interface = db::dpa_interface::ensure(new_interface, &mut txn).await?;
     txn.commit().await?;
-
-    tracing::info!("created dpa: {:#?}", dpa_out);
-
-    Ok(Response::new(dpa_out))
+    Ok(interface)
 }
 
 pub(crate) async fn delete(
@@ -549,9 +562,6 @@ pub(crate) async fn publish_mlx_device_report(
     api: &Api,
     request: Request<mlx_device_pb::PublishMlxDeviceReportRequest>,
 ) -> Result<Response<mlx_device_pb::PublishMlxDeviceReportResponse>, Status> {
-    // TODO(chet): Integrate this once it's time. For now, just log
-    // that a report was received, that we can successfully convert
-    // it from an RPC message back to an MlxDeviceReport, and drop it.
     log_request_data(&request);
     let req = request.into_inner();
 
@@ -585,93 +595,90 @@ pub(crate) async fn publish_mlx_device_report(
                 // Change this to base device detection using part numbers rather
                 // than device description.
                 // XXX TODO XXX
-                if let (Some(descr), Some(mac_address)) =
-                    (device_info.device_description.clone(), device_info.base_mac)
+                let is_supernic = device_info
+                    .device_description
+                    .as_deref()
+                    .is_some_and(|d| d.contains("SuperNIC"));
+                if !is_supernic {
+                    continue;
+                }
+                spx_nics += 1;
+
+                let Some(new_interface) =
+                    NewDpaInterface::from_device_info(machine_id, &device_info)
+                else {
+                    tracing::warn!(
+                        %machine_id,
+                        pci_name = %device_info.pci_name,
+                        "skipping interface: missing base_mac"
+                    );
+                    continue;
+                };
+
+                let ensured_interface = match ensure_interface(api, new_interface).await {
+                    Ok(ensured) => {
+                        tracing::info!(
+                            dpa_id = %ensured.id,
+                            machine_id = %ensured.machine_id,
+                            pci_name = %ensured.pci_name,
+                            mac_address = %ensured.mac_address,
+                            "ensured dpa interface exists"
+                        );
+                        ensured
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            %machine_id,
+                            %device_info.pci_name,
+                            %e,
+                            "failed to ensure dpa interface"
+                        );
+                        continue;
+                    }
+                };
+
+                // Update the MlxDeviceInfo for this device on every
+                // publish_mlx_device_report call so the latest hardware
+                // state is always available.
+                let mut txn = match api.txn_begin().await {
+                    Ok(txn) => txn,
+                    Err(e) => {
+                        tracing::warn!(
+                            mac_address = %ensured_interface.mac_address,
+                            pci_name = %ensured_interface.pci_name,
+                            %e,
+                            "failed to begin txn for device info update"
+                        );
+                        continue;
+                    }
+                };
+
+                match dpa_interface::update_device_info(
+                    txn.as_mut(),
+                    ensured_interface.machine_id,
+                    &ensured_interface.pci_name,
+                    &device_info,
+                )
+                .await
                 {
-                    if descr.contains("SuperNIC") {
-                        spx_nics += 1;
-
-                        // Pull a few specific parameters out that are consumed
-                        // by NewDpaInterface + used for logging later on. See
-                        // the TODO(chet) below about create_internal behavior.
-                        // I think we can refactor all of this so these hoops
-                        // aren't needed.
-                        let pci_name = device_info.pci_name.clone();
-                        let device_type = device_info.device_type.clone();
-                        let dpa_info = NewDpaInterface {
-                            machine_id,
-                            device_type,
-                            mac_address,
-                            pci_name: pci_name.clone(),
-                        };
-
-                        // TODO(chet): I need to look into this -- this was existing
-                        // code, but, it *looks* like if a DPA doesn't exist yet, we'll
-                        // insert it here, but if it ALREADY exists, we'll just fail?
-                        // ALSO! It looks like there might be another bug of sorts -- I
-                        // don't think we ever reset CardState, so once a card has been
-                        // fully provisioned the first time, CardState will persist, so
-                        // any subsequent flows through the state controller will just
-                        // hop right on through the states since each CardState state
-                        // will already look done?
-                        match create_internal(api, dpa_info).await {
-                            Ok(dpa_out) => {
-                                tracing::info!("created dpa: {:#?}", dpa_out);
-                            }
-                            Err(e) => {
-                                tracing::info!("create dpa error: {:#?}", e);
-                            }
-                        }
-
-                        // ...and now update the MlxDeviceInfo for a given device on
-                        // every on every publish_mlx_device_report call, so that
-                        // the latest hardware state for a given device is always
-                        // available. But, look at the TODO(chet) above. I think it
-                        // might be better to refactor this a bit so create_internal
-                        // becomes something like process_device_report and does
-                        // the job of upserting data for the NIC/device.
-                        let mut txn = match api.txn_begin().await {
-                            Ok(txn) => txn,
-                            Err(e) => {
-                                tracing::warn!(
-                                     %mac_address,
-                                     %pci_name, %e,
-                                    "failed to begin txn for device info update"
-                                );
-                                continue;
-                            }
-                        };
-
-                        match dpa_interface::update_device_info(
-                            txn.as_mut(),
-                            machine_id,
-                            &pci_name,
-                            &device_info,
-                        )
-                        .await
-                        {
-                            Ok(()) => {
-                                if let Err(e) = txn.commit().await {
-                                    tracing::warn!(
-                                        %mac_address,
-                                        %pci_name,
-                                        %e,
-                                        "failed to commit device info update"
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    %mac_address,
-                                    %pci_name,
-                                    %e,
-                                    "failed to update device info"
-                                );
-                            }
+                    Ok(()) => {
+                        if let Err(e) = txn.commit().await {
+                            tracing::warn!(
+                                mac_address = %ensured_interface.mac_address,
+                                pci_name = %ensured_interface.pci_name,
+                                %e,
+                                "failed to commit device info update"
+                            );
                         }
                     }
-                } else {
-                    tracing::warn!("Missing part, device desc or mac: {:#?}", device_info);
+                    Err(e) => {
+                        tracing::warn!(
+                            mac_address = %ensured_interface.mac_address,
+                            pci_name = %ensured_interface.pci_name,
+                            %e,
+                            "failed to update device info"
+                        );
+                    }
                 }
             }
 

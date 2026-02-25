@@ -1332,46 +1332,23 @@ impl MachineStateHandler {
                                 Ok(StateHandlerOutcome::transition(next_state))
                             }
                             CreateBossVolumeState::WaitForJobScheduled => {
-                                let job_id = match &create_boss_volume_context
+                                let job_id = create_boss_volume_context
                                     .create_boss_volume_jid
-                                {
-                                    Some(jid) => Ok(jid),
-                                    None => Err(StateHandlerError::GenericError(eyre::eyre!(
-                                        "could not find job ID in the Create BOSS Volume Context"
-                                    ))),
-                                }?;
-
-                                let job_state = redfish_client
-                                    .get_job_state(job_id)
-                                    .await
-                                    .map_err(|e| StateHandlerError::RedfishError {
-                                        operation: "get_job_state",
-                                        error: e,
+                                    .clone()
+                                    .ok_or_else(|| {
+                                        StateHandlerError::GenericError(eyre::eyre!(
+                                            "could not find job ID in the Create BOSS Volume Context"
+                                        ))
                                     })?;
 
-                                if !matches!(job_state, libredfish::JobState::Scheduled) {
-                                    return Ok(StateHandlerOutcome::wait(format!(
-                                        "waiting for job {:#?} to be scheduled; current state: {job_state:#?}",
-                                        job_id
-                                    )));
-                                }
-
-                                let next_state: ManagedHostState =
-                                    ManagedHostState::WaitingForCleanup {
-                                        cleanup_state: CleanupState::CreateBossVolume {
-                                            create_boss_volume_context: CreateBossVolumeContext {
-                                                boss_controller_id,
-                                                create_boss_volume_jid: create_boss_volume_context
-                                                    .create_boss_volume_jid
-                                                    .clone(),
-                                                create_boss_volume_state:
-                                                    CreateBossVolumeState::RebootHost,
-                                                iteration: create_boss_volume_context.iteration,
-                                            },
-                                        },
-                                    };
-
-                                Ok(StateHandlerOutcome::transition(next_state))
+                                wait_for_boss_controller_job_to_scheduled(
+                                    redfish_client.as_ref(),
+                                    mh_snapshot,
+                                    boss_controller_id,
+                                    job_id,
+                                    create_boss_volume_context.iteration,
+                                )
+                                .await
                             }
                             CreateBossVolumeState::RebootHost => {
                                 redfish_client
@@ -4367,6 +4344,11 @@ pub async fn trigger_reboot_if_needed_with_location(
                 if target.id.machine_type().is_dpu() {
                     handler_restart_dpu(target, ctx).await?;
                 } else {
+                    if let Ok(client) = ctx.services.create_redfish_client_from_machine(host).await
+                    {
+                        log_host_config(client.as_ref(), state).await;
+                    }
+
                     handler_host_power_control_with_location(
                         state,
                         ctx,
@@ -8334,6 +8316,82 @@ fn handle_boss_controller_job_error(
     Ok(StateHandlerOutcome::transition(next_state))
 }
 
+async fn wait_for_boss_controller_job_to_scheduled(
+    redfish_client: &dyn Redfish,
+    mh_snapshot: &ManagedHostStateSnapshot,
+    boss_controller_id: String,
+    job_id: String,
+    iteration: Option<u32>,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let job_state = match redfish_client.get_job_state(&job_id).await {
+        Ok(state) => state,
+        Err(e) => {
+            return handle_boss_controller_job_error(
+                boss_controller_id,
+                iteration.unwrap_or_default(),
+                false,
+                StateHandlerError::RedfishError {
+                    operation: "get_job_state",
+                    error: e,
+                },
+                mh_snapshot.host_snapshot.state.version.since_state_change(),
+            );
+        }
+    };
+
+    let next_state = match job_state {
+        libredfish::JobState::Scheduled => ManagedHostState::WaitingForCleanup {
+            cleanup_state: CleanupState::CreateBossVolume {
+                create_boss_volume_context: CreateBossVolumeContext {
+                    boss_controller_id,
+                    create_boss_volume_jid: Some(job_id),
+                    create_boss_volume_state: CreateBossVolumeState::RebootHost,
+                    iteration,
+                },
+            },
+        },
+        libredfish::JobState::Completed => {
+            tracing::warn!(
+                "CreateBossVolume: job {} for {} completed before being scheduled, skipping reboot",
+                job_id,
+                mh_snapshot.host_snapshot.id,
+            );
+
+            ManagedHostState::WaitingForCleanup {
+                cleanup_state: CleanupState::CreateBossVolume {
+                    create_boss_volume_context: CreateBossVolumeContext {
+                        boss_controller_id,
+                        create_boss_volume_jid: Some(job_id),
+                        create_boss_volume_state: CreateBossVolumeState::WaitForJobCompletion,
+                        iteration,
+                    },
+                },
+            }
+        }
+        libredfish::JobState::ScheduledWithErrors | libredfish::JobState::CompletedWithErrors => {
+            return handle_boss_controller_job_error(
+                boss_controller_id,
+                iteration.unwrap_or_default(),
+                false,
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "CreateBossVolume: job {} failed for {} with state {job_state:#?}",
+                    job_id,
+                    mh_snapshot.host_snapshot.id,
+                )),
+                mh_snapshot.host_snapshot.state.version.since_state_change(),
+            );
+        }
+        _ => {
+            return Ok(StateHandlerOutcome::wait(format!(
+                "waiting for job {:#?} to be scheduled; current state: {job_state:#?}",
+                job_id
+            )));
+        }
+    };
+
+    Ok(StateHandlerOutcome::transition(next_state))
+}
+
 async fn wait_for_boss_controller_job_to_complete(
     redfish_client: &dyn Redfish,
     mh_snapshot: &ManagedHostStateSnapshot,
@@ -8879,6 +8937,87 @@ async fn is_machine_validation_requested(state: &ManagedHostStateSnapshot) -> bo
     on_demand_machine_validation_request
 }
 
+async fn log_host_config(redfish_client: &dyn Redfish, mh_snapshot: &ManagedHostStateSnapshot) {
+    let host_id = mh_snapshot.host_snapshot.id;
+    let managed_state = &mh_snapshot.managed_state;
+
+    let boot_options = match redfish_client.get_boot_options().await {
+        Ok(opts) => opts,
+        Err(e) => {
+            tracing::warn!(
+                %host_id,
+                %managed_state,
+                error = %e,
+                "Failed to fetch boot options"
+            );
+            return;
+        }
+    };
+
+    let mut boot_entries = Vec::with_capacity(boot_options.members.len());
+    for (i, member) in boot_options.members.iter().enumerate() {
+        let option_id = member.odata_id.split('/').next_back().unwrap_or("unknown");
+        match redfish_client.get_boot_option(option_id).await {
+            Ok(opt) => {
+                let enabled = match opt.boot_option_enabled {
+                    Some(true) => "enabled",
+                    Some(false) => "disabled",
+                    None => "unknown",
+                };
+                let device_path = opt.uefi_device_path.as_deref().unwrap_or("N/A");
+                boot_entries.push(format!(
+                    "  #{}: {} (id={}, {}, path={})",
+                    i + 1,
+                    opt.display_name,
+                    opt.id,
+                    enabled,
+                    device_path
+                ));
+            }
+            Err(e) => {
+                boot_entries.push(format!(
+                    "  #{}: {} (failed to fetch details: {})",
+                    i + 1,
+                    option_id,
+                    e
+                ));
+            }
+        }
+    }
+
+    let pcie_section = match redfish_client.pcie_devices().await {
+        Ok(devices) => {
+            let entries: Vec<String> = devices
+                .iter()
+                .enumerate()
+                .map(|(i, dev)| {
+                    format!(
+                        "  #{}: {} (id={}, manufacturer={}, part={}, serial={}, fw={})",
+                        i + 1,
+                        dev.name.as_deref().unwrap_or("N/A"),
+                        dev.id.as_deref().unwrap_or("N/A"),
+                        dev.manufacturer.as_deref().unwrap_or("N/A"),
+                        dev.part_number.as_deref().unwrap_or("N/A"),
+                        dev.serial_number.as_deref().unwrap_or("N/A"),
+                        dev.firmware_version.as_deref().unwrap_or("N/A"),
+                    )
+                })
+                .collect();
+            format!("PCIe devices:\n{}", entries.join("\n"))
+        }
+        Err(e) => format!("PCIe devices: failed to fetch ({})", e),
+    };
+
+    tracing::info!(
+        %host_id,
+        %managed_state,
+        "Host config:\nBoot order:\n{}\n{}",
+        boot_entries.join("\n"),
+        pcie_section
+    );
+}
+
+#[allow(txn_held_across_await)]
 async fn handle_instance_host_platform_config(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     mh_snapshot: &mut ManagedHostStateSnapshot,
@@ -9006,6 +9145,8 @@ async fn handle_instance_host_platform_config(
                     })?;
 
                 let vendor = mh_snapshot.host_snapshot.bmc_vendor();
+
+                log_host_config(redfish_client.as_ref(), mh_snapshot).await;
 
                 if !(redfish_client
                     .is_boot_order_setup(&primary_interface.mac_address.to_string())

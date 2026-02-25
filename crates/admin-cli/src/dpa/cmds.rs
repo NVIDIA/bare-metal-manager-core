@@ -22,7 +22,7 @@ use ::rpc::forge::{self as forgerpc};
 use carbide_uuid::dpa_interface::DpaInterfaceId;
 use prettytable::{Table, row};
 
-use super::args::ShowDpa;
+use super::args::{EnsureDpa, ShowDpa};
 use crate::rpc::ApiClient;
 
 pub async fn show(
@@ -37,6 +37,41 @@ pub async fn show(
     } else {
         show_dpas(is_json, api_client, page_size).await?
     }
+    Ok(())
+}
+
+// ensure, similar to persist, is an RPC endpoint meant for
+// debugging purposes only, and may eventually go away. The
+// arguments will be used to build a DpaInterfaceCreationRequest,
+// which is turned into a NewDpaInterface within carbide-api,
+// and will then (in this case) be passed to ensure. Ensure
+// is different than persist in that persist fails if the
+// interface already exists, while ensure will create the
+// interface if it doesn't exist, or return the existing
+// interface otherwise.
+pub async fn ensure(
+    args: &EnsureDpa,
+    output_format: OutputFormat,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    let request = forgerpc::DpaInterfaceCreationRequest {
+        machine_id: Some(args.machine_id),
+        mac_addr: args.mac_addr.clone(),
+        device_type: args.device_type.clone(),
+        pci_name: args.pci_name.clone(),
+    };
+
+    let interface = api_client.0.ensure_dpa_interface(request).await?;
+
+    if output_format == OutputFormat::Json {
+        println!("{}", serde_json::to_string_pretty(&interface)?);
+    } else {
+        println!(
+            "{}",
+            convert_dpa_to_nice_format(&interface).unwrap_or_else(|x| x.to_string())
+        );
+    }
+
     Ok(())
 }
 
