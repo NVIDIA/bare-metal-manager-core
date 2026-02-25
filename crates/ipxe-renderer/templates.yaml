@@ -57,6 +57,42 @@ templates:
       chain ${base_url}/internal/${buildarch}/qcow-imager.efi loglevel=7 console=tty0 pci=realloc=off console=${console} image_url={{image_url}} {{extra}}
       boot
 
+  - name: kernel-only
+    description: Boot kernel/EFI without initrd (ESXi, etc.)
+    required_params:
+      - kernel_params
+    required_artifacts:
+      - kernel
+    reserved_params:
+      - base_url
+      - console
+    template: |
+      #!ipxe
+      set base_url {{base_url}}
+      set console {{console}}
+
+      kernel {{kernel}} {{kernel_params}} {{extra}}
+      boot
+
+  - name: kernel-initrd
+    description: Generic kernel + initrd boot (Ubuntu autoinstall, NKE, BCM scout, etc.)
+    required_params:
+      - kernel_params
+    required_artifacts:
+      - kernel
+      - initrd
+    reserved_params:
+      - base_url
+      - console
+    template: |
+      #!ipxe
+      set base_url {{base_url}}
+      set console {{console}}
+
+      kernel {{kernel}} {{kernel_params}} {{extra}}
+      initrd {{initrd}}
+      boot
+
   - name: ubuntu-autoinstall
     description: Template for Ubuntu autoinstall
     required_params:
@@ -214,6 +250,59 @@ templates:
       echo Press any key to continue...
       prompt
       exit
+
+  - name: openshift-coreos
+    description: OpenShift/Assisted Installer - CoreOS live boot with initrd before kernel
+    required_artifacts:
+      - initrd
+      - kernel
+    required_params:
+      - kernel_params
+    reserved_params:
+      - base_url
+      - console
+    template: |
+      #!ipxe
+      initrd --name initrd {{initrd}}
+      kernel {{kernel}} initrd=initrd {{kernel_params}} {{extra}}
+      boot
+
+  - name: chain-efi
+    description: Chain to arbitrary EFI binary (firmware update, custom loader, etc.)
+    required_params:
+      - efi_url
+    reserved_params:
+      - base_url
+      - console
+    template: |
+      #!ipxe
+      set base_url {{base_url}}
+      set console {{console}}
+
+      chain {{efi_url}} {{extra}}
+      boot
+
+  - name: loader-rootfs
+    description: Chain loader.efi with newrootfs (custom root filesystem)
+    required_params:
+      - loader_url
+      - newrootfs_url
+    reserved_params:
+      - base_url
+      - console
+    template: |
+      #!ipxe
+      set base_url {{base_url}}
+      set console {{console}}
+
+      chain {{loader_url}} newrootfs={{newrootfs_url}} {{extra}}
+      boot
+
+  - name: ipxe-shell
+    description: Drop into iPXE shell for debugging
+    template: |
+      #!ipxe
+      shell
 
   - name: carbide-menu-static-ipxe
     description: Carbide Menu
