@@ -58,6 +58,7 @@
 				<button onclick="setOverrideTextBoxToTemplate(templateMergeInternalMaintenance)">Internal Maintenance</button>
 				<button onclick="setOverrideTextBoxToTemplate(templateStopRebootForRecovery)">Prevent Reboot</button>
 				<button onclick="setOverrideTextBoxToTemplate(templateMergeOfrMaintenance)">Out for Repair</button>
+				<button onclick="setOverrideTextBoxToTemplate(templateMergeBreakfix)">Break Fix</button>
 				<button onclick="setOverrideTextBoxToTemplate(templateMergeDegradedMaintenance)">Degraded</button>
 				<button onclick="setOverrideTextBoxToTemplate(templateMergeValidationMaintenance)">Validation</button>
 				<button onclick="setOverrideTextBoxToTemplate(templateMergeSuppressExternalAlerting)">Suppress Alerts</button>
@@ -143,6 +144,16 @@ const templateMergeOfrMaintenance = {
 		source: "manual-maintenance",
 		successes: [],
 		alerts: [{id: "Maintenance", target: "OutForRepair", message: "", tenant_message: null, classifications: ["PreventAllocations", "SuppressExternalAlerting"]}]
+	}
+};
+
+const templateMergeBreakfix = {
+	mode: "Merge",
+	health_report: {
+		source: "manual-maintenance",
+		successes: [],
+		alerts: [{id: "Maintenance", target: "Break-Fix", message: "Machine is broken, setting Break-Fix tag for automated repair",
+			tenant_message: null, classifications: ["PreventAllocations", "SuppressExternalAlerting"]}]
 	}
 };
 
