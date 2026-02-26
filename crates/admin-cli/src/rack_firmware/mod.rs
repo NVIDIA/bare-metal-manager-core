@@ -24,14 +24,11 @@ mod list;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum Cmd {
     #[clap(about = "Create a new Rack firmware configuration from JSON file")]
     Create(create::Args),
@@ -47,16 +44,4 @@ pub enum Cmd {
 
     #[clap(about = "Apply firmware to all devices in a rack")]
     Apply(apply::Args),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Create(args) => args.run(&mut ctx).await,
-            Cmd::Get(args) => args.run(&mut ctx).await,
-            Cmd::List(args) => args.run(&mut ctx).await,
-            Cmd::Delete(args) => args.run(&mut ctx).await,
-            Cmd::Apply(args) => args.run(&mut ctx).await,
-        }
-    }
 }

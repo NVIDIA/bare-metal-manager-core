@@ -20,23 +20,12 @@ mod config;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug, Clone)]
+#[derive(Parser, Debug, Clone, Dispatch)]
 pub enum Cmd {
     #[clap(about = "Config related handling", visible_alias = "c", subcommand)]
     Config(config::Cmd),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Config(cmd) => cmd.run(&mut ctx).await,
-        }
-    }
 }

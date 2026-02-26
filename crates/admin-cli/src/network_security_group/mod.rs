@@ -27,14 +27,11 @@ mod update;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug, Clone)]
+#[derive(Parser, Debug, Clone, Dispatch)]
 #[clap(rename_all = "kebab_case")]
 pub enum Cmd {
     #[clap(about = "Create a network security group", visible_alias = "c")]
@@ -69,18 +66,4 @@ pub enum Cmd {
         visible_alias = "r"
     )]
     Detach(detach::Args),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Create(args) => args.run(&mut ctx).await,
-            Cmd::Show(args) => args.run(&mut ctx).await,
-            Cmd::Update(args) => args.run(&mut ctx).await,
-            Cmd::Delete(args) => args.run(&mut ctx).await,
-            Cmd::ShowAttachments(args) => args.run(&mut ctx).await,
-            Cmd::Attach(args) => args.run(&mut ctx).await,
-            Cmd::Detach(args) => args.run(&mut ctx).await,
-        }
-    }
 }

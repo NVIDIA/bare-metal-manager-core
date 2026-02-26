@@ -33,14 +33,11 @@ pub use show::cmd::handle_show;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum Cmd {
     #[clap(about = "Display instance information")]
     Show(show::Args),
@@ -56,19 +53,4 @@ pub enum Cmd {
     UpdateIbConfig(update_ib_config::Args),
     #[clap(about = "Update instance NVLink configuration")]
     UpdateNvLinkConfig(update_nvlink_config::Args),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Show(args) => args.run(&mut ctx).await?,
-            Cmd::Reboot(args) => args.run(&mut ctx).await?,
-            Cmd::Release(args) => args.run(&mut ctx).await?,
-            Cmd::Allocate(args) => args.run(&mut ctx).await?,
-            Cmd::UpdateOS(args) => args.run(&mut ctx).await?,
-            Cmd::UpdateIbConfig(args) => args.run(&mut ctx).await?,
-            Cmd::UpdateNvLinkConfig(args) => args.run(&mut ctx).await?,
-        }
-        Ok(())
-    }
 }

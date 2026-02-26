@@ -23,14 +23,11 @@ mod tracing_enabled;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug, Clone)]
+#[derive(Parser, Debug, Clone, Dispatch)]
 #[clap(rename_all = "kebab_case")]
 pub enum Cmd {
     #[clap(about = "Set RUST_LOG")]
@@ -43,15 +40,4 @@ pub enum Cmd {
         about = "Configure whether trace/span information is sent to an OTLP endpoint like Tempo"
     )]
     TracingEnabled(tracing_enabled::Args),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::LogFilter(args) => args.run(&mut ctx).await,
-            Cmd::CreateMachines(args) => args.run(&mut ctx).await,
-            Cmd::BmcProxy(args) => args.run(&mut ctx).await,
-            Cmd::TracingEnabled(args) => args.run(&mut ctx).await,
-        }
-    }
 }

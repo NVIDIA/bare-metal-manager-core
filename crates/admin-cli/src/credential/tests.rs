@@ -28,8 +28,8 @@
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
-use super::cmds::{password_validator, url_validator};
+use super::common::{BmcCredentialType, UefiCredentialType, password_validator, url_validator};
+use super::*;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,

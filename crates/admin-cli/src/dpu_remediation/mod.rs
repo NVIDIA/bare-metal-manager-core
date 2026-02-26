@@ -26,14 +26,11 @@ mod show;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum Cmd {
     #[clap(about = "Create a remediation")]
     Create(create::Args),
@@ -49,18 +46,4 @@ pub enum Cmd {
     Show(show::Args),
     #[clap(about = "Display information about applied remediations")]
     ListApplied(list_applied::Args),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Create(args) => args.run(&mut ctx).await,
-            Cmd::Approve(args) => args.run(&mut ctx).await,
-            Cmd::Revoke(args) => args.run(&mut ctx).await,
-            Cmd::Enable(args) => args.run(&mut ctx).await,
-            Cmd::Disable(args) => args.run(&mut ctx).await,
-            Cmd::Show(args) => args.run(&mut ctx).await,
-            Cmd::ListApplied(args) => args.run(&mut ctx).await,
-        }
-    }
 }

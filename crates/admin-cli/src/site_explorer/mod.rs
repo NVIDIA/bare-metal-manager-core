@@ -29,17 +29,14 @@ mod remediation;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
 // Re-export for cross-module use by jump/cmds.rs
 pub use get_report::args::{Args as GetReportMode, EndpointInfo};
 pub use get_report::cmd::show_discovered_managed_host as show_site_explorer_discovered_managed_host;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum Cmd {
     #[clap(about = "Retrieves the latest site exploration report", subcommand)]
     GetReport(get_report::Args),
@@ -60,20 +57,4 @@ pub enum Cmd {
     IsBmcInManagedHost(is_bmc_in_managed_host::Args),
     HaveCredentials(have_credentials::Args),
     CopyBfbToDpuRshim(copy_bfb_to_dpu_rshim::Args),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::GetReport(mode) => mode.run(&mut ctx).await,
-            Cmd::Explore(args) => args.run(&mut ctx).await,
-            Cmd::ReExplore(opts) => opts.run(&mut ctx).await,
-            Cmd::ClearError(args) => args.run(&mut ctx).await,
-            Cmd::Delete(opts) => opts.run(&mut ctx).await,
-            Cmd::Remediation(opts) => opts.run(&mut ctx).await,
-            Cmd::IsBmcInManagedHost(args) => args.run(&mut ctx).await,
-            Cmd::HaveCredentials(args) => args.run(&mut ctx).await,
-            Cmd::CopyBfbToDpuRshim(args) => args.run(&mut ctx).await,
-        }
-    }
 }

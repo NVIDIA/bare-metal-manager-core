@@ -25,26 +25,14 @@ pub use show::cmd::handle_show;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum Cmd {
     #[clap(about = "List of all Machine interfaces")]
     Show(show::Args),
     #[clap(about = "Delete Machine interface.")]
     Delete(delete::Args),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Show(args) => args.run(&mut ctx).await,
-            Cmd::Delete(args) => args.run(&mut ctx).await,
-        }
-    }
 }

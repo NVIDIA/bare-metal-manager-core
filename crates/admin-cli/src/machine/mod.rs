@@ -32,7 +32,6 @@ pub mod show;
 mod tests;
 
 // Cross-module re-exports.
-use ::rpc::admin_cli::CarbideCliResult;
 pub use auto_update::args::Args as MachineAutoupdate;
 use clap::Parser;
 pub use common::{MachineQuery, NetworkConfigQuery};
@@ -42,10 +41,8 @@ pub use show::args::Args as ShowMachine;
 pub use show::cmd::{get_next_free_machine, handle_show};
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum Cmd {
     #[clap(about = "Display Machine information")]
     Show(show::Args),
@@ -83,23 +80,4 @@ pub enum Cmd {
     Positions(positions::Args),
     #[clap(subcommand, about = "Update/show NVLink info for an MNNVL machine")]
     NvlinkInfo(nvlink_info::Args),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Show(args) => args.run(&mut ctx).await?,
-            Cmd::DpuSshCredentials(args) => args.run(&mut ctx).await?,
-            Cmd::Network(cmd) => cmd.run(&mut ctx).await?,
-            Cmd::HealthOverride(cmd) => cmd.run(&mut ctx).await?,
-            Cmd::Reboot(args) => args.run(&mut ctx).await?,
-            Cmd::ForceDelete(args) => args.run(&mut ctx).await?,
-            Cmd::AutoUpdate(args) => args.run(&mut ctx).await?,
-            Cmd::Metadata(cmd) => cmd.run(&mut ctx).await?,
-            Cmd::HardwareInfo(cmd) => cmd.run(&mut ctx).await?,
-            Cmd::Positions(args) => args.run(&mut ctx).await?,
-            Cmd::NvlinkInfo(cmd) => cmd.run(&mut ctx).await?,
-        }
-        Ok(())
-    }
 }

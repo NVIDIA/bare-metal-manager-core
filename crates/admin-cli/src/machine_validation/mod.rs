@@ -24,14 +24,11 @@ mod tests_cmd;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum Cmd {
     #[clap(about = "External config", subcommand, visible_alias = "mve")]
     ExternalConfig(external_config::Args),
@@ -50,17 +47,5 @@ pub enum Cmd {
     )]
     Runs(runs::Args),
     #[clap(about = "Supported Tests ", subcommand, visible_alias = "mvs")]
-    Tests(Box<tests_cmd::Args>),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::ExternalConfig(cmd) => cmd.run(&mut ctx).await,
-            Cmd::Results(cmd) => cmd.run(&mut ctx).await,
-            Cmd::Runs(cmd) => cmd.run(&mut ctx).await,
-            Cmd::OnDemand(cmd) => cmd.run(&mut ctx).await,
-            Cmd::Tests(cmd) => (*cmd).run(&mut ctx).await,
-        }
-    }
+    Tests(tests_cmd::Args),
 }

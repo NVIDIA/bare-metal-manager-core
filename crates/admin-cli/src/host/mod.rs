@@ -23,14 +23,11 @@ mod set_uefi_password;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug, Clone)]
+#[derive(Parser, Debug, Clone, Dispatch)]
 #[clap(rename_all = "kebab_case")]
 pub enum Cmd {
     #[clap(about = "Set Host UEFI password")]
@@ -42,15 +39,4 @@ pub enum Cmd {
     GenerateHostUefiPassword(generate_host_uefi_password::Args),
     #[clap(subcommand, about = "Host reprovisioning handling")]
     Reprovision(reprovision::Args),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::SetUefiPassword(args) => args.run(&mut ctx).await,
-            Cmd::ClearUefiPassword(args) => args.run(&mut ctx).await,
-            Cmd::GenerateHostUefiPassword(args) => args.run(&mut ctx).await,
-            Cmd::Reprovision(args) => args.run(&mut ctx).await,
-        }
-    }
 }

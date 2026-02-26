@@ -28,10 +28,8 @@ use prettytable::{Table, row};
 use rpc::forge::VpcPeering;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum Cmd {
     #[clap(about = "Create VPC peering.")]
     Create(create::Args),
@@ -39,16 +37,6 @@ pub enum Cmd {
     Show(show::Args),
     #[clap(about = "Delete VPC peering.")]
     Delete(delete::Args),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Create(args) => args.run(&mut ctx).await,
-            Cmd::Show(args) => args.run(&mut ctx).await,
-            Cmd::Delete(args) => args.run(&mut ctx).await,
-        }
-    }
 }
 
 fn convert_vpc_peerings_to_table(vpc_peerings: &[VpcPeering]) -> CarbideCliResult<Box<Table>> {

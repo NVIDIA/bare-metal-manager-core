@@ -144,12 +144,12 @@ struct DhcpServerPaths {
 }
 
 /// Stores addresses of dependent services that the DHCP module announces.
-/// Note that these can apply to both IPv4 and IPv6; pxe_ip is actually
+/// Note that these can apply to both IPv4 and IPv6; pxe_ips is actually
 /// UEFI HTTP boot in this case, and NTP is still NTP. We should be able
 /// to leverage this struct even in DHCPv6 land (whereas other things don't
 /// really carry through to DHCPv6).
 pub struct ServiceAddresses {
-    pub pxe_ip: IpAddr,
+    pub pxe_ips: Vec<IpAddr>,
     pub ntpservers: Vec<IpAddr>,
     pub nameservers: Vec<IpAddr>,
 }
@@ -832,7 +832,7 @@ pub async fn update_dhcp(
     let _ = fs::remove_file(path_dhcp_relay_nvue);
 
     // Start DHCP Server in HBN.
-    let post_action = match write_dhcp_server_config(
+    let post_action = match write_dhcp_v4_server_config(
         &path_dhcp_relay,
         &paths_dhcp_server,
         network_config,
@@ -1040,7 +1040,7 @@ pub async fn reset(
 // This is currently scoped to IPv4 only, and there are
 // a few IPv4-specific checks for things like NTP servers,
 // UEFI HTTP/PXE IP, and nameservers below.
-fn write_dhcp_server_config(
+fn write_dhcp_v4_server_config(
     dhcp_relay_path: &FPath,
     dhcp_server_path: &DhcpServerPaths,
     nc: &rpc::ManagedHostNetworkConfigResponse,
@@ -1104,10 +1104,10 @@ fn write_dhcp_server_config(
 
     let loopback_ip = mh_nc.loopback_ip.parse()?;
 
-    // Filter nameservers, NTP servers, and our UEFI HTTP server
-    // addresses to IPv4 for the DHCPv4 server config. Now that
-    // ServiceAddresses holds both families, we need to ensure
-    // DHCPv4 options only carry IPv4 addresses.
+    // Filter to IPv4, since this is specifically for the DHCPv4 server
+    // config, and the input ServiceAddresses holds both families.
+    // Again, we'll eventually have a specific builder for a DHCPv6
+    // that does similar things with ServiceAddresses, but for IPv6.
     let nameservers_v4 = service_addrs
         .nameservers
         .iter()
@@ -1126,15 +1126,16 @@ fn write_dhcp_server_config(
         })
         .collect::<Vec<Ipv4Addr>>();
 
-    let pxe_ip_v4 = match service_addrs.pxe_ip {
-        IpAddr::V4(v4) => v4,
-        IpAddr::V6(_) => {
-            return Err(eyre::eyre!(
-                "DHCPv4 server config requires an IPv4 PXE/UEFI HTTP boot address, got {}",
-                service_addrs.pxe_ip
-            ));
-        }
-    };
+    let pxe_ip_v4 = service_addrs
+        .pxe_ips
+        .iter()
+        .find_map(|x| match x {
+            IpAddr::V4(x) => Some(*x),
+            _ => None,
+        })
+        .ok_or_else(|| {
+            eyre::eyre!("DHCPv4 server config requires an IPv4 PXE/UEFI HTTP boot address, but none found in {:?}", service_addrs.pxe_ips)
+        })?;
 
     let mut has_changes = false;
 
@@ -3007,7 +3008,7 @@ mod tests {
         let ip = FPath(PathBuf::from(i.path()));
 
         let service_addrs = ServiceAddresses {
-            pxe_ip: IpAddr::from([10, 0, 0, 1]),
+            pxe_ips: vec![IpAddr::from([10, 0, 0, 1])],
             ntpservers: vec![
                 IpAddr::from([127, 0, 0, 1]),
                 IpAddr::from([127, 0, 0, 2]),
@@ -3026,7 +3027,7 @@ mod tests {
         host_config_str =
             dhcp::build_server_host_config(network_config2.clone(), &HBNDeviceNames::pre_23())?;
         assert!(host_config_str.contains("mtu: 1500"));
-        match super::write_dhcp_server_config(
+        match super::write_dhcp_v4_server_config(
             &fp,
             &super::DhcpServerPaths {
                 server: gp.clone(),
@@ -3075,11 +3076,11 @@ mod tests {
         assert!(host_config_str.contains("mtu: 1500"));
 
         let service_addrs = ServiceAddresses {
-            pxe_ip: IpAddr::from([10, 0, 0, 1]),
+            pxe_ips: vec![IpAddr::from([10, 0, 0, 1])],
             ntpservers: vec![],
             nameservers: vec![IpAddr::from([10, 1, 1, 1])],
         };
-        match super::write_dhcp_server_config(
+        match super::write_dhcp_v4_server_config(
             &fp,
             &super::DhcpServerPaths {
                 server: gp,
@@ -3122,6 +3123,97 @@ mod tests {
         validate_host_config(
             dhcp_host_config,
             HostConfig::try_from(network_config, "pf0hpf_sf", "pf0vf", "_sf")?,
+        );
+
+        Ok(())
+    }
+
+    // test_dhcp_server_config_errors_without_ipv4_pxe is more or less
+    // a copypasta of other testing above, and its purpose in life is
+    // to make sure we get the [expected] error when passing a list of
+    // IPs to the DHCPv4 config builder, and no IPv4 addresses exist
+    // to build config against. This should really only happen in an
+    // IPv6-only environment, which would be really impressive.
+    #[test]
+    fn test_dhcp_server_config_errors_without_ipv4_pxe() -> Result<(), Box<dyn std::error::Error>> {
+        let netconf = rpc::ManagedHostNetworkConfig {
+            loopback_ip: "10.217.5.39".to_string(),
+            quarantine_state: None,
+        };
+        let network_config = rpc::ManagedHostNetworkConfigResponse {
+            site_global_vpc_vni: None,
+            asn: 4259912557,
+            datacenter_asn: 11414,
+            common_internal_route_target: None,
+            additional_route_target_imports: vec![],
+            anycast_site_prefixes: vec![],
+            tenant_host_asn: None,
+            routing_profile: None,
+            traffic_intercept_config: None,
+            dhcp_servers: vec![],
+            vni_device: "vxlan48".to_string(),
+            managed_host_config: Some(netconf),
+            managed_host_config_version: "V1-T1".to_string(),
+            use_admin_network: false,
+            admin_interface: None,
+            tenant_interfaces: vec![],
+            instance_network_config_version: "V1-T1".to_string(),
+            network_security_policy_overrides: vec![],
+            instance_id: None,
+            remote_id: "test".to_string(),
+            dpu_network_pinger_type: None,
+            network_virtualization_type: None,
+            vpc_vni: None,
+            route_servers: vec![],
+            deny_prefixes: vec![],
+            site_fabric_prefixes: vec![],
+            vpc_isolation_behavior: rpc::VpcIsolationBehaviorType::VpcIsolationMutual.into(),
+            deprecated_deny_prefixes: vec![],
+            enable_dhcp: true,
+            host_interface_id: None,
+            min_dpu_functioning_links: None,
+            is_primary_dpu: true,
+            internet_l3_vni: None,
+            stateful_acls_enabled: false,
+            instance: None,
+            dpu_extension_services: vec![],
+        };
+
+        let f = tempfile::NamedTempFile::new()?;
+        let fp = FPath(PathBuf::from(f.path()));
+
+        let g = tempfile::NamedTempFile::new()?;
+        let gp = FPath(PathBuf::from(g.path()));
+
+        let h = tempfile::NamedTempFile::new()?;
+        let hp = FPath(PathBuf::from(h.path()));
+
+        let i = tempfile::NamedTempFile::new()?;
+        let ip = FPath(PathBuf::from(i.path()));
+
+        let service_addrs = ServiceAddresses {
+            pxe_ips: vec!["fd00::1".parse().unwrap()],
+            ntpservers: vec![],
+            nameservers: vec![IpAddr::from([10, 1, 1, 1])],
+        };
+
+        let result = super::write_dhcp_v4_server_config(
+            &fp,
+            &super::DhcpServerPaths {
+                server: gp,
+                config: hp,
+                host_config: ip,
+            },
+            &network_config,
+            &service_addrs,
+            &HBNDeviceNames::pre_23(),
+        );
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("IPv4 PXE/UEFI HTTP boot address"),
+            "Expected error about missing IPv4, got: {err_msg}"
         );
 
         Ok(())

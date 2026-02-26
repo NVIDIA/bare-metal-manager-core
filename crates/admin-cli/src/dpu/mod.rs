@@ -27,14 +27,11 @@ pub use network::cmd::show_dpu_status;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum Cmd {
     #[clap(subcommand, about = "DPU Reprovisioning handling")]
     Reprovision(reprovision::Args),
@@ -46,16 +43,4 @@ pub enum Cmd {
     Status(status::Args),
     #[clap(subcommand, about = "Networking information")]
     Network(network::Args),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Reprovision(args) => args.run(&mut ctx).await,
-            Cmd::AgentUpgradePolicy(args) => args.run(&mut ctx).await,
-            Cmd::Versions(args) => args.run(&mut ctx).await,
-            Cmd::Status(args) => args.run(&mut ctx).await,
-            Cmd::Network(args) => args.run(&mut ctx).await,
-        }
-    }
 }

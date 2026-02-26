@@ -26,14 +26,11 @@ mod update;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum Cmd {
     #[clap(about = "Show expected power shelf")]
     Show(show::Args),
@@ -47,17 +44,4 @@ pub enum Cmd {
     ReplaceAll(replace_all::Args),
     #[clap(about = "Erase all expected power shelves")]
     Erase(erase::Args),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Show(args) => args.run(&mut ctx).await,
-            Cmd::Add(args) => args.run(&mut ctx).await,
-            Cmd::Delete(args) => args.run(&mut ctx).await,
-            Cmd::Update(args) => args.run(&mut ctx).await,
-            Cmd::ReplaceAll(args) => args.run(&mut ctx).await,
-            Cmd::Erase(args) => args.run(&mut ctx).await,
-        }
-    }
 }

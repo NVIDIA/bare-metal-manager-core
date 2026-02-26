@@ -24,14 +24,11 @@ mod replace;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum Cmd {
     #[clap(about = "Get all route servers")]
     Get(get::Args),
@@ -44,15 +41,4 @@ pub enum Cmd {
 
     #[clap(about = "Replace all route server addresses")]
     Replace(replace::Args),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Get(args) => args.run(&mut ctx).await,
-            Cmd::Add(args) => args.run(&mut ctx).await,
-            Cmd::Remove(args) => args.run(&mut ctx).await,
-            Cmd::Replace(args) => args.run(&mut ctx).await,
-        }
-    }
 }

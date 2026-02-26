@@ -195,7 +195,7 @@ fn parse_tests_show() {
         .expect("should parse tests show");
 
     match cmd {
-        Cmd::Tests(tests_cmd) => match *tests_cmd {
+        Cmd::Tests(tests_cmd) => match tests_cmd {
             tests_cmd::Args::Show(args) => {
                 assert!(args.test_id.is_none());
             }
@@ -221,7 +221,7 @@ fn parse_tests_verify() {
     .expect("should parse tests verify");
 
     match cmd {
-        Cmd::Tests(tests_cmd) => match *tests_cmd {
+        Cmd::Tests(tests_cmd) => match tests_cmd {
             tests_cmd::Args::Verify(args) => {
                 assert_eq!(args.test_id, "test-123");
                 assert_eq!(args.version, "v1");
@@ -250,7 +250,7 @@ fn parse_tests_add() {
     .expect("should parse tests add");
 
     match cmd {
-        Cmd::Tests(tests_cmd) => match *tests_cmd {
+        Cmd::Tests(tests_cmd) => match tests_cmd {
             tests_cmd::Args::Add(args) => {
                 assert_eq!(args.name, "my-test");
                 assert_eq!(args.command, "/bin/test");

@@ -26,14 +26,11 @@ mod update;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum Cmd {
     #[clap(about = "Create an extension service")]
     Create(create::Args),
@@ -47,17 +44,4 @@ pub enum Cmd {
     GetVersion(get_version::Args),
     #[clap(about = "Show instances using an extension service")]
     ShowInstances(show_instances::Args),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Create(args) => args.run(&mut ctx).await,
-            Cmd::Update(args) => args.run(&mut ctx).await,
-            Cmd::Delete(args) => args.run(&mut ctx).await,
-            Cmd::Show(args) => args.run(&mut ctx).await,
-            Cmd::GetVersion(args) => args.run(&mut ctx).await,
-            Cmd::ShowInstances(args) => args.run(&mut ctx).await,
-        }
-    }
 }

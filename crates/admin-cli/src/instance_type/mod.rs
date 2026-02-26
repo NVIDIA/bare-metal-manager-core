@@ -26,14 +26,11 @@ mod update;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug, Clone)]
+#[derive(Parser, Debug, Clone, Dispatch)]
 #[clap(rename_all = "kebab_case")]
 pub enum Cmd {
     #[clap(about = "Create an instance type", visible_alias = "c")]
@@ -59,17 +56,4 @@ pub enum Cmd {
         visible_alias = "r"
     )]
     Disassociate(disassociate::Args),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Create(args) => args.run(&mut ctx).await,
-            Cmd::Show(args) => args.run(&mut ctx).await,
-            Cmd::Update(args) => args.run(&mut ctx).await,
-            Cmd::Delete(args) => args.run(&mut ctx).await,
-            Cmd::Associate(args) => args.run(&mut ctx).await,
-            Cmd::Disassociate(args) => args.run(&mut ctx).await,
-        }
-    }
 }

@@ -25,14 +25,11 @@ mod show_obmc_log;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug, Clone)]
+#[derive(Parser, Debug, Clone, Dispatch)]
 #[clap(rename_all = "kebab_case")]
 pub enum Cmd {
     #[clap(about = "Show Rshim Status")]
@@ -45,16 +42,4 @@ pub enum Cmd {
     CopyBfb(copy_bfb::Args),
     #[clap(about = "Show the DPU's BMC's OBMC log")]
     ShowObmcLog(show_obmc_log::Args),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::GetRshimStatus(args) => args.run(&mut ctx).await,
-            Cmd::DisableRshim(args) => args.run(&mut ctx).await,
-            Cmd::EnableRshim(args) => args.run(&mut ctx).await,
-            Cmd::CopyBfb(args) => args.run(&mut ctx).await,
-            Cmd::ShowObmcLog(args) => args.run(&mut ctx).await,
-        }
-    }
 }

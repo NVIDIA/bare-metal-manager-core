@@ -24,14 +24,11 @@ pub use list::cmd::list;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum Cmd {
     #[clap(
         about = "Add capacity to one or more resource pools from a TOML file. See carbide-api admin_grow_resource_pool docs for example TOML."
@@ -39,13 +36,4 @@ pub enum Cmd {
     Grow(grow::Args),
     #[clap(about = "List all resource pools with stats")]
     List(list::Args),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Grow(args) => args.run(&mut ctx).await,
-            Cmd::List(args) => args.run(&mut ctx).await,
-        }
-    }
 }

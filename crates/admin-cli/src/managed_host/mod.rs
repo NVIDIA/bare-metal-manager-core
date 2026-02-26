@@ -32,14 +32,11 @@ pub use start_updates::args::Args as StartUpdates;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::run::Run;
-use crate::cfg::runtime::RuntimeContext;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum Cmd {
     #[clap(about = "Display managed host information")]
     Show(show::Args),
@@ -64,20 +61,4 @@ pub enum Cmd {
     SetPrimaryDpu(set_primary_dpu::Args),
     #[clap(about = "Download debug bundle with logs for a specific host")]
     DebugBundle(debug_bundle::Args),
-}
-
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Show(args) => args.run(&mut ctx).await?,
-            Cmd::Maintenance(args) => args.run(&mut ctx).await?,
-            Cmd::Quarantine(args) => args.run(&mut ctx).await?,
-            Cmd::ResetHostReprovisioning(args) => args.run(&mut ctx).await?,
-            Cmd::PowerOptions(args) => args.run(&mut ctx).await?,
-            Cmd::StartUpdates(args) => args.run(&mut ctx).await?,
-            Cmd::DebugBundle(args) => args.run(&mut ctx).await?,
-            Cmd::SetPrimaryDpu(args) => args.run(&mut ctx).await?,
-        }
-        Ok(())
-    }
 }

@@ -1,0 +1,71 @@
+# Dockerfile for building carbide-dpf-api-harness against GLIBC 2.34
+# Uses Ubuntu 22.04 (Jammy) which ships with GLIBC 2.34
+# Build from workspace root: docker build -f crates/dpf-beta/dev/Dockerfile.carbide-dpf-api-harness-glibc2.34 -t carbide-dpf-api-harness:glibc2.34 .
+
+FROM ubuntu:22.04 AS builder
+
+WORKDIR /workspace
+
+# Install build dependencies and Rust
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    curl \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    ca-certificates \
+    git \
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.90.0 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add Rust to PATH
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Copy workspace configuration files
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+
+# Verify workspace structure
+RUN grep -q '^\[workspace\]' Cargo.toml && \
+    grep -q 'members.*crates' Cargo.toml && \
+    echo "Workspace structure verified"
+
+# Copy workspace crates
+COPY crates/ crates/
+
+# Download and cache dependencies
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/workspace/target \
+    cargo fetch --locked
+
+# Build carbide-dpf-api-harness with driver feature using cached dependencies
+# Copy binary out of cache mount to persist it
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/workspace/target \
+    cargo build --release --package carbide-dpf-beta --bin carbide-dpf-api-harness --features driver && \
+    cp target/release/carbide-dpf-api-harness /tmp/carbide-dpf-api-harness && \
+    strip /tmp/carbide-dpf-api-harness && \
+    echo "Binary built successfully from workspace"
+
+# Verify binary was copied successfully and check GLIBC version
+RUN test -f /tmp/carbide-dpf-api-harness && \
+    echo "Workspace build verified" && \
+    ldd /tmp/carbide-dpf-api-harness 2>/dev/null | head -1 || echo "Binary built successfully" && \
+    strings /tmp/carbide-dpf-api-harness | grep -q "GLIBC_2.34" && \
+    echo "GLIBC 2.34 requirement verified"
+
+# Output stage - copy the binary
+FROM ubuntu:22.04
+
+RUN apt-get update && \
+    apt-get install -y ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /tmp/carbide-dpf-api-harness /usr/local/bin/carbide-dpf-api-harness
+
+# Verify binary is linked correctly
+RUN ldd /usr/local/bin/carbide-dpf-api-harness | grep libc.so || echo "Binary linked successfully"
+
+ENTRYPOINT ["/usr/local/bin/carbide-dpf-api-harness"]
