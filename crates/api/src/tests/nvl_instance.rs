@@ -1310,7 +1310,7 @@ async fn test_create_instance_with_nvl_config_remove_from_default_partition(pool
         libnmxm::nmxm_model::PartitionMembers::Ids(ids) => ids,
         _ => panic!("Expected IDs partition members"),
     };
-    assert_eq!(members.len(), 12);
+    assert_eq!(members.len(), 16);
 
     let gpus: Vec<Gpu> = discovery_info.gpus.to_vec();
     println!("{gpus:?}");
@@ -1362,6 +1362,167 @@ async fn test_create_instance_with_nvl_config_remove_from_default_partition(pool
         .find(|p| p.partition_id == 32766)
         .unwrap();
     let members = match default_partition.members.as_ref() {
+        libnmxm::nmxm_model::PartitionMembers::Ids(ids) => ids,
+        _ => panic!("Expected IDs partition members"),
+    };
+    assert_eq!(members.len(), 12);
+}
+
+#[crate::sqlx_test]
+async fn test_create_instance_add_to_existing_partition(pool: sqlx::PgPool) {
+    let mut config = common::api_fixtures::get_config();
+    if let Some(nvlink_config) = config.nvlink_config.as_mut() {
+        nvlink_config.enabled = true;
+    }
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    let NvlLogicalPartitionFixture {
+        id: logical_partition_id,
+        logical_partition: _logical_partition,
+    } = create_nvl_logical_partition(&env, "test_partition".to_string()).await;
+
+    let request_logical_ids =
+        tonic::Request::new(rpc::forge::NvLinkLogicalPartitionSearchFilter { name: None });
+
+    let logical_ids_list = env
+        .api
+        .find_nv_link_logical_partition_ids(request_logical_ids)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(logical_ids_list.partition_ids.len(), 1);
+
+    let mh1 = create_managed_host_with_hardware_info_template(
+        &env,
+        HardwareInfoTemplate::Custom(
+            crate::tests::common::api_fixtures::host::GB200_COMPUTE_TRAY_1_INFO_JSON,
+        ),
+    )
+    .await;
+    let machine1 = mh1.host().rpc_machine().await;
+    assert_eq!(&machine1.state, "Ready");
+    let discovery_info1 = machine1.discovery_info.as_ref().unwrap();
+
+    assert_eq!(discovery_info1.gpus.len(), 4);
+
+    let gpus: Vec<Gpu> = discovery_info1.gpus.to_vec();
+    println!("{gpus:?}");
+
+    let nvl_config = rpc::forge::InstanceNvLinkConfig {
+        gpu_configs: gpus
+            .iter()
+            .filter_map(|gpu| {
+                gpu.platform_info.as_ref().map(|platform_info| {
+                    rpc::forge::InstanceNvLinkGpuConfig {
+                        device_instance: platform_info.module_id,
+                        logical_partition_id: Some(logical_partition_id),
+                    }
+                })
+            })
+            .collect(),
+    };
+
+    let (tinstance, instance) =
+        create_instance_with_nvlink_config(&env, &mh1, nvl_config.clone(), segment_id).await;
+
+    let machine1 = mh1.host().rpc_machine().await;
+    assert_eq!(&machine1.state, "Assigned/Ready");
+
+    let check_instance = tinstance.rpc_instance().await;
+    assert_eq!(instance.machine_id(), mh1.id);
+    assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
+    assert_eq!(instance, check_instance);
+
+    env.run_nvl_partition_monitor_iteration().await;
+
+    let request_all = tonic::Request::new(rpc::forge::NvLinkPartitionSearchFilter {
+        name: None,
+        tenant_organization_id: None,
+    });
+    let ids_all = env
+        .api
+        .find_nv_link_partition_ids(request_all)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(ids_all.partition_ids.len(), 1);
+
+    let nmxm_sim_client = env
+        .nmxm_sim
+        .create_client("localhost:4010", None)
+        .await
+        .unwrap();
+    let nmx_m_partitions = nmxm_sim_client.get_partitions_list().await.unwrap();
+    assert_eq!(nmx_m_partitions.len(), 1);
+    let members = match nmx_m_partitions[0].members.as_ref() {
+        libnmxm::nmxm_model::PartitionMembers::Ids(ids) => ids,
+        _ => panic!("Expected IDs partition members"),
+    };
+    assert_eq!(members.len(), 4);
+
+    // Now create another instance in the same logical partition and rack.
+    let mh2 = create_managed_host_with_hardware_info_template(
+        &env,
+        HardwareInfoTemplate::Custom(
+            crate::tests::common::api_fixtures::host::GB200_COMPUTE_TRAY_3_INFO_JSON,
+        ),
+    )
+    .await;
+    let machine2 = mh2.host().rpc_machine().await;
+    assert_eq!(&machine2.state, "Ready");
+    let discovery_info2 = machine2.discovery_info.as_ref().unwrap();
+    assert_eq!(discovery_info2.gpus.len(), 4);
+
+    let gpus2: Vec<Gpu> = discovery_info2.gpus.to_vec();
+    println!("{gpus2:?}");
+
+    let nvl_config2 = rpc::forge::InstanceNvLinkConfig {
+        gpu_configs: gpus2
+            .iter()
+            .filter_map(|gpu| {
+                gpu.platform_info.as_ref().map(|platform_info| {
+                    rpc::forge::InstanceNvLinkGpuConfig {
+                        device_instance: platform_info.module_id,
+                        logical_partition_id: Some(logical_partition_id),
+                    }
+                })
+            })
+            .collect(),
+    };
+
+    let (tinstance2, instance2) =
+        create_instance_with_nvlink_config(&env, &mh2, nvl_config2.clone(), segment_id).await;
+
+    let machine2 = mh2.host().rpc_machine().await;
+    assert_eq!(&machine2.state, "Assigned/Ready");
+    let check_instance2 = tinstance2.rpc_instance().await;
+    assert_eq!(instance2.machine_id(), mh2.id);
+    assert_eq!(instance2.status().tenant(), rpc::TenantState::Ready);
+    assert_eq!(instance2, check_instance2);
+
+    env.run_nvl_partition_monitor_iteration().await;
+
+    let request_all = tonic::Request::new(rpc::forge::NvLinkPartitionSearchFilter {
+        name: None,
+        tenant_organization_id: None,
+    });
+    let ids_all = env
+        .api
+        .find_nv_link_partition_ids(request_all)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(ids_all.partition_ids.len(), 1);
+
+    let nmx_m_partitions = nmxm_sim_client.get_partitions_list().await.unwrap();
+    assert_eq!(nmx_m_partitions.len(), 1);
+    let members = match nmx_m_partitions[0].members.as_ref() {
         libnmxm::nmxm_model::PartitionMembers::Ids(ids) => ids,
         _ => panic!("Expected IDs partition members"),
     };

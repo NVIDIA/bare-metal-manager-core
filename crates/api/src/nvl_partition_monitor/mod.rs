@@ -540,11 +540,35 @@ impl PartitionProcessingContext {
                     .to_string(),
             ));
         };
+
+        // Get the GPU IDs that are already in the partition.
+        let gpu_ids: Vec<String>;
+        if let Some(nmx_m_partition) = self.nmx_m_partitions.get(&partition.nmx_m_id) {
+            match nmx_m_partition.members.as_ref() {
+                libnmxm::nmxm_model::PartitionMembers::Ids(ids) => {
+                    gpu_ids = ids
+                        .iter()
+                        .cloned()
+                        .chain(std::iter::once(ctx.gpu_nmx_m_id.clone()))
+                        .collect();
+                }
+                _ => {
+                    return Err(CarbideError::internal(
+                        "Expected IDs partition members".to_string(),
+                    ));
+                }
+            }
+        } else {
+            return Err(CarbideError::internal(
+                "NMX-M partition not found for GPU addition to existing partition".to_string(),
+            ));
+        }
+
         let operation = NmxmPartitionOperation {
             domain_uuid: Some(ctx.domain_uuid),
             operation_type: NmxmPartitionOperationType::Update(partition.nmx_m_id.clone()),
             original_operation_type: None,
-            gpu_ids: vec![ctx.gpu_nmx_m_id.clone()],
+            gpu_ids,
             name: partition.name.clone().into(),
             db_partition_id: ctx.partition_id, // TODO: should try to verify that these are not nil
         };

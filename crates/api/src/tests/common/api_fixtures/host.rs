@@ -45,6 +45,9 @@ pub const GB200_COMPUTE_TRAY_1_INFO_JSON: &[u8] = include_bytes!(
 pub const GB200_COMPUTE_TRAY_2_INFO_JSON: &[u8] = include_bytes!(
     "../../../../../api-model/src/hardware_info/test_data/gb200_compute_tray_2_info.json"
 );
+pub const GB200_COMPUTE_TRAY_3_INFO_JSON: &[u8] = include_bytes!(
+    "../../../../../api-model/src/hardware_info/test_data/gb200_compute_tray_3_info.json"
+);
 /// Uses the `discover_dhcp` API to discover a Host with a certain MAC address
 ///
 /// Returns the created `machine_interface_id`
