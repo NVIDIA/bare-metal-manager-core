@@ -607,8 +607,8 @@ impl VaultTask<Certificate> for GetCertificateHelper {
             trust_domain, namespace, self.unique_identifier,
         );
 
-        let ttl = if self.ttl.is_some() {
-            self.ttl.clone().unwrap()
+        let ttl = if let Some(ttl) = self.ttl.clone() {
+            ttl
         } else {
             // this is to setup a baseline skew of between 60 - 100% of 30 days,
             // so that not all boxes will renew (or expire) at the same time.

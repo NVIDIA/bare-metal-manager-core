@@ -173,7 +173,7 @@ pub async fn admin_network(
                     return Err(CarbideError::FindOneReturnedNoResultsError(vpc_id.into()).into());
                 }
                 let vpc = vpcs.remove(0);
-                match vpc.vni {
+                match vpc.status.and_then(|v| v.vni) {
                     Some(vpc_vni) => {
                         let tenant_loopback_ip =
                             db::vpc_dpu_loopback::get_or_allocate_loopback_ip_for_vpc(
@@ -373,7 +373,10 @@ pub async fn tenant_network(
         None => None,
     };
 
-    let vpc_vni = vpc.as_ref().and_then(|v| v.vni).unwrap_or_default() as u32;
+    let vpc_vni = vpc
+        .as_ref()
+        .and_then(|v| v.status.as_ref().and_then(|vs| vs.vni))
+        .unwrap_or_default() as u32;
 
     let rpc_ft: rpc::InterfaceFunctionType = iface.function_id.function_type().into();
     let svi_ip = get_svi_ip(

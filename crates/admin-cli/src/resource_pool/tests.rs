@@ -25,7 +25,7 @@
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
+use super::*;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -49,7 +49,7 @@ fn verify_cmd_structure() {
 fn parse_list() {
     let cmd = Cmd::try_parse_from(["resource-pool", "list"]).expect("should parse list");
 
-    assert!(matches!(cmd, Cmd::List));
+    assert!(matches!(cmd, Cmd::List(_)));
 }
 
 // parse_grow ensures grow parses with filename.

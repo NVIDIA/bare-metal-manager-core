@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 
 use carbide_uuid::machine::MachineId;
@@ -88,7 +88,7 @@ pub struct NvueOptions {
     pub site_global_vpc_vni: Option<u32>,
 
     #[clap(long)]
-    pub loopback_ip: Ipv4Addr,
+    pub loopback_ip: IpAddr,
 
     #[clap(long)]
     pub asn: u32,
@@ -222,7 +222,7 @@ pub struct FrrOptions {
     #[clap(long)]
     pub asn: u32,
     #[clap(long)]
-    pub loopback_ip: Ipv4Addr,
+    pub loopback_ip: IpAddr,
     #[clap(long, help = "Format is 'id,host_route', e.g. --vlan 1,xyz. Repeats.")]
     pub vlan: Vec<String>,
     #[clap(long, default_value = "etv")]
@@ -243,7 +243,7 @@ pub struct InterfacesOptions {
     #[clap(long, help = "Full path of interfaces file")]
     pub path: String,
     #[clap(long)]
-    pub loopback_ip: Ipv4Addr,
+    pub loopback_ip: IpAddr,
     #[clap(long, help = "Blank for admin network, vxlan48 for tenant networks")]
     pub vni_device: String,
     #[clap(
@@ -261,6 +261,9 @@ pub struct DhcpOptions {
     pub path: String,
     #[clap(long, help = "vlan numeric id. Repeats")]
     pub vlan: Vec<u32>,
+    // Note that these will be staying IPv4 only for now. This
+    // config block is pretty tailored towards DHCPv4, and may
+    // get refactored a bit as part of adding DHCPv6 support.
     #[clap(long, help = "DHCP server IP address. Repeats")]
     pub dhcp: Vec<Ipv4Addr>,
     #[clap(long, help = "Remote ID to be filled in Option 82 - Agent Remote ID")]

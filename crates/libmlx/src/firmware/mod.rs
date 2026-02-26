@@ -20,4 +20,5 @@ pub mod credentials;
 pub mod error;
 pub mod flasher;
 pub mod reset;
+pub mod result;
 pub mod source;

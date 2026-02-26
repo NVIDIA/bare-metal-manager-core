@@ -15,23 +15,25 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmds;
+mod grow;
+mod list;
+
+// Cross-module re-export for jump module
+pub use list::cmd::list;
 
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Grow(data) => cmds::grow(&data, &ctx.api_client).await,
-            Cmd::List => cmds::list(&ctx.api_client).await,
-        }
-    }
+#[derive(Parser, Debug, Dispatch)]
+pub enum Cmd {
+    #[clap(
+        about = "Add capacity to one or more resource pools from a TOML file. See carbide-api admin_grow_resource_pool docs for example TOML."
+    )]
+    Grow(grow::Args),
+    #[clap(about = "List all resource pools with stats")]
+    List(list::Args),
 }

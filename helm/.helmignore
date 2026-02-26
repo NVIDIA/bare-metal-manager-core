@@ -1,0 +1,6 @@
+# Patterns to ignore when building packages.
+.git
+.gitignore
+.helmignore
+*.md
+examples/

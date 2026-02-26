@@ -25,7 +25,7 @@
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
+use super::*;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -60,11 +60,11 @@ fn parse_get_rshim_status() {
     match cmd {
         Cmd::GetRshimStatus(args) => {
             assert_eq!(
-                args.credentials.bmc_ip_address.to_string(),
+                args.inner.credentials.bmc_ip_address.to_string(),
                 "192.168.1.100:443"
             );
-            assert_eq!(args.credentials.bmc_username, "admin");
-            assert_eq!(args.credentials.bmc_password, "password123");
+            assert_eq!(args.inner.credentials.bmc_username, "admin");
+            assert_eq!(args.inner.credentials.bmc_password, "password123");
         }
         _ => panic!("expected GetRshimStatus variant"),
     }

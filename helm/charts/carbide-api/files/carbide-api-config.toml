@@ -1,0 +1,82 @@
+# This is the global configuration file for carbide-api that is shared
+# between all environments.
+# Each environment can overwrite certain parameters of this file via a
+# carbide-api-site-config.toml file. Those are placed in the `envs/` folder
+# for the respective environment
+
+listen="[::]:1079"
+metrics_endpoint="[::]:1080"
+alt_metric_prefix="forge_"
+profiler_endpoint="[::]:1081"
+database_url="postgres://replaced-by-env-var"
+asn=4294967000
+initial_dpu_agent_upgrade_policy = "up_only"
+dpu_nic_firmware_intial_update_enabled=false
+dpu_nic_firmware_reprovision_update_enabled=true
+dpu_nic_firmware_update_version = { "BlueField SoC" = "24.42.1000", "BlueField-3 SmartNIC Main Card" = "32.42.1000" }
+max_concurrent_machine_updates=10
+nvue_enabled=true
+dhcp_servers=[] # Added in per-site-configuration
+route_servers=[] # Required for FNN. Not yet used
+attestation_enabled = true
+
+# The original behavior of the BYOIP feature allowed
+# any announcement, so this isn't changing anything.
+# We're going to start restricting but we need to
+# identify all the current tenant announcements first.
+# This "allow-all" will be removed after all
+# site-specific announcements have been identified
+# and each site with announcements has been given
+# its more specific config for anycast_site_prefixes.
+anycast_site_prefixes=["0.0.0.0/0"]
+
+[host_health]
+hardware_health_reports = "MonitorOnly"
+
+[site_explorer]
+enabled = true
+create_machines = true
+
+[firmware_global]
+autoupdate = true
+
+[tls]
+identity_pemfile_path="/var/run/secrets/spiffe.io/tls.crt"
+identity_keyfile_path="/var/run/secrets/spiffe.io/tls.key"
+root_cafile_path="/var/run/secrets/spiffe.io/ca.crt"
+admin_root_cafile_path="/etc/forge/carbide-api/site/admin_root_cert_pem"
+
+[auth]
+permissive_mode=false
+casbin_policy_file="/etc/forge/carbide-api/casbin-policy.csv"
+
+[auth.trust]
+spiffe_trust_domain="forge.local"
+spiffe_service_base_paths=["/forge-system/sa/","/default/sa/","/elektra-site-agent/sa/"]
+spiffe_machine_base_path="/forge-system/machine/"
+additional_issuer_cns=[]
+
+[machine_state_controller]
+failure_retry_time = "45m"
+
+[network_security_group]
+# Controls whether additional config to support
+# stateful/reflexive ACLs will be inserted into
+# the HBN config.
+# This is expected to remain off at least until
+# Carbide v2025.12.19 is fully in production.
+stateful_acls_enabled = false
+
+# Maximum number of security groups rules
+# after they are expanded:
+# src port range * dst port range * src prefix list * dst prefix list
+# NOTE: There is also a hard-limit in the
+# DPU agent of 10k (as of the time of this
+# comment) to protect it misconfig in
+# site-controller.
+max_network_security_group_size = 200
+
+# Enable Machine Validation feature and enable all tests
+[machine_validation_config]
+enabled = true
+test_selection_mode = "EnableAll"

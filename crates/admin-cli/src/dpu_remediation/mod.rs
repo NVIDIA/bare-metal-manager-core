@@ -15,46 +15,35 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmds;
+mod approve;
+mod create;
+mod disable;
+mod enable;
+mod list_applied;
+mod revoke;
+mod show;
 
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Create(args) => cmds::create_dpu_remediation(args, &ctx.api_client).await,
-            Cmd::Approve(args) => cmds::approve_dpu_remediation(args, &ctx.api_client).await,
-            Cmd::Revoke(args) => cmds::revoke_dpu_remediation(args, &ctx.api_client).await,
-            Cmd::Enable(args) => cmds::enable_dpu_remediation(args, &ctx.api_client).await,
-            Cmd::Disable(args) => cmds::disable_dpu_remediation(args, &ctx.api_client).await,
-            Cmd::Show(args) => {
-                cmds::handle_show(
-                    args,
-                    ctx.config.format,
-                    &mut ctx.output_file,
-                    &ctx.api_client,
-                    ctx.config.page_size,
-                )
-                .await
-            }
-            Cmd::ListApplied(args) => {
-                cmds::handle_list_applied(
-                    args,
-                    ctx.config.format,
-                    &mut ctx.output_file,
-                    &ctx.api_client,
-                    ctx.config.page_size,
-                )
-                .await
-            }
-        }
-    }
+#[derive(Parser, Debug, Dispatch)]
+pub enum Cmd {
+    #[clap(about = "Create a remediation")]
+    Create(create::Args),
+    #[clap(about = "Approve a remediation")]
+    Approve(approve::Args),
+    #[clap(about = "Revoke a remediation")]
+    Revoke(revoke::Args),
+    #[clap(about = "Enable a remediation")]
+    Enable(enable::Args),
+    #[clap(about = "Disable a remediation")]
+    Disable(disable::Args),
+    #[clap(about = "Display remediation information")]
+    Show(show::Args),
+    #[clap(about = "Display information about applied remediations")]
+    ListApplied(list_applied::Args),
 }

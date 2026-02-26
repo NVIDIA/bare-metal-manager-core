@@ -17,15 +17,16 @@
 
 use std::borrow::Cow;
 use std::collections::HashSet;
+use std::convert::identity;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures::{StreamExt, stream};
-use nv_redfish::ServiceRoot;
 use nv_redfish::chassis::{Chassis, PowerSupply};
 use nv_redfish::computer_system::{ComputerSystem, Drive, Memory, Processor, Storage};
 use nv_redfish::core::{Bmc, EntityTypeRef, ToSnakeCase};
 use nv_redfish::sensor::SensorRef;
+use nv_redfish::{Resource, ServiceRoot};
 
 use crate::HealthError;
 use crate::collectors::{IterationResult, PeriodicCollector};
@@ -226,7 +227,7 @@ impl<B: Bmc> SensorRecordable<B> for MonitoredEntity<B> {
             MonitoredEntity::Drive { entity, .. } => {
                 if let Some(lifetime) = entity.raw().predicted_media_life_left_percent.flatten() {
                     vec![MetricSample {
-                        key: entity.raw().id().to_string(),
+                        key: entity.odata_id().to_string(),
                         name: "hw".to_string(),
                         metric_type: "drive_predicted_media_life_left".to_string(),
                         unit: "percentage".to_string(),
@@ -240,7 +241,7 @@ impl<B: Bmc> SensorRecordable<B> for MonitoredEntity<B> {
             MonitoredEntity::PowerSupply { entity, .. } => {
                 if let Some(capacity) = entity.raw().power_capacity_watts.flatten() {
                     vec![MetricSample {
-                        key: entity.raw().id().to_string(),
+                        key: entity.odata_id().to_string(),
                         name: "hw".to_string(),
                         metric_type: "powersupply_capacity".to_string(),
                         unit: "watts".to_string(),
@@ -363,6 +364,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             .processors()
             .await
             .log_and_ok("Failed to get processors", &self.endpoint.addr)
+            .and_then(identity)
             .unwrap_or_default();
 
         stream::iter(processors)
@@ -406,6 +408,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             .memory_modules()
             .await
             .log_and_ok("Failed to get memory modules", &self.endpoint.addr)
+            .and_then(identity)
             .unwrap_or_default();
 
         stream::iter(memory_modules)
@@ -441,6 +444,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             .storage_controllers()
             .await
             .log_and_ok("Failed to get storage", &self.endpoint.addr)
+            .and_then(identity)
             .unwrap_or_default();
 
         stream::iter(storage_list)
@@ -450,6 +454,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                     .drives()
                     .await
                     .log_and_ok("Failed to get drives", &self.endpoint.addr)
+                    .and_then(identity)
                     .unwrap_or_default();
                 (storage, drives)
             })
@@ -520,7 +525,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
     }
 
     async fn discover_chassis_entities(&self, chassis: Arc<Chassis<B>>) -> Vec<MonitoredEntity<B>> {
-        if let Ok(sensors) = chassis.sensors().await {
+        if let Ok(Some(sensors)) = chassis.sensors().await {
             sensors
                 .into_iter()
                 .map(move |sensor| MonitoredEntity::Chassis {
@@ -535,43 +540,45 @@ impl<B: Bmc + 'static> SensorCollector<B> {
 
     async fn discover_entities(&self) -> Result<Vec<MonitoredEntity<B>>, HealthError> {
         let service_root = ServiceRoot::new(self.bmc.clone()).await?;
-        let systems = service_root.systems().await?.members().await?;
-        let chassis_list = service_root.chassis().await?.members().await?;
 
         let mut entities = Vec::new();
         let mut sensor_ids = HashSet::new();
 
-        for system in systems {
-            let system = Arc::new(system);
+        if let Some(systems) = service_root.systems().await? {
+            for system in systems.members().await? {
+                let system = Arc::new(system);
 
-            for entity in self.discover_processor_entities(system.clone()).await {
-                sensor_ids.insert(entity.sensor().odata_id().clone());
-                entities.push(entity);
-            }
+                for entity in self.discover_processor_entities(system.clone()).await {
+                    sensor_ids.insert(entity.sensor().odata_id().clone());
+                    entities.push(entity);
+                }
 
-            for entity in self.discover_memory_entities(system.clone()).await {
-                sensor_ids.insert(entity.sensor().odata_id().clone());
-                entities.push(entity);
-            }
+                for entity in self.discover_memory_entities(system.clone()).await {
+                    sensor_ids.insert(entity.sensor().odata_id().clone());
+                    entities.push(entity);
+                }
 
-            for entity in self.discover_drive_entities(system).await {
-                sensor_ids.insert(entity.sensor().odata_id().clone());
-                entities.push(entity);
+                for entity in self.discover_drive_entities(system).await {
+                    sensor_ids.insert(entity.sensor().odata_id().clone());
+                    entities.push(entity);
+                }
             }
         }
 
-        for chassis in chassis_list {
-            let chassis = Arc::new(chassis);
+        if let Some(chassis_list) = service_root.chassis().await? {
+            for chassis in chassis_list.members().await? {
+                let chassis = Arc::new(chassis);
 
-            for entity in self.discover_power_supply_entities(chassis.clone()).await {
-                sensor_ids.insert(entity.sensor().odata_id().clone());
-                entities.push(entity);
-            }
-
-            for entity in self.discover_chassis_entities(chassis).await {
-                // Only add not discovered sensors
-                if sensor_ids.insert(entity.sensor().odata_id().clone()) {
+                for entity in self.discover_power_supply_entities(chassis.clone()).await {
+                    sensor_ids.insert(entity.sensor().odata_id().clone());
                     entities.push(entity);
+                }
+
+                for entity in self.discover_chassis_entities(chassis).await {
+                    // Only add not discovered sensors
+                    if sensor_ids.insert(entity.sensor().odata_id().clone()) {
+                        entities.push(entity);
+                    }
                 }
             }
         }
@@ -735,7 +742,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
         let derived_metrics = entity.entity_metrics(&attributes);
         let metric_type = reading_type.to_snake_case().to_string();
         self.emit_event(CollectorEvent::Metric(MetricSample {
-            key: sensor.id().to_string(),
+            key: sensor.odata_id().to_string(),
             name: "hw_sensor".to_string(),
             metric_type: metric_type.clone(),
             unit: sanitize_unit(&unit),

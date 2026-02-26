@@ -43,8 +43,8 @@ use carbide_uuid::vpc::VpcId;
 use mac_address::MacAddress;
 
 use crate::IntoOnlyOne;
-use crate::expected_machines::args::ExpectedMachineJson;
-use crate::instance::args::AllocateInstance;
+use crate::expected_machines::common::ExpectedMachineJson;
+use crate::instance::AllocateInstance;
 use crate::machine::MachineAutoupdate;
 
 /// [`ApiClient`] is a thin wrapper around [`ForgeApiClient`], which mainly adds some convenience
@@ -644,7 +644,7 @@ impl ApiClient {
 
     pub async fn replace_all_expected_power_shelves(
         &self,
-        expected_power_shelf_list: Vec<crate::expected_power_shelf::args::ExpectedPowerShelfJson>,
+        expected_power_shelf_list: Vec<crate::expected_power_shelf::common::ExpectedPowerShelfJson>,
     ) -> Result<(), CarbideCliError> {
         let request = rpc::ExpectedPowerShelfList {
             expected_power_shelves: expected_power_shelf_list
@@ -668,7 +668,7 @@ impl ApiClient {
 
     pub async fn replace_all_expected_switches(
         &self,
-        expected_switch_list: Vec<crate::expected_switch::args::ExpectedSwitchJson>,
+        expected_switch_list: Vec<crate::expected_switch::common::ExpectedSwitchJson>,
     ) -> Result<(), CarbideCliError> {
         let request = rpc::ExpectedSwitchList {
             expected_switches: expected_switch_list

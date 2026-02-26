@@ -1,0 +1,146 @@
+## =============================================================================
+## carbide-api — Core API server (gRPC + REST)
+## =============================================================================
+## Manages machines, provisioning, networking, firmware updates, and the web UI.
+## Requires PostgreSQL and Vault. See PREREQUISITES.md for required Secrets
+## and ConfigMaps.
+## =============================================================================
+
+## Global settings (overridden by umbrella chart)
+global:
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  certificate:
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+    issuerRef:
+      kind: ClusterIssuer
+      name: vault-forge-issuer
+      group: cert-manager.io
+  spiffe:
+    trustDomain: forge.local
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: site-controller
+
+## Override the release namespace (defaults to helm install -n <namespace>)
+namespaceOverride: ""
+
+replicas: 1
+serviceAccountName: carbide-api
+annotations:
+  configmap.reloader.stakater.com/reload: "carbide-api-config-files,carbide-api-site-config-files"
+
+resources:
+  limits:
+    cpu: 3
+    memory: 32Gi
+  requests:
+    cpu: 1500m
+    memory: 8Gi
+
+## Optional init containers (e.g. boot-artifacts)
+initContainers: []
+# initContainers:
+#   - name: boot-artifacts-x86
+#     image: <your-registry>/boot-artifacts-x86_64:latest
+#     command: ["cp", "-r", "/artifacts/.", "/opt/carbide/firmware/"]
+#     volumeMounts:
+#       - name: firmware
+#         mountPath: /opt/carbide/firmware
+
+service:
+  grpc:
+    port: 1079
+  metrics:
+    port: 1080
+  profiler:
+    port: 1081
+
+certificate:
+  ## serviceName is used to auto-generate dnsNames and SPIFFE URIs based on global.namespace
+  serviceName: carbide-api
+  extraDnsNames: []
+  extraUris: []
+
+## Container command (override to customise startup)
+command:
+  - /bin/sh
+  - -c
+  - /opt/carbide/carbide-api run --config-path /etc/forge/carbide-api/carbide-api-config.toml --site-config-path /etc/forge/carbide-api/site/carbide-api-site-config.toml
+
+## Environment variables for carbide-api
+env:
+  VAULT_PKI_ROLE_NAME: "forge-cluster"
+  RUST_BACKTRACE: "full"
+  RUST_LIB_BACKTRACE: "0"
+
+extraEnv: []
+
+## External secret/configmap references mounted into the pod
+envFrom:
+  vaultApproleTokens:
+    secretName: carbide-vault-approle-tokens
+  vaultToken:
+    secretName: carbide-vault-token
+  vaultClusterInfo:
+    configMapName: vault-cluster-info
+  databaseCredentials:
+    secretName: forge-system.carbide.forge-pg-cluster.credentials
+  databaseConfig:
+    configMapName: forge-system-carbide-database-config
+  carbideWebHostname:
+    configMapName: carbide-web-api-hostname
+
+livenessProbe:
+  httpGet:
+    port: 1080
+    scheme: HTTP
+  initialDelaySeconds: 20
+  periodSeconds: 20
+  failureThreshold: 3
+  successThreshold: 1
+  timeoutSeconds: 20
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 25s
+
+## Config files -- can be overridden with custom content
+configFiles:
+  carbideApiConfig: ""  # If empty, uses the default from files/
+  casbinPolicy: ""      # If empty, uses the default from files/
+
+## Site-specific config (carbide-api-site-config-files ConfigMap)
+siteConfig:
+  enabled: true
+  carbideApiSiteConfig: ""  # Override per environment
+
+## Carbide Web UI hostname (always created as ConfigMap)
+hostname: "carbide.local"
+
+vaultClusterInfo: {}
+#  VAULT_SERVICE: "https://vault.example.com"
+#  FORGE_VAULT_MOUNT: "secrets"
+#  FORGE_VAULT_PKI_MOUNT: "forgeca"
+
+databaseConfig: {}
+#  DB_HOST: "postgresql.forge-system.svc.cluster.local"
+#  DB_PORT: "5432"
+#  DB_NAME: "carbide"
+
+## External LoadBalancer Service (for bare-metal / MetalLB)
+externalService:
+  enabled: false
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  annotations: {}
+  # annotations:
+  #   metallb.universe.tf/loadBalancerIPs: "10.x.x.x"

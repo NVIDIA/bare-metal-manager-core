@@ -26,7 +26,7 @@
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
+use super::*;
 
 // Define a basic/working MachineId for testing.
 const TEST_MACHINE_ID: &str = "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
@@ -53,7 +53,7 @@ fn verify_cmd_structure() {
 #[test]
 fn parse_status() {
     let cmd = Cmd::try_parse_from(["dpu", "status"]).expect("should parse status");
-    assert!(matches!(cmd, Cmd::Status));
+    assert!(matches!(cmd, Cmd::Status(_)));
 }
 
 // parse_versions ensures versions parses with no
@@ -92,7 +92,7 @@ fn parse_reprovision_list() {
     let cmd =
         Cmd::try_parse_from(["dpu", "reprovision", "list"]).expect("should parse reprovision list");
 
-    assert!(matches!(cmd, Cmd::Reprovision(DpuReprovision::List)));
+    assert!(matches!(cmd, Cmd::Reprovision(reprovision::Args::List)));
 }
 
 // parse_reprovision_set ensures reprovision set parses
@@ -103,7 +103,7 @@ fn parse_reprovision_set() {
         .expect("should parse reprovision set");
 
     match cmd {
-        Cmd::Reprovision(DpuReprovision::Set(args)) => {
+        Cmd::Reprovision(reprovision::Args::Set(args)) => {
             assert_eq!(args.id.to_string(), TEST_MACHINE_ID);
             assert!(!args.update_firmware);
         }
@@ -119,7 +119,7 @@ fn parse_reprovision_clear() {
         .expect("should parse reprovision clear");
 
     match cmd {
-        Cmd::Reprovision(DpuReprovision::Clear(args)) => {
+        Cmd::Reprovision(reprovision::Args::Clear(args)) => {
             assert_eq!(args.id.to_string(), TEST_MACHINE_ID);
         }
         _ => panic!("expected Reprovision Clear variant"),
@@ -150,7 +150,10 @@ fn parse_agent_upgrade_policy_set() {
 
     match cmd {
         Cmd::AgentUpgradePolicy(args) => {
-            assert!(matches!(args.set, Some(AgentUpgradePolicyChoice::UpOnly)));
+            assert!(matches!(
+                args.set,
+                Some(agent_upgrade_policy::args::AgentUpgradePolicyChoice::UpOnly)
+            ));
         }
         _ => panic!("expected AgentUpgradePolicy variant"),
     }
@@ -168,6 +171,7 @@ fn parse_agent_upgrade_policy_set() {
 // parses from strings.
 #[test]
 fn agent_upgrade_policy_choice_value_enum() {
+    use agent_upgrade_policy::args::AgentUpgradePolicyChoice;
     use clap::ValueEnum;
 
     assert!(matches!(

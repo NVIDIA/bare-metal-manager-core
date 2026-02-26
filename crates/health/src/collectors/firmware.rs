@@ -70,12 +70,17 @@ impl<B: Bmc + 'static> FirmwareCollector<B> {
 
     async fn run_firmware_iteration(&self) -> Result<IterationResult, HealthError> {
         let service_root = ServiceRoot::new(self.bmc.clone()).await?;
-        let update_service = service_root.update_service().await?;
+        let Some(update_service) = service_root.update_service().await? else {
+            return Ok(IterationResult {
+                refresh_triggered: true,
+                entity_count: Some(0),
+            });
+        };
         let firmware_inventories = update_service.firmware_inventories().await?;
 
         let mut firmware_count = 0;
 
-        for firmware_item in &firmware_inventories {
+        for firmware_item in firmware_inventories.iter().flatten() {
             let firmware_data = firmware_item.raw();
 
             let Some(version) = firmware_data.version.clone().flatten() else {

@@ -15,33 +15,38 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmds;
+mod admin_power_control;
+mod bmc_reset;
+pub(crate) mod common;
+mod create_bmc_user;
+mod delete_bmc_user;
+mod enable_infinite_boot;
+mod is_infinite_boot_enabled;
+mod lockdown;
+mod lockdown_status;
 
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::BmcReset(args) => cmds::bmc_reset(args, &ctx.api_client).await,
-            Cmd::AdminPowerControl(args) => cmds::admin_power_control(args, &ctx.api_client).await,
-            Cmd::CreateBmcUser(args) => cmds::create_bmc_user(args, &ctx.api_client).await,
-            Cmd::DeleteBmcUser(args) => cmds::delete_bmc_user(args, &ctx.api_client).await,
-            Cmd::EnableInfiniteBoot(args) => {
-                cmds::enable_infinite_boot(args, &ctx.api_client).await
-            }
-            Cmd::IsInfiniteBootEnabled(args) => {
-                cmds::is_infinite_boot_enabled(args, &ctx.api_client).await
-            }
-            Cmd::Lockdown(args) => cmds::lockdown(args, &ctx.api_client).await,
-            Cmd::LockdownStatus(args) => cmds::lockdown_status(args, &ctx.api_client).await,
-        }
-    }
+#[derive(Parser, Debug, Clone, Dispatch)]
+#[clap(rename_all = "kebab_case")]
+pub enum Cmd {
+    #[clap(about = "Reset BMC")]
+    BmcReset(bmc_reset::Args),
+    #[clap(about = "Redfish Power Control")]
+    AdminPowerControl(admin_power_control::Args),
+    CreateBmcUser(create_bmc_user::Args),
+    DeleteBmcUser(delete_bmc_user::Args),
+    #[clap(about = "Enable infinite boot")]
+    EnableInfiniteBoot(enable_infinite_boot::Args),
+    #[clap(about = "Check if infinite boot is enabled")]
+    IsInfiniteBootEnabled(is_infinite_boot_enabled::Args),
+    #[clap(about = "Enable or disable lockdown")]
+    Lockdown(lockdown::Args),
+    #[clap(about = "Check lockdown status")]
+    LockdownStatus(lockdown_status::Args),
 }

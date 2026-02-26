@@ -1,0 +1,59 @@
+{{- if .Values.externalService.enabled }}
+{{- $replicas := int .Values.replicas }}
+{{- range $i := until $replicas }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-dns-external-udp-{{ $i }}
+  namespace: {{ include "carbide-dns.namespace" $ }}
+  labels:
+    app.kubernetes.io/part-of: carbide-dns-instance-{{ $i }}
+  annotations:
+    metallb.universe.tf/allow-shared-ip: "carbide-dns-instance-{{ $i }}"
+    {{- $annotations := "" }}
+    {{- if and $.Values.externalService.perPodAnnotations (gt (len $.Values.externalService.perPodAnnotations) $i) }}
+    {{- $annotations = index $.Values.externalService.perPodAnnotations $i }}
+    {{- end }}
+    {{- with $annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  type: {{ $.Values.externalService.type | default "LoadBalancer" }}
+  selector:
+    app.kubernetes.io/name: carbide-dns
+    statefulset.kubernetes.io/pod-name: carbide-dns-{{ $i }}
+  ports:
+    - port: 53
+      targetPort: 53
+      name: udp
+      protocol: UDP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-dns-external-tcp-{{ $i }}
+  namespace: {{ include "carbide-dns.namespace" $ }}
+  labels:
+    app.kubernetes.io/part-of: carbide-dns-instance-{{ $i }}
+  annotations:
+    metallb.universe.tf/allow-shared-ip: "carbide-dns-instance-{{ $i }}"
+    {{- $annotations := "" }}
+    {{- if and $.Values.externalService.perPodAnnotations (gt (len $.Values.externalService.perPodAnnotations) $i) }}
+    {{- $annotations = index $.Values.externalService.perPodAnnotations $i }}
+    {{- end }}
+    {{- with $annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  type: {{ $.Values.externalService.type | default "LoadBalancer" }}
+  selector:
+    app.kubernetes.io/name: carbide-dns
+    statefulset.kubernetes.io/pod-name: carbide-dns-{{ $i }}
+  ports:
+    - port: 53
+      targetPort: 53
+      name: tcp
+      protocol: TCP
+{{- end }}
+{{- end }}

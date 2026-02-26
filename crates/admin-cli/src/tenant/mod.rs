@@ -15,31 +15,22 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmds;
+pub(crate) mod common;
+mod show;
+mod update;
 
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Show(args) => {
-                cmds::show(
-                    args,
-                    ctx.config.format,
-                    &ctx.api_client,
-                    ctx.config.page_size,
-                )
-                .await
-            }
-            Cmd::Update(args) => cmds::update(args, ctx.config.format, &ctx.api_client).await,
-        }
-    }
+#[derive(Parser, Debug, Clone, Dispatch)]
+#[clap(rename_all = "kebab_case")]
+pub enum Cmd {
+    #[clap(about = "Display tenant details")]
+    Show(show::Args),
+    #[clap(about = "Update an existing tenant")]
+    Update(update::Args),
 }

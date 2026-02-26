@@ -25,7 +25,7 @@
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
+use super::*;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -77,7 +77,7 @@ fn parse_show_with_identifier() {
 fn parse_list() {
     let cmd = Cmd::try_parse_from(["rack", "list"]).expect("should parse list");
 
-    assert!(matches!(cmd, Cmd::List));
+    assert!(matches!(cmd, Cmd::List(_)));
 }
 
 // parse_delete ensures delete parses with identifier.

@@ -383,6 +383,8 @@ pub enum DatabaseError {
     DhcpError(#[from] DhcpError),
     #[error("Maximum one association per interface")]
     MaxOneInterfaceAssociation,
+    #[error("Fast-path allocation failed and can be retried")]
+    TryAgain,
 }
 
 impl DatabaseError {
@@ -399,6 +401,18 @@ impl DatabaseError {
         match self {
             DatabaseError::Sqlx(e) => DatabaseError::new(op_name, e.source),
             _ => self,
+        }
+    }
+
+    pub fn is_fqdn_conflict(&self) -> bool {
+        match self {
+            DatabaseError::Sqlx(sqlx_error) => match &sqlx_error.source {
+                sqlx::Error::Database(database_error) => {
+                    database_error.constraint() == Some("fqdn_must_be_unique")
+                }
+                _ => false,
+            },
+            _ => false,
         }
     }
 }

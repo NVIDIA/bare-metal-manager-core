@@ -1,0 +1,10 @@
+apiVersion: v2
+name: carbide-pxe
+description: Helm chart for the Carbide PXE component
+type: application
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - carbide
+  - pxe
+  - forge

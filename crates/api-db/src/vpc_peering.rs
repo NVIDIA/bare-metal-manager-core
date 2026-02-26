@@ -156,7 +156,7 @@ pub async fn get_vpc_peer_vnis(
     virtualization_types: Vec<VpcVirtualizationType>,
 ) -> Result<Vec<(VpcId, i32)>, DatabaseError> {
     let query = r#"
-            SELECT vpcs.id, vpcs.vni
+            SELECT vpcs.id, (vpcs.status->>'vni')::integer
             FROM vpc_peerings vp
             JOIN vpcs ON vpcs.id = CASE
                 WHEN vp.vpc1_id = $1 THEN vp.vpc2_id

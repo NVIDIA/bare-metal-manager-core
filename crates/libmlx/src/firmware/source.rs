@@ -141,14 +141,26 @@ impl FirmwareSource {
     pub async fn resolve(&self, work_dir: &Path) -> FirmwareResult<PathBuf> {
         match self {
             Self::Local { path } => resolve_local(path).await,
-            Self::Http { url, credentials } => resolve_http(url, credentials, work_dir).await,
+            Self::Http { url, credentials } => {
+                resolve_http(url, credentials.as_ref(), work_dir).await
+            }
             Self::Ssh {
                 host,
                 port,
                 username,
                 remote_path,
                 credentials,
-            } => resolve_ssh(host, *port, username, remote_path, credentials, work_dir).await,
+            } => {
+                resolve_ssh(
+                    host,
+                    *port,
+                    username,
+                    remote_path,
+                    credentials.as_ref(),
+                    work_dir,
+                )
+                .await
+            }
         }
     }
 
@@ -182,7 +194,7 @@ async fn resolve_local(path: &Path) -> FirmwareResult<PathBuf> {
 // credentials to the work directory.
 async fn resolve_http(
     url: &str,
-    credentials: &Option<Credentials>,
+    credentials: Option<&Credentials>,
     work_dir: &Path,
 ) -> FirmwareResult<PathBuf> {
     // Extract filename from URL, falling back to a generic name.
@@ -190,7 +202,8 @@ async fn resolve_http(
         .ok()
         .and_then(|u| {
             u.path_segments()
-                .and_then(|mut segments| segments.next_back().map(|s| s.to_string()))
+                .and_then(|mut s| s.next_back())
+                .map(str::to_string)
         })
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "firmware.bin".to_string());
@@ -259,16 +272,14 @@ async fn resolve_ssh(
     port: u16,
     username: &str,
     remote_path: &str,
-    credentials: &Option<Credentials>,
+    credentials: Option<&Credentials>,
     work_dir: &Path,
 ) -> FirmwareResult<PathBuf> {
-    // Extract the filename from the remote path.
-    let filename = Path::new(remote_path)
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| "firmware.bin".to_string());
-
-    let dest_path = work_dir.join(&filename);
+    let dest_path = work_dir.join(
+        Path::new(remote_path)
+            .file_name()
+            .unwrap_or("firmware.bin".as_ref()),
+    );
 
     tracing::info!(
         host = %host,
@@ -346,13 +357,10 @@ async fn resolve_ssh(
     // whitespace first since both Linux and macOS base64 wrap
     // output at 76 characters by default.
     use base64::Engine;
-    let clean: String = result
-        .stdout
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect();
+    let mut b64 = result.stdout;
+    b64.retain(|c| !c.is_whitespace());
     let decoded = base64::engine::general_purpose::STANDARD
-        .decode(&clean)
+        .decode(&b64)
         .map_err(|e| FirmwareError::SshError(format!("Failed to decode base64 transfer: {e}")))?;
 
     tokio::fs::write(&dest_path, &decoded)

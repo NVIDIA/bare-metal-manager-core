@@ -25,7 +25,7 @@
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
+use super::*;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -57,7 +57,7 @@ fn parse_get() {
     match cmd {
         Cmd::Get(args) => {
             assert_eq!(
-                args.interface_id.to_string(),
+                args.inner.interface_id.to_string(),
                 "550e8400-e29b-41d4-a716-446655440000"
             );
         }
@@ -78,7 +78,7 @@ fn parse_clear() {
     match cmd {
         Cmd::Clear(args) => {
             assert_eq!(
-                args.interface_id.to_string(),
+                args.inner.interface_id.to_string(),
                 "550e8400-e29b-41d4-a716-446655440000"
             );
         }

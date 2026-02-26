@@ -10,14 +10,14 @@ building next generation AI Cloud offerings.
 
 ## Getting Started
 
-- Go to the [NVIDIA Bare Metal Manager overview](docs/overview.md) to get an overview of NVIDIA Bare Metal Manager architecture and capabilities.
-- Or jump to the [Installation guide](docs/build.md) to see an overview for building the code.
-- Or jump to the [Installation guide](docs/installation/index.md) to start setting up your site for NVIDIA Bare Metal Manager.
+- Go to the [NVIDIA Bare Metal Manager overview](book/src/README.md) to get an overview of NVIDIA Bare Metal Manager architecture and capabilities.
+- Or jump to the [Site Setup guide](book/src/manuals/site-setup.md) to start setting up your site for NVIDIA Bare Metal Manager.
+- Or jump to the [Building Containers guide](book/src/manuals/buildin_containers.md) to see an overview for building the code.
 
 ## Experimental Notice
 
 This software is considered *experimental* and is a preview release.  Use at
-your own risk in production environments.  The software is provided "as is"
-without warranties of any kind.  Features, APIs, and confugurations may change
-without notice in future releases.  For production deployments, throroghly test
+your own risk in production environments. The software is provided "as is"
+without warranties of any kind. Features, APIs, and configurations may change
+without notice in future releases. For production deployments, thoroughly test
 in non-critical environments first.

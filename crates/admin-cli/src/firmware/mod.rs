@@ -15,31 +15,21 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmds;
+mod show;
+mod start_updates;
+
+// Cross-module re-export for managed_host
+pub use start_updates::start_updates;
 
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Show(args) => {
-                cmds::show(
-                    &args,
-                    ctx.config.format,
-                    &mut ctx.output_file,
-                    &ctx.api_client,
-                )
-                .await?
-            }
-        }
-        Ok(())
-    }
+#[derive(Parser, Debug, Dispatch)]
+pub enum Cmd {
+    #[clap(about = "Show available firmware")]
+    Show(show::Args),
 }

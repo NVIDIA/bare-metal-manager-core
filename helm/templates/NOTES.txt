@@ -1,0 +1,43 @@
+=====================================================================
+ Carbide Bare Metal Manager — Umbrella Chart
+=====================================================================
+
+Namespace : {{ .Release.Namespace }}
+Release   : {{ .Release.Name }}
+
+Deployed sub-charts:
+{{- if index .Values "carbide-api" "enabled" | default true }}
+  ✓ carbide-api
+{{- end }}
+{{- if index .Values "carbide-dhcp" "enabled" | default true }}
+  ✓ carbide-dhcp
+{{- end }}
+{{- if index .Values "carbide-dns" "enabled" | default true }}
+  ✓ carbide-dns
+{{- end }}
+{{- if index .Values "carbide-dsx-exchange-consumer" "enabled" | default true }}
+  ✓ carbide-dsx-exchange-consumer
+{{- end }}
+{{- if index .Values "carbide-hardware-health" "enabled" | default true }}
+  ✓ carbide-hardware-health
+{{- end }}
+{{- if index .Values "carbide-pxe" "enabled" | default true }}
+  ✓ carbide-pxe
+{{- end }}
+{{- if index .Values "carbide-ssh-console-rs" "enabled" | default true }}
+  ✓ carbide-ssh-console-rs
+{{- end }}
+{{- if index .Values "unbound" "enabled" | default false }}
+  ✓ unbound
+{{- end }}
+
+Check pod status:
+  kubectl get pods -n {{ .Release.Namespace }}
+
+Check certificates:
+  kubectl get certificates -n {{ .Release.Namespace }}
+
+NOTE: carbide-api depends on PostgreSQL + migration job.
+      Pods may restart briefly until the database is ready.
+
+=====================================================================

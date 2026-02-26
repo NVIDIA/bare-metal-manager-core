@@ -78,6 +78,7 @@ use tonic::Request;
 use tracing_subscriber::EnvFilter;
 
 use crate::api::Api;
+use crate::api::metrics::ApiMetricsEmitter;
 use crate::cfg::file::{
     BomValidationConfig, CarbideConfig, DpaConfig, DpaInterfaceStateControllerConfig,
     DpuConfig as InitialDpuConfig, FirmwareGlobal, FnnConfig, IBFabricConfig, IbFabricDefinition,
@@ -821,10 +822,10 @@ impl TestEnv {
 
         (
             vpc.id,
-            vpc.vni,
+            vpc.status.as_ref().and_then(|s| s.vni),
             tenant_network_id,
             peer_vpc.id,
-            peer_vpc.vni,
+            peer_vpc.status.as_ref().and_then(|s| s.vni),
             peer_tenant_network_id,
         )
     }
@@ -1160,6 +1161,7 @@ pub fn get_config() -> CarbideConfig {
         dpf: crate::cfg::file::DpfConfig::default(),
         x86_pxe_boot_url_override: None,
         arm_pxe_boot_url_override: None,
+        supernic_firmware_profiles: HashMap::default(),
     }
 }
 
@@ -1417,6 +1419,7 @@ pub async fn create_test_env_with_overrides(
         nmxm_pool: nmxm_sim.clone(),
         work_lock_manager_handle: work_lock_manager_handle.clone(),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool.clone()),
+        metric_emitter: ApiMetricsEmitter::new(&test_meter.meter()),
     });
 
     let attestation_enabled = config.attestation_enabled;
@@ -1954,19 +1957,6 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
             ranges: vec![resource_pool::Range {
                 start: 50001.to_string(),
                 end: (50001 + fabric_len as u16 - 1).to_string(),
-                auto_assign: true,
-            }],
-            prefix: None,
-            delegate_prefix_len: None,
-        },
-    );
-    defs.insert(
-        model::resource_pool::common::DPA_VNI.to_string(),
-        resource_pool::ResourcePoolDef {
-            pool_type: resource_pool::ResourcePoolType::Integer,
-            ranges: vec![resource_pool::Range {
-                start: 30001.to_string(),
-                end: (30001 + fabric_len as u16 - 1).to_string(),
                 auto_assign: true,
             }],
             prefix: None,

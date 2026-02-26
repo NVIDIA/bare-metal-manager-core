@@ -42,7 +42,6 @@ pub const FNN_ASN: &str = "fnn-asn";
 /// VPC DPU loopback IP, used as in FNN.
 /// Must match a pool defined in dev/resource_pools.toml
 pub const VPC_DPU_LOOPBACK: &str = "vpc-dpu-lo";
-pub const DPA_VNI: &str = "dpa-vni";
 
 /// IPs used for creating a secondary overlay on
 /// a separate set of VTEPs.  The initial use-case is
@@ -59,16 +58,10 @@ pub fn ib_pkey_pool_name(fabric: &str) -> String {
 pub struct CommonPools {
     pub ethernet: EthernetPools,
     pub infiniband: IbPools,
-    pub dpa: DpaPools,
     pub pool_stats: Arc<Mutex<HashMap<String, ResourcePoolStats>>>,
     /// Instructs the metric task to stop.
     /// We rely on `CommonPools` being dropped to instruct the metric task to stop
     pub _stop_sender: oneshot::Sender<()>,
-}
-
-#[derive(Debug)]
-pub struct DpaPools {
-    pub pool_dpa_vni: Arc<ResourcePool<i32>>,
 }
 
 /// ResourcePools that are used for ethernet virtualization

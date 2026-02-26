@@ -26,7 +26,7 @@
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
+use super::*;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -60,9 +60,9 @@ fn parse_config_apply_network_segment() {
     .expect("should parse config apply");
 
     match cmd {
-        Cmd::Config(DevEnvConfig::Apply(args)) => {
+        Cmd::Config(config::Cmd::Apply(args)) => {
             assert_eq!(args.path, "/path/to/config.toml");
-            assert_eq!(args.mode, NetworkChoice::NetworkSegment);
+            assert_eq!(args.mode, config::NetworkChoice::NetworkSegment);
         }
     }
 }
@@ -82,8 +82,8 @@ fn parse_config_apply_vpc_prefix() {
     .expect("should parse config apply with vpc-prefix");
 
     match cmd {
-        Cmd::Config(DevEnvConfig::Apply(args)) => {
-            assert_eq!(args.mode, NetworkChoice::VpcPrefix);
+        Cmd::Config(config::Cmd::Apply(args)) => {
+            assert_eq!(args.mode, config::NetworkChoice::VpcPrefix);
         }
     }
 }
@@ -103,8 +103,8 @@ fn parse_config_apply_short_mode() {
     .expect("should parse with -m");
 
     match cmd {
-        Cmd::Config(DevEnvConfig::Apply(args)) => {
-            assert_eq!(args.mode, NetworkChoice::NetworkSegment);
+        Cmd::Config(config::Cmd::Apply(args)) => {
+            assert_eq!(args.mode, config::NetworkChoice::NetworkSegment);
         }
     }
 }
@@ -138,7 +138,7 @@ fn parse_apply_alias() {
     ])
     .expect("should parse via apply alias");
 
-    assert!(matches!(cmd, Cmd::Config(DevEnvConfig::Apply(_))));
+    assert!(matches!(cmd, Cmd::Config(config::Cmd::Apply(_))));
 }
 
 // parse_missing_path_fails ensures config apply
@@ -172,12 +172,12 @@ fn network_choice_value_enum() {
     use clap::ValueEnum;
 
     assert!(matches!(
-        NetworkChoice::from_str("network-segment", false),
-        Ok(NetworkChoice::NetworkSegment)
+        config::NetworkChoice::from_str("network-segment", false),
+        Ok(config::NetworkChoice::NetworkSegment)
     ));
     assert!(matches!(
-        NetworkChoice::from_str("vpc-prefix", false),
-        Ok(NetworkChoice::VpcPrefix)
+        config::NetworkChoice::from_str("vpc-prefix", false),
+        Ok(config::NetworkChoice::VpcPrefix)
     ));
-    assert!(NetworkChoice::from_str("invalid", false).is_err());
+    assert!(config::NetworkChoice::from_str("invalid", false).is_err());
 }

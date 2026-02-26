@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
+
 use ::rpc::protos::mlx_device as mlx_device_pb;
 use carbide_host_support::dpa_cmds::{DpaCommand, OpCode};
 use carbide_uuid::machine::MachineId;
@@ -59,23 +61,36 @@ pub(crate) async fn create(
     Ok(Response::new(dpa_out))
 }
 
-// This is the normal code path. When scout reports a DPA NIC, we call this
-// routine to create a dpa_interface object and associate it with the machine.
-async fn create_internal(
+/// ensure creates an interface if one doesn't already exist for the given
+/// (machine_id, mac_address), or returns the existing one. Idempotent.
+pub(crate) async fn ensure(
     api: &Api,
-    dpa_info: NewDpaInterface,
-) -> CarbideResult<Response<::rpc::forge::DpaInterface>> {
+    request: Request<::rpc::forge::DpaInterfaceCreationRequest>,
+) -> Result<Response<::rpc::forge::DpaInterface>, Status> {
+    if !api.runtime_config.is_dpa_enabled() {
+        return Err(CarbideError::InvalidArgument(
+            "EnsureDpaInterface cannot be done as dpa_enabled is false".to_string(),
+        )
+        .into());
+    }
+    log_request_data(&request);
+
+    let new_interface = NewDpaInterface::try_from(request.into_inner())?;
+    let interface = ensure_interface(api, new_interface).await?;
+    let response: rpc::forge::DpaInterface = interface.into();
+    Ok(Response::new(response))
+}
+
+/// ensure_interface is the internal helper used by
+/// publish_mlx_device_report and the public ensure handler.
+async fn ensure_interface(
+    api: &Api,
+    new_interface: NewDpaInterface,
+) -> CarbideResult<DpaInterface> {
     let mut txn = api.txn_begin().await?;
-
-    let new_dpa = db::dpa_interface::persist(dpa_info, &mut txn).await?;
-
-    let dpa_out: rpc::forge::DpaInterface = new_dpa.into();
-
+    let interface = db::dpa_interface::ensure(new_interface, &mut txn).await?;
     txn.commit().await?;
-
-    tracing::info!("created dpa: {:#?}", dpa_out);
-
-    Ok(Response::new(dpa_out))
+    Ok(interface)
 }
 
 pub(crate) async fn delete(
@@ -225,7 +240,7 @@ pub(crate) async fn process_scout_req(
         return Ok((Action::Noop, None));
     }
     let dpa_snapshots =
-        db::dpa_interface::find_by_machine_id(&api.database_connection, &machine_id).await?;
+        db::dpa_interface::find_by_machine_id(&api.database_connection, machine_id).await?;
 
     if dpa_snapshots.is_empty() {
         tracing::error!(
@@ -239,7 +254,7 @@ pub(crate) async fn process_scout_req(
 
     for sn in &dpa_snapshots {
         let cstate = sn.controller_state.value.clone();
-        let dev_name = &sn.pci_name;
+        let pci_name = &sn.pci_name;
 
         let dpa_cmd = match cstate {
             DpaInterfaceControllerState::Provisioning
@@ -249,57 +264,22 @@ pub(crate) async fn process_scout_req(
             | DpaInterfaceControllerState::WaitingForResetVNI => continue,
 
             DpaInterfaceControllerState::Unlocking => {
-                let key = crate::dpa::lockdown::build_supernic_lockdown_key(
-                    &api.database_connection,
-                    sn.id,
-                    &*api.credential_provider,
-                )
-                .await
-                .map_err(|e| {
-                    CarbideError::GenericErrorFromReport(eyre!(
-                        "failed to build unlock key for DPA {dev_name}: {e}"
-                    ))
-                })?;
-
-                tracing::info!("Unlocking DPA {:#?}", dev_name);
-                DpaCommand {
-                    op: OpCode::Unlock { key },
-                }
+                build_unlock_command(api, sn, machine_id, pci_name).await?
             }
-
+            DpaInterfaceControllerState::ApplyFirmware => {
+                build_apply_firmware_command(api, sn, machine_id, pci_name)
+            }
             DpaInterfaceControllerState::ApplyProfile => {
-                let profstr = api.runtime_config.get_dpa_profile("Bluefield3".to_string());
-                tracing::info!("Applying profile for DPA {:#?}", dev_name);
-                DpaCommand {
-                    op: OpCode::ApplyProfile {
-                        profile_str: profstr,
-                    },
-                }
+                build_apply_profile_command(api, machine_id, pci_name)
             }
-
             DpaInterfaceControllerState::Locking => {
-                let key = crate::dpa::lockdown::build_supernic_lockdown_key(
-                    &api.database_connection,
-                    sn.id,
-                    &*api.credential_provider,
-                )
-                .await
-                .map_err(|e| {
-                    CarbideError::GenericErrorFromReport(eyre!(
-                        "failed to build lock key for DPA {dev_name}: {e}"
-                    ))
-                })?;
-
-                tracing::info!("Locking DPA {:#?}", dev_name);
-                DpaCommand {
-                    op: OpCode::Lock { key },
-                }
+                build_lock_command(api, sn, machine_id, pci_name).await?
             }
         };
 
         match serde_json::to_string(&dpa_cmd) {
             Ok(cmdstr) => pair.push(KeyValuePair {
-                key: dev_name.clone(),
+                key: pci_name.clone(),
                 value: cmdstr,
             }),
             Err(e) => {
@@ -314,6 +294,135 @@ pub(crate) async fn process_scout_req(
     let facr = ForgeAgentControlExtraInfo { pair };
 
     Ok((Action::MlxAction, Some(facr)))
+}
+
+async fn build_unlock_command(
+    api: &Api,
+    sn: &DpaInterface,
+    machine_id: MachineId,
+    pci_name: &str,
+) -> CarbideResult<DpaCommand<'static>> {
+    let key = crate::dpa::lockdown::build_supernic_lockdown_key(
+        &api.database_connection,
+        sn.id,
+        &*api.credential_provider,
+    )
+    .await
+    .map_err(|e| {
+        CarbideError::GenericErrorFromReport(eyre!(
+            "failed to build unlock key for DPA {pci_name}: {e}"
+        ))
+    })?;
+
+    tracing::info!(%machine_id, %pci_name, "Unlocking DPA");
+    Ok(DpaCommand {
+        op: OpCode::Unlock { key },
+    })
+}
+
+fn build_apply_firmware_command<'a>(
+    api: &'a Api,
+    sn: &DpaInterface,
+    machine_id: MachineId,
+    pci_name: &str,
+) -> DpaCommand<'a> {
+    // Look up a FirmwareFlasherProfile for the device's PN:PSID
+    // from the runtime config. If a profile exists and the device
+    // is already at the target version, skip. Otherwise pass the
+    // profile down to scout.
+    let profile = (|| {
+        let Some(device_info) = &sn.device_info else {
+            tracing::warn!(
+                %machine_id, %pci_name,
+                "no device_info available, skipping firmware application"
+            );
+            return None;
+        };
+
+        let (Some(part_number), Some(psid)) = (&device_info.part_number, &device_info.psid) else {
+            tracing::warn!(
+                %machine_id, %pci_name,
+                "device_info missing part_number and/or psid, skipping firmware"
+            );
+            return None;
+        };
+
+        let Some(fw_profile) = api
+            .runtime_config
+            .get_supernic_firmware_profile(part_number, psid)
+        else {
+            tracing::info!(
+                %machine_id, %pci_name, %part_number, %psid,
+                "no firmware profile found, skipping"
+            );
+            return None;
+        };
+
+        if device_info.fw_version_current.as_deref()
+            == Some(fw_profile.firmware_spec.version.as_str())
+        {
+            tracing::info!(
+                %machine_id, %pci_name, %part_number, %psid,
+                observed_fw_version = ?device_info.fw_version_current,
+                expected_fw_version = %fw_profile.firmware_spec.version,
+                "firmware already at target version, skipping"
+            );
+            return None;
+        }
+
+        tracing::info!(
+            %machine_id, %pci_name, %part_number, %psid,
+            observed_fw_version = ?device_info.fw_version_current,
+            expected_fw_version = %fw_profile.firmware_spec.version,
+            "firmware version mismatch, applying firmware"
+        );
+        Some(Cow::Borrowed(fw_profile))
+    })();
+
+    tracing::info!(%machine_id, %pci_name, "ApplyFirmware");
+    DpaCommand {
+        op: OpCode::ApplyFirmware {
+            profile: profile.map(Box::new),
+        },
+    }
+}
+
+fn build_apply_profile_command(
+    api: &Api,
+    machine_id: MachineId,
+    pci_name: &str,
+) -> DpaCommand<'static> {
+    let profstr = api.runtime_config.get_dpa_profile("Bluefield3".to_string());
+    tracing::info!(%machine_id, %pci_name, "Applying DPA profile");
+    DpaCommand {
+        op: OpCode::ApplyProfile {
+            profile_str: profstr,
+        },
+    }
+}
+
+async fn build_lock_command(
+    api: &Api,
+    sn: &DpaInterface,
+    machine_id: MachineId,
+    pci_name: &str,
+) -> CarbideResult<DpaCommand<'static>> {
+    let key = crate::dpa::lockdown::build_supernic_lockdown_key(
+        &api.database_connection,
+        sn.id,
+        &*api.credential_provider,
+    )
+    .await
+    .map_err(|e| {
+        CarbideError::GenericErrorFromReport(eyre!(
+            "failed to build lock key for DPA {pci_name}: {e}"
+        ))
+    })?;
+
+    tracing::info!(%machine_id, %pci_name, "Locking DPA");
+    Ok(DpaCommand {
+        op: OpCode::Lock { key },
+    })
 }
 
 // Find the DPA object in the given vector of DPA objects
@@ -351,7 +460,7 @@ async fn process_mlx_observation(
         )));
     };
 
-    let Some(mid) = rep.machine_id else {
+    let Some(machine_id) = rep.machine_id else {
         tracing::error!(
             "process_mlx_observation without machine_id report: {:#?}",
             rep
@@ -362,16 +471,16 @@ async fn process_mlx_observation(
         )));
     };
 
-    let dpa_snapshots = db::dpa_interface::find_by_machine_id(&mut txn, &mid).await?;
+    let dpa_snapshots = db::dpa_interface::find_by_machine_id(&mut txn, machine_id).await?;
 
     if dpa_snapshots.is_empty() {
         tracing::error!(
             "process_mlx_observation no dpa snapshots for machine: {:#?}",
-            mid
+            machine_id
         );
         return Err(CarbideError::GenericErrorFromReport(eyre!(
             "process_mlx_observation no dpa snapshots for machine: {:#?}",
-            mid
+            machine_id
         )));
     }
 
@@ -396,14 +505,18 @@ async fn process_mlx_observation(
             }
         };
 
+        // Use the latest CardState we pulled from the database. If there
+        // isn't one, then initialize an empty one, for which we will now
+        // update with whatever the current observation is.
         let mut cstate = dpa.card_state.unwrap_or(CardState {
             lockmode: None,
             profile: None,
             profile_synced: None,
+            firmware_report: None,
         });
 
-        if obs.lock_status.is_some() {
-            let ls = match DpaLockMode::try_from(obs.lock_status.unwrap()) {
+        if let Some(lock_status) = obs.lock_status {
+            let ls = match DpaLockMode::try_from(lock_status) {
                 Ok(ls) => ls,
                 Err(e) => {
                     tracing::error!("process_mlx_observation Error from LockStatus::try_from {e}");
@@ -420,6 +533,13 @@ async fn process_mlx_observation(
 
         if obs.profile_synced.is_some() {
             cstate.profile_synced = obs.profile_synced;
+        }
+
+        // If the observation contains a FirmwareFlashReport update
+        // in it, then merge it into the latest CardState that we
+        // pulled from the database.
+        if let Some(firmware_report) = obs.firmware_report {
+            cstate.firmware_report = Some(firmware_report.into());
         }
 
         dpa.card_state = Some(cstate);
@@ -442,9 +562,6 @@ pub(crate) async fn publish_mlx_device_report(
     api: &Api,
     request: Request<mlx_device_pb::PublishMlxDeviceReportRequest>,
 ) -> Result<Response<mlx_device_pb::PublishMlxDeviceReportResponse>, Status> {
-    // TODO(chet): Integrate this once it's time. For now, just log
-    // that a report was received, that we can successfully convert
-    // it from an RPC message back to an MlxDeviceReport, and drop it.
     log_request_data(&request);
     let req = request.into_inner();
 
@@ -465,40 +582,103 @@ pub(crate) async fn publish_mlx_device_report(
         );
 
         // Without a machine_id, we can't create dpa interfaces
-        if report.machine_id.is_some() {
+        if let Some(machine_id) = report.machine_id {
             let mut spx_nics: i32 = 0;
 
-            let mid = report.machine_id.unwrap();
-
-            for dev in report.devices {
+            // Go over each of the MlxDeviceInfo reports from the
+            // MlxDeviceReport. Each MlxDeviceInfo corresponds to
+            // an individual device reported by `mlxfwmanager`, with
+            // the MlxDeviceReport being a report of all devices
+            // reporting on a given machine.
+            for device_info in report.devices {
                 // XXX TODO XXX
                 // Change this to base device detection using part numbers rather
                 // than device description.
                 // XXX TODO XXX
-                if dev.device_description.is_some() && dev.base_mac.is_some() {
-                    let descr = dev.device_description.unwrap();
-                    if descr.contains("SuperNIC") {
-                        spx_nics += 1;
+                let is_supernic = device_info
+                    .device_description
+                    .as_deref()
+                    .is_some_and(|d| d.contains("SuperNIC"));
+                if !is_supernic {
+                    continue;
+                }
+                spx_nics += 1;
 
-                        let mac = dev.base_mac.unwrap();
-                        let dpa_info = NewDpaInterface {
-                            machine_id: mid,
-                            mac_address: mac,
-                            device_type: dev.device_type,
-                            pci_name: dev.pci_name,
-                        };
+                let Some(new_interface) =
+                    NewDpaInterface::from_device_info(machine_id, &device_info)
+                else {
+                    tracing::warn!(
+                        %machine_id,
+                        pci_name = %device_info.pci_name,
+                        "skipping interface: missing base_mac"
+                    );
+                    continue;
+                };
 
-                        match create_internal(api, dpa_info).await {
-                            Ok(dpa_out) => {
-                                tracing::info!("created dpa: {:#?}", dpa_out);
-                            }
-                            Err(e) => {
-                                tracing::info!("create dpa error: {:#?}", e);
-                            }
+                let ensured_interface = match ensure_interface(api, new_interface).await {
+                    Ok(ensured) => {
+                        tracing::info!(
+                            dpa_id = %ensured.id,
+                            machine_id = %ensured.machine_id,
+                            pci_name = %ensured.pci_name,
+                            mac_address = %ensured.mac_address,
+                            "ensured dpa interface exists"
+                        );
+                        ensured
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            %machine_id,
+                            %device_info.pci_name,
+                            %e,
+                            "failed to ensure dpa interface"
+                        );
+                        continue;
+                    }
+                };
+
+                // Update the MlxDeviceInfo for this device on every
+                // publish_mlx_device_report call so the latest hardware
+                // state is always available.
+                let mut txn = match api.txn_begin().await {
+                    Ok(txn) => txn,
+                    Err(e) => {
+                        tracing::warn!(
+                            mac_address = %ensured_interface.mac_address,
+                            pci_name = %ensured_interface.pci_name,
+                            %e,
+                            "failed to begin txn for device info update"
+                        );
+                        continue;
+                    }
+                };
+
+                match dpa_interface::update_device_info(
+                    txn.as_mut(),
+                    ensured_interface.machine_id,
+                    &ensured_interface.pci_name,
+                    &device_info,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        if let Err(e) = txn.commit().await {
+                            tracing::warn!(
+                                mac_address = %ensured_interface.mac_address,
+                                pci_name = %ensured_interface.pci_name,
+                                %e,
+                                "failed to commit device info update"
+                            );
                         }
                     }
-                } else {
-                    tracing::warn!("Missing part, device desc or mac: {:#?}", dev);
+                    Err(e) => {
+                        tracing::warn!(
+                            mac_address = %ensured_interface.mac_address,
+                            pci_name = %ensured_interface.pci_name,
+                            %e,
+                            "failed to update device info"
+                        );
+                    }
                 }
             }
 
@@ -512,6 +692,7 @@ pub(crate) async fn publish_mlx_device_report(
     } else {
         tracing::warn!("no embedded MlxDeviceReport published");
     }
+
     Ok(Response::new(
         mlx_device_pb::PublishMlxDeviceReportResponse {},
     ))

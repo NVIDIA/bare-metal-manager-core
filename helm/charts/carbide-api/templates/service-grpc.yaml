@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-api
+  namespace: {{ include "carbide-api.namespace" . }}
+  labels:
+    {{- include "carbide-api.labels" . | nindent 4 }}
+    app: carbide-api
+spec:
+  selector:
+    {{- include "carbide-api.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: {{ .Values.service.grpc.port }}
+      name: grpc
+      protocol: TCP

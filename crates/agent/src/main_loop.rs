@@ -17,7 +17,7 @@
 
 use std::collections::HashSet;
 use std::ffi::OsStr;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 use std::ops::Add;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -206,15 +206,13 @@ pub async fn setup_and_run(
     let service_addrs = if !agent_config.machine.is_fake_dpu {
         let mut url_resolver = UrlResolver::try_new()?;
 
-        let pxe_ip = *url_resolver
+        let pxe_ips = url_resolver
             .resolve("carbide-pxe.forge")
             .await
-            .wrap_err("DNS resolver for carbide-pxe")?
-            .first()
-            .ok_or_else(|| eyre::eyre!("No pxe ip returned by resolver"))?;
+            .wrap_err("DNS resolver for carbide-pxe")?;
 
         // This log should be removed after some time.
-        tracing::info!(%pxe_ip, "Pxe server resolved");
+        tracing::info!(?pxe_ips, "Pxe server resolved");
 
         let ntpservers = match url_resolver.resolve("carbide-ntp.forge").await {
             Ok(x) => {
@@ -230,13 +228,13 @@ pub async fn setup_and_run(
 
         let nameservers = url_resolver.nameservers();
         ServiceAddresses {
-            pxe_ip,
+            pxe_ips,
             ntpservers,
             nameservers,
         }
     } else {
         ServiceAddresses {
-            pxe_ip: Ipv4Addr::from([127, 0, 0, 1]),
+            pxe_ips: vec![IpAddr::from([127, 0, 0, 1])],
             ntpservers: vec![],
             nameservers: vec![IpAddr::from([127, 0, 0, 1])],
         }
@@ -1008,6 +1006,8 @@ fn effective_virtualization_type(
     Ok(virtualization_type)
 }
 
+// TODO(chet): We'll eventually want a documented IPv6 address we can
+// configure here for tenants to hit FMDS over IPv6.
 async fn plan_fmds_armos_routing(
     interface: &str,
     proposed_routes: &Vec<IpNetwork>,

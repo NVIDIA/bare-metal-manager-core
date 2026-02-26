@@ -25,7 +25,7 @@
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
+use super::*;
 
 const TEST_VPC_ID: &str = "00000000-0000-0000-0000-000000000001";
 

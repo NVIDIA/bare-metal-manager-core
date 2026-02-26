@@ -16,7 +16,7 @@
  */
 use ::rpc::forge as rpc;
 use db::ObjectColumnFilter;
-use db::ib_partition::{self, NewIBPartition};
+use db::ib_partition::{self, IBPartitionStatus, NewIBPartition};
 use db::resource_pool::ResourcePoolDatabaseError;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
 use model::ib_partition::PartitionKey;
@@ -53,18 +53,36 @@ pub(crate) async fn create(
     resp.config.rate_limit = Some(fabric_config.rate_limit.clone());
     resp.config.service_level = Some(fabric_config.service_level.clone());
 
-    resp.config.pkey = allocate_pkey(api, &mut txn, &resp.metadata.name, requested_pkey).await?;
-    let resp = db::ib_partition::create(resp, &mut txn, fabric_config.max_partition_per_tenant)
-        .await
-        .map_err(|e| {
-            if e.is_not_found() {
-                // During IB paritiont creation, it will check the existing partition by a 'select' query.
-                // The 'RowNotFound' error means that the carbide can not find a valid row for the new IBPartition.
-                Status::invalid_argument("Maximum Limit of Infiniband partitions had been reached")
-            } else {
-                CarbideError::from(e).into()
-            }
-        })?;
+    let allocated_pkey = allocate_pkey(api, &mut txn, &resp.metadata.name, requested_pkey).await?;
+
+    if requested_pkey.is_some() {
+        resp.config.pkey = allocated_pkey;
+    }
+
+    let resp = db::ib_partition::create(
+        resp,
+        &mut txn,
+        fabric_config.max_partition_per_tenant,
+        IBPartitionStatus {
+            pkey: allocated_pkey,
+            partition: None,
+            mtu: None,
+            rate_limit: None,
+            service_level: None,
+        },
+    )
+    .await
+    .map_err(|e| {
+        if e.is_not_found() {
+            // During IB partition creation, the insert query checks that the number of existing partitions
+            // is less than <max_partition_per_tenant> by using a sub-select query in a WHERE clause.
+            // The 'RowNotFound' error means that the number of existing partitions exceeded the limit
+            // and no insert was performed.
+            Status::invalid_argument("Maximum Limit of Infiniband partitions had been reached")
+        } else {
+            CarbideError::from(e).into()
+        }
+    })?;
     let resp = rpc::IbPartition::try_from(resp).map(Response::new)?;
 
     txn.commit().await?;

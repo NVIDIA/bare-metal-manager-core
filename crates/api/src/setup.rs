@@ -44,6 +44,7 @@ use tokio::sync::{Semaphore, oneshot};
 use tracing_log::AsLog as _;
 
 use crate::api::Api;
+use crate::api::metrics::ApiMetricsEmitter;
 use crate::cfg::file::{CarbideConfig, ListenMode};
 use crate::dpa::handler::{DpaInfo, start_dpa_handler};
 use crate::dynamic_settings::DynamicSettings;
@@ -162,6 +163,10 @@ pub fn parse_carbide_config(
                 .max_concurrent_machine_updates_absolute = config.max_concurrent_machine_updates
         }
     }
+
+    // Validate that the firmware profile config keys match their inner
+    // part_number and psid values. Mismatches are logged as warnings.
+    config.validate_supernic_firmware_profiles();
 
     tracing::trace!("Carbide config: {:#?}", config.redacted());
     Ok(Arc::new(config))
@@ -389,6 +394,7 @@ pub async fn start_api(
         work_lock_manager_handle,
         kube_client_provider: Arc::new(carbide_dpf::Production {}),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool),
+        metric_emitter: ApiMetricsEmitter::new(&meter),
     });
 
     let (controllers_stop_tx, controllers_stop_rx) = oneshot::channel();
@@ -745,8 +751,6 @@ pub async fn initialize_and_start_controllers(
         .build_and_spawn()
         .expect("Unable to build NetworkSegmentController");
 
-    let dpa_pool_vni = common_pools.dpa.pool_dpa_vni.clone();
-
     let mut _dpa_interface_state_controller_handle: Option<
         crate::state_controller::controller::StateControllerHandle,
     > = None;
@@ -762,7 +766,7 @@ pub async fn initialize_and_start_controllers(
                 .iteration_config(
                     (&carbide_config.dpa_interface_state_controller.controller).into(),
                 )
-                .state_handler(Arc::new(DpaInterfaceStateHandler::new(dpa_pool_vni)))
+                .state_handler(Arc::new(DpaInterfaceStateHandler::new()))
                 .build_and_spawn()
                 .expect("Unable to build DpaInterfaceStateController"),
         );

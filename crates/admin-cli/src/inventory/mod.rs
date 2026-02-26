@@ -25,10 +25,17 @@ use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
 use crate::cfg::dispatch::Dispatch;
+use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
+impl Run for Cmd {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
         cmds::print_inventory(&ctx.api_client, self, ctx.config.page_size).await
+    }
+}
+
+impl Dispatch for Cmd {
+    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
+        self.run(&mut ctx).await
     }
 }

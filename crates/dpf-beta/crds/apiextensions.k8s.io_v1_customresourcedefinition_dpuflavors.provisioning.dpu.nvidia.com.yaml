@@ -1,0 +1,224 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+    helm.sh/resource-policy: keep
+  labels:
+    app.kubernetes.io/part-of: dpf-operator-controller-manager
+    dpu.nvidia.com/component: dpf-operator-controller-manager
+  name: dpuflavors.provisioning.dpu.nvidia.com
+spec:
+  group: provisioning.dpu.nvidia.com
+  names:
+    kind: DPUFlavor
+    listKind: DPUFlavorList
+    plural: dpuflavors
+    singular: dpuflavor
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: DPUFlavor is the Schema for the dpuflavors API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: DPUFlavorSpec defines the content of DPUFlavor
+            properties:
+              bfcfgParameters:
+                description: BFCfgParameters are the parameters to be set in the bf.cfg
+                  file.
+                items:
+                  type: string
+                type: array
+              configFiles:
+                description: ConfigFiles are the files to be written on the DPU.
+                items:
+                  properties:
+                    operation:
+                      description: Operation is the operation to be performed on the
+                        file.
+                      enum:
+                      - override
+                      - append
+                      type: string
+                    path:
+                      description: Path is the path of the file to be written.
+                      type: string
+                    permissions:
+                      description: Permissions are the permissions to be set on the
+                        file.
+                      type: string
+                    raw:
+                      description: Raw is the raw content of the file.
+                      type: string
+                  type: object
+                type: array
+              containerdConfig:
+                description: ContainerdConfig contains the configuration for containerd.
+                properties:
+                  registryEndpoint:
+                    description: RegistryEndpoint is the endpoint of the container
+                      registry.
+                    type: string
+                type: object
+              dpuMode:
+                default: dpu
+                description: 'Specifies the DPU Mode type: one of dpu,zero-trust'
+                enum:
+                - dpu
+                - zero-trust
+                - nic
+                type: string
+              dpuResources:
+                additionalProperties:
+                  anyOf:
+                  - type: integer
+                  - type: string
+                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                  x-kubernetes-int-or-string: true
+                description: |-
+                  DPUResources indicates the minimum amount of resources needed for a BFB with that flavor to be installed on a
+                  DPU. Using this field, the controller can understand if that flavor can be installed on a particular DPU. It
+                  should be set to the total amount of resources the system needs + the resources that should be made available for
+                  DPUServices to consume.
+                type: object
+              grub:
+                description: Grub contains the grub configuration for the DPUFlavor.
+                properties:
+                  kernelParameters:
+                    description: KernelParameters are the kernel parameters to be
+                      set in the grub configuration.
+                    items:
+                      type: string
+                    type: array
+                type: object
+              hostNetworkInterfaceConfigs:
+                description: HostNetworkInterfaceConfigs contains the configuration
+                  for the host-side network interfaces.
+                items:
+                  description: NetworkInterfaceConfig defines the configuration for
+                    a network interface
+                  properties:
+                    dhcp:
+                      description: DHCP is the DHCP configuration for the network
+                        interface.
+                      type: boolean
+                    mtu:
+                      description: MTU is the MTU value to be set on the network interface.
+                      format: int32
+                      maximum: 9216
+                      minimum: 1280
+                      type: integer
+                    nvconfig:
+                      description: |-
+                        NVConfig contains port-specific configuration for this network interface.
+                        This configuration is applied in addition to the global NVConfig settings in DPUFlavorSpec.
+                        Both global and per-interface NVConfig settings can coexist without collision.
+                      properties:
+                        device:
+                          description: Device is the device to which the configuration
+                            applies. If not specified, the configuration applies to
+                            all.
+                          type: string
+                        hostPowerCycleRequired:
+                          description: |-
+                            HostPowerCycleRequired indicates if the host needs to be power cycled after applying the configuration.
+
+                            Deprecated: This field is unused and deprecated. It will be removed with the release v26.4.0.
+                          type: boolean
+                        parameters:
+                          description: Parameters are the parameters to be set for
+                            the device.
+                          items:
+                            type: string
+                          type: array
+                      type: object
+                    portNumber:
+                      description: PortNumber identifies which port this configuration
+                        applies to.
+                      format: int32
+                      maximum: 1
+                      minimum: 0
+                      type: integer
+                  required:
+                  - portNumber
+                  type: object
+                type: array
+              nvconfig:
+                description: |-
+                  NVConfig contains the global DPU-wide configuration (firmware settings, global device parameters).
+                  This applies to the DPU device and should not overlap with per-interface NVConfig settings.
+                items:
+                  properties:
+                    device:
+                      description: Device is the device to which the configuration
+                        applies. If not specified, the configuration applies to all.
+                      type: string
+                    hostPowerCycleRequired:
+                      description: |-
+                        HostPowerCycleRequired indicates if the host needs to be power cycled after applying the configuration.
+
+                        Deprecated: This field is unused and deprecated. It will be removed with the release v26.4.0.
+                      type: boolean
+                    parameters:
+                      description: Parameters are the parameters to be set for the
+                        device.
+                      items:
+                        type: string
+                      type: array
+                  type: object
+                type: array
+              ovs:
+                description: OVS contains the OVS configuration for the DPUFlavor.
+                properties:
+                  rawConfigScript:
+                    description: RawConfigScript is the raw configuration script for
+                      OVS.
+                    type: string
+                type: object
+              sysctl:
+                description: Sysctl contains the sysctl configuration for the DPUFlavor.
+                properties:
+                  parameters:
+                    description: Parameters are the sysctl parameters to be set.
+                    items:
+                      type: string
+                    type: array
+                type: object
+              systemReservedResources:
+                additionalProperties:
+                  anyOf:
+                  - type: integer
+                  - type: string
+                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                  x-kubernetes-int-or-string: true
+                description: |-
+                  SystemReservedResources indicates the resources that are consumed by the system (OS, OVS, DPF system etc) and are
+                  not made available for DPUServices to consume. DPUServices can consume the difference between DPUResources and
+                  SystemReservedResources. This field must not be specified if dpuResources are not specified.
+                type: object
+            type: object
+            x-kubernetes-validations:
+            - message: DPUFlavor spec is immutable
+              rule: self == oldSelf
+        type: object
+    served: true
+    storage: true

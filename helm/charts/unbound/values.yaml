@@ -1,0 +1,55 @@
+global: {}
+
+## Override the release namespace (defaults to helm install -n <namespace>)
+namespaceOverride: ""
+
+## Unbound DNS image (not shared with global.image)
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+
+## Unbound exporter sidecar image
+exporterImage:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+service:
+  type: ClusterIP
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 25s
+
+# Environment variables for unbound (from unbound.env)
+env:
+  LOCAL_CONFIG_DIR: /etc/unbound/local.conf.d
+  BROKEN_DNSSEC: "1"
+  UNBOUND_CONTROL_DIR: /etc/unbound/keys
+
+# Local config files for unbound
+localConfig:
+  access_control.conf: |
+    server:
+        access-control: 0.0.0.0/0 allow
+  extended_statistics.conf: |
+    server:
+        extended-statistics: yes
+  verbosity.conf: |
+    server:
+        verbosity: 1
+  forge_local_unknowndomain.conf: |
+    # This .unknowndomain value is hardcoded in carbide as a default if a VPC
+    # doesn't have one configured. We shouldn't forward any of these queries further
+    # upstream.
+    local-zone: "unknowndomain." static
+    local-data: "unknowndomain. 10800 IN NS localhost."
+    local-data: "unknowndomain. 10800 IN SOA localhost. nobody.invalid. 1 3600 1200 604800 10800"
+  forwarders.conf: |
+    # This file's contents are intended to be broken if used at runtime. The base
+    # configMapGenerator should be merged with a later one that replaces this file.
+    include: patchme/patchme.conf

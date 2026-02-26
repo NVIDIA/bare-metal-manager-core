@@ -31,6 +31,7 @@ name = "carbide_host_support"
 
 # [local-dependencies]
 carbide-tls = { path = "../tls" }
+carbide-libmlx = { path = "../libmlx" }
 logfmt = { path = "../logfmt" }
 carbide-rpc = { path = "../rpc" }
 carbide-utils = { path = "../utils" }

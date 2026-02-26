@@ -27,11 +27,17 @@ use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use forge_network::virtualization::{DEFAULT_NETWORK_VIRTUALIZATION_TYPE, VpcVirtualizationType};
 use rpc::errors::RpcDataConversionError;
+use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 
 use crate::metadata::Metadata;
 use crate::tenant::RoutingProfileType;
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct VpcStatus {
+    pub vni: Option<i32>,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Vpc {
@@ -46,9 +52,11 @@ pub struct Vpc {
     pub network_virtualization_type: VpcVirtualizationType,
     pub routing_profile_type: Option<RoutingProfileType>,
     // Option because we can't allocate it until DB generates an id for us
+    // TODO: Update - Seems this isn't true since we generate a UUID if not found
+    // in the original creation request.
     pub vni: Option<i32>,
-    pub dpa_vni: Option<i32>,
     pub metadata: Metadata,
+    pub status: Option<VpcStatus>,
 }
 
 #[derive(Clone, Debug)]
@@ -59,6 +67,7 @@ pub struct NewVpc {
     pub metadata: Metadata,
     pub network_security_group_id: Option<NetworkSecurityGroupId>,
     pub routing_profile_type: Option<RoutingProfileType>,
+    pub vni: Option<i32>,
 }
 
 #[derive(Clone, Debug)]
@@ -90,6 +99,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
         };
 
         let routing_profile_type: Option<String> = row.try_get("routing_profile_type")?;
+        let status: Option<sqlx::types::Json<VpcStatus>> = row.try_get("status")?;
 
         // TODO(chet): Once `tenant_keyset_id` is taken care of,
         // this entire FromRow implementation can go away with a
@@ -104,13 +114,13 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
             updated: row.try_get("updated")?,
             deleted: row.try_get("deleted")?,
             tenant_keyset_id: None, //TODO: fix this once DB gets updated
+            status: status.map(|s| s.0),
             network_virtualization_type: row.try_get("network_virtualization_type")?,
             routing_profile_type: routing_profile_type
                 .map(|p| p.parse::<RoutingProfileType>())
                 .transpose()
                 .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
             vni: row.try_get("vni")?,
-            dpa_vni: row.try_get("dpa_vni")?,
             metadata,
         })
     }
@@ -130,11 +140,12 @@ impl From<Vpc> for rpc::forge::Vpc {
             updated: Some(src.updated.into()),
             deleted: src.deleted.map(|t| t.into()),
             tenant_keyset_id: src.tenant_keyset_id,
+            deprecated_vni: src.status.as_ref().and_then(|x| x.vni.map(|v| v as u32)),
             vni: src.vni.map(|x| x as u32),
-            dpa_vni: src.dpa_vni.map(|x| x as u32),
             network_virtualization_type: Some(
                 rpc::forge::VpcVirtualizationType::from(src.network_virtualization_type).into(),
             ),
+            status: src.status.map(rpc::forge::VpcStatus::from),
             metadata: {
                 Some(rpc::Metadata {
                     name: src.metadata.name,
@@ -155,6 +166,15 @@ impl From<Vpc> for rpc::forge::Vpc {
                 })
             },
             default_nvlink_logical_partition_id: None,
+        }
+    }
+}
+
+impl From<VpcStatus> for rpc::forge::VpcStatus {
+    fn from(src: VpcStatus) -> Self {
+        rpc::forge::VpcStatus {
+            // This is the pattern we have elsewhere because a VNI should never be negative.
+            vni: src.vni.map(|x| x as u32),
         }
     }
 }
@@ -191,6 +211,17 @@ impl TryFrom<rpc::forge::VpcCreationRequest> for NewVpc {
         Ok(NewVpc {
             id,
             tenant_organization_id: value.tenant_organization_id,
+            vni: value.vni.map(|v| v.try_into()).transpose().map_err(
+                |e: std::num::TryFromIntError| {
+                    RpcDataConversionError::InvalidValue(
+                        format!(
+                            "`{}` cannot be converted to VNI",
+                            value.vni.unwrap_or_default()
+                        ),
+                        e.to_string(),
+                    )
+                },
+            )?,
             network_security_group_id: value
                 .network_security_group_id
                 .map(|nsg_id| nsg_id.parse())

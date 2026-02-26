@@ -15,26 +15,31 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmds;
+mod common;
+mod copy_bfb;
+mod disable_rshim;
+mod enable_rshim;
+mod get_rshim_status;
+mod show_obmc_log;
 
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, _ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::GetRshimStatus(args) => cmds::get_rshim_status(args).await,
-            Cmd::DisableRshim(args) => cmds::disable_rshim_cmd(args).await,
-            Cmd::EnableRshim(args) => cmds::enable_rshim_cmd(args).await,
-            Cmd::CopyBfb(args) => cmds::copy_bfb(args).await,
-            Cmd::ShowObmcLog(args) => cmds::show_obmc_log(args).await,
-        }
-    }
+#[derive(Parser, Debug, Clone, Dispatch)]
+#[clap(rename_all = "kebab_case")]
+pub enum Cmd {
+    #[clap(about = "Show Rshim Status")]
+    GetRshimStatus(get_rshim_status::Args),
+    #[clap(about = "Disable Rshim")]
+    DisableRshim(disable_rshim::Args),
+    #[clap(about = "EnableRshim")]
+    EnableRshim(enable_rshim::Args),
+    #[clap(about = "Copy BFB to the DPU BMC's RSHIM ")]
+    CopyBfb(copy_bfb::Args),
+    #[clap(about = "Show the DPU's BMC's OBMC log")]
+    ShowObmcLog(show_obmc_log::Args),
 }

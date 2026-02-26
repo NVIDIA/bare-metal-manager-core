@@ -1,0 +1,22 @@
+{{- if .Values.externalService.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-ssh-console-rs-external
+  namespace: {{ include "carbide-ssh-console-rs.namespace" . }}
+  labels:
+    {{- include "carbide-ssh-console-rs.labels" . | nindent 4 }}
+  {{- with .Values.externalService.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.externalService.type | default "LoadBalancer" }}
+  selector:
+    {{- include "carbide-ssh-console-rs.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: 22
+      targetPort: 22
+      name: ssh
+      protocol: TCP
+{{- end }}

@@ -27,7 +27,7 @@ use model::firmware::AgentUpgradePolicyChoice;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::metadata::Metadata;
 use model::network_segment::{NetworkDefinition, NewNetworkSegment};
-use model::vpc::NewVpc;
+use model::vpc::{NewVpc, VpcStatus};
 use sqlx::{Pool, Postgres};
 
 use crate::CarbideError;
@@ -225,6 +225,7 @@ pub(crate) async fn create_admin_vpc(
     // Let's create admin vpc.
     let admin_vpc = NewVpc {
         id: uuid::Uuid::new_v4().into(),
+        vni: Some(vpc_vni as i32),
         tenant_organization_id: "carbide_internal".to_string(),
         // For consistency, but admin routing profile is defined in-line in the
         // FNN config.
@@ -238,8 +239,14 @@ pub(crate) async fn create_admin_vpc(
         },
     };
 
-    let vpc = db::vpc::persist(admin_vpc, &mut txn).await?;
-    db::vpc::set_vni(&mut txn, vpc.id, vpc_vni as i32).await?;
+    let vpc = db::vpc::persist(
+        admin_vpc,
+        VpcStatus {
+            vni: Some(vpc_vni as i32),
+        },
+        &mut txn,
+    )
+    .await?;
 
     // Attach it to admin network segment.
     db::network_segment::set_vpc_id_and_can_stretch(&admin_segment, &mut txn, vpc.id).await?;

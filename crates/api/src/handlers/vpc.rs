@@ -23,7 +23,7 @@ use db::vpc::{self};
 use db::{self, ObjectColumnFilter, network_security_group};
 use model::resource_pool;
 use model::tenant::{InvalidTenantOrg, RoutingProfileType};
-use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization};
+use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, VpcStatus};
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 
@@ -148,28 +148,22 @@ pub(crate) async fn create(
         }
     };
 
-    let requested_vni = vpc_creation_request.vni;
-
     let mut new_vpc = NewVpc::try_from(request.into_inner())?;
 
-    new_vpc.routing_profile_type = requested_profile_type;
-
-    let mut vpc = db::vpc::persist(new_vpc, &mut txn).await?;
-
-    vpc.vni = Some(
+    let vni = Some(
         allocate_vpc_vni(
             api,
             &mut txn,
-            &vpc.id.to_string(),
-            vpc.routing_profile_type.clone(),
-            requested_vni,
+            &new_vpc.id.to_string(),
+            requested_profile_type.clone(),
+            new_vpc.vni,
         )
         .await?,
     );
 
-    // We will allocate an dpa_vni for this VPC when the first instance with DPA NICs gets added
-    // to this VPC.
-    db::vpc::set_vni(&mut txn, vpc.id, vpc.vni.unwrap()).await?;
+    new_vpc.routing_profile_type = requested_profile_type;
+
+    let vpc = db::vpc::persist(new_vpc, VpcStatus { vni }, &mut txn).await?;
 
     let rpc_out: rpc::Vpc = vpc.into();
 
@@ -315,7 +309,7 @@ pub(crate) async fn delete(
         }
     };
 
-    if let Some(vni) = vpc.vni {
+    if let Some(vni) = vpc.status.as_ref().and_then(|s| s.vni) {
         // We can just keep deriving int/ext from the routing profile
         // because a VPC is not allowed to change its profile after
         // creation.
@@ -354,12 +348,6 @@ pub(crate) async fn delete(
             .await
             .map_err(CarbideError::from)?;
         }
-    }
-
-    if let Some(dpa_vni) = vpc.dpa_vni {
-        db::resource_pool::release(&api.common_pools.dpa.pool_dpa_vni, &mut txn, dpa_vni)
-            .await
-            .map_err(CarbideError::from)?;
     }
 
     // Delete associated VPC peerings
@@ -426,7 +414,7 @@ async fn allocate_vpc_vni(
     txn: &mut PgConnection,
     owner_id: &str,
     routing_profile_type: Option<RoutingProfileType>,
-    requested_vni: Option<u32>,
+    requested_vni: Option<i32>,
 ) -> Result<i32, CarbideError> {
     // If FNN is not configured, then there is no distinction between internal
     // and external tenants: they're all internal.  This matches how things are
@@ -464,15 +452,7 @@ async fn allocate_vpc_vni(
         txn,
         resource_pool::OwnerType::Vpc,
         owner_id,
-        requested_vni
-            .map(|v| v.try_into())
-            .transpose()
-            .map_err(|e| {
-                CarbideError::InvalidArgument(format!(
-                    "unable to convert requested value into VNI: {}",
-                    e
-                ))
-            })?,
+        requested_vni,
     )
     .await
     {

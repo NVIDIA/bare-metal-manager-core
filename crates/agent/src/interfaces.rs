@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 
 use gtmpl_derive::Gtmpl;
 use serde::Deserialize;
@@ -55,7 +55,7 @@ pub fn blank() -> String {
 }
 
 pub struct InterfacesConfig {
-    pub loopback_ip: Ipv4Addr,
+    pub loopback_ip: IpAddr,
     pub uplinks: Vec<String>,
     pub vni_device: String,
     pub networks: Vec<Network>,

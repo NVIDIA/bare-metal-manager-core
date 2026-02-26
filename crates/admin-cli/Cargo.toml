@@ -30,6 +30,7 @@ path = "src/main.rs"
 # [local-dependencies]
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 bmc-vendor = { path = "../bmc-vendor" }
+carbide-macros = { path = "../macros" }
 carbide-network = { path = "../network" }
 carbide-ssh = { path = "../ssh" }
 carbide-tls = { path = "../tls" }

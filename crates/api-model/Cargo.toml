@@ -32,6 +32,7 @@ bmc-vendor = { path = "../bmc-vendor" }
 carbide-dpf = { path = "../dpf" }
 config-version = { path = "../config-version", features = ["sqlx"] }
 carbide-host-support = { path = "../host-support", default-features = false }
+carbide-libmlx = { path = "../libmlx" }
 carbide-network = { path = "../network", features = ["sqlx"] }
 carbide-version = { path = "../version" }
 carbide-health-report = { path = "../health-report" }

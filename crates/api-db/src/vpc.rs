@@ -20,14 +20,11 @@ use ::rpc::forge as rpc;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use config_version::ConfigVersion;
-use model::resource_pool;
-use model::resource_pool::ResourcePool;
-use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc};
+use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc, VpcStatus};
 use sqlx::{PgConnection, PgTransaction};
 
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter, network_segment, vpc};
 use crate::db_read::DbReader;
-use crate::resource_pool::ResourcePoolDatabaseError;
 use crate::{DatabaseError, DatabaseResult};
 
 #[derive(Clone, Copy)]
@@ -63,11 +60,15 @@ impl<'a> ColumnInfo<'a> for NameColumn {
     }
 }
 
-pub async fn persist(value: NewVpc, txn: &mut PgConnection) -> Result<Vpc, DatabaseError> {
+pub async fn persist(
+    value: NewVpc,
+    status: VpcStatus,
+    txn: &mut PgConnection,
+) -> Result<Vpc, DatabaseError> {
     let query =
                 "INSERT INTO vpcs (id, name, organization_id, network_security_group_id, version, network_virtualization_type,
                 description,
-                labels, routing_profile_type) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *";
+                labels, routing_profile_type, vni, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *";
     sqlx::query_as(query)
         .bind(value.id)
         .bind(&value.metadata.name)
@@ -78,6 +79,8 @@ pub async fn persist(value: NewVpc, txn: &mut PgConnection) -> Result<Vpc, Datab
         .bind(&value.metadata.description)
         .bind(sqlx::types::Json(&value.metadata.labels))
         .bind(value.routing_profile_type.map(|p| p.to_string()))
+        .bind(value.vni)
+        .bind(sqlx::types::Json(&status))
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
@@ -107,31 +110,40 @@ pub async fn find_ids(
         if has_filter {
             builder.push(" AND ");
         }
-        if label.key.is_empty() && label.value.is_some() {
-            builder.push(
-                " EXISTS (
+        match (label.key.is_empty(), label.value) {
+            // Label key is empty, label value is set.
+            (true, Some(value)) => {
+                builder.push(
+                    " EXISTS (
                         SELECT 1
                         FROM jsonb_each_text(labels) AS kv
                         WHERE kv.value = ",
-            );
-            builder.push_bind(label.value.unwrap());
-            builder.push(")");
-            has_filter = true;
-        } else if label.key.is_empty() && label.value.is_none() {
-            return Err(DatabaseError::InvalidArgument(
-                "finding VPCs based on label needs either key or a value.".to_string(),
-            ));
-        } else if !label.key.is_empty() && label.value.is_none() {
-            builder.push(" labels ->> ");
-            builder.push_bind(label.key);
-            builder.push(" IS NOT NULL");
-            has_filter = true;
-        } else if !label.key.is_empty() && label.value.is_some() {
-            builder.push(" labels ->> ");
-            builder.push_bind(label.key);
-            builder.push(" = ");
-            builder.push_bind(label.value.unwrap());
-            has_filter = true;
+                );
+                builder.push_bind(value);
+                builder.push(")");
+                has_filter = true;
+            }
+            // Label key is empty, label value is not set.
+            (true, None) => {
+                return Err(DatabaseError::InvalidArgument(
+                    "finding VPCs based on label needs either key or a value.".to_string(),
+                ));
+            }
+            // Label key is not empty, label value is not set.
+            (false, None) => {
+                builder.push(" labels ->> ");
+                builder.push_bind(label.key);
+                builder.push(" IS NOT NULL");
+                has_filter = true;
+            }
+            // Label key is not empty, label value is set.
+            (false, Some(value)) => {
+                builder.push(" labels ->> ");
+                builder.push_bind(label.key);
+                builder.push(" = ");
+                builder.push_bind(value);
+                has_filter = true;
+            }
         }
     }
     if has_filter {
@@ -146,72 +158,6 @@ pub async fn find_ids(
         .map_err(|e| DatabaseError::new("vpc::find_ids", e))?;
 
     Ok(ids)
-}
-
-pub async fn set_vni(txn: &mut PgConnection, id: VpcId, vni: i32) -> Result<(), DatabaseError> {
-    let query = "UPDATE vpcs SET vni = $1 WHERE id = $2 AND vni IS NULL";
-    let _ = sqlx::query(query)
-        .bind(vni)
-        .bind(id)
-        .execute(txn)
-        .await
-        .map_err(|e| DatabaseError::query(query, e))?;
-    Ok(())
-}
-
-pub async fn allocate_dpa_vni(
-    txn: &mut PgConnection,
-    mut value: Vpc,
-    dpa_vni_resource_pool: &ResourcePool<i32>,
-) -> Result<(), DatabaseError> {
-    if let Some(dpa_vni) = value.dpa_vni
-        && dpa_vni != 0
-    {
-        return Ok(());
-    };
-
-    let owner_id = value.id.to_string();
-
-    // VPC does not have dpa_vni associated with it. Allocate an dpa_vni for VPC now.
-    value.dpa_vni = match crate::resource_pool::allocate(
-        dpa_vni_resource_pool,
-        txn,
-        resource_pool::OwnerType::Dpa,
-        &value.id.to_string(),
-        None,
-    )
-    .await
-    {
-        Ok(val) => Some(val),
-        Err(ResourcePoolDatabaseError::ResourcePool(resource_pool::ResourcePoolError::Empty)) => {
-            tracing::error!(
-                owner_id,
-                pool = "dpa_vni",
-                "Pool exhausted, cannot allocate"
-            );
-            return Err(DatabaseError::ResourceExhausted("pool dpa_vni".to_string()));
-        }
-        Err(err) => {
-            tracing::error!(owner_id, error = %err, pool = "dpa_vni", "Error allocating from resource pool");
-            return Err(err.into());
-        }
-    };
-
-    set_dpa_vni(txn, value.id, value.dpa_vni.unwrap()).await?;
-
-    Ok(())
-}
-
-// Update the DPA_VNI field of the VPC entry in the DB specified by the given ID
-pub async fn set_dpa_vni(txn: &mut PgConnection, id: VpcId, vni: i32) -> Result<(), DatabaseError> {
-    let query = "UPDATE vpcs SET dpa_vni = $1 WHERE id = $2 AND dpa_vni IS NULL";
-    let _ = sqlx::query(query)
-        .bind(vni)
-        .bind(id)
-        .execute(txn)
-        .await
-        .map_err(|e| DatabaseError::query(query, e))?;
-    Ok(())
 }
 
 // Note: Following find function should not be used to search based on vpc labels.
@@ -231,7 +177,13 @@ pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Vpc>>(
 }
 
 pub async fn find_by_vni(txn: &mut PgConnection, vni: i32) -> Result<Vec<Vpc>, DatabaseError> {
-    find_by(txn, ObjectColumnFilter::One(VniColumn, &vni)).await
+    let query = "SELECT * from vpcs WHERE (status->>'vni')::integer = $1 AND DELETED IS NULL";
+
+    sqlx::query_as(query)
+        .bind(vni)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 pub async fn find_by_name(txn: impl DbReader<'_>, name: &str) -> Result<Vec<Vpc>, DatabaseError> {

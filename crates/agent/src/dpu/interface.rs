@@ -94,24 +94,11 @@ impl Interface {
     ) -> eyre::Result<DpuNetworkInterfacePlan> {
         let mut interface_plan: DpuNetworkInterfacePlan = HashMap::new();
 
-        // Convert the current addresses to a Vec of IpNetwork
-        // filter out non-ipv4 addresses
         let current_addresses = Interface::current_addresses(interface)
             .await?
             .iter()
             .flat_map(|x| &x.addr_info)
-            .filter_map(|y| {
-                if let Ok(ip) = IpNetwork::new(y.local, y.prefixlen) {
-                    if ipnetwork::IpNetwork::is_ipv4(&ip) {
-                        Some(ip)
-                    } else {
-                        tracing::trace!("Interface has non-ipv4 address: {:?}, skipping...", ip);
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
+            .filter_map(|y| IpNetwork::new(y.local, y.prefixlen).ok())
             .collect::<Vec<_>>();
 
         let mut proposed_addresses = proposed.desired.clone();
@@ -290,18 +277,7 @@ mod tests {
         let current_addresses = current
             .iter()
             .flat_map(|x| &x.addr_info)
-            .filter_map(|y| {
-                if let Ok(ip) = IpNetwork::new(y.local, y.prefixlen) {
-                    if ipnetwork::IpNetwork::is_ipv4(&ip) {
-                        Some(ip)
-                    } else {
-                        tracing::trace!("Interface has non-ipv4 address: {:?}, skipping...", ip);
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
+            .filter_map(|y| IpNetwork::new(y.local, y.prefixlen).ok())
             .collect::<Vec<_>>();
 
         let proposed = vec![
@@ -363,5 +339,21 @@ mod tests {
             .unwrap();
         tracing::trace!("Link: {:?}", link);
         assert_eq!(link.ifindex, 16);
+    }
+
+    #[tokio::test]
+    async fn plan_includes_ipv6_address() {
+        let test_ipv6 = IpNetwork::new("fd00::1".parse().unwrap(), 64).unwrap();
+        let mut data = TestInterfaceData::new(HBNDeviceNames::hbn_23().sfs[0]).await;
+        data.desired = vec![test_ipv6];
+        let plan = data.to_plan(HBNDeviceNames::hbn_23().sfs[0]).await;
+
+        let add = plan.get(&Action::Add).unwrap();
+        let networks = add
+            .get(HBNDeviceNames::hbn_23().sfs[0])
+            .unwrap()
+            .clone()
+            .unwrap();
+        assert!(networks.contains(&test_ipv6));
     }
 }

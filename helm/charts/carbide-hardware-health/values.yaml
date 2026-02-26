@@ -1,0 +1,56 @@
+## carbide-hardware-health — Collects and reports hardware health metrics
+## Global settings (overridden by umbrella chart)
+global:
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  certificate:
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+    issuerRef:
+      kind: ClusterIssuer
+      name: vault-forge-issuer
+      group: cert-manager.io
+  spiffe:
+    trustDomain: forge.local
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: site-controller
+
+## Override the release namespace (defaults to helm install -n <namespace>)
+namespaceOverride: ""
+
+replicas: 1
+
+service:
+  port: 9009
+
+certificate:
+  ## serviceName is used to auto-generate dnsNames and SPIFFE URIs based on the release namespace
+  serviceName: carbide-hardware-health
+  extraDnsNames: []
+  extraUris: []
+
+env:
+  RUST_BACKTRACE: "full"
+  RUST_LIB_BACKTRACE: "0"
+  CARBIDE_HEALTH__COLLECTORS__LOGS__ENABLED: "false"
+
+livenessProbe:
+  httpGet:
+    port: 9009
+    scheme: HTTP
+  initialDelaySeconds: 20
+  periodSeconds: 300
+  failureThreshold: 3
+  successThreshold: 1
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 25s

@@ -1,0 +1,10 @@
+apiVersion: v2
+name: carbide-api
+description: Helm chart for the Carbide API component
+type: application
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - carbide
+  - api
+  - forge

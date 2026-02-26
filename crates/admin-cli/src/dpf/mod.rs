@@ -14,33 +14,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-pub mod args;
-pub mod cmds;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+pub mod common;
+mod disable;
+mod enable;
+mod show;
+
+use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Enable(query) => {
-                cmds::modify_dpf_state(&query, ctx.config.format, &ctx.api_client, true).await
-            }
-            Cmd::Disable(query) => {
-                cmds::modify_dpf_state(&query, ctx.config.format, &ctx.api_client, false).await
-            }
-            Cmd::Show(query) => {
-                cmds::show(
-                    &query,
-                    ctx.config.format,
-                    ctx.config.page_size,
-                    &ctx.api_client,
-                )
-                .await
-            }
-        }
-    }
+#[derive(Parser, Debug, Dispatch)]
+pub enum Cmd {
+    #[clap(about = "Enable DPF")]
+    Enable(enable::Args),
+    #[clap(about = "Disable DPF")]
+    Disable(disable::Args),
+    #[clap(about = "Check Status of DPF")]
+    Show(show::Args),
 }

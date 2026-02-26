@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbide-pxe
+  namespace: {{ include "carbide-pxe.namespace" . }}
+  labels:
+    {{- include "carbide-pxe.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.annotations | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "carbide-pxe.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "carbide-pxe.labels" . | nindent 8 }}
+      annotations:
+        kubectl.kubernetes.io/default-container: carbide-pxe
+    spec:
+      serviceAccountName: carbide-pxe
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: carbide-pxe
+          image: "{{ include "carbide-pxe.image" . }}"
+          command:
+            - /opt/carbide/carbide
+          args:
+            - -s
+            - /forge-boot-artifacts
+          env:
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- if .Values.envFrom }}
+          envFrom:
+            - configMapRef:
+                name: {{ .Values.envFrom.pxeEnvConfig.configMapName }}
+                optional: {{ .Values.envFrom.pxeEnvConfig.optional | default true }}
+          {{- end }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          securityContext:
+            capabilities:
+              add:
+                - SYS_PTRACE
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          volumeMounts:
+            - name: spiffe
+              mountPath: /var/run/secrets/spiffe.io
+              readOnly: true
+      volumes:
+        - name: spiffe
+          secret:
+            secretName: carbide-pxe-certificate

@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: carbide-api-config-files
+  namespace: {{ include "carbide-api.namespace" . }}
+  labels:
+    {{- include "carbide-api.labels" . | nindent 4 }}
+data:
+  carbide-api-config.toml: |
+    {{- if .Values.configFiles.carbideApiConfig }}
+    {{- .Values.configFiles.carbideApiConfig | nindent 4 }}
+    {{- else }}
+    {{- .Files.Get "files/carbide-api-config.toml" | nindent 4 }}
+    {{- end }}
+  casbin-policy.csv: |
+    {{- if .Values.configFiles.casbinPolicy }}
+    {{- .Values.configFiles.casbinPolicy | nindent 4 }}
+    {{- else }}
+    {{- .Files.Get "files/casbin-policy.csv" | nindent 4 }}
+    {{- end }}
+{{- if .Values.siteConfig.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: carbide-api-site-config-files
+  namespace: {{ include "carbide-api.namespace" . }}
+  labels:
+    {{- include "carbide-api.labels" . | nindent 4 }}
+data:
+  carbide-api-site-config.toml: {{ .Values.siteConfig.carbideApiSiteConfig | default "" | quote }}
+{{- end }}
+{{- if .Values.vaultClusterInfo }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.envFrom.vaultClusterInfo.configMapName }}
+  namespace: {{ include "carbide-api.namespace" . }}
+  labels:
+    {{- include "carbide-api.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.vaultClusterInfo }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+{{- end }}
+{{- if .Values.databaseConfig }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.envFrom.databaseConfig.configMapName }}
+  namespace: {{ include "carbide-api.namespace" . }}
+  labels:
+    {{- include "carbide-api.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.databaseConfig }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+{{- end }}
+---
+## Hostname ConfigMap — always created (site-specific, not tied to Vault/DB infrastructure)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.envFrom.carbideWebHostname.configMapName }}
+  namespace: {{ include "carbide-api.namespace" . }}
+  labels:
+    {{- include "carbide-api.labels" . | nindent 4 }}
+data:
+  hostname: {{ .Values.hostname | default "carbide.local" | quote }}

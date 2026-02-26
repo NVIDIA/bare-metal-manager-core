@@ -24,8 +24,9 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use clap::{CommandFactory, Parser};
+use get_report::args::Args as GetReportMode;
 
-use super::args::*;
+use super::*;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -95,8 +96,8 @@ fn parse_explore() {
 
     match cmd {
         Cmd::Explore(args) => {
-            assert_eq!(args.address, "192.168.1.100");
-            assert!(args.mac.is_none());
+            assert_eq!(args.inner.address, "192.168.1.100");
+            assert!(args.inner.mac.is_none());
         }
         _ => panic!("expected Explore variant"),
     }
@@ -117,7 +118,7 @@ fn parse_explore_with_mac() {
 
     match cmd {
         Cmd::Explore(args) => {
-            assert!(args.mac.is_some());
+            assert!(args.inner.mac.is_some());
         }
         _ => panic!("expected Explore variant"),
     }
@@ -145,7 +146,7 @@ fn parse_clear_error() {
 
     match cmd {
         Cmd::ClearError(args) => {
-            assert_eq!(args.address, "192.168.1.100");
+            assert_eq!(args.inner.address, "192.168.1.100");
         }
         _ => panic!("expected ClearError variant"),
     }

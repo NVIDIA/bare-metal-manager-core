@@ -25,6 +25,8 @@ use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use itertools::Itertools;
+use libmlx::device::info::MlxDeviceInfo;
+use libmlx::firmware::result::FirmwareFlashReport;
 use mac_address::MacAddress;
 use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
@@ -46,6 +48,17 @@ pub enum DpaInterfaceControllerState {
     Ready,
     /// Unlock the card
     Unlocking,
+    /// Apply firmware to the SuperNIC, in which we will send down
+    /// a FirmwareFlasherProfile matching the device P/N + PSID,
+    /// with the target version. We may also send down a "None"
+    /// profile, which is effectively a noop; scout will report
+    /// back saying it successfully applied nothing.
+    ///
+    /// The API can also choose to just skip to the ApplyProfile
+    /// state in the case of there being None to send to scout,
+    /// but scout is expected to successfully reply "Ok" if it
+    /// gets a None.
+    ApplyFirmware,
     /// Apply mlx profile
     ApplyProfile,
     /// Lock the card
@@ -130,6 +143,18 @@ pub struct CardState {
     pub lockmode: Option<DpaLockMode>,
     pub profile: Option<String>,
     pub profile_synced: Option<bool>,
+
+    #[serde(default)]
+    // firmware_report contains the latest FirmwareFlashReport as
+    // fed back from scout after receiving a FirmwareFlashProfile
+    // to apply as part of the ApplyFirmware state + OpCode
+    // workflow. This report will let us know if the firmware
+    // flash occurred, as well as a number of optional bits
+    // of feedback (e.g. if a reset was configured, did it happen,
+    // if a version verification was configured, did it happen,
+    // etc). This is useful for metrics, verification, and general
+    // transparency via logging or other mechanisms.
+    pub firmware_report: Option<FirmwareFlashReport>,
 }
 
 impl Display for CardState {
@@ -150,6 +175,9 @@ pub fn state_sla(state: &DpaInterfaceControllerState, state_version: &ConfigVers
         DpaInterfaceControllerState::Provisioning => StateSla::no_sla(),
         DpaInterfaceControllerState::Ready => StateSla::no_sla(),
         DpaInterfaceControllerState::Locking => StateSla::with_sla(slas::LOCKING, time_in_state),
+        DpaInterfaceControllerState::ApplyFirmware => {
+            StateSla::with_sla(slas::APPLY_FIRMWARE, time_in_state)
+        }
         DpaInterfaceControllerState::ApplyProfile => {
             StateSla::with_sla(slas::APPLY_PROFILE, time_in_state)
         }
@@ -168,10 +196,66 @@ pub fn state_sla(state: &DpaInterfaceControllerState, state_version: &ConfigVers
 
 #[cfg(test)]
 mod tests {
+    use libmlx::device::info::MlxDeviceInfo;
+
     use super::*;
 
     #[test]
+    fn from_device_info_extracts_fields() {
+        let machine_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")
+                .unwrap();
+        let info = MlxDeviceInfo {
+            pci_name: "01:00.0".to_string(),
+            device_type: "BlueField3".to_string(),
+            psid: Some("MT_0000001069".to_string()),
+            device_description: Some("SuperNIC".to_string()),
+            part_number: Some("900-9D3D4-00EN-HA0".to_string()),
+            fw_version_current: Some("32.43.1014".to_string()),
+            pxe_version_current: None,
+            uefi_version_current: None,
+            uefi_version_virtio_blk_current: None,
+            uefi_version_virtio_net_current: None,
+            base_mac: Some(MacAddress::from_str("00:11:22:33:44:55").unwrap()),
+            status: Some("OK".to_string()),
+        };
+
+        let new_intf = NewDpaInterface::from_device_info(machine_id, &info).unwrap();
+        assert_eq!(new_intf.machine_id, machine_id);
+        assert_eq!(
+            new_intf.mac_address,
+            MacAddress::from_str("00:11:22:33:44:55").unwrap()
+        );
+        assert_eq!(new_intf.device_type, "BlueField3");
+        assert_eq!(new_intf.pci_name, "01:00.0");
+    }
+
+    #[test]
+    fn from_device_info_returns_none_without_base_mac() {
+        let machine_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")
+                .unwrap();
+        let info = MlxDeviceInfo {
+            pci_name: "01:00.0".to_string(),
+            device_type: "BlueField3".to_string(),
+            psid: None,
+            device_description: None,
+            part_number: None,
+            fw_version_current: None,
+            pxe_version_current: None,
+            uefi_version_current: None,
+            uefi_version_virtio_blk_current: None,
+            uefi_version_virtio_net_current: None,
+            base_mac: None,
+            status: None,
+        };
+
+        assert!(NewDpaInterface::from_device_info(machine_id, &info).is_none());
+    }
+
+    #[test]
     fn serialize_controller_state() {
+        // Make sure the Provisioning state serializes to/from "provisioning".
         let state = DpaInterfaceControllerState::Provisioning {};
         let serialized = serde_json::to_string(&state).unwrap();
         assert_eq!(serialized, "{\"state\":\"provisioning\"}");
@@ -180,9 +264,19 @@ mod tests {
             state
         );
 
+        // Make sure the Ready state serializes to/from "ready".
         let state = DpaInterfaceControllerState::Ready {};
         let serialized = serde_json::to_string(&state).unwrap();
         assert_eq!(serialized, "{\"state\":\"ready\"}");
+        assert_eq!(
+            serde_json::from_str::<DpaInterfaceControllerState>(&serialized).unwrap(),
+            state
+        );
+
+        // Make sure the ApplyFirmware state serializes to/from "applyfirmware".
+        let state = DpaInterfaceControllerState::ApplyFirmware;
+        let serialized = serde_json::to_string(&state).unwrap();
+        assert_eq!(serialized, "{\"state\":\"applyfirmware\"}");
         assert_eq!(
             serde_json::from_str::<DpaInterfaceControllerState>(&serialized).unwrap(),
             state
@@ -218,6 +312,15 @@ pub struct DpaInterface {
 
     pub card_state: Option<CardState>,
 
+    // device_info and its corresponding timestamp are used to
+    // keep track of the latest MlxDeviceInfo received by scout
+    // for the target Mellanox device. This contains information
+    // like the part number, PSID, firmware version(s), MAC address,
+    // etc. We store the received timestamp alongside it to detect
+    // if we're acting on potentially stale MlxDeviceInfo data.
+    pub device_info: Option<MlxDeviceInfo>,
+    pub device_info_ts: Option<DateTime<Utc>>,
+
     pub history: Vec<DpaInterfaceStateHistoryRecord>,
 }
 
@@ -227,6 +330,26 @@ pub struct NewDpaInterface {
     pub mac_address: MacAddress,
     pub device_type: String,
     pub pci_name: String,
+}
+
+impl NewDpaInterface {
+    /// from_device_info builds a NewDpaInterface instance for a given
+    /// MachineId from a given MlxDeviceInfo, since it contains everything
+    /// we use as input for an interface.
+    ///
+    /// Right now the only reason this would fail is if base_mac was unset,
+    /// at which point we'll just return None, meaning the caller knows that
+    /// the base_mac was unset. Since the mac_address is the latter half of
+    /// what is effectively a (machine_id, mac_address) compound primary key,
+    /// it's kind of important to have.
+    pub fn from_device_info(machine_id: MachineId, info: &MlxDeviceInfo) -> Option<Self> {
+        Some(Self {
+            machine_id,
+            mac_address: info.base_mac?,
+            device_type: info.device_type.clone(),
+            pci_name: info.pci_name.clone(),
+        })
+    }
 }
 
 impl TryFrom<rpc::forge::DpaInterfaceCreationRequest> for NewDpaInterface {
@@ -400,6 +523,10 @@ pub struct DpaInterfaceSnapshotPgJson {
     pub pci_name: String,
     pub underlay_ip: Option<IpAddr>,
     pub overlay_ip: Option<IpAddr>,
+    #[serde(default, alias = "device_info_report")]
+    pub device_info: Option<MlxDeviceInfo>,
+    #[serde(default, alias = "device_info_report_ts")]
+    pub device_info_ts: Option<DateTime<Utc>>,
     #[serde(default)]
     pub history: Vec<DpaInterfaceStateHistoryRecord>,
 }
@@ -437,6 +564,8 @@ impl TryFrom<DpaInterfaceSnapshotPgJson> for DpaInterface {
             },
             network_status_observation: value.network_status_observation,
             card_state: value.card_state,
+            device_info: value.device_info,
+            device_info_ts: value.device_info_ts,
             history: value.history,
             pci_name: value.pci_name,
             underlay_ip: value.underlay_ip,

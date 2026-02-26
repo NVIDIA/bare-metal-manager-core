@@ -835,14 +835,29 @@ pub mod test_support {
         }
 
         async fn get_boot_options(&self) -> Result<libredfish::BootOptions, RedfishError> {
-            todo!()
+            Ok(libredfish::BootOptions {
+                odata: Default::default(),
+                description: None,
+                members: vec![],
+                name: "Boot Options".to_string(),
+            })
         }
 
         async fn get_boot_option(
             &self,
-            _option_id: &str,
+            option_id: &str,
         ) -> Result<libredfish::model::BootOption, RedfishError> {
-            todo!()
+            Ok(libredfish::model::BootOption {
+                odata: Default::default(),
+                alias: None,
+                description: None,
+                boot_option_enabled: None,
+                boot_option_reference: String::new(),
+                display_name: option_id.to_string(),
+                id: option_id.to_string(),
+                name: option_id.to_string(),
+                uefi_device_path: None,
+            })
         }
 
         async fn boot_once(&self, _target: libredfish::Boot) -> Result<(), RedfishError> {
@@ -877,7 +892,7 @@ pub mod test_support {
         }
 
         async fn pcie_devices(&self) -> Result<Vec<libredfish::PCIeDevice>, RedfishError> {
-            todo!()
+            Ok(vec![])
         }
 
         async fn change_password(&self, user: &str, new: &str) -> Result<(), RedfishError> {

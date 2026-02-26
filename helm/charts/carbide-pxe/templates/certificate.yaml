@@ -1,0 +1,9 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: carbide-pxe-certificate
+  namespace: {{ include "carbide-pxe.namespace" . }}
+  labels:
+    {{- include "carbide-pxe.labels" . | nindent 4 }}
+spec:
+  {{- include "carbide-pxe.certificateSpec" (dict "name" "carbide-pxe-certificate" "cert" .Values.certificate "global" .Values.global "namespace" (include "carbide-pxe.namespace" .)) | nindent 2 }}

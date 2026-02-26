@@ -1,0 +1,13 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: carbide-ssh-console-rs-metrics
+  namespace: {{ include "carbide-ssh-console-rs.namespace" . }}
+  labels:
+    {{- include "carbide-ssh-console-rs.labels" . | nindent 4 }}
+    app: carbide-ssh-console-rs
+    prometheus: forge-monitoring
+spec:
+  {{- include "carbide-ssh-console-rs.serviceMonitorSpec" (dict "name" "carbide-ssh-console-rs" "port" "http" "monitor" .Values.serviceMonitor "namespace" "forge-system") | nindent 2 }}
+{{- end }}

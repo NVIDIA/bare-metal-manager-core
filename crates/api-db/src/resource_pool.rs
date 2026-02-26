@@ -23,8 +23,8 @@ use config_version::ConfigVersion;
 use ipnetwork::Ipv6Network;
 use model::resource_pool;
 use model::resource_pool::common::{
-    CommonPools, DPA_VNI, DpaPools, EXTERNAL_VPC_VNI, EthernetPools, FNN_ASN, IbPools, LOOPBACK_IP,
-    SECONDARY_VTEP_IP, VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
+    CommonPools, EXTERNAL_VPC_VNI, EthernetPools, FNN_ASN, IbPools, LOOPBACK_IP, SECONDARY_VTEP_IP,
+    VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
 };
 use model::resource_pool::define::{ResourcePoolDef, ResourcePoolType};
 use model::resource_pool::{
@@ -832,11 +832,6 @@ pub async fn create_common_pools(
     );
     pool_names.extend(pkey_pools.values().map(|pool| pool.name().to_string()));
 
-    let pool_dpa_vni: Arc<ResourcePool<i32>> =
-        Arc::new(ResourcePool::new(DPA_VNI.to_string(), ValueType::Integer));
-
-    pool_names.extend(vec![pool_dpa_vni.name().to_string()]);
-
     // Gather resource pool stats. A different thread sends them to Prometheus.
     let (stop_sender, mut stop_receiver) = oneshot::channel();
     let pool_stats: Arc<Mutex<HashMap<String, ResourcePoolStats>>> =
@@ -876,7 +871,6 @@ pub async fn create_common_pools(
             pool_secondary_vtep_ip,
         },
         infiniband: IbPools { pkey_pools },
-        dpa: DpaPools { pool_dpa_vni },
         pool_stats,
         _stop_sender: stop_sender,
     }))

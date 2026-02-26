@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.envFrom.pxeEnvConfig.configMapName }}
+  namespace: {{ include "carbide-pxe.namespace" . }}
+  labels:
+    {{- include "carbide-pxe.labels" . | nindent 4 }}
+data:
+  CARBIDE_API_HOST: {{ printf "carbide-api.%s.svc.cluster.local" (include "carbide-pxe.namespace" .) | quote }}
+  CARBIDE_API_PORT: {{ .Values.config.carbideApiPort | default "1079" | quote }}
+  {{- range $key, $value := .Values.config.extraEnvData }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}

@@ -1,0 +1,13 @@
+{{- if .Values.config.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: carbide-dhcp-config
+  namespace: {{ include "carbide-dhcp.namespace" . }}
+  labels:
+    {{- include "carbide-dhcp.labels" . | nindent 4 }}
+data:
+  kea_config.json: |
+    {{- /* Replace __NAMESPACE__ placeholder with actual global.namespace */ -}}
+    {{- .Values.config.keaConfigJson | replace "__NAMESPACE__" (include "carbide-dhcp.namespace" .) | nindent 4 }}
+{{- end }}

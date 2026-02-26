@@ -26,7 +26,7 @@
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
+use super::*;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -201,7 +201,7 @@ fn parse_replace_all() {
 fn parse_erase() {
     let cmd = Cmd::try_parse_from(["expected-machine", "erase"]).expect("should parse erase");
 
-    assert!(matches!(cmd, Cmd::Erase));
+    assert!(matches!(cmd, Cmd::Erase(_)));
 }
 
 // parse_add_missing_required_fails ensures add fails
@@ -280,7 +280,7 @@ fn parse_add_dpu_serial_requires_value() {
 // has_duplicate_dpu_serials returns false for unique serials.
 #[test]
 fn validate_no_duplicate_dpu_serials() {
-    let machine = ExpectedMachine::try_parse_from([
+    let machine = add::Args::try_parse_from([
         "ExpectedMachine",
         "--bmc-mac-address",
         "0a:0b:0c:0d:0e:0f",
@@ -309,7 +309,7 @@ fn validate_no_duplicate_dpu_serials() {
 // has_duplicate_dpu_serials returns true for duplicates.
 #[test]
 fn validate_duplicate_dpu_serials_detected() {
-    let machine = ExpectedMachine::try_parse_from([
+    let machine = add::Args::try_parse_from([
         "ExpectedMachine",
         "--bmc-mac-address",
         "0a:0b:0c:0d:0e:0f",
@@ -340,7 +340,7 @@ fn validate_duplicate_dpu_serials_detected() {
 // returns false when no serials provided.
 #[test]
 fn validate_empty_dpu_serials() {
-    let machine = ExpectedMachine::try_parse_from([
+    let machine = add::Args::try_parse_from([
         "ExpectedMachine",
         "--bmc-mac-address",
         "0a:0b:0c:0d:0e:0f",

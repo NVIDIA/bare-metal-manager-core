@@ -25,7 +25,7 @@
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
+use super::*;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -133,8 +133,8 @@ fn parse_tracing_enabled_true() {
         Cmd::try_parse_from(["set", "tracing-enabled", "true"]).expect("should parse tracing true");
 
     match cmd {
-        Cmd::TracingEnabled { value } => {
-            assert!(value);
+        Cmd::TracingEnabled(args) => {
+            assert!(args.value);
         }
         _ => panic!("expected TracingEnabled variant"),
     }
@@ -147,8 +147,8 @@ fn parse_tracing_enabled_false() {
         .expect("should parse tracing false");
 
     match cmd {
-        Cmd::TracingEnabled { value } => {
-            assert!(!value);
+        Cmd::TracingEnabled(args) => {
+            assert!(!args.value);
         }
         _ => panic!("expected TracingEnabled variant"),
     }

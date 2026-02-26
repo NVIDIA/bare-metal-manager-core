@@ -32,6 +32,7 @@ use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
+use libmlx::firmware::config::FirmwareFlasherProfile;
 use libmlx::profile::profile::MlxConfigProfile;
 use libmlx::profile::serialization::{
     deserialize_option_profile_map, serialize_option_profile_map,
@@ -441,6 +442,29 @@ pub struct CarbideConfig {
     /// The URL to use for overriding the PXE boot url on ARM machines.
     #[serde(default)]
     pub arm_pxe_boot_url_override: Option<String>,
+
+    /// supernic_firmware_profiles is a nested map of FirmwareFlasherProfiles
+    /// keyed by part_number and PSID. Each profile specifies the firmware to
+    /// flash and optional lifecycle flags (reset, verify_image, verify_version).
+    ///
+    /// Configured in `carbide-api-config.toml`:
+    ///
+    /// ```toml
+    /// [supernic_firmware_profiles.900-9D3B4-00CV-TA0.MT_0000000884]
+    /// part_number = "900-9D3B4-00CV-TA0"
+    /// psid = "MT_0000000884"
+    /// version = "32.43.1014"
+    /// firmware_url = "https://firmware.example.com/fw-32.43.1014.bin"
+    /// reset = true
+    ///
+    /// [supernic_firmware_profiles.900-9D3B4-00CV-TB0.MT_0000000885]
+    /// part_number = "900-9D3B4-00CV-TB0"
+    /// psid = "MT_0000000885"
+    /// version = "32.43.1014"
+    /// firmware_url = "ssh://firmwarehost/path/to/fw-32.43.1014.bin"
+    /// ```
+    #[serde(default)]
+    pub supernic_firmware_profiles: HashMap<String, HashMap<String, FirmwareFlasherProfile>>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -575,6 +599,44 @@ impl CarbideConfig {
         }
     }
 
+    /// validate_supernic_firmware_profiles checks that each profile's inner
+    /// part_number and psid match the HashMap keys they are nested under.
+    /// Logs a warning for any mismatches (the inner values are authoritative
+    /// at runtime since they are what gets sent to scout).
+    pub fn validate_supernic_firmware_profiles(&self) {
+        for (key_pn, psid_map) in &self.supernic_firmware_profiles {
+            for (key_psid, profile) in psid_map {
+                if profile.firmware_spec.part_number != *key_pn {
+                    tracing::warn!(
+                        config_key_part_number = %key_pn,
+                        profile_part_number = %profile.firmware_spec.part_number,
+                        psid = %key_psid,
+                        "firmware profile part_number does not match config key"
+                    );
+                }
+                if profile.firmware_spec.psid != *key_psid {
+                    tracing::warn!(
+                        part_number = %key_pn,
+                        config_key_psid = %key_psid,
+                        profile_psid = %profile.firmware_spec.psid,
+                        "firmware profile psid does not match config key"
+                    );
+                }
+            }
+        }
+    }
+
+    /// get_supernic_firmware_profile looks up the firmware profile for a
+    /// device by its part number and PSID. Returns None if no matching entry
+    /// exists.
+    pub fn get_supernic_firmware_profile(
+        &self,
+        part_number: &str,
+        psid: &str,
+    ) -> Option<&libmlx::firmware::config::FirmwareFlasherProfile> {
+        self.supernic_firmware_profiles.get(part_number)?.get(psid)
+    }
+
     // Given a device_type, return the profile that needs to be applied
     // to configure the DPA.
     pub fn get_dpa_profile(&self, _device_type: String) -> String {
@@ -592,32 +654,27 @@ impl CarbideConfig {
     }
 
     pub fn is_dpa_enabled(&self) -> bool {
-        if self.dpa_config.is_none() {
+        let Some(conf) = &self.dpa_config else {
             return false;
-        }
-
-        let conf = self.dpa_config.clone().unwrap();
+        };
 
         conf.enabled
     }
 
     pub fn get_dpa_subnet_ip(&self) -> Result<Ipv4Addr, eyre::Report> {
-        if self.dpa_config.is_none() {
+        let Some(conf) = &self.dpa_config else {
             tracing::error!("get_dpa_subnet_ip: DPA config missing");
             return Err(eyre::eyre!("get_dpa_subnet_ip: DPA config missing"));
-        }
+        };
 
-        let conf = self.dpa_config.clone().unwrap();
         Ok(conf.subnet_ip)
     }
 
     pub fn get_dpa_subnet_mask(&self) -> Result<i32, eyre::Report> {
-        if self.dpa_config.is_none() {
+        let Some(conf) = &self.dpa_config else {
             tracing::error!("get_dpa_subnet_mask: DPA config missing");
             return Err(eyre::eyre!("get_dpa_subnet_mask: DPA config missing"));
-        }
-
-        let conf = self.dpa_config.clone().unwrap();
+        };
 
         Ok(conf.subnet_mask)
     }
@@ -2392,10 +2449,9 @@ fn default_mqtt_broker_port() -> u16 {
     1884
 }
 
-/// DPA (aka Cluster Ineteconnect Network) related configuration
-/// In addition to enabling DPA and specifying
-/// the mqtt endpoint, you need to specify the vni range to
-/// be used by DPA as pools.dpa-vni
+/// DPA (aka Cluster Interconnect Network) related configuration
+/// Enabled DPA, and specifies basic network settings.
+/// The VNI to be used by DPA will be the same as the parent VPC.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct DpaConfig {
     /// Global enable/disable of Cluster Interconnect Network
@@ -3796,5 +3852,108 @@ next_try_duration_on_success = "3m"
             Duration::minutes(15),
             power_config.wait_duration_until_host_reboot
         );
+    }
+
+    #[test]
+    fn deserialize_supernic_firmware_profiles() {
+        let toml = r#"
+[supernic_firmware_profiles.900-9D3B4-00CV-TA0.MT_0000000884]
+part_number = "900-9D3B4-00CV-TA0"
+psid = "MT_0000000884"
+version = "32.43.1014"
+firmware_url = "https://firmware.example.com/fw-32.43.1014.bin"
+reset = true
+
+[supernic_firmware_profiles.900-9D3B4-00CV-TB0.MT_0000000885]
+part_number = "900-9D3B4-00CV-TB0"
+psid = "MT_0000000885"
+version = "32.44.0000"
+firmware_url = "ssh://firmwarehost/path/to/fw.bin"
+        "#;
+
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .merge(Toml::string(toml))
+            .extract()
+            .unwrap();
+
+        // Two part numbers, each with one PSID.
+        assert_eq!(config.supernic_firmware_profiles.len(), 2);
+
+        let profile = config
+            .get_supernic_firmware_profile("900-9D3B4-00CV-TA0", "MT_0000000884")
+            .expect("should find profile");
+        assert_eq!(profile.firmware_spec.version, "32.43.1014");
+        assert_eq!(
+            profile.flash_spec.firmware_url,
+            "https://firmware.example.com/fw-32.43.1014.bin"
+        );
+        assert!(profile.flash_options.reset);
+
+        let profile2 = config
+            .get_supernic_firmware_profile("900-9D3B4-00CV-TB0", "MT_0000000885")
+            .expect("should find second profile");
+        assert_eq!(profile2.firmware_spec.psid, "MT_0000000885");
+        assert!(!profile2.flash_options.reset);
+
+        assert!(
+            config
+                .get_supernic_firmware_profile("NONEXISTENT", "NOPE")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn supernic_firmware_profiles_multiple_psids_per_part_number() {
+        let toml = r#"
+[supernic_firmware_profiles.900-9D3B4-00CV-TA0.MT_0000000884]
+part_number = "900-9D3B4-00CV-TA0"
+psid = "MT_0000000884"
+version = "32.43.1014"
+firmware_url = "https://firmware.example.com/fw-a.bin"
+
+[supernic_firmware_profiles.900-9D3B4-00CV-TA0.MT_0000000999]
+part_number = "900-9D3B4-00CV-TA0"
+psid = "MT_0000000999"
+version = "32.44.0000"
+firmware_url = "https://firmware.example.com/fw-b.bin"
+        "#;
+
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .merge(Toml::string(toml))
+            .extract()
+            .unwrap();
+
+        // One part number with two PSIDs.
+        assert_eq!(config.supernic_firmware_profiles.len(), 1);
+        assert_eq!(
+            config
+                .supernic_firmware_profiles
+                .get("900-9D3B4-00CV-TA0")
+                .unwrap()
+                .len(),
+            2
+        );
+
+        let p1 = config
+            .get_supernic_firmware_profile("900-9D3B4-00CV-TA0", "MT_0000000884")
+            .unwrap();
+        assert_eq!(p1.firmware_spec.version, "32.43.1014");
+
+        let p2 = config
+            .get_supernic_firmware_profile("900-9D3B4-00CV-TA0", "MT_0000000999")
+            .unwrap();
+        assert_eq!(p2.firmware_spec.version, "32.44.0000");
+    }
+
+    #[test]
+    fn supernic_firmware_profiles_empty_by_default() {
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .extract()
+            .unwrap();
+
+        assert!(config.supernic_firmware_profiles.is_empty());
     }
 }

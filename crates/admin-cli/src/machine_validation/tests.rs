@@ -25,7 +25,7 @@
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
+use super::*;
 
 // Define a basic/working MachineId for testing.
 const TEST_MACHINE_ID: &str = "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
@@ -55,7 +55,7 @@ fn parse_external_config_show() {
         .expect("should parse external-config show");
 
     match cmd {
-        Cmd::ExternalConfig(ExternalConfigCommand::Show(args)) => {
+        Cmd::ExternalConfig(external_config::Args::Show(args)) => {
             assert!(args.name.is_empty());
         }
         _ => panic!("expected ExternalConfig Show variant"),
@@ -80,7 +80,7 @@ fn parse_external_config_add_update() {
     .expect("should parse external-config add-update");
 
     match cmd {
-        Cmd::ExternalConfig(ExternalConfigCommand::AddUpdate(args)) => {
+        Cmd::ExternalConfig(external_config::Args::AddUpdate(args)) => {
             assert_eq!(args.file_name, "config.yaml");
             assert_eq!(args.name, "my-config");
         }
@@ -102,7 +102,7 @@ fn parse_on_demand_start() {
     .expect("should parse on-demand start");
 
     match cmd {
-        Cmd::OnDemand(OnDemandCommand::Start(args)) => {
+        Cmd::OnDemand(on_demand::Args::Start(args)) => {
             assert_eq!(args.machine.to_string(), TEST_MACHINE_ID);
             assert!(!args.run_unverfied_tests);
         }
@@ -117,7 +117,7 @@ fn parse_runs_show() {
         .expect("should parse runs show");
 
     match cmd {
-        Cmd::Runs(RunsCommand::Show(args)) => {
+        Cmd::Runs(runs::Args::Show(args)) => {
             assert!(args.machine.is_none());
             assert!(!args.history);
         }
@@ -139,7 +139,7 @@ fn parse_runs_show_with_machine() {
     .expect("should parse runs show with machine");
 
     match cmd {
-        Cmd::Runs(RunsCommand::Show(args)) => {
+        Cmd::Runs(runs::Args::Show(args)) => {
             assert!(args.machine.is_some());
         }
         _ => panic!("expected Runs Show variant"),
@@ -160,7 +160,7 @@ fn parse_results_show_with_machine() {
     .expect("should parse results show with machine");
 
     match cmd {
-        Cmd::Results(ResultsCommand::Show(args)) => {
+        Cmd::Results(results::Args::Show(args)) => {
             assert!(args.machine.is_some());
         }
         _ => panic!("expected Results Show variant"),
@@ -181,7 +181,7 @@ fn parse_results_show_with_validation_id() {
     .expect("should parse results show with validation-id");
 
     match cmd {
-        Cmd::Results(ResultsCommand::Show(args)) => {
+        Cmd::Results(results::Args::Show(args)) => {
             assert_eq!(args.validation_id, Some("val-123".to_string()));
         }
         _ => panic!("expected Results Show variant"),
@@ -195,8 +195,8 @@ fn parse_tests_show() {
         .expect("should parse tests show");
 
     match cmd {
-        Cmd::Tests(tests_cmd) => match *tests_cmd {
-            TestsCommand::Show(args) => {
+        Cmd::Tests(tests_cmd) => match tests_cmd {
+            tests_cmd::Args::Show(args) => {
                 assert!(args.test_id.is_none());
             }
             _ => panic!("expected Tests Show variant"),
@@ -221,8 +221,8 @@ fn parse_tests_verify() {
     .expect("should parse tests verify");
 
     match cmd {
-        Cmd::Tests(tests_cmd) => match *tests_cmd {
-            TestsCommand::Verify(args) => {
+        Cmd::Tests(tests_cmd) => match tests_cmd {
+            tests_cmd::Args::Verify(args) => {
                 assert_eq!(args.test_id, "test-123");
                 assert_eq!(args.version, "v1");
             }
@@ -250,8 +250,8 @@ fn parse_tests_add() {
     .expect("should parse tests add");
 
     match cmd {
-        Cmd::Tests(tests_cmd) => match *tests_cmd {
-            TestsCommand::Add(args) => {
+        Cmd::Tests(tests_cmd) => match tests_cmd {
+            tests_cmd::Args::Add(args) => {
                 assert_eq!(args.name, "my-test");
                 assert_eq!(args.command, "/bin/test");
                 assert_eq!(args.args, "--verbose");

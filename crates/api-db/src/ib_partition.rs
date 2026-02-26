@@ -100,17 +100,18 @@ impl From<IBPartitionConfig> for rpc::IbPartitionConfig {
         rpc::IbPartitionConfig {
             name: conf.name, // Deprecated field
             tenant_organization_id: conf.tenant_organization_id.to_string(),
-            pkey: None,
+            pkey: conf.pkey.map(|k| k.to_string()),
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IBPartitionStatus {
-    pub partition: String,
-    pub mtu: IBMtu,
-    pub rate_limit: IBRateLimit,
-    pub service_level: IBServiceLevel,
+    pub partition: Option<String>,
+    pub mtu: Option<IBMtu>,
+    pub rate_limit: Option<IBRateLimit>,
+    pub service_level: Option<IBServiceLevel>,
+    pub pkey: Option<PartitionKey>,
 }
 
 #[derive(Debug, Clone)]
@@ -137,7 +138,17 @@ impl From<&IBPartition> for IBNetwork {
     fn from(ib: &IBPartition) -> IBNetwork {
         Self {
             name: ib.metadata.name.clone(),
-            pkey: ib.config.pkey.map(u16::from).unwrap_or(0u16),
+            // We have to pull from status.pkey here because
+            // config.pkey can be None simply because the user
+            // chose to allow auto-allocation.  Previously,
+            // the auto-allocated value _is_ what was being used
+            // here.
+            pkey: ib
+                .status
+                .as_ref()
+                .and_then(|s| s.pkey)
+                .map(u16::from)
+                .unwrap_or(0u16),
             ipoib: true,
             associated_guids: None, // Not stored in the DB
             membership: None,       // Not stored in the DB
@@ -170,7 +181,7 @@ impl<'r> FromRow<'r, PgRow> for IBPartition {
             TenantOrganizationId::try_from(tenant_organization_id_str.to_string())
                 .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
 
-        let pkey: i32 = row.try_get("pkey")?;
+        let pkey: Option<i32> = row.try_get("pkey")?;
         let mtu: i32 = row.try_get("mtu")?;
         let rate_limit: i32 = row.try_get("rate_limit")?;
         let service_level: i32 = row.try_get("service_level")?;
@@ -183,10 +194,13 @@ impl<'r> FromRow<'r, PgRow> for IBPartition {
             version: row.try_get("config_version")?,
             config: IBPartitionConfig {
                 name: name.clone(), // Derprecated field
-                pkey: Some(PartitionKey::try_from(pkey as u16).map_err(|_| {
-                    let err = eyre::eyre!("Pkey {} is not valid", pkey);
-                    sqlx::Error::Decode(err.into())
-                })?),
+                pkey: pkey
+                    .map(|p| PartitionKey::try_from(p as u16))
+                    .transpose()
+                    .map_err(|_| {
+                        let err = eyre::eyre!("Pkey {} is not valid", pkey.unwrap_or_default());
+                        sqlx::Error::Decode(err.into())
+                    })?,
                 tenant_organization_id,
                 mtu: IBMtu::try_from(mtu).ok(),
                 rate_limit: IBRateLimit::try_from(rate_limit).ok(),
@@ -261,12 +275,17 @@ impl TryFrom<IBPartition> for rpc::IbPartition {
             state = rpc::TenantState::Terminating;
         }
 
+        let pkey = src
+            .status
+            .as_ref()
+            .and_then(|s| s.pkey.map(|k| k.to_string()));
+
         let (partition, rate_limit, mtu, service_level) = match src.status {
             Some(s) => (
-                Some(s.partition),
-                Some(s.rate_limit.into()),
-                Some(s.mtu.into()),
-                Some(s.service_level.into()),
+                s.partition,
+                s.rate_limit.map(IBRateLimit::into),
+                s.mtu.map(IBMtu::into),
+                s.service_level.map(IBServiceLevel::into),
             ),
             None => (None, None, None, None),
         };
@@ -279,7 +298,7 @@ impl TryFrom<IBPartition> for rpc::IbPartition {
             ),
             enable_sharp: Some(false),
             partition,
-            pkey: src.config.pkey.map(|k| k.to_string()),
+            pkey,
             rate_limit,
             mtu,
             service_level,
@@ -301,6 +320,7 @@ pub async fn create(
     value: NewIBPartition,
     txn: &mut PgConnection,
     max_partition_per_tenant: i32,
+    status: IBPartitionStatus,
 ) -> Result<IBPartition, DatabaseError> {
     value.metadata.validate(true).map_err(|e| {
         DatabaseError::InvalidArgument(format!("Invalid metadata for IBPartition: {}", e))
@@ -322,8 +342,9 @@ pub async fn create(
                 service_level,
                 config_version,
                 controller_state_version,
-                controller_state)
-            SELECT $1, $2, $3::json, $4, $5, $6, $7, $8, $9, $10, $11, $12
+                controller_state,
+                status)
+            SELECT $1, $2, $3::json, $4, $5, $6, $7, $8, $9, $10, $11, $12, $14
             WHERE (SELECT COUNT(*) FROM ib_partitions WHERE organization_id = $6) < $13
             RETURNING *";
     let segment: IBPartition = sqlx::query_as(query)
@@ -331,7 +352,7 @@ pub async fn create(
         .bind(&value.metadata.name)
         .bind(sqlx::types::Json(&value.metadata.labels))
         .bind(&value.metadata.description)
-        .bind(conf.pkey.map(|k| u16::from(k) as i32))
+        .bind(status.pkey.map(|k| u16::from(k) as i32))
         .bind(conf.tenant_organization_id.to_string())
         .bind::<i32>(conf.mtu.clone().unwrap_or_default().into())
         .bind::<i32>(conf.rate_limit.clone().unwrap_or_default().into())
@@ -340,6 +361,7 @@ pub async fn create(
         .bind(version)
         .bind(sqlx::types::Json(state))
         .bind(max_partition_per_tenant)
+        .bind(sqlx::types::Json(&status))
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -426,10 +448,10 @@ pub async fn find_pkey_by_partition_id(
     txn: &mut PgConnection,
     id: IBPartitionId,
 ) -> Result<Option<u16>, DatabaseError> {
-    #[derive(Debug, Clone, Copy, FromRow)]
-    pub struct Pkey(i32);
+    #[derive(Debug, Clone, FromRow)]
+    pub struct Pkey(String);
 
-    let mut query = FilterableQueryBuilder::new("SELECT pkey FROM ib_partitions")
+    let mut query = FilterableQueryBuilder::new("SELECT status->>'pkey' FROM ib_partitions")
         .filter(&ObjectColumnFilter::One(IdColumn, &id));
     let pkey = query
         .build_query_as::<Pkey>()
@@ -437,7 +459,11 @@ pub async fn find_pkey_by_partition_id(
         .await
         .map_err(|e| DatabaseError::query(query.sql(), e))?;
 
-    Ok(pkey.map(|id| id.0 as u16))
+    pkey.map(|id| u16::from_str_radix(id.0.trim_start_matches("0x"), 16))
+        .transpose()
+        .map_err(|e| DatabaseError::Internal {
+            message: e.to_string(),
+        })
 }
 
 /// Updates the IB partition state that is owned by the state controller

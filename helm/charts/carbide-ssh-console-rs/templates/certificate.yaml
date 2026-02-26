@@ -1,0 +1,9 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: carbide-ssh-console-rs-certificate
+  namespace: {{ include "carbide-ssh-console-rs.namespace" . }}
+  labels:
+    {{- include "carbide-ssh-console-rs.labels" . | nindent 4 }}
+spec:
+  {{- include "carbide-ssh-console-rs.certificateSpec" (dict "name" "carbide-ssh-console-rs-certificate" "cert" .Values.certificate "global" .Values.global "namespace" (include "carbide-ssh-console-rs.namespace" .)) | nindent 2 }}

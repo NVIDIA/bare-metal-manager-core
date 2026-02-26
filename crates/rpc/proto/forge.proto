@@ -613,6 +613,7 @@ service Forge {
   rpc FindDpaInterfacesByIds(DpaInterfacesByIdsRequest) returns (DpaInterfaceList);
   // XXX TODO XXX Remove the calls below, as they are only for debug testing
   rpc CreateDpaInterface(DpaInterfaceCreationRequest) returns (DpaInterface);
+  rpc EnsureDpaInterface(DpaInterfaceCreationRequest) returns (DpaInterface);
   rpc DeleteDpaInterface(DpaInterfaceDeletionRequest) returns (DpaInterfaceDeletionResult);
   rpc SetDpaNetworkObservationStatus(DpaNetworkObservationSetRequest) returns (DpaInterface);
 
@@ -674,6 +675,10 @@ service Forge {
   rpc FindMachineIdsUnderAttestation(AttestationIdsRequest) returns (common.MachineIdList);
   rpc FindMachinesUnderAttestation(AttestationMachineList) returns (AttestationResponse);
   // SPDM attestation APIs end
+
+  // SPIFFE Machine Identity APIs
+  // Signs a JWT-SVID token for machine identity
+  rpc SignMachineIdentity(MachineIdentityRequest) returns (MachineIdentityResponse);
 
   // ScoutStream establishes a bidirectional streaming connection between
   // scout agents and carbide-api. The initial use-case for this is for
@@ -818,6 +823,18 @@ message AttestationResponse {
     repeated AttestationDeviceData device_data = 9;
   }
   repeated AttestationMachineData machines = 1;
+}
+
+// Machine Identity - JWT-SVID token signing
+message MachineIdentityRequest {
+  repeated string audience = 1;
+}
+
+message MachineIdentityResponse {
+  string access_token = 1;
+  string issued_token_type = 2;
+  string token_type = 3;
+  string expires_in = 4;
 }
 
 // Determines machine ingestion state in relation to the power on gate
@@ -1125,6 +1142,15 @@ message TenantSearchQuery {
   optional string tenantOrganizationId = 1; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 }
 
+// 
+message VpcStatus {
+  // The actual VNI allocated to the VPC. If a VNI had been
+  // explicitly requested, we'd expect this to match the VNI
+  // of the Vpc message. If not explicitly requested, we'd
+  // expect the VNI of the Vpc message to be unset.
+  optional uint32 vni = 1;
+}
+
 message Vpc {
   common.VpcId id = 1;
   string name = 2;
@@ -1138,19 +1164,30 @@ message Vpc {
   google.protobuf.Timestamp deleted = 6;
 
   optional string tenantKeysetId = 7; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
-  optional uint32 vni = 8;
+
+  // We'll keep populating this field but it will come from
+  // status.vni
+  // We'll be able to trim it out later after some deprecation window.
+  optional uint32 deprecated_vni = 8; // Deprecated
+
   optional VpcVirtualizationType network_virtualization_type = 9;
   Metadata metadata = 10;
 
   // Sets the desired NSG ID for a VPC
   optional string network_security_group_id  = 11;
 
-  optional uint32 dpa_vni = 12;
+  // dpa_vni
+  reserved 12;
 
   // The ID of the default NVLink Logical Partition for a VPC
   // This is the NVLink Logical Partition that will be used by default for all instances in the VPC.
   optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 13;
 
+  optional VpcStatus status = 14;
+
+  // This will only be populated if the VNI was explicitly
+  // requested during creation of the VPC.
+  optional uint32 vni = 15;
 }
 
 message VpcCreationRequest {
@@ -1298,7 +1335,7 @@ message VpcPrefixStatus {
   uint32 total_31_segments = 1;
   uint32 available_31_segments = 2;
   uint64 total_linknet_segments = 3;
-  uint64 available_linknet_segments = 4;
+  uint64 available_linknet_segments = 4; 
 }
 
 message VpcPrefixCreationRequest {
