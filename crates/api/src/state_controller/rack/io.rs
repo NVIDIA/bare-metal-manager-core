@@ -114,13 +114,18 @@ impl StateControllerIO for RackStateControllerIO {
 
     fn metric_state_names(state: &RackState) -> (&'static str, &'static str) {
         match state {
+            RackState::Unknown => ("unknown", ""),
             RackState::Expected => ("expected", ""),
             RackState::Discovering => ("discovering", ""),
-            RackState::Maintenance { .. } => ("maintenance", ""),
-            RackState::Ready { .. } => ("ready", ""),
+            RackState::Discovered => ("discovered", ""),
+            RackState::ValidationInProgress => ("validation_in_progress", ""),
+            RackState::ValidationPartial => ("validation_partial", ""),
+            RackState::FailedPartial => ("validation_failed", ""),
+            RackState::RackValidated => ("rack_validated", ""),
+            RackState::RackFailed => ("rack_failed", ""),
+            RackState::Ready => ("ready", ""),
             RackState::Error { .. } => ("error", ""),
             RackState::Deleting => ("deleting", ""),
-            RackState::Unknown => ("unknown", ""),
         }
     }
 

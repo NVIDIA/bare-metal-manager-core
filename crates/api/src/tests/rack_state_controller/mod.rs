@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use carbide_uuid::rack::RackId;
 use db::rack as db_rack;
-use model::rack::{Rack, RackMaintenanceState, RackReadyState, RackState, RackValidationState};
+use model::rack::{Rack, RackState};
 use rpc::forge::RackStateHistoryRecord;
 use rpc::forge::forge_server::Forge;
 
@@ -69,25 +69,13 @@ impl StateHandler for TestRackStateHandler {
         }
 
         let state = match controller_state {
+            RackState::Unknown => RackState::Expected,
             RackState::Expected => RackState::Discovering,
-
-            RackState::Discovering => RackState::Ready {
-                rack_ready: RackReadyState::Partial,
-            },
-
-            RackState::Ready {
-                rack_ready: ready_state,
-            } => match ready_state {
-                RackReadyState::Partial => RackState::Ready {
-                    rack_ready: RackReadyState::Full,
-                },
-                RackReadyState::Full => RackState::Maintenance {
-                    rack_maintenance: RackMaintenanceState::RackValidation {
-                        rack_validation: RackValidationState::Topology,
-                    },
-                },
-            },
-
+            RackState::Discovering => RackState::Discovered,
+            RackState::Discovered => RackState::ValidationInProgress,
+            RackState::ValidationInProgress => RackState::ValidationPartial,
+            RackState::ValidationPartial => RackState::RackValidated,
+            RackState::RackValidated => RackState::Ready,
             _ => return Ok(StateHandlerOutcome::do_nothing()),
         };
 
@@ -398,15 +386,13 @@ async fn test_rack_state_transition_validation(
     // Test state transitions by manually setting different states
     let states = vec![
         RackState::Discovering,
-        RackState::Maintenance {
-            rack_maintenance: RackMaintenanceState::Completed,
-        },
-        RackState::Ready {
-            rack_ready: RackReadyState::Partial,
-        },
-        RackState::Ready {
-            rack_ready: RackReadyState::Full,
-        },
+        RackState::Discovered,
+        RackState::ValidationInProgress,
+        RackState::ValidationPartial,
+        RackState::FailedPartial,
+        RackState::RackValidated,
+        RackState::RackFailed,
+        RackState::Ready,
         RackState::Error {
             cause: "Test error".to_string(),
         },
