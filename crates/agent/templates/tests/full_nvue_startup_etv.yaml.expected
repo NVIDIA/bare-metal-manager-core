@@ -64,6 +64,16 @@
                 action: deny
                 match:
                   any: {}
+          FORGE_FROM_UNDERLAY_IPV6:
+            rule:
+              '10':
+                action: permit
+                match:
+                  ::/0: {}
+              '1000':
+                action: deny
+                match:
+                  any: {}
           dpu_from_instance:
             rule:
               '1000':
@@ -71,6 +81,12 @@
                 match:
                   5.255.255.0/24:
                     min-prefix-len: 32
+              '65535':
+                action: deny
+                match:
+                  any: {}
+          dpu_from_instance_ipv6:
+            rule:
               '65535':
                 action: deny
                 match:
@@ -124,6 +140,13 @@
                 redistribute:
                   connected:
                     enable: on
+              ipv6-unicast:
+                enable: on
+                multipaths:
+                  ebgp: 128
+                redistribute:
+                  connected:
+                    enable: on
               l2vpn-evpn:
                 enable: on
             enable: on
@@ -146,6 +169,8 @@
                 address-family:
                   ipv4-unicast:
                     enable: off
+                  ipv6-unicast:
+                    enable: off
                   l2vpn-evpn:
                     aspath:
                       allow-my-asn:
@@ -161,6 +186,16 @@
                     policy:
                       inbound:
                         prefix-list: FORGE_FROM_UNDERLAY
+                      outbound:
+                        route-map: FORGE_TO_UNDERLAY
+                    aspath:
+                      allow-my-asn:
+                        enable: on
+                  ipv6-unicast:
+                    enable: on
+                    policy:
+                      inbound:
+                        prefix-list: FORGE_FROM_UNDERLAY_IPV6
                       outbound:
                         route-map: FORGE_TO_UNDERLAY
                     aspath:
