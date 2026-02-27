@@ -21,12 +21,14 @@ use std::net::IpAddr;
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
+use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
 use db::machine_interface::find_by_mac_address;
-use db::{power_shelf as db_power_shelf, switch as db_switch};
+use db::{DatabaseError, power_shelf as db_power_shelf, rack as db_rack, switch as db_switch};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use futures_util::FutureExt;
 use health_report::HealthReport;
+use mac_address::MacAddress;
 use model::hardware_info::HardwareInfo;
 use model::machine::{
     BomValidating, BomValidatingContext, DpfState, DpuInitState, FailureCause, FailureDetails,
@@ -35,6 +37,7 @@ use model::machine::{
 };
 use model::power_shelf::power_shelf_id::from_hardware_info;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
+use model::rack::RackConfig;
 use model::site_explorer::EndpointExplorationReport;
 use model::switch::switch_id::from_hardware_info as switch_from_hardware_info;
 use model::switch::{NewSwitch, SwitchConfig};
@@ -43,6 +46,7 @@ use rpc::forge::{self, HardwareHealthReport};
 use rpc::forge_agent_control_response::Action;
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{DiscoveryData, DiscoveryInfo};
+use sqlx::PgConnection;
 use tonic::Request;
 use uuid;
 
@@ -1512,6 +1516,106 @@ pub async fn new_power_shelf(
     txn.commit().await.unwrap();
 
     Ok(power_shelf_id)
+}
+
+/*
+Builder for a test rack. For now, we only have tests that use expected
+computer trays, switches, and power shelves for testing rack state
+histories. So that is all that is currently represented here. The intent
+of this builder is to create test racks that may have various combinations
+of expected and discovered resources to allow for testing a simulated rack
+in various states, and abstract the way in which they are configured and
+stored in the database, as the case may be.
+
+The expectation is we will add members to this struct such as:
+
+```
+compute_trays: Vec<MachineId>,
+```
+
+and fns to its impl such as:
+
+```
+pub fn _with_compute_trays(mut self, compute_trays: Vec<MachineId>) -> Self {
+    self.compute_trays = compute_trays;
+    self
+}
+```
+
+In short, what belongs here is anything that might aid a test writer to
+create a rack, represented in the database, representing state of a rack
+for both happy and non-happy path positive and negative testing. And
+do it without regard to the underlying impl and in a way that makes it
+clear looking at the test what the intent of the configuration is.
+*/
+pub struct TestRackDbBuilder {
+    expected_compute_trays: Vec<MacAddress>,
+    expected_power_shelves: Vec<MacAddress>,
+    expected_switches: Vec<MacAddress>,
+    rack_id: RackId,
+}
+
+impl Default for TestRackDbBuilder {
+    fn default() -> Self {
+        TestRackDbBuilder {
+            expected_compute_trays: vec![],
+            expected_power_shelves: vec![],
+            expected_switches: vec![],
+            rack_id: RackId::from(uuid::Uuid::new_v4()),
+        }
+    }
+}
+
+impl TestRackDbBuilder {
+    pub fn new() -> TestRackDbBuilder {
+        TestRackDbBuilder {
+            ..Default::default()
+        }
+    }
+
+    pub fn with_rack_id(mut self, id: RackId) -> Self {
+        self.rack_id = id;
+        self
+    }
+
+    pub fn with_expected_compute_trays(mut self, expected_compute_trays: Vec<[u8; 6]>) -> Self {
+        self.expected_compute_trays = expected_compute_trays
+            .into_iter()
+            .map(MacAddress::new)
+            .collect();
+        self
+    }
+
+    pub fn with_expected_power_shelves(mut self, expected_power_shelves: Vec<[u8; 6]>) -> Self {
+        self.expected_power_shelves = expected_power_shelves
+            .into_iter()
+            .map(MacAddress::new)
+            .collect();
+        self
+    }
+
+    pub async fn persist(&self, txn: &mut PgConnection) -> Result<RackId, DatabaseError> {
+        db_rack::create(
+            txn,
+            self.rack_id,
+            self.expected_compute_trays.clone(),
+            self.expected_switches.clone(),
+            self.expected_power_shelves.clone(),
+        )
+        .await?;
+
+        let cfg = RackConfig {
+            // TODO: represent compute_trays and power_shelves in builder.
+            compute_trays: vec![],
+            power_shelves: vec![],
+            expected_compute_trays: self.expected_compute_trays.clone(),
+            expected_power_shelves: self.expected_power_shelves.clone(),
+        };
+
+        db_rack::update(txn, self.rack_id, &cfg).await?;
+
+        Ok(self.rack_id)
+    }
 }
 
 /// Creates a new switch for testing purposes

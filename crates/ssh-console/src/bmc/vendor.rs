@@ -227,12 +227,11 @@ impl EscapeSequence {
     ) -> (Cow<'a, [u8]>, bool) {
         // Helper to lazily get &mut Vec<u8>
         fn get_buf<'b>(out: &'b mut Option<Vec<u8>>, input: &[u8], idx: usize) -> &'b mut Vec<u8> {
-            if out.is_none() {
+            out.get_or_insert_with(|| {
                 let mut v = Vec::with_capacity(input.len());
                 v.extend_from_slice(&input[..idx]);
-                *out = Some(v);
-            }
-            out.as_mut().unwrap()
+                v
+            })
         }
 
         match self {

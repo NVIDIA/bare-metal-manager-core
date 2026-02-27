@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-dhcp
+  namespace: {{ include "carbide-dhcp.namespace" . }}
+  labels:
+    {{- include "carbide-dhcp.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "carbide-dhcp.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: {{ .Values.service.port }}
+      name: udp
+      protocol: {{ .Values.service.protocol }}

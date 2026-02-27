@@ -1,0 +1,273 @@
+## =============================================================================
+## Full Values — Carbide Bare Metal Manager
+## =============================================================================
+## Comprehensive example showing all configurable values with documentation.
+## Copy and modify this file for your environment.
+## See PREREQUISITES.md for required Secrets, ConfigMaps, and operators.
+##
+## Install with: helm install carbide ./helm -n forge-system --create-namespace -f values-full.yaml
+## =============================================================================
+
+global:
+  ## Container image for Carbide core services (REQUIRED)
+  image:
+    repository: "your-registry.example.com/carbide-core"
+    tag: "v2025.12.30"
+    pullPolicy: IfNotPresent
+
+  ## Image pull secrets for private registries
+  imagePullSecrets:
+    - name: my-registry-secret
+
+  ## cert-manager Certificate defaults for all services
+  certificate:
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+    issuerRef:
+      kind: ClusterIssuer
+      name: vault-forge-issuer
+      group: cert-manager.io
+
+  ## SPIFFE trust domain for mTLS between services
+  spiffe:
+    trustDomain: forge.local
+
+  ## Common labels applied to all resources
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: site-controller
+
+## ---------------------------------------------------------------------------
+## carbide-api — Core API server
+## ---------------------------------------------------------------------------
+carbide-api:
+  enabled: true
+  replicas: 1
+
+  resources:
+    limits:
+      cpu: 3
+      memory: 32Gi
+    requests:
+      cpu: 1500m
+      memory: 8Gi
+
+  ## Optional init containers for boot artifacts
+  initContainers:
+    - name: boot-artifacts-x86
+      image: "your-registry.example.com/boot-artifacts-x86_64:latest"
+      command: ["cp", "-r", "/artifacts/.", "/opt/carbide/firmware/"]
+      volumeMounts:
+        - name: firmware
+          mountPath: /opt/carbide/firmware
+
+  env:
+    VAULT_PKI_ROLE_NAME: "forge-cluster"
+    RUST_BACKTRACE: "full"
+    RUST_LIB_BACKTRACE: "0"
+
+  ## OAuth2/SSO authentication — configure via extraEnv
+  ## These are not built into the chart to keep it auth-provider agnostic.
+  extraEnv:
+    - name: CARBIDE_WEB_AUTH_TYPE
+      value: "oauth2"
+    - name: CARBIDE_WEB_OAUTH2_AUTH_ENDPOINT
+      value: "https://login.example.com/oauth2/v2.0/authorize"
+    - name: CARBIDE_WEB_OAUTH2_TOKEN_ENDPOINT
+      value: "https://login.example.com/oauth2/v2.0/token"
+    - name: CARBIDE_WEB_OAUTH2_CLIENT_ID
+      value: "your-oauth2-client-id"
+    - name: CARBIDE_WEB_OAUTH2_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: azure-sso-carbide-web-client-secret
+          key: client_secret
+    - name: CARBIDE_WEB_ALLOWED_ACCESS_GROUPS
+      value: "carbide-admins,carbide-operators"
+
+  ## Carbide Web UI hostname
+  hostname: "carbide.example.com"
+
+  ## Site-specific config overrides
+  siteConfig:
+    enabled: true
+    carbideApiSiteConfig: |
+      dhcp_servers=["carbide-dhcp.forge-system.svc.cluster.local:67"]
+      route_servers=[]
+
+  ## Create Vault and DB ConfigMaps from values (alternative to external ConfigMaps)
+  vaultClusterInfo:
+    VAULT_SERVICE: "https://vault.example.com"
+    FORGE_VAULT_MOUNT: "secrets"
+    FORGE_VAULT_PKI_MOUNT: "forgeca"
+  databaseConfig:
+    DB_HOST: "postgresql.forge-system.svc.cluster.local"
+    DB_PORT: "5432"
+    DB_NAME: "carbide"
+
+  ## External LoadBalancer (for MetalLB or similar)
+  externalService:
+    enabled: true
+    type: LoadBalancer
+    externalTrafficPolicy: Local
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "10.0.0.10"
+
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 25s
+
+## ---------------------------------------------------------------------------
+## carbide-dhcp — DHCP server
+## ---------------------------------------------------------------------------
+carbide-dhcp:
+  enabled: true
+  replicas: 1
+
+  config:
+    enabled: true
+    keaConfigJson: |
+      {
+        "Dhcp4": {
+          "interfaces-config": {
+            "interfaces": ["eth0"],
+            "dhcp-socket-type": "udp"
+          },
+          "lease-database": {
+            "type": "memfile",
+            "lfc-interval": 3600
+          },
+          "match-client-id": false,
+          "authoritative": true,
+          "renew-timer": 900,
+          "rebind-timer": 1800,
+          "valid-lifetime": 3600,
+          "hooks-libraries": [
+            {
+              "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so",
+              "parameters": {
+                "carbide-api-url": "https://carbide-api.forge-system.svc.cluster.local:1079",
+                "carbide-metrics-endpoint": "[::]:1089",
+                "carbide-nameservers": "10.0.0.20",
+                "carbide-ntpserver": "10.0.0.30",
+                "carbide-provisioning-server-ipv4": "10.0.0.40"
+              }
+            }
+          ],
+          "subnet4": [
+            {
+              "subnet": "10.0.0.0/24",
+              "pools": [
+                {
+                  "pool": "10.0.0.100-10.0.0.200"
+                }
+              ]
+            }
+          ],
+          "loggers": [
+            { "name": "kea-dhcp4", "severity": "INFO", "output_options": [{ "output": "stdout" }] },
+            { "name": "kea-dhcp4.hooks", "severity": "INFO", "output_options": [{ "output": "stdout" }] },
+            { "name": "kea-dhcp4.carbide-rust", "severity": "INFO", "output_options": [{ "output": "stdout" }] }
+          ]
+        }
+      }
+
+  externalService:
+    enabled: true
+    type: LoadBalancer
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "10.0.0.11"
+
+## ---------------------------------------------------------------------------
+## carbide-dns — Authoritative DNS
+## ---------------------------------------------------------------------------
+carbide-dns:
+  enabled: true
+  replicas: 2
+
+  externalService:
+    enabled: true
+    type: LoadBalancer
+    perPodAnnotations:
+      - metallb.universe.tf/loadBalancerIPs: "10.0.0.20"   # pod-0
+      - metallb.universe.tf/loadBalancerIPs: "10.0.0.21"   # pod-1
+
+## ---------------------------------------------------------------------------
+## carbide-dsx-exchange-consumer — DSX Exchange consumer
+## ---------------------------------------------------------------------------
+carbide-dsx-exchange-consumer:
+  enabled: true
+  replicas: 1
+
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 25s
+
+## ---------------------------------------------------------------------------
+## carbide-hardware-health — Hardware health metrics
+## ---------------------------------------------------------------------------
+carbide-hardware-health:
+  enabled: true
+  replicas: 1
+
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 25s
+
+## ---------------------------------------------------------------------------
+## carbide-pxe — PXE boot server
+## ---------------------------------------------------------------------------
+carbide-pxe:
+  enabled: true
+  replicas: 1
+
+  externalService:
+    enabled: true
+    type: LoadBalancer
+    externalTrafficPolicy: Local
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "10.0.0.40"
+
+## ---------------------------------------------------------------------------
+## carbide-ssh-console-rs — SSH console proxy
+## ---------------------------------------------------------------------------
+carbide-ssh-console-rs:
+  enabled: true
+  replicas: 1
+
+  externalService:
+    enabled: true
+    type: LoadBalancer
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "10.0.0.13"
+
+## ---------------------------------------------------------------------------
+## unbound — Recursive DNS resolver
+## ---------------------------------------------------------------------------
+unbound:
+  enabled: true
+
+  image:
+    repository: "your-registry.example.com/unbound"
+    tag: "1.21.1"
+    pullPolicy: IfNotPresent
+
+  exporterImage:
+    repository: "your-registry.example.com/unbound-exporter"
+    tag: "0.4.6"
+    pullPolicy: IfNotPresent
+
+  ## Configure upstream DNS forwarders
+  localConfig:
+    forwarders.conf: |
+      forward-zone:
+        name: "."
+        forward-addr: 8.8.8.8
+        forward-addr: 8.8.4.4
+        forward-addr: 1.1.1.1

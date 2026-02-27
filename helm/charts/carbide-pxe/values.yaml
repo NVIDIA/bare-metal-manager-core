@@ -1,0 +1,84 @@
+## carbide-pxe — PXE boot server for OS provisioning workflows
+## Global settings (overridden by umbrella chart)
+global:
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  certificate:
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+    issuerRef:
+      kind: ClusterIssuer
+      name: vault-forge-issuer
+      group: cert-manager.io
+  spiffe:
+    trustDomain: forge.local
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: site-controller
+
+## Override the release namespace (defaults to helm install -n <namespace>)
+namespaceOverride: ""
+
+replicas: 1
+
+## Optional init containers (e.g. boot-artifacts)
+initContainers: []
+
+annotations:
+  configmap.reloader.stakater.com/reload: "carbide-pxe-env-config"
+
+service:
+  port: 8080
+
+certificate:
+  ## serviceName is used to auto-generate dnsNames and SPIFFE URIs based on the release namespace
+  serviceName: carbide-pxe
+  extraDnsNames: []
+  extraUris: []
+
+env:
+  FORGE_ROOT_CAFILE_PATH: "/var/run/secrets/spiffe.io/ca.crt"
+  FORGE_CLIENT_CERT_PATH: "/var/run/secrets/spiffe.io/tls.crt"
+  FORGE_CLIENT_KEY_PATH: "/var/run/secrets/spiffe.io/tls.key"
+  RUST_BACKTRACE: "full"
+  RUST_LIB_BACKTRACE: "0"
+
+## ConfigMap settings for the env ConfigMap
+config:
+  ## CARBIDE_API_HOST, CARBIDE_API_PORT are auto-generated from the release namespace
+  carbideApiPort: "1079"
+  extraEnvData: {}  # additional keys to add to the env ConfigMap
+
+envFrom:
+  pxeEnvConfig:
+    configMapName: carbide-pxe-env-config
+    optional: true
+
+livenessProbe:
+  tcpSocket:
+    port: 8080
+  initialDelaySeconds: 20
+  periodSeconds: 10
+  failureThreshold: 3
+  successThreshold: 1
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 25s
+
+## External LoadBalancer Services (for bare-metal / MetalLB)
+## Creates carbide-pxe-external (8080) and carbide-pxe-external-80 (80→8080) with shared IP
+externalService:
+  enabled: false
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  annotations: {}
+  # annotations:
+  #   metallb.universe.tf/loadBalancerIPs: "10.x.x.x"

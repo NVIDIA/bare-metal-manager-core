@@ -255,7 +255,7 @@ impl IbFabricMonitor {
         // more efficient
         let mut partition_ids_by_pkey = HashMap::new();
         for (id, partition) in tenant_partitions.iter() {
-            if let Some(pkey) = partition.config.pkey {
+            if let Some(pkey) = partition.status.as_ref().and_then(|s| s.pkey) {
                 partition_ids_by_pkey.insert(pkey, *id);
             }
         }
@@ -712,7 +712,7 @@ async fn record_machine_infiniband_status_observation(
             let Some(partition_data) = tenant_partitions.get(&iface.ib_partition_id) else {
                 continue;
             };
-            let Some(expected_pkey) = partition_data.config.pkey else {
+            let Some(expected_pkey) = partition_data.status.as_ref().and_then(|s| s.pkey) else {
                 continue;
             };
             expected_pkeys.insert(guid.clone(), expected_pkey);

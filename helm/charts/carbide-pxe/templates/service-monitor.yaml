@@ -1,0 +1,13 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: carbide-pxe-metrics
+  namespace: {{ include "carbide-pxe.namespace" . }}
+  labels:
+    {{- include "carbide-pxe.labels" . | nindent 4 }}
+    app: carbide-pxe
+    prometheus: forge-monitoring
+spec:
+  {{- include "carbide-pxe.serviceMonitorSpec" (dict "name" "carbide-pxe" "port" "http" "monitor" .Values.serviceMonitor "namespace" "forge-system") | nindent 2 }}
+{{- end }}

@@ -15,17 +15,29 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
+
+use libmlx::firmware::config::FirmwareFlasherProfile;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
-pub enum OpCode {
+pub enum OpCode<'a> {
     Noop,
-    Unlock { key: String },
-    ApplyProfile { profile_str: String },
-    Lock { key: String },
+    Unlock {
+        key: String,
+    },
+    ApplyProfile {
+        profile_str: String,
+    },
+    Lock {
+        key: String,
+    },
+    ApplyFirmware {
+        profile: Option<Box<Cow<'a, FirmwareFlasherProfile>>>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct DpaCommand {
-    pub op: OpCode,
+pub struct DpaCommand<'a> {
+    pub op: OpCode<'a>,
 }

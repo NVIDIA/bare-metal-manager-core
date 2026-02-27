@@ -15,26 +15,20 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmds;
+mod list;
+mod show;
 
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Show(show_opts) => {
-                cmds::handle_show(show_opts, ctx.config.format, &ctx.api_client).await?
-            }
-            Cmd::List => cmds::list_power_shelves(&ctx.api_client).await?,
-        }
-        Ok(())
-    }
+#[derive(Parser, Debug, Dispatch)]
+pub enum Cmd {
+    #[clap(about = "Show power shelf information")]
+    Show(show::Args),
+    #[clap(about = "List all power shelves")]
+    List(list::Args),
 }

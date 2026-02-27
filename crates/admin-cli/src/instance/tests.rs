@@ -25,7 +25,7 @@
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
+use super::*;
 
 // Valid InstanceId format for tests (standard UUID format)
 const TEST_INSTANCE_ID: &str = "00000000-0000-0000-0000-000000000001";

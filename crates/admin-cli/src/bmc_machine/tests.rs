@@ -27,7 +27,8 @@
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
+use super::common::AdminPowerControlAction;
+use super::*;
 
 // Define a basic/working MachineId for testing.
 const TEST_MACHINE_ID: &str = "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";

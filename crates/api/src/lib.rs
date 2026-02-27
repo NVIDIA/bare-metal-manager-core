@@ -53,6 +53,7 @@ mod ipmitool;
 mod ipxe;
 mod listener;
 mod logging;
+mod machine_identity;
 mod machine_update_manager;
 mod machine_validation;
 mod measured_boot;

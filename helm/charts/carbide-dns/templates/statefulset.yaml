@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: carbide-dns
+  namespace: {{ include "carbide-dns.namespace" . }}
+  labels:
+    {{- include "carbide-dns.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.annotations | nindent 4 }}
+spec:
+  serviceName: carbide-dns
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "carbide-dns.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "carbide-dns.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: carbide-dns
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: carbide-dns
+          image: "{{ include "carbide-dns.image" . }}"
+          command: ["/bin/sh", "-c", "/opt/carbide/carbide-dns run --carbide-url=\"${CARBIDE_API}\" --listen=\"[::]:53\""]
+          env:
+            - name: CARBIDE_API
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.envFrom.carbideDnsConfig.configMapName }}
+                  key: CARBIDE_API
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          securityContext:
+            capabilities:
+              add:
+                - SYS_PTRACE
+          ports:
+            - name: udp
+              containerPort: 53
+            - name: tcp
+              containerPort: 53
+          volumeMounts:
+            - name: spiffe
+              mountPath: /var/run/secrets/spiffe.io
+              readOnly: true
+      volumes:
+        - name: spiffe
+          secret:
+            secretName: carbide-dns-certificate

@@ -164,19 +164,40 @@ pub enum Commands {
 
         // firmware_action contains the firmware subcommand to execute.
         #[command(subcommand)]
-        firmware_action: FirmwareAction,
+        firmware_action: Box<FirmwareAction>,
     },
 }
 
 // FirmwareAction contains all available subcommands
 // under the `firmware` command.
+//
+// Note that due to a FirmwareSpec being part of the initialization
+// of the FirmwareFlasher, subcommands that *use* FirmwareFlasher require
+// explicit device identity args (which include --part-number, --psid,
+// and --version) to enable the initial validation. This is to ensure
+// firmware is never accidentally flashed to the wrong device, so it's
+// kind of important. I also made them --flags and not positional args
+// so it's super obvious as to what you're setting. Again since this
+// is just a sandbox/playground tool it's not meant to be super pretty.
 #[derive(Subcommand)]
 pub enum FirmwareAction {
-    // flash runs the full firmware flash lifecycle: optionally
-    // apply device config, then burn firmware via flint.
+    // flash burns firmware to a device via flint: optionally apply
+    // device config first, then burn firmware.
     Flash {
         // device is the PCI address of the target device (e.g., "01:00.0").
         device: String,
+
+        // --part-number is the expected part number of the device.
+        #[arg(long)]
+        part_number: String,
+
+        // --psid is the expected PSID of the device.
+        #[arg(long)]
+        psid: String,
+
+        // --version is the target firmware version (e.g., "32.43.1014").
+        #[arg(long)]
+        version: String,
 
         // firmware_url is the firmware source. Supports:
         //   local path:  /path/to/firmware.signed.bin
@@ -229,15 +250,10 @@ pub enum FirmwareAction {
         // config downloads.
         #[arg(long)]
         device_conf_ssh_agent: bool,
-
-        // --expected-version is the firmware version to verify after
-        // flashing (e.g., "32.43.1014").
-        #[arg(long)]
-        expected_version: Option<String>,
     },
 
-    // flash-config loads firmware configuration from a TOML file
-    // and executes the flash lifecycle.
+    // flash-config loads a FirmwareFlasherProfile from a TOML file
+    // and executes the full apply() lifecycle.
     #[command(name = "flash-config")]
     FlashConfig {
         // device is the PCI address of the target device.
@@ -254,6 +270,18 @@ pub enum FirmwareAction {
     VerifyImage {
         // device is the PCI address of the target device.
         device: String,
+
+        // --part-number is the expected part number of the device.
+        #[arg(long)]
+        part_number: String,
+
+        // --psid is the expected PSID of the device.
+        #[arg(long)]
+        psid: String,
+
+        // --version is the target firmware version.
+        #[arg(long)]
+        version: String,
 
         // image_url is the firmware image to verify against.
         // Supports local paths, file://, https://, and ssh:// URLs.
@@ -277,20 +305,40 @@ pub enum FirmwareAction {
     },
 
     // verify-version checks that the installed firmware version
-    // matches the expected version.
+    // matches the expected version from the FirmwareSpec.
     #[command(name = "verify-version")]
     VerifyVersion {
         // device is the PCI address of the target device.
         device: String,
 
-        // expected_version is the version string to compare against.
-        expected_version: String,
+        // --part-number is the expected part number of the device.
+        #[arg(long)]
+        part_number: String,
+
+        // --psid is the expected PSID of the device.
+        #[arg(long)]
+        psid: String,
+
+        // version is the expected firmware version string.
+        version: String,
     },
 
     // reset runs mlxfwreset on the device to activate new firmware.
     Reset {
         // device is the PCI address of the target device.
         device: String,
+
+        // --part-number is the expected part number of the device.
+        #[arg(long)]
+        part_number: String,
+
+        // --psid is the expected PSID of the device.
+        #[arg(long)]
+        psid: String,
+
+        // --version is the target firmware version (used for RAII validation).
+        #[arg(long)]
+        version: String,
 
         // --level is the mlxfwreset level (default 3).
         #[arg(short, long, default_value = "3")]
@@ -299,7 +347,7 @@ pub enum FirmwareAction {
 
     // config-reset resets all mlxconfig NV configuration parameters
     // on the device to their factory default values. This is NOT a
-    // device reset — use `reset` for that.
+    // device reset — use `reset` for that. Does not use FirmwareFlasher.
     #[command(name = "config-reset")]
     ConfigReset {
         // device is the PCI address of the target device.

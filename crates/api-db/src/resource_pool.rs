@@ -20,10 +20,11 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use config_version::ConfigVersion;
+use ipnetwork::Ipv6Network;
 use model::resource_pool;
 use model::resource_pool::common::{
-    CommonPools, DPA_VNI, DpaPools, EXTERNAL_VPC_VNI, EthernetPools, FNN_ASN, IbPools, LOOPBACK_IP,
-    SECONDARY_VTEP_IP, VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
+    CommonPools, EXTERNAL_VPC_VNI, EthernetPools, FNN_ASN, IbPools, LOOPBACK_IP, SECONDARY_VTEP_IP,
+    VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
 };
 use model::resource_pool::define::{ResourcePoolDef, ResourcePoolType};
 use model::resource_pool::{
@@ -363,7 +364,7 @@ pub async fn define(
         }
         // Just prefix
         (Some(prefix), _) => {
-            define_by_prefix(txn, name, def.pool_type, prefix).await?;
+            define_by_prefix(txn, name, def.pool_type, prefix, def.delegate_prefix_len).await?;
         }
         // Just ranges
         (None, ranges) => {
@@ -388,6 +389,7 @@ async fn define_by_prefix(
     name: &str,
     pool_type: ResourcePoolType,
     prefix: &str,
+    delegate_prefix_len: Option<u8>,
 ) -> Result<(), DefineResourcePoolError> {
     match pool_type {
         ResourcePoolType::Ipv4 => {
@@ -422,6 +424,27 @@ async fn define_by_prefix(
                 prefix,
                 num_values,
                 "Populated IPv6 resource pool from prefix"
+            );
+        }
+        ResourcePoolType::Ipv6Prefix => {
+            let delegate_len = delegate_prefix_len.ok_or_else(|| {
+                DefineResourcePoolError::InvalidArgument(
+                    "Pool type 'ipv6prefix' requires 'delegate_prefix_len'".to_string(),
+                )
+            })?;
+            let values = expand_ipv6_prefix_delegation(prefix, delegate_len)?;
+            let num_values = values.len();
+            let pool = model::resource_pool::ResourcePool::new(
+                name.to_string(),
+                model::resource_pool::ValueType::Ipv6Prefix,
+            );
+            populate(&pool, txn, values, true).await?;
+            tracing::debug!(
+                pool_name = name,
+                prefix,
+                delegate_len,
+                num_values,
+                "Populated IPv6 prefix delegation pool"
             );
         }
         ResourcePoolType::Integer => {
@@ -477,6 +500,22 @@ async fn define_by_range(
                 range_end,
                 num_values,
                 "Populated IPv6 resource pool from range"
+            );
+        }
+        ResourcePoolType::Ipv6Prefix => {
+            let values = expand_ipv6_prefix_range(range_start, range_end)?;
+            let num_values = values.len();
+            let pool = model::resource_pool::ResourcePool::new(
+                name.to_string(),
+                model::resource_pool::ValueType::Ipv6Prefix,
+            );
+            populate(&pool, txn, values, auto_assign).await?;
+            tracing::debug!(
+                pool_name = name,
+                range_start,
+                range_end,
+                num_values,
+                "Populated IPv6 prefix pool from range"
             );
         }
         ResourcePoolType::Integer => {
@@ -583,6 +622,128 @@ fn expand_ipv6_range(start_s: &str, end_s: &str) -> Result<Vec<Ipv6Addr>, Define
     Ok((start..end).map(Ipv6Addr::from).collect())
 }
 
+// expand_ipv6_prefix_delegation expands a parent IPv6 prefix into
+// sub-prefixes of the given delegation length. For example, "fd00::/48"
+// with delegate_len=64 produces all 65,536 /64 sub-prefixes within that /48.
+fn expand_ipv6_prefix_delegation(
+    parent: &str,
+    delegate_len: u8,
+) -> Result<Vec<Ipv6Network>, DefineResourcePoolError> {
+    let n: ipnetwork::IpNetwork = parent.parse().map_err(|e: ipnetwork::IpNetworkError| {
+        DefineResourcePoolError::InvalidArgument(e.to_string())
+    })?;
+    let parent_net = match n {
+        ipnetwork::IpNetwork::V6(v6) => v6,
+        _ => {
+            return Err(DefineResourcePoolError::InvalidArgument(format!(
+                "Invalid IPv6 network: {parent}"
+            )));
+        }
+    };
+
+    let parent_len = parent_net.prefix();
+    if delegate_len <= parent_len {
+        return Err(DefineResourcePoolError::InvalidArgument(format!(
+            "Delegation prefix length /{delegate_len} must be longer than parent prefix length /{parent_len}"
+        )));
+    }
+    if delegate_len > 128 {
+        return Err(DefineResourcePoolError::InvalidArgument(format!(
+            "Delegation prefix length /{delegate_len} exceeds maximum /128"
+        )));
+    }
+
+    // Number of sub-prefixes == 2^(delegate_len - parent_len).
+    let sub_bits = (delegate_len - parent_len) as u32;
+    let count = 1u128.checked_shl(sub_bits).unwrap_or(u128::MAX);
+    if count > MAX_POOL_SIZE as u128 {
+        return Err(DefineResourcePoolError::TooBig(
+            usize::try_from(count).unwrap_or(usize::MAX),
+            MAX_POOL_SIZE,
+        ));
+    }
+
+    // And now step between consecutive sub-prefix network addresses.
+    let step = 1u128 << (128 - delegate_len as u32);
+    let base: u128 = parent_net.network().into();
+
+    let mut prefixes = Vec::with_capacity(count as usize);
+    for i in 0..count {
+        let addr = Ipv6Addr::from(base + i * step);
+        let net = Ipv6Network::new(addr, delegate_len)
+            .map_err(|e| DefineResourcePoolError::InvalidArgument(e.to_string()))?;
+        prefixes.push(net);
+    }
+    Ok(prefixes)
+}
+
+// expand_ipv6_prefix_range expands a range of IPv6 prefixes. Both
+// endpoints must be CIDR notation with the same prefix length and
+// properly aligned (no stray host bits). Uses exclusive end, matching
+// the convention of the other type's range-expansion functions.
+fn expand_ipv6_prefix_range(
+    start_s: &str,
+    end_s: &str,
+) -> Result<Vec<Ipv6Network>, DefineResourcePoolError> {
+    let start_net: Ipv6Network = start_s.parse().map_err(|e: ipnetwork::IpNetworkError| {
+        DefineResourcePoolError::InvalidArgument(e.to_string())
+    })?;
+    let end_net: Ipv6Network = end_s.parse().map_err(|e: ipnetwork::IpNetworkError| {
+        DefineResourcePoolError::InvalidArgument(e.to_string())
+    })?;
+
+    let prefix_len = start_net.prefix();
+    if end_net.prefix() != prefix_len {
+        return Err(DefineResourcePoolError::InvalidArgument(format!(
+            "Range endpoints have different prefix lengths: /{} vs /{}",
+            prefix_len,
+            end_net.prefix()
+        )));
+    }
+
+    // Verify alignment prefix alignment -- the specified IP must equal
+    // the network address (i.e. no host bits set); Ipv6Network::parse()
+    // accepts "fd00::1/64" but that's a host address, not a valid network
+    // prefix.
+    if start_net.ip() != start_net.network() {
+        return Err(DefineResourcePoolError::InvalidArgument(format!(
+            "Start prefix {start_s} has host bits set"
+        )));
+    }
+    if end_net.ip() != end_net.network() {
+        return Err(DefineResourcePoolError::InvalidArgument(format!(
+            "End prefix {end_s} has host bits set"
+        )));
+    }
+
+    let start_addr: u128 = start_net.network().into();
+    let end_addr: u128 = end_net.network().into();
+    let step = 1u128 << (128 - prefix_len as u32);
+
+    if end_addr <= start_addr {
+        return Err(DefineResourcePoolError::InvalidArgument(
+            "End prefix must be greater than start prefix".to_string(),
+        ));
+    }
+
+    let count = (end_addr - start_addr) / step;
+    if count > MAX_POOL_SIZE as u128 {
+        return Err(DefineResourcePoolError::TooBig(
+            usize::try_from(count).unwrap_or(usize::MAX),
+            MAX_POOL_SIZE,
+        ));
+    }
+
+    let mut prefixes = Vec::with_capacity(count as usize);
+    for i in 0..count {
+        let addr = Ipv6Addr::from(start_addr + i * step);
+        let net = Ipv6Network::new(addr, prefix_len)
+            .map_err(|e| DefineResourcePoolError::InvalidArgument(e.to_string()))?;
+        prefixes.push(net);
+    }
+    Ok(prefixes)
+}
+
 // All the numbers between start_s and end_s
 fn expand_int_range(start_s: &str, end_s: &str) -> Result<Vec<i64>, eyre::Report> {
     let start: i64 = parse_int_range(start_s)?;
@@ -671,11 +832,6 @@ pub async fn create_common_pools(
     );
     pool_names.extend(pkey_pools.values().map(|pool| pool.name().to_string()));
 
-    let pool_dpa_vni: Arc<ResourcePool<i32>> =
-        Arc::new(ResourcePool::new(DPA_VNI.to_string(), ValueType::Integer));
-
-    pool_names.extend(vec![pool_dpa_vni.name().to_string()]);
-
     // Gather resource pool stats. A different thread sends them to Prometheus.
     let (stop_sender, mut stop_receiver) = oneshot::channel();
     let pool_stats: Arc<Mutex<HashMap<String, ResourcePoolStats>>> =
@@ -715,7 +871,6 @@ pub async fn create_common_pools(
             pool_secondary_vtep_ip,
         },
         infiniband: IbPools { pkey_pools },
-        dpa: DpaPools { pool_dpa_vni },
         pool_stats,
         _stop_sender: stop_sender,
     }))
@@ -741,6 +896,7 @@ mod tests {
                 prefix: Some("fd00:abcd::/120".to_string()),
                 ranges: vec![],
                 pool_type: ResourcePoolType::Ipv6,
+                delegate_prefix_len: None,
             },
         )
         .await
@@ -799,6 +955,7 @@ mod tests {
                     auto_assign: true,
                 }],
                 pool_type: ResourcePoolType::Ipv6,
+                delegate_prefix_len: None,
             },
         )
         .await
@@ -870,5 +1027,197 @@ mod tests {
     fn test_expand_ipv6_range_rejects_ipv4() {
         let result = expand_ipv6_range("192.168.1.1", "192.168.1.5");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_expand_ipv6_prefix_delegation_48_to_64() {
+        // /48 to /64 == 65,536 sub-prefixes.
+        let prefixes = expand_ipv6_prefix_delegation("fd00:abcd::/48", 64).unwrap();
+        assert_eq!(prefixes.len(), 65_536);
+        assert_eq!(
+            prefixes[0],
+            "fd00:abcd::/64".parse::<Ipv6Network>().unwrap()
+        );
+        assert_eq!(
+            prefixes[65_535],
+            "fd00:abcd:0000:ffff::/64".parse::<Ipv6Network>().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_expand_ipv6_prefix_delegation_112_to_120() {
+        // /112 to /120 == 256 sub-prefixes.
+        let prefixes = expand_ipv6_prefix_delegation("fd00:abcd::/112", 120).unwrap();
+        assert_eq!(prefixes.len(), 256);
+        assert_eq!(
+            prefixes[0],
+            "fd00:abcd::/120".parse::<Ipv6Network>().unwrap()
+        );
+        assert_eq!(
+            prefixes[1],
+            "fd00:abcd::100/120".parse::<Ipv6Network>().unwrap()
+        );
+        assert_eq!(
+            prefixes[255],
+            "fd00:abcd::ff00/120".parse::<Ipv6Network>().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_expand_ipv6_prefix_delegation_rejects_invalid() {
+        // Delegation prefix length cant be less than the parent prefix length.
+        let result = expand_ipv6_prefix_delegation("fd00::/64", 64);
+        assert!(matches!(
+            result.unwrap_err(),
+            DefineResourcePoolError::InvalidArgument(_)
+        ));
+
+        let result = expand_ipv6_prefix_delegation("fd00::/64", 48);
+        assert!(matches!(
+            result.unwrap_err(),
+            DefineResourcePoolError::InvalidArgument(_)
+        ));
+    }
+
+    #[test]
+    fn test_expand_ipv6_prefix_delegation_rejects_too_large() {
+        // /32 to /64 == 4 billion, which is over the MAX_POOL_SIZE,
+        // at least as of this writing, which is 250k.
+        let result = expand_ipv6_prefix_delegation("fd00::/32", 64);
+        assert!(matches!(
+            result.unwrap_err(),
+            DefineResourcePoolError::TooBig(_, _)
+        ));
+    }
+
+    #[test]
+    fn test_expand_ipv6_prefix_delegation_rejects_ipv4() {
+        let result = expand_ipv6_prefix_delegation("192.168.0.0/16", 24);
+        assert!(matches!(
+            result.unwrap_err(),
+            DefineResourcePoolError::InvalidArgument(_)
+        ));
+    }
+
+    #[test]
+    fn test_expand_ipv6_prefix_range() {
+        // Range of /120s -- fd00::100/120 to fd00::300/120 -- gives us 2,
+        // since we exclude the ending prefix.
+        let prefixes = expand_ipv6_prefix_range("fd00::100/120", "fd00::300/120").unwrap();
+        assert_eq!(prefixes.len(), 2);
+        assert_eq!(prefixes[0], "fd00::100/120".parse::<Ipv6Network>().unwrap());
+        assert_eq!(prefixes[1], "fd00::200/120".parse::<Ipv6Network>().unwrap());
+    }
+
+    #[test]
+    fn test_expand_ipv6_prefix_range_rejects_mismatched_len() {
+        let result = expand_ipv6_prefix_range("fd00::/64", "fd00:1::/48");
+        assert!(matches!(
+            result.unwrap_err(),
+            DefineResourcePoolError::InvalidArgument(_)
+        ));
+    }
+
+    #[test]
+    fn test_expand_ipv6_prefix_range_rejects_unaligned() {
+        // In this case, fd00::1/120 has host bits set, so it's
+        // not a valid network prefix.
+        let result = expand_ipv6_prefix_range("fd00::1/120", "fd00::200/120");
+        assert!(matches!(
+            result.unwrap_err(),
+            DefineResourcePoolError::InvalidArgument(_)
+        ));
+    }
+
+    #[crate::sqlx_test]
+    async fn test_ipv6_prefix_pool_define_allocate_release(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use model::resource_pool::define::{ResourcePoolDef, ResourcePoolType};
+
+        let mut txn = pool.begin().await?;
+
+        // Define pool w/ /112 and /120 delegation (giving us
+        // 256 sub-prefixes).
+        define(
+            &mut txn,
+            "test-ipv6prefix-pool",
+            &ResourcePoolDef {
+                prefix: Some("fd00:abcd::/112".to_string()),
+                ranges: vec![],
+                pool_type: ResourcePoolType::Ipv6Prefix,
+                delegate_prefix_len: Some(120),
+            },
+        )
+        .await
+        .unwrap();
+
+        // Verify pool stats.
+        let pool_stats = stats(txn.as_mut(), "test-ipv6prefix-pool").await?;
+        assert_eq!(pool_stats.free, 256);
+
+        // Allocate a sub-prefix.
+        let pool_handle = ResourcePool::<Ipv6Network>::new(
+            "test-ipv6prefix-pool".to_string(),
+            ValueType::Ipv6Prefix,
+        );
+        let prefix: Ipv6Network = allocate(
+            &pool_handle,
+            &mut txn,
+            OwnerType::Machine,
+            "test-owner",
+            None,
+        )
+        .await?;
+        assert_eq!(prefix.prefix(), 120);
+
+        // Stats should show 1 used.
+        let pool_stats = stats(txn.as_mut(), "test-ipv6prefix-pool").await?;
+        assert_eq!(pool_stats.used, 1);
+        assert_eq!(pool_stats.free, 255);
+
+        // Release the sub-prefix.
+        release(&pool_handle, &mut txn, prefix).await?;
+        let pool_stats = stats(txn.as_mut(), "test-ipv6prefix-pool").await?;
+        assert_eq!(pool_stats.used, 0);
+        assert_eq!(pool_stats.free, 256);
+
+        txn.rollback().await?;
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_ipv6_prefix_pool_define_by_range(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use model::resource_pool::define::{Range, ResourcePoolDef, ResourcePoolType};
+
+        let mut txn = pool.begin().await?;
+
+        // Define pool from a range of /120s.
+        define(
+            &mut txn,
+            "test-ipv6prefix-range",
+            &ResourcePoolDef {
+                prefix: None,
+                ranges: vec![Range {
+                    start: "fd00::0/120".to_string(),
+                    end: "fd00::1000/120".to_string(),
+                    auto_assign: true,
+                }],
+                pool_type: ResourcePoolType::Ipv6Prefix,
+                delegate_prefix_len: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        // Here we've got fd00::0/120 to fd00::1000/120 (with our current
+        // exclusive end), which gives us 16 prefixes.
+        let pool_stats = stats(txn.as_mut(), "test-ipv6prefix-range").await?;
+        assert_eq!(pool_stats.free, 16);
+
+        txn.rollback().await?;
+        Ok(())
     }
 }

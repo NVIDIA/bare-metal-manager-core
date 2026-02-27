@@ -61,7 +61,7 @@ fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
 }
 
 static NVME_CLI_PROG: &str = "/usr/sbin/nvme";
-static LENOVO_NVMI_CLI_PROG: &str = "/opt/forge/mnv_cli";
+static LENOVO_NVMI_CLI_PROG: &str = "/opt/forge/bin/mnv_cli";
 
 lazy_static::lazy_static! {
     static ref NVME_NS_RE: Regex = Regex::new(r".*:(0x[0-9]+)").unwrap();
@@ -238,6 +238,15 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
     );
 
     if nvme_drive_params.mn.trim() == "M.2 NVMe 2-Bay RAID Kit" {
+        if !std::path::Path::new(LENOVO_NVMI_CLI_PROG).exists() {
+            return Err(CarbideClientError::GenericError(format!(
+                "Device {} is a Lenovo M.2 NVMe 2-Bay RAID Kit and requires {} for cleanup, \
+                 but the binary is not present in the scout image. \
+                 Ensure the Lenovo mnv_cli tool is included in the carbide extras container.",
+                nvmename, LENOVO_NVMI_CLI_PROG
+            )));
+        }
+
         let vd_out =
             cmdrun::run_prog(LENOVO_NVMI_CLI_PROG, ["info", "-o", "vd", "-i", "0"]).await?;
 

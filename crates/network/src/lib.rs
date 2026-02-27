@@ -147,13 +147,13 @@ where
 
 /// deserialize_input_mac_to_address is a common input to MAC conversion
 /// function used by deserialize_mlx_mac and deserialize_optional_mlx_mac.
-pub fn deserialize_input_mac_to_address(input_value: &String) -> Result<MacAddress, MacParseError> {
+pub fn deserialize_input_mac_to_address(input_value: &str) -> Result<MacAddress, MacParseError> {
     let mac_string = if input_value == MELLANOX_SF_VF_MAC_ADDRESS_IN {
-        MELLANOX_SF_VF_MAC_ADDRESS_OUT.to_string()
+        MELLANOX_SF_VF_MAC_ADDRESS_OUT
     } else if input_value.is_empty() {
-        "00:00:00:00:00:00".to_string()
+        "00:00:00:00:00:00"
     } else {
-        input_value.clone()
+        input_value
     };
 
     let mac_address: MacAddress = mac_string.parse()?;

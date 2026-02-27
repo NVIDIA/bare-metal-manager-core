@@ -15,28 +15,33 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmds;
+mod add;
+pub(crate) mod common;
+mod delete;
+mod erase;
+mod replace_all;
+mod show;
+mod update;
 
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Show(query) => cmds::show(&query, &ctx.api_client, ctx.config.format).await?,
-            Cmd::Add(data) => cmds::add(data, &ctx.api_client).await?,
-            Cmd::Delete(query) => cmds::delete(&query, &ctx.api_client).await?,
-            Cmd::Update(data) => cmds::update(data, &ctx.api_client).await?,
-            Cmd::ReplaceAll(request) => cmds::replace_all(&request, &ctx.api_client).await?,
-            Cmd::Erase => cmds::erase(&ctx.api_client).await?,
-        }
-        Ok(())
-    }
+#[derive(Parser, Debug, Dispatch)]
+pub enum Cmd {
+    #[clap(about = "Show expected switch")]
+    Show(show::Args),
+    #[clap(about = "Add expected switch")]
+    Add(add::Args),
+    #[clap(about = "Delete expected switch")]
+    Delete(delete::Args),
+    #[clap(about = "Update expected switch")]
+    Update(update::Args),
+    #[clap(about = "Replace all expected switches")]
+    ReplaceAll(replace_all::Args),
+    #[clap(about = "Erase all expected switches")]
+    Erase(erase::Args),
 }

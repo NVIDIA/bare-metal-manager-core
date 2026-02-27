@@ -1,0 +1,10 @@
+apiVersion: v2
+name: carbide-hardware-health
+description: Helm chart for the Carbide Hardware Health component
+type: application
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - carbide
+  - hardware-health
+  - forge

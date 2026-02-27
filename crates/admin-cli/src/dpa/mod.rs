@@ -15,30 +15,24 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmds;
+mod ensure;
+mod show;
+
+// Cross-module re-exports for jump module.
+pub use show::args::Args as ShowDpa;
+pub use show::cmd::show;
 
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Show(query) => {
-                cmds::show(
-                    &query,
-                    ctx.config.format,
-                    &ctx.api_client,
-                    ctx.config.page_size,
-                )
-                .await
-            }
-        }
-    }
+#[derive(Parser, Debug, Dispatch)]
+pub enum Cmd {
+    #[clap(about = "Create/ensure a DPA interface")]
+    Ensure(ensure::Args),
+    #[clap(about = "Display Dpa information")]
+    Show(show::Args),
 }

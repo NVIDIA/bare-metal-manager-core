@@ -240,3 +240,13 @@ pub fn state_sla(state: &RackState, state_version: &ConfigVersion) -> StateSla {
         RackState::Unknown => StateSla::no_sla(),
     }
 }
+
+impl From<RackStateHistory> for rpc::forge::RackStateHistoryRecord {
+    fn from(value: RackStateHistory) -> rpc::forge::RackStateHistoryRecord {
+        rpc::forge::RackStateHistoryRecord {
+            state: value.state,
+            version: value.state_version.version_string(),
+            time: Some(value.state_version.timestamp().into()),
+        }
+    }
+}

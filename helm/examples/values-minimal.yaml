@@ -1,0 +1,72 @@
+## =============================================================================
+## Minimal Values — Carbide Bare Metal Manager
+## =============================================================================
+## This is the minimum configuration required to deploy Carbide.
+## You MUST set global.image.repository and global.image.tag.
+## See PREREQUISITES.md for required Secrets, ConfigMaps, and operators.
+##
+## Install with: helm install carbide ./helm -n forge-system --create-namespace -f values-minimal.yaml
+## =============================================================================
+
+global:
+  ## REQUIRED: Set your container image repository and tag
+  image:
+    repository: ""   # e.g. your-registry.example.com/carbide-core
+    tag: ""          # e.g. v2025.12.30
+
+## ---------------------------------------------------------------------------
+## All core services enabled by default — disable any you don't need
+## ---------------------------------------------------------------------------
+
+## carbide-api: Core API requires site config at minimum
+carbide-api:
+  enabled: true
+  hostname: "carbide.example.com"
+  siteConfig:
+    enabled: true
+    carbideApiSiteConfig: |
+      # Site-specific overrides for carbide-api-config.toml
+      # At minimum, configure DHCP servers and route servers for your site:
+      # dhcp_servers=["carbide-dhcp.forge-system.svc.cluster.local:67"]
+
+## carbide-dhcp: Configure subnets and IPs for your environment
+carbide-dhcp:
+  enabled: true
+
+## carbide-dns: Authoritative DNS for managed machines
+carbide-dns:
+  enabled: true
+
+## carbide-dsx-exchange-consumer: DSX telemetry consumer
+carbide-dsx-exchange-consumer:
+  enabled: true
+
+## carbide-hardware-health: Hardware health metrics
+carbide-hardware-health:
+  enabled: true
+
+## carbide-pxe: PXE boot server
+carbide-pxe:
+  enabled: true
+
+## carbide-ssh-console-rs: SSH console proxy
+carbide-ssh-console-rs:
+  enabled: true
+
+## unbound: Recursive DNS resolver (disabled by default)
+## Enable if your environment does not already provide a recursive DNS
+## resolver with forwarding rules for Carbide internal domains.
+# unbound:
+#   enabled: true
+  image:
+    repository: ""   # e.g. your-registry.example.com/unbound
+    tag: ""
+  exporterImage:
+    repository: ""   # e.g. your-registry.example.com/unbound-exporter
+    tag: ""
+  localConfig:
+    forwarders.conf: |
+      forward-zone:
+        name: "."
+        forward-addr: 8.8.8.8
+        forward-addr: 8.8.4.4

@@ -92,8 +92,7 @@ pub async fn get_or_create(
 ) -> DatabaseResult<Machine> {
     let existing_machine =
         find_one(&mut *txn, stable_machine_id, MachineSearchConfig::default()).await?;
-    if interface.machine_id.is_some() {
-        let machine_id = interface.machine_id.as_ref().unwrap();
+    if let Some(machine_id) = interface.machine_id.as_ref() {
         if machine_id != stable_machine_id {
             return Err(DatabaseError::internal(format!(
                 "Database inconsistency: MachineId {} on interface {} does not match stable machine ID {} which now uses this interface",
@@ -1628,10 +1627,9 @@ pub async fn apply_agent_upgrade_policy(
         None => Ok(false),
         Some(obs) => {
             let carbide_api_version = carbide_version::v!(build_version);
-            if obs.agent_version.is_none() {
+            let Some(agent_version) = obs.agent_version.clone() else {
                 return Ok(false);
-            }
-            let agent_version = obs.agent_version.as_ref().cloned().unwrap();
+            };
             let should_upgrade = policy.should_upgrade(&agent_version, carbide_api_version);
             if should_upgrade != machine.needs_agent_upgrade() {
                 set_dpu_agent_upgrade_requested(

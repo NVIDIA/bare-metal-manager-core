@@ -1,0 +1,23 @@
+{{- if .Values.externalService.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-dhcp-external
+  namespace: {{ include "carbide-dhcp.namespace" . }}
+  labels:
+    {{- include "carbide-dhcp.labels" . | nindent 4 }}
+  {{- with .Values.externalService.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.externalService.type | default "LoadBalancer" }}
+  internalTrafficPolicy: Local
+  selector:
+    {{- include "carbide-dhcp.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: 67
+      targetPort: 67
+      name: udp
+      protocol: UDP
+{{- end }}

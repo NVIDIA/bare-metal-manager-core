@@ -1,0 +1,61 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: carbide-api-migrate
+  namespace: {{ include "carbide-api.namespace" . }}
+  labels:
+    {{- include "carbide-api.labels" . | nindent 4 }}
+    app: carbide-api-migrate
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+    helm.sh/hook-weight: "-5"
+spec:
+  template:
+    metadata:
+      name: carbide-api-migrate
+      labels:
+        {{- include "carbide-api.labels" . | nindent 8 }}
+        app: carbide-api-migrate
+    spec:
+      restartPolicy: OnFailure
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: carbide-api-migrate
+          image: "{{ include "carbide-api.image" . }}"
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - /opt/carbide/carbide-api migrate --datastore="postgres://${DATASTORE_USER}:${DATASTORE_PASSWORD}@${DATASTORE_HOST}:${DATASTORE_PORT}/${DATASTORE_NAME}?sslmode=require"
+          env:
+            - name: DATASTORE_USER
+              valueFrom:
+                secretKeyRef:
+                  key: username
+                  name: {{ .Values.envFrom.databaseCredentials.secretName }}
+            - name: DATASTORE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: {{ .Values.envFrom.databaseCredentials.secretName }}
+            - name: DATASTORE_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.envFrom.databaseConfig.configMapName }}
+                  key: DB_HOST
+            - name: DATASTORE_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.envFrom.databaseConfig.configMapName }}
+                  key: DB_PORT
+            - name: DATASTORE_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.envFrom.databaseConfig.configMapName }}
+                  key: DB_NAME

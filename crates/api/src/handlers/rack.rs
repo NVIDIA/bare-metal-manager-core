@@ -22,6 +22,7 @@ use db::{WithTransaction, rack as db_rack};
 use futures_util::FutureExt;
 use tonic::{Request, Response, Status};
 
+use crate::CarbideError;
 use crate::api::Api;
 
 pub async fn get_rack(
@@ -45,6 +46,46 @@ pub async fn get_rack(
             .collect()
     };
     Ok(Response::new(rpc::GetRackResponse { rack }))
+}
+
+pub async fn find_rack_state_histories(
+    api: &Api,
+    request: Request<rpc::RackStateHistoriesRequest>,
+) -> Result<Response<rpc::RackStateHistories>, Status> {
+    let request = request.into_inner();
+    let rack_ids = request.rack_ids;
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if rack_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if rack_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    let mut txn = api.txn_begin().await?;
+
+    let results = db::rack_state_history::find_by_rack_ids(&mut txn, &rack_ids)
+        .await
+        .map_err(CarbideError::from)?;
+
+    let mut response = rpc::RackStateHistories::default();
+    for (rack_id, records) in results {
+        response.histories.insert(
+            rack_id.to_string(),
+            ::rpc::forge::RackStateHistoryRecords {
+                records: records.into_iter().map(Into::into).collect(),
+            },
+        );
+    }
+
+    txn.commit().await?;
+
+    Ok(tonic::Response::new(response))
 }
 
 pub async fn delete_rack(

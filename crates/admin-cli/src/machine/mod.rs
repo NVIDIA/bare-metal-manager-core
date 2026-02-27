@@ -15,96 +15,69 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmds;
+pub mod auto_update;
+pub mod common;
+pub mod dpu_ssh_credentials;
+pub mod force_delete;
+pub mod hardware_info;
+pub mod health_override;
+pub mod metadata;
+pub mod network;
+pub mod nvlink_info;
+pub mod positions;
+pub mod reboot;
+pub mod show;
 
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
-// TODO(chet): There was some cross-talk of sorts between
-// commands in here, so I'm re-exporting some things here
-// temporarily, and I'll either clean up the cross-talk,
-// or just make the call-sites import ::args and ::cmds
-// as needed.
-pub use args::{
-    HealthOverrideTemplates, MachineAutoupdate, MachineQuery, NetworkCommand, ShowMachine,
-};
-pub use cmds::{get_health_report, get_next_free_machine, handle_show};
+// Cross-module re-exports.
+pub use auto_update::args::Args as MachineAutoupdate;
+use clap::Parser;
+pub use common::{MachineQuery, NetworkConfigQuery};
+pub use health_override::args::HealthOverrideTemplates;
+pub use health_override::cmd::get_health_report;
+pub use show::args::Args as ShowMachine;
+pub use show::cmd::{get_next_free_machine, handle_show};
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Show(args) => {
-                cmds::handle_show(
-                    args,
-                    &ctx.config.format,
-                    &mut ctx.output_file,
-                    &ctx.api_client,
-                    ctx.config.page_size,
-                    &ctx.config.sort_by,
-                )
-                .await?
-            }
-            Cmd::DpuSshCredentials(query) => {
-                cmds::dpu_ssh_credentials(&ctx.api_client, query, ctx.config.format).await?
-            }
-            Cmd::Network(cmd) => {
-                cmds::network(
-                    &ctx.api_client,
-                    cmd,
-                    ctx.config.format,
-                    &mut ctx.output_file,
-                )
-                .await?
-            }
-            Cmd::HealthOverride(cmd) => {
-                cmds::handle_override(cmd, ctx.config.format, &ctx.api_client).await?
-            }
-            Cmd::Reboot(args) => cmds::reboot(&ctx.api_client, args).await?,
-            Cmd::ForceDelete(query) => cmds::force_delete(query, &ctx.api_client).await?,
-            Cmd::AutoUpdate(cfg) => cmds::autoupdate(cfg, &ctx.api_client).await?,
-            Cmd::Metadata(cmd) => {
-                cmds::metadata(
-                    &ctx.api_client,
-                    cmd,
-                    &mut ctx.output_file,
-                    ctx.config.format,
-                    ctx.config.extended,
-                )
-                .await?
-            }
-            Cmd::HardwareInfo(cmd) => match cmd {
-                args::MachineHardwareInfoCommand::Show(show_cmd) => {
-                    cmds::handle_show_machine_hardware_info(
-                        &ctx.api_client,
-                        &mut ctx.output_file,
-                        &ctx.config.format,
-                        show_cmd.machine,
-                    )?
-                }
-                args::MachineHardwareInfoCommand::Update(capability) => match capability {
-                    args::MachineHardwareInfo::Gpus(gpus) => {
-                        cmds::handle_update_machine_hardware_info_gpus(&ctx.api_client, gpus)
-                            .await?
-                    }
-                },
-            },
-            Cmd::Positions(args) => cmds::positions(args, &ctx.api_client).await?,
-            Cmd::NvlinkInfo(cmd) => match cmd {
-                args::NvlinkInfoCommand::Show(args) => {
-                    cmds::handle_nvlink_info_show(args, &ctx.api_client).await?
-                }
-                args::NvlinkInfoCommand::Populate(args) => {
-                    cmds::handle_nvlink_info_populate(args, ctx.config.format, &ctx.api_client)
-                        .await?
-                }
-            },
-        }
-        Ok(())
-    }
+#[derive(Parser, Debug, Dispatch)]
+pub enum Cmd {
+    #[clap(about = "Display Machine information")]
+    Show(show::Args),
+    #[clap(about = "Print DPU admin SSH username:password")]
+    DpuSshCredentials(dpu_ssh_credentials::Args),
+    #[clap(subcommand, about = "Networking information")]
+    Network(network::Args),
+    #[clap(
+        about = "Health override related handling",
+        subcommand,
+        visible_alias = "ho"
+    )]
+    HealthOverride(health_override::Args),
+    #[clap(about = "Reboot a machine")]
+    Reboot(reboot::Args),
+    #[clap(about = "Force delete a machine")]
+    ForceDelete(force_delete::Args),
+    #[clap(about = "Set individual machine firmware autoupdate (host only)")]
+    AutoUpdate(auto_update::Args),
+    #[clap(subcommand, about = "Edit Metadata associated with a Machine")]
+    Metadata(metadata::Args),
+    #[clap(subcommand, about = "Update/show machine hardware info")]
+    HardwareInfo(hardware_info::Args),
+    #[clap(
+        about = "Show physical location info for machines in rack-based systems",
+        long_about = "Show physical location info for machines in rack-based systems.\n\n\
+            Returns rack topology information including:\n\
+            - Physical slot number: The slot position in the rack\n\
+            - Compute tray index: The compute tray containing this machine\n\
+            - Topology ID: Identifier for the rack topology configuration\n\
+            - Revision ID: Hardware revision identifier\n\
+            - Switch ID: Associated network switch\n\
+            - Power shelf ID: Associated power shelf"
+    )]
+    Positions(positions::Args),
+    #[clap(subcommand, about = "Update/show NVLink info for an MNNVL machine")]
+    NvlinkInfo(nvlink_info::Args),
 }

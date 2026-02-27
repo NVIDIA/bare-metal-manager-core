@@ -10,7 +10,7 @@ set -Eeux
 # NVIDIA DRIVERS & DCGM
 # ============================================================================
 # We install these in postinst to avoid double-triggering the DKMS build
-NV_PACKAGES="cuda-drivers-580=580.126.16-1ubuntu1 datacenter-gpu-manager-4-cuda12=1:4.2.3-2 datacenter-gpu-manager-4-core=1:4.2.3-2 datacenter-gpu-manager-4-proprietary-cuda12=1:4.2.3-2 libnvidia-cfg1-580=580.126.16-1ubuntu1 libnvidia-common-580=580.126.16-1ubuntu1 libnvidia-compute-580=580.126.16-1ubuntu1 libnvidia-decode-580=580.126.16-1ubuntu1 libnvidia-encode-580=580.126.16-1ubuntu1 libnvidia-extra-580=580.126.16-1ubuntu1 libnvidia-fbc1-580=580.126.16-1ubuntu1 libnvidia-gl-580=580.126.16-1ubuntu1 libnvidia-gpucomp-580=580.126.16-1ubuntu1 nvidia-compute-utils-580=580.126.16-1ubuntu1 nvidia-dkms-580-open=580.126.16-1ubuntu1 nvidia-driver-580-open=580.126.16-1ubuntu1 nvidia-fabricmanager=580.126.16-1 nvidia-firmware-580=580.126.16-1ubuntu1 nvidia-kernel-common-580=580.126.16-1ubuntu1 nvidia-kernel-source-580-open=580.126.16-1ubuntu1 nvidia-modprobe=580.126.16-1ubuntu1 nvidia-persistenced=580.126.16-1ubuntu1 nvidia-utils-580=580.126.16-1ubuntu1 xserver-xorg-video-nvidia-580=580.126.16-1ubuntu1 libxnvctrl0=580.126.16-1ubuntu1 nvidia-settings=580.126.16-1ubuntu1 nvidia-imex=580.126.16-1 mft"
+NV_PACKAGES="cuda-drivers-580=580.126.16-1ubuntu1 datacenter-gpu-manager-4-cuda13 datacenter-gpu-manager-4-core datacenter-gpu-manager-4-proprietary-cuda13 libnvidia-cfg1-580=580.126.16-1ubuntu1 libnvidia-common-580=580.126.16-1ubuntu1 libnvidia-compute-580=580.126.16-1ubuntu1 libnvidia-decode-580=580.126.16-1ubuntu1 libnvidia-encode-580=580.126.16-1ubuntu1 libnvidia-extra-580=580.126.16-1ubuntu1 libnvidia-fbc1-580=580.126.16-1ubuntu1 libnvidia-gl-580=580.126.16-1ubuntu1 libnvidia-gpucomp-580=580.126.16-1ubuntu1 nvidia-compute-utils-580=580.126.16-1ubuntu1 nvidia-dkms-580-open=580.126.16-1ubuntu1 nvidia-driver-580-open=580.126.16-1ubuntu1 nvidia-fabricmanager=580.126.16-1 nvidia-firmware-580=580.126.16-1ubuntu1 nvidia-kernel-common-580=580.126.16-1ubuntu1 nvidia-kernel-source-580-open=580.126.16-1ubuntu1 nvidia-modprobe=580.126.16-1ubuntu1 nvidia-persistenced=580.126.16-1ubuntu1 nvidia-utils-580=580.126.16-1ubuntu1 xserver-xorg-video-nvidia-580=580.126.16-1ubuntu1 libxnvctrl0=580.126.16-1ubuntu1 nvidia-settings=580.126.16-1ubuntu1 nvidia-imex=580.126.16-1 mft"
 APT_SANDBOX_OPTS="-o APT::Sandbox::User=root"
 export DEBIAN_FRONTEND=noninteractive
 
@@ -52,7 +52,7 @@ ln -s /etc/systemd/system/check-scout-updates.timer /etc/systemd/system/timers.t
 for bin in /opt/forge/forge-scout \
            /usr/bin/dcgmi \
            /usr/libexec/datacenter-gpu-manager-4/nvvs \
-           /usr/libexec/datacenter-gpu-manager-4/plugins/cuda12/BwChecker_12
+           /usr/libexec/datacenter-gpu-manager-4/plugins/cuda13/BwChecker_13
 do
   if [ "$(ldd ${bin} | fgrep -c 'not found')" != "0" ]
   then

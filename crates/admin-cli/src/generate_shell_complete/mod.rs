@@ -25,10 +25,17 @@ use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
 use crate::cfg::dispatch::Dispatch;
+use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, _ctx: RuntimeContext) -> CarbideCliResult<()> {
+impl Run for Cmd {
+    async fn run(self, _ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
         cmds::generate(self.shell)
+    }
+}
+
+impl Dispatch for Cmd {
+    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
+        self.run(&mut ctx).await
     }
 }

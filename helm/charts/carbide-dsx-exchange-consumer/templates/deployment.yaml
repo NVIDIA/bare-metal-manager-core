@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbide-dsx-exchange-consumer
+  namespace: {{ include "carbide-dsx-exchange-consumer.namespace" . }}
+  labels:
+    {{- include "carbide-dsx-exchange-consumer.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "carbide-dsx-exchange-consumer.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "carbide-dsx-exchange-consumer.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: carbide-dsx-exchange-consumer
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: carbide-dsx-exchange-consumer
+          image: "{{ include "carbide-dsx-exchange-consumer.image" . }}"
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          securityContext:
+            capabilities:
+              add:
+                - SYS_PTRACE
+          command:
+            - /bin/sh
+            - -c
+            - /opt/carbide/carbide-dsx-exchange-consumer
+          env:
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.service.port }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          resources: {}
+          volumeMounts:
+            - mountPath: "/var/run/secrets/spiffe.io"
+              name: spiffe
+              readOnly: true
+      volumes:
+        - name: spiffe
+          secret:
+            secretName: carbide-dsx-exchange-consumer-certificate

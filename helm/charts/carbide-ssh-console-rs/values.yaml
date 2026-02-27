@@ -1,0 +1,74 @@
+## carbide-ssh-console-rs — SSH console proxy for remote BMC/console access
+## Global settings (overridden by umbrella chart)
+global:
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  certificate:
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+    issuerRef:
+      kind: ClusterIssuer
+      name: vault-forge-issuer
+      group: cert-manager.io
+  spiffe:
+    trustDomain: forge.local
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: site-controller
+
+## Override the release namespace (defaults to helm install -n <namespace>)
+namespaceOverride: ""
+
+replicas: 1
+annotations:
+  configmap.reloader.stakater.com/reload: "ssh-console-rs-config-files"
+
+imagePullSecrets: []
+
+service:
+  port: 22
+
+metrics:
+  port: 9009
+
+certificate:
+  ## serviceName is used to auto-generate dnsNames and SPIFFE URIs based on the release namespace
+  serviceName: carbide-ssh-console-rs
+  extraDnsNames: []
+  extraUris: []
+
+readinessProbe:
+  tcpSocket:
+    port: 22
+  initialDelaySeconds: 1
+  periodSeconds: 30
+  failureThreshold: 3
+  successThreshold: 1
+
+## OpenTelemetry log collector sidecar (must be set by user)
+lokiLogCollector:
+  image:
+    repository: ""
+    tag: ""
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 25s
+
+# Config files - can be overridden
+configFiles:
+  config: ""        # If empty, uses the default from files/
+  otelcolConfig: "" # If empty, uses the default from files/
+
+## External LoadBalancer Service (for bare-metal / MetalLB)
+externalService:
+  enabled: false
+  type: LoadBalancer
+  annotations: {}

@@ -44,6 +44,7 @@ pub mod logical_partition;
 pub mod machine;
 pub mod machine_discovery;
 pub mod machine_hardware_info;
+pub mod machine_identity;
 pub mod machine_interface;
 pub mod machine_quarantine;
 pub mod machine_scout;

@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbide-hardware-health
+  namespace: {{ include "carbide-hardware-health.namespace" . }}
+  labels:
+    {{- include "carbide-hardware-health.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "carbide-hardware-health.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "carbide-hardware-health.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: carbide-hardware-health
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: carbide-hardware-health
+          image: "{{ include "carbide-hardware-health.image" . }}"
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          securityContext:
+            capabilities:
+              add:
+                - SYS_PTRACE
+          command:
+            - /bin/sh
+            - -c
+            - /opt/carbide/forge-hw-health
+          env:
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.service.port }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          resources: {}
+          volumeMounts:
+            - mountPath: "/var/run/secrets/spiffe.io"
+              name: spiffe
+              readOnly: true
+      volumes:
+        - name: spiffe
+          secret:
+            secretName: carbide-hardware-health-certificate

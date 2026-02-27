@@ -26,7 +26,10 @@
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
+use super::maintenance::args::Args as MaintenanceAction;
+use super::power_options::args::{Args as PowerOptions, DesiredPowerState};
+use super::quarantine::args::Args as QuarantineAction;
+use super::*;
 
 // Define a basic/working MachineId for testing.
 const TEST_MACHINE_ID: &str = "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-api-profiler
+  namespace: {{ include "carbide-api.namespace" . }}
+  labels:
+    {{- include "carbide-api.labels" . | nindent 4 }}
+    app: carbide-api
+    app.kubernetes.io/metrics: carbide-api
+spec:
+  selector:
+    {{- include "carbide-api.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: {{ .Values.service.profiler.port }}
+      name: http
+      protocol: TCP
+      targetPort: {{ .Values.service.profiler.port }}

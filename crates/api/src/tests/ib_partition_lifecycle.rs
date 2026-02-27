@@ -31,7 +31,7 @@ use crate::api::Api;
 use crate::api::rpc::IbPartitionConfig;
 use crate::cfg::file::IBFabricConfig;
 use crate::tests::common;
-use crate::tests::common::api_fixtures::TestEnvOverrides;
+use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env};
 
 const FIXTURE_CREATED_IB_PARTITION_NAME: &str = "ib_partition_1";
 const FIXTURE_TENANT_ORG_ID: &str = "tenant";
@@ -433,7 +433,7 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         id,
         config: IBPartitionConfig {
             name: "partition1".to_string(),
-            pkey: Some(42.try_into().unwrap()),
+            pkey: None,
             tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string().try_into().unwrap(),
             mtu: Some(IBMtu::default()),
             rate_limit: Some(IBRateLimit::default()),
@@ -446,7 +446,19 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         },
     };
     let mut txn = pool.begin().await?;
-    let mut partition: IBPartition = db::ib_partition::create(new_partition, &mut txn, 10).await?;
+    let mut partition: IBPartition = db::ib_partition::create(
+        new_partition,
+        &mut txn,
+        10,
+        IBPartitionStatus {
+            partition: None,
+            mtu: None,
+            rate_limit: None,
+            service_level: None,
+            pkey: Some(42.try_into().unwrap()),
+        },
+    )
+    .await?;
     txn.commit().await?;
 
     let results = db::ib_partition::for_tenant(&pool, FIXTURE_TENANT_ORG_ID.to_string()).await?;
@@ -471,10 +483,11 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     };
     let qos_conf = ibnetwork.qos_conf.as_ref().unwrap();
     partition.status = Some(IBPartitionStatus {
-        partition: ibnetwork.name.clone(),
-        mtu: qos_conf.mtu.clone(),
-        rate_limit: qos_conf.rate_limit.clone(),
-        service_level: qos_conf.service_level.clone(),
+        partition: Some(ibnetwork.name.clone()),
+        mtu: Some(qos_conf.mtu.clone()),
+        rate_limit: Some(qos_conf.rate_limit.clone()),
+        service_level: Some(qos_conf.service_level.clone()),
+        pkey: partition.status.as_ref().and_then(|s| s.pkey),
     });
     // What we're testing
     let mut txn = pool.begin().await?;
@@ -501,7 +514,7 @@ async fn test_reject_update_with_invalid_metadata(
         id,
         config: IBPartitionConfig {
             name: "partition1".to_string(),
-            pkey: Some(42.try_into().unwrap()),
+            pkey: None,
             tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string().try_into().unwrap(),
             mtu: Some(IBMtu::default()),
             rate_limit: Some(IBRateLimit::default()),
@@ -514,7 +527,19 @@ async fn test_reject_update_with_invalid_metadata(
         },
     };
     let mut txn = pool.begin().await?;
-    let mut partition: IBPartition = db::ib_partition::create(new_partition, &mut txn, 10).await?;
+    let mut partition: IBPartition = db::ib_partition::create(
+        new_partition,
+        &mut txn,
+        10,
+        IBPartitionStatus {
+            partition: None,
+            mtu: None,
+            rate_limit: None,
+            service_level: None,
+            pkey: Some(42.try_into().unwrap()),
+        },
+    )
+    .await?;
     txn.commit().await?;
 
     partition.metadata.name = "".to_string(); // Invalid name
@@ -532,4 +557,131 @@ async fn test_reject_update_with_invalid_metadata(
     );
 
     Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_duplicate_ib_partition(pool: sqlx::PgPool) {
+    // Create a partition.
+    let env = create_test_env(pool.clone()).await;
+    let p = env
+        .api
+        .create_ib_partition(Request::new(rpc::forge::IbPartitionCreationRequest {
+            id: None,
+            config: Some(IbPartitionConfig {
+                name: "p1".to_string(),
+                tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+                pkey: None,
+            }),
+            metadata: Some(rpc::Metadata {
+                name: "p1".to_string(),
+                labels: vec![Label {
+                    key: "example_key".into(),
+                    value: Some("example_value".into()),
+                }],
+                description: "example description".into(),
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    // Status should have been created with the auto-allocated PKEY.
+    assert!(p.status.as_ref().and_then(|s| s.pkey.as_ref()).is_some());
+
+    // Try to create another partition but use the pkey we just got.
+    // This should fail.
+    let _ = env
+        .api
+        .create_ib_partition(Request::new(rpc::forge::IbPartitionCreationRequest {
+            id: None,
+            config: Some(IbPartitionConfig {
+                name: "p2".to_string(),
+                tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+                pkey: p.status.unwrap().pkey,
+            }),
+            metadata: Some(rpc::Metadata {
+                name: "p2".to_string(),
+                labels: vec![Label {
+                    key: "example_key".into(),
+                    value: Some("example_value".into()),
+                }],
+                description: "example description".into(),
+            }),
+        }))
+        .await
+        .unwrap_err();
+
+    let pkey = "0x00A0";
+
+    // Create another partition with a valid, explicit PKEY.
+    let p = env
+        .api
+        .create_ib_partition(Request::new(rpc::forge::IbPartitionCreationRequest {
+            id: None,
+            config: Some(IbPartitionConfig {
+                name: "p3".to_string(),
+                tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+                pkey: Some(pkey.to_string()),
+            }),
+            metadata: Some(rpc::Metadata {
+                name: "p3".to_string(),
+                labels: vec![Label {
+                    key: "example_key".into(),
+                    value: Some("example_value".into()),
+                }],
+                description: "example description".into(),
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    // Status should have been created with the requested PKEY, and status and config should match.
+    assert_eq!(
+        p.status.unwrap().pkey.unwrap(),
+        p.config.unwrap().pkey.unwrap()
+    );
+
+    // Create another partition.  PKEY doesn't matter because we are
+    // going to change it anyway.
+    let p2 = env
+        .api
+        .create_ib_partition(Request::new(rpc::forge::IbPartitionCreationRequest {
+            id: None,
+            config: Some(IbPartitionConfig {
+                name: "p4".to_string(),
+                tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+                pkey: None,
+            }),
+            metadata: Some(rpc::Metadata {
+                name: "p4".to_string(),
+                labels: vec![Label {
+                    key: "example_key".into(),
+                    value: Some("example_value".into()),
+                }],
+                description: "example description".into(),
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    // Try an update where the status.pkey is set to an existing PKEY.
+    // Updates to the PKEY of the partition shouldn't be possible, but
+    // we perform status updates, and pkey is part of status.
+
+    let mut partition = db::ib_partition::find_by(
+        &mut PgPoolReader::from(pool.clone()),
+        ObjectColumnFilter::One(db::ib_partition::IdColumn, p2.id.as_ref().unwrap()),
+    )
+    .await
+    .unwrap()
+    .remove(0);
+    let status = partition.status.as_mut().unwrap();
+    status.pkey = Some(pkey.to_string().parse().unwrap());
+
+    let mut txn = pool.begin().await.unwrap();
+    db::ib_partition::update(&partition, &mut txn)
+        .await
+        .unwrap_err();
+    txn.rollback().await.unwrap();
 }

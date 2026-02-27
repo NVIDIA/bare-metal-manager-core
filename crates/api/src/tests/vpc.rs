@@ -29,7 +29,7 @@ use rpc::forge::forge_server::Forge;
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env_with_overrides};
-use crate::tests::common::rpc_builder::{VpcCreationRequest, VpcUpdateRequest};
+use crate::tests::common::rpc_builder::{VpcCreationRequest, VpcDeletionRequest, VpcUpdateRequest};
 use crate::{DatabaseError, db_init};
 
 #[crate::sqlx_test]
@@ -128,7 +128,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         .unwrap();
 
     // Try to request a VNI that shouldn't exist
-    // (based on VPC_VNI pool definition in pool_defs in carbide-core/crates/api/src/tests/common/api_fixtures/mod.rs)
+    // (based on VPC_VNI pool definition in pool_defs in crates/api/src/tests/common/api_fixtures/mod.rs)
     assert!(
         env.api
             .create_vpc(
@@ -205,6 +205,57 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
             .contains("greater than associated tenant")
     );
 
+    // Create a VPC by explicitly selecting a VNI from
+    // the allowed pool.
+    let forge_vpc = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder("", &tenant.organization_id)
+                .vni(60001u32)
+                .metadata(rpc::forge::Metadata {
+                    name: "Forge_with_vni".to_string(),
+                    description: "".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+
+    // A VNI is allocated
+    assert!(forge_vpc.status.and_then(|s| s.vni).is_some());
+    // The 'config' VNI and the status VNI match
+    assert_eq!(forge_vpc.vni, forge_vpc.status.and_then(|s| s.vni));
+
+    // Create another VPC by explicitly selecting a VNI from
+    // the allowed pool, but use the same VNI, so it should fail.
+    let _ = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder("", &tenant.organization_id)
+                .vni(60001u32)
+                .metadata(rpc::forge::Metadata {
+                    name: "Forge_with_vni_dupe".to_string(),
+                    description: "".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
+        .await
+        .unwrap_err();
+
+    // Clean it up so the rest of our tests can work with a single VPC in the DB.
+    env.api
+        .delete_vpc(
+            VpcDeletionRequest::builder()
+                .id(forge_vpc.id.unwrap())
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+
     // No network_virtualization_type, should default
     let forge_vpc = env
         .api
@@ -224,7 +275,9 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let version: ConfigVersion = forge_vpc.version.parse()?;
     assert_eq!(version.version_nr(), 1);
     // A VNI is allocated
-    assert!(forge_vpc.vni.is_some());
+    assert!(forge_vpc.status.and_then(|s| s.vni).is_some());
+    // The 'config' VNI is still None because this was an auto-allocated VNI
+    assert!(forge_vpc.vni.is_none());
     // We default to type Ethernet Virtualizer
     assert_eq!(forge_vpc.network_virtualization_type, Some(0));
 
@@ -640,62 +693,6 @@ async fn prevent_vpc_with_two_names(pool: sqlx::PgPool) -> Result<(), Box<dyn st
             );
         }
     };
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-
-    // Create two VPCs
-
-    let forge_vpc_1 = env
-        .api
-        .create_vpc(
-            VpcCreationRequest::builder("", "")
-                .metadata(Metadata {
-                    name: "prevent_duplicate_vni".to_string(),
-                    ..Default::default()
-                })
-                .tonic_request(),
-        )
-        .await
-        .unwrap()
-        .into_inner();
-    assert!(forge_vpc_1.vni.is_some());
-    let forge_vpc_2 = env
-        .api
-        .create_vpc(
-            VpcCreationRequest::builder("", "")
-                .metadata(Metadata {
-                    name: "prevent_duplicate_vni".to_string(),
-                    ..Default::default()
-                })
-                .tonic_request(),
-        )
-        .await
-        .unwrap()
-        .into_inner();
-    assert!(forge_vpc_2.vni.is_some());
-    assert_ne!(forge_vpc_1.vni, forge_vpc_2.vni);
-
-    let vpc_2_id = forge_vpc_2.id.unwrap();
-
-    // We can only update the VNI on a VPC that doesn't already have one, so clear it first
-    let mut txn = env.pool.begin().await?;
-    sqlx::query("UPDATE vpcs SET vni = NULL WHERE id = $1")
-        .bind(vpc_2_id)
-        .execute(&mut *txn)
-        .await?;
-    txn.commit().await?;
-
-    // Try to set the second one's VNI to the first ones. It should fail
-    let mut txn = env.pool.begin().await?;
-    if let Ok(()) = db::vpc::set_vni(&mut txn, vpc_2_id, forge_vpc_1.vni.unwrap() as i32).await {
-        panic!("VPCs should be prevented from having duplicate VNIs");
-    }
-    txn.commit().await?;
 
     Ok(())
 }

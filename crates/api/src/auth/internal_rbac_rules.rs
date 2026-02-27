@@ -81,6 +81,7 @@ impl InternalRBACRules {
         x.perm("GetAllDpaInterfaceIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindDpaInterfacesByIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateDpaInterface", vec![]);
+        x.perm("EnsureDpaInterface", vec![]);
         x.perm("DeleteDpaInterface", vec![]);
         x.perm("SetDpaNetworkObservationStatus", vec![]);
         x.perm(
@@ -269,6 +270,7 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, SiteAgent, Rla],
         );
         x.perm("AttestQuote", vec![Anonymous]);
+        x.perm("SignMachineIdentity", vec![Agent]);
         x.perm("CreateMeasurementBundle", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteMeasurementBundle", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("RenameMeasurementBundle", vec![ForgeAdminCLI, SiteAgent]);
@@ -361,9 +363,11 @@ impl InternalRBACRules {
         x.perm("UpdateOsImage", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateRackFirmware", vec![ForgeAdminCLI]);
         x.perm("DeleteRackFirmware", vec![ForgeAdminCLI]);
+        x.perm("FindRackStateHistories", vec![ForgeAdminCLI, Machineatron]);
         x.perm("ListRackFirmware", vec![ForgeAdminCLI]);
         x.perm("GetRackFirmware", vec![ForgeAdminCLI]);
         x.perm("ApplyRackFirmware", vec![ForgeAdminCLI]);
+        x.perm("GetRackFirmwareJobStatus", vec![ForgeAdminCLI]);
         x.perm("RebootCompleted", vec![Machineatron, Scout]);
         x.perm("PersistValidationResult", vec![Scout]);
         x.perm("GetMachineValidationResults", vec![ForgeAdminCLI, Scout]);

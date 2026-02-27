@@ -1,0 +1,13 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: carbide-dhcp-metrics
+  namespace: {{ include "carbide-dhcp.namespace" . }}
+  labels:
+    {{- include "carbide-dhcp.labels" . | nindent 4 }}
+    app: carbide-dhcp
+    prometheus: forge-monitoring
+spec:
+  {{- include "carbide-dhcp.serviceMonitorSpec" (dict "name" "carbide-dhcp" "port" "http" "monitor" .Values.serviceMonitor "namespace" "forge-system") | nindent 2 }}
+{{- end }}

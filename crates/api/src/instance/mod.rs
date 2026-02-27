@@ -25,8 +25,7 @@ use carbide_uuid::machine::MachineId;
 use carbide_uuid::vpc::VpcPrefixId;
 use config_version::ConfigVersion;
 use db::{
-    self, ObjectColumnFilter, ObjectFilter, dpa_interface, extension_service, ib_partition,
-    network_security_group,
+    self, ObjectColumnFilter, ObjectFilter, extension_service, ib_partition, network_security_group,
 };
 use itertools::Itertools;
 use model::ConfigValidationError;
@@ -117,28 +116,6 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
             allow_unhealthy_machine,
         })
     }
-}
-
-pub async fn allocate_dpa_vni(
-    api: &Api,
-    network_config: &InstanceNetworkConfig,
-    txn: &mut PgConnection,
-) -> CarbideResult<()> {
-    let Some(network_segment_id) = network_config.interfaces[0].network_segment_id else {
-        // Network segment allocation is done before persisting record in db. So if still
-        // network segment is empty, return error.
-        return Err(CarbideError::InvalidArgument(
-            "Expected Network Segment".to_string(),
-        ));
-    };
-
-    let vpc = db::vpc::find_by_segment(&mut *txn, network_segment_id)
-        .await
-        .map_err(CarbideError::from)?;
-
-    db::vpc::allocate_dpa_vni(txn, vpc, &api.common_pools.dpa.pool_dpa_vni).await?;
-
-    Ok(())
 }
 
 /// Allocate network segment and update network segment id with it.
@@ -614,13 +591,6 @@ pub async fn batch_allocate_instances(
 
     batch_validate_ib_partition_ownership(&mut txn, &ib_partition_validations).await?;
 
-    // Batch check which machines are DPA capable (if DPA is enabled)
-    let dpa_capable_machines: HashSet<MachineId> = if api.runtime_config.is_dpa_enabled() {
-        dpa_interface::batch_is_machine_dpa_capable(&mut txn, &machine_ids).await?
-    } else {
-        HashSet::new()
-    };
-
     // Batch query inband segments for all machines
     let inband_segments_map =
         db::instance_network_config::batch_get_inband_segments_by_machine_ids(
@@ -641,11 +611,6 @@ pub async fn batch_allocate_instances(
                 kind: "machine",
                 id: machine_id.to_string(),
             })?;
-
-        // Allocate DPA VNI if needed
-        if dpa_capable_machines.contains(&machine_id) {
-            allocate_dpa_vni(api, &request.config.network, &mut txn).await?;
-        }
 
         // Allocate network
         allocate_network(&mut request.config.network, &mut txn).await?;

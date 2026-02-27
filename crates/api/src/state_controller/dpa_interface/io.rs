@@ -121,6 +121,7 @@ impl StateControllerIO for DpaInterfaceStateControllerIO {
         match state {
             DpaInterfaceControllerState::Provisioning => ("provisioning", ""),
             DpaInterfaceControllerState::Unlocking => ("unlocking", ""),
+            DpaInterfaceControllerState::ApplyFirmware => ("applyfirmware", ""),
             DpaInterfaceControllerState::ApplyProfile => ("locking", ""),
             DpaInterfaceControllerState::Locking => ("locking", ""),
             DpaInterfaceControllerState::Ready => ("ready", ""),

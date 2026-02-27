@@ -15,39 +15,45 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmds;
+mod associate;
+mod common;
+mod create;
+mod delete;
+mod disassociate;
+mod show;
+mod update;
 
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Create(args) => cmds::create(args, ctx.config.format, &ctx.api_client).await,
-            Cmd::Show(args) => {
-                cmds::show(
-                    args,
-                    ctx.config.format,
-                    &ctx.api_client,
-                    ctx.config.page_size,
-                    ctx.config.extended,
-                )
-                .await
-            }
-            Cmd::Update(args) => cmds::update(args, ctx.config.format, &ctx.api_client).await,
-            Cmd::Delete(args) => cmds::delete(args, &ctx.api_client).await,
-            Cmd::Associate(args) => cmds::create_association(args, &ctx.api_client).await,
-            Cmd::Disassociate(args) => {
-                cmds::remove_association(args, ctx.config.cloud_unsafe_op_enabled, &ctx.api_client)
-                    .await
-            }
-        }
-    }
+#[derive(Parser, Debug, Clone, Dispatch)]
+#[clap(rename_all = "kebab_case")]
+pub enum Cmd {
+    #[clap(about = "Create an instance type", visible_alias = "c")]
+    Create(create::Args),
+
+    #[clap(about = "Show one or more instance types", visible_alias = "s")]
+    Show(show::Args),
+
+    #[clap(about = "Delete an instance type", visible_alias = "d")]
+    Delete(delete::Args),
+
+    #[clap(about = "Update an instance type", visible_alias = "u")]
+    Update(update::Args),
+
+    #[clap(
+        about = "Associate an instance type with machines",
+        visible_alias = "a"
+    )]
+    Associate(associate::Args),
+
+    #[clap(
+        about = "Remove an instance type association from a machines",
+        visible_alias = "r"
+    )]
+    Disassociate(disassociate::Args),
 }

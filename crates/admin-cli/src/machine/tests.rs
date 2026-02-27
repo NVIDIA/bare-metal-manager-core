@@ -25,8 +25,11 @@
 // ValueEnum Parsing - Test string parsing for types deriving claps ValueEnum.
 
 use clap::{CommandFactory, Parser};
+use health_override::args::{Args as OverrideCommand, HealthOverrideTemplates};
+use metadata::args::Args as MachineMetadataCommand;
+use network::args::Args as NetworkCommand;
 
-use super::args::*;
+use super::*;
 
 // Define a basic/working MachineId for testing.
 const TEST_MACHINE_ID: &str = "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
@@ -105,7 +108,7 @@ fn parse_dpu_ssh_credentials() {
 
     match cmd {
         Cmd::DpuSshCredentials(args) => {
-            assert_eq!(args.query, "machine-123");
+            assert_eq!(args.inner.query, "machine-123");
         }
         _ => panic!("expected DpuSshCredentials variant"),
     }

@@ -64,7 +64,7 @@ impl StateHandler for IBPartitionStateHandler {
             }
 
             IBPartitionControllerState::Deleting => {
-                match state.config.pkey {
+                match state.status.as_ref().and_then(|s| s.pkey) {
                     None => {
                         let cause = "The pkey is None when deleting an IBPartition.";
                         tracing::error!(cause);
@@ -147,7 +147,7 @@ impl StateHandler for IBPartitionStateHandler {
                 }
             }
 
-            IBPartitionControllerState::Ready => match state.config.pkey {
+            IBPartitionControllerState::Ready => match state.status.as_ref().and_then(|s| s.pkey) {
                 None => {
                     let cause = "The pkey is None when IBPartition is ready";
                     tracing::error!(cause);
@@ -188,10 +188,11 @@ impl StateHandler for IBPartitionStateHandler {
                                 })?;
 
                                 state.status = Some(IBPartitionStatus {
-                                    partition: ibnetwork.name.clone(),
-                                    mtu: qos.mtu.clone(),
-                                    rate_limit: qos.rate_limit.clone(),
-                                    service_level: qos.service_level.clone(),
+                                    partition: Some(ibnetwork.name.clone()),
+                                    pkey: Some(pkey), // We need the pkey to persist.
+                                    mtu: Some(qos.mtu.clone()),
+                                    rate_limit: Some(qos.rate_limit.clone()),
+                                    service_level: Some(qos.service_level.clone()),
                                 });
 
                                 let ib_result = if !is_qos_conf_applied(&ib_config, qos) {
@@ -251,7 +252,9 @@ impl StateHandler for IBPartitionStateHandler {
             },
 
             IBPartitionControllerState::Error { .. } => {
-                if state.config.pkey.is_some() && state.is_marked_as_deleted() {
+                if state.status.as_ref().and_then(|s| s.pkey).is_some()
+                    && state.is_marked_as_deleted()
+                {
                     Ok(StateHandlerOutcome::transition(
                         IBPartitionControllerState::Deleting,
                     ))

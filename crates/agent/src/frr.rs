@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 
 use gtmpl_derive::Gtmpl;
 
@@ -76,7 +76,7 @@ pub fn blank() -> String {
 /// What we need in order to generate an frr.conf
 pub struct FrrConfig {
     pub asn: u32,
-    pub loopback_ip: Ipv4Addr,
+    pub loopback_ip: IpAddr,
     pub uplinks: Vec<String>,
     pub access_vlans: Vec<FrrVlanConfig>,
     pub vpc_vni: Option<u32>,
@@ -116,6 +116,8 @@ struct TmplFrrConfigParameters {
 
 #[cfg(test)]
 mod tests {
+    use std::net::Ipv4Addr;
+
     use super::{FrrConfig, build};
     use crate::HBNDeviceNames;
 
@@ -128,7 +130,7 @@ mod tests {
                 .iter()
                 .map(|x| x.to_string())
                 .collect(),
-            loopback_ip: [192, 168, 0, 1].into(),
+            loopback_ip: Ipv4Addr::from([192, 168, 0, 1]).into(),
             access_vlans: vec![],
             vpc_vni: None,
             route_servers: vec![],

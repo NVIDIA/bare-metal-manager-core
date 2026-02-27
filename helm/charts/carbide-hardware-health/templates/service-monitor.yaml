@@ -1,0 +1,13 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: carbide-hardware-health-metrics
+  namespace: {{ include "carbide-hardware-health.namespace" . }}
+  labels:
+    {{- include "carbide-hardware-health.labels" . | nindent 4 }}
+    app: carbide-hardware-health
+    prometheus: forge-monitoring
+spec:
+  {{- include "carbide-hardware-health.serviceMonitorSpec" (dict "name" "carbide-hardware-health" "port" "metrics" "monitor" .Values.serviceMonitor "namespace" "forge-system") | nindent 2 }}
+{{- end }}

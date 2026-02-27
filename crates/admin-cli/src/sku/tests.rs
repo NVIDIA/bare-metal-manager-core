@@ -25,7 +25,7 @@
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
+use super::*;
 
 const TEST_MACHINE_ID: &str = "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
 
@@ -81,7 +81,7 @@ fn parse_show_machines() {
 
     match cmd {
         Cmd::ShowMachines(args) => {
-            assert_eq!(args.sku_id, Some("sku-123".to_string()));
+            assert_eq!(args.inner.sku_id, Some("sku-123".to_string()));
         }
         _ => panic!("expected ShowMachines variant"),
     }
@@ -137,8 +137,8 @@ fn parse_delete() {
     let cmd = Cmd::try_parse_from(["sku", "delete", "sku-123"]).expect("should parse delete");
 
     match cmd {
-        Cmd::Delete { sku_id } => {
-            assert_eq!(sku_id, "sku-123");
+        Cmd::Delete(args) => {
+            assert_eq!(args.sku_id, "sku-123");
         }
         _ => panic!("expected Delete variant"),
     }
@@ -151,14 +151,10 @@ fn parse_assign() {
         .expect("should parse assign");
 
     match cmd {
-        Cmd::Assign {
-            sku_id,
-            machine_id,
-            force,
-        } => {
-            assert_eq!(sku_id, "sku-123");
-            assert_eq!(machine_id.to_string(), TEST_MACHINE_ID);
-            assert!(!force);
+        Cmd::Assign(args) => {
+            assert_eq!(args.sku_id, "sku-123");
+            assert_eq!(args.machine_id.to_string(), TEST_MACHINE_ID);
+            assert!(!args.force);
         }
         _ => panic!("expected Assign variant"),
     }
@@ -171,8 +167,8 @@ fn parse_assign_with_force() {
         .expect("should parse assign with force");
 
     match cmd {
-        Cmd::Assign { force, .. } => {
-            assert!(force);
+        Cmd::Assign(args) => {
+            assert!(args.force);
         }
         _ => panic!("expected Assign variant"),
     }
@@ -199,8 +195,8 @@ fn parse_verify() {
     let cmd = Cmd::try_parse_from(["sku", "verify", TEST_MACHINE_ID]).expect("should parse verify");
 
     match cmd {
-        Cmd::Verify { machine_id } => {
-            assert_eq!(machine_id.to_string(), TEST_MACHINE_ID);
+        Cmd::Verify(args) => {
+            assert_eq!(args.machine_id.to_string(), TEST_MACHINE_ID);
         }
         _ => panic!("expected Verify variant"),
     }
@@ -251,7 +247,7 @@ fn parse_replace() {
 
     match cmd {
         Cmd::Replace(args) => {
-            assert_eq!(args.filename, "sku.json");
+            assert_eq!(args.inner.filename, "sku.json");
         }
         _ => panic!("expected Replace variant"),
     }

@@ -15,43 +15,33 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmds;
+pub(crate) mod common;
+mod create;
+mod delete;
+mod get_version;
+pub(crate) mod show;
+mod show_instances;
+mod update;
 
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Create(args) => {
-                cmds::handle_create(args, ctx.config.format, &ctx.api_client).await
-            }
-            Cmd::Update(args) => {
-                cmds::handle_update(args, ctx.config.format, &ctx.api_client).await
-            }
-            Cmd::Delete(args) => {
-                cmds::handle_delete(args, ctx.config.format, &ctx.api_client).await
-            }
-            Cmd::Show(args) => {
-                cmds::handle_show(
-                    args,
-                    ctx.config.format,
-                    &ctx.api_client,
-                    ctx.config.page_size,
-                )
-                .await
-            }
-            Cmd::GetVersion(args) => cmds::handle_get_version(args, &ctx.api_client).await,
-            Cmd::ShowInstances(args) => {
-                cmds::handle_show_instances(args, ctx.config.format, &ctx.api_client).await
-            }
-        }
-    }
+#[derive(Parser, Debug, Dispatch)]
+pub enum Cmd {
+    #[clap(about = "Create an extension service")]
+    Create(create::Args),
+    #[clap(about = "Update an extension service")]
+    Update(update::Args),
+    #[clap(about = "Delete an extension service")]
+    Delete(delete::Args),
+    #[clap(about = "Show extension service information")]
+    Show(show::Args),
+    #[clap(about = "Get extension service version information")]
+    GetVersion(get_version::Args),
+    #[clap(about = "Show instances using an extension service")]
+    ShowInstances(show_instances::Args),
 }

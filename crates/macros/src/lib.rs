@@ -19,9 +19,101 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::parse::Parser;
 use syn::punctuated::Punctuated;
-use syn::{LitStr, Meta, Token};
+use syn::{DeriveInput, LitStr, Meta, Token};
 
 type AttributeArgs = syn::punctuated::Punctuated<syn::Meta, syn::Token![,]>;
+
+/// derive_dispatch is a derive macro that generates a `Dispatch` impl
+/// for a CLI command enum. Each variant can either be a tuple variant
+/// with a single field whose type implements `Run`, OR be a variant
+/// annotated with `#[dispatch]`, which is then treated as nested command
+/// group whose inner type implements `Dispatch` itself (with more `Run`
+/// and/or #[dispatch] variants).
+///
+/// # Some examples, if you please.
+///
+/// A command where variants implement `Run`:
+/// ```ignore
+/// #[derive(Parser, Debug, Dispatch)]
+/// pub enum Cmd {
+///     Show(show::Args),
+///     List(list::Args),
+/// }
+/// ```
+///
+/// A command with both `Run` and nested `Dispatch` variants:
+/// ```ignore
+/// #[derive(Parser, Debug, Dispatch)]
+/// pub enum Cmd {
+///     Show(show::Args),
+///     #[dispatch]
+///     SubGroup(sub::Cmd),
+/// }
+/// ```
+#[proc_macro_derive(Dispatch, attributes(dispatch))]
+pub fn derive_dispatch(input: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(input as DeriveInput);
+    match expand_dispatch(input) {
+        Ok(ts) => ts,
+        Err(e) => e.to_compile_error().into(),
+    }
+}
+
+fn expand_dispatch(input: DeriveInput) -> syn::Result<TokenStream> {
+    let name = &input.ident;
+
+    let data = match &input.data {
+        syn::Data::Enum(data) => data,
+        _ => {
+            return Err(syn::Error::new_spanned(
+                &input.ident,
+                "Dispatch can only be derived for enums",
+            ));
+        }
+    };
+
+    let mut run_arms = Vec::new();
+    let mut dispatch_arms = Vec::new();
+
+    for variant in &data.variants {
+        let variant_name = &variant.ident;
+        let is_dispatch = variant.attrs.iter().any(|a| a.path().is_ident("dispatch"));
+
+        if is_dispatch {
+            dispatch_arms.push(quote! {
+                #name::#variant_name(cmd) => cmd.dispatch(ctx).await,
+            });
+        } else {
+            run_arms.push(quote! {
+                #name::#variant_name(args) => args.run(&mut ctx).await,
+            });
+        }
+    }
+
+    let dispatch_import = if dispatch_arms.is_empty() {
+        quote! {}
+    } else {
+        quote! { use crate::cfg::dispatch::Dispatch as _; }
+    };
+
+    let output = quote! {
+        impl crate::cfg::dispatch::Dispatch for #name {
+            async fn dispatch(
+                self,
+                mut ctx: crate::cfg::runtime::RuntimeContext,
+            ) -> ::rpc::admin_cli::CarbideCliResult<()> {
+                use crate::cfg::run::Run;
+                #dispatch_import
+                match self {
+                    #(#run_arms)*
+                    #(#dispatch_arms)*
+                }
+            }
+        }
+    };
+
+    Ok(output.into())
+}
 
 /// Use this instead of `#[sqlx::test]`. This is because `#[sqlx::test]` inlines everything on every
 /// usage, including:

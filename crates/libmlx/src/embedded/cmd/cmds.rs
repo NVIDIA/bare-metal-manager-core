@@ -28,9 +28,9 @@ use crate::device::info::MlxDeviceInfo;
 use crate::embedded::cmd::args::{
     Cli, Commands, FirmwareAction, OutputFormat, ProfileCommands, RegistryAction, RunnerCommands,
 };
+use crate::firmware::config::{FirmwareFlasherProfile, FirmwareSpec, FlashSpec};
 use crate::firmware::credentials::Credentials;
 use crate::firmware::flasher::FirmwareFlasher;
-use crate::firmware::source::FirmwareSource;
 use crate::lockdown::cmd::cmds::handle_lockdown;
 use crate::profile::profile::MlxConfigProfile;
 use crate::registry::registries;
@@ -123,7 +123,7 @@ pub async fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             work_dir,
             firmware_action,
         }) => {
-            run_firmware_command(dry_run, work_dir, firmware_action).await?;
+            run_firmware_command(dry_run, work_dir, *firmware_action).await?;
         }
         None => {
             cmd_show_default_info();
@@ -1001,6 +1001,9 @@ async fn run_firmware_command(
     match action {
         FirmwareAction::Flash {
             device,
+            part_number,
+            psid,
+            version,
             firmware_url,
             device_conf_url,
             firmware_bearer_token,
@@ -1011,102 +1014,123 @@ async fn run_firmware_command(
             device_conf_basic_auth,
             device_conf_ssh_key,
             device_conf_ssh_agent,
-            expected_version,
         } => {
-            let firmware_source = build_fw_source(
-                &firmware_url,
+            let spec = FirmwareSpec {
+                part_number,
+                psid,
+                version,
+            };
+            let flasher = FirmwareFlasher::new(&device, &spec)?.with_dry_run(dry_run);
+
+            let firmware_credentials = build_credentials(
                 firmware_bearer_token.as_deref(),
                 firmware_basic_auth.as_deref(),
                 firmware_ssh_key.as_ref(),
                 firmware_ssh_agent,
             )?;
 
-            let mut flasher = FirmwareFlasher::new(&device)
-                .with_firmware(firmware_source)
-                .with_dry_run(dry_run);
-
-            if let Some(ref dir) = work_dir {
-                flasher = flasher.with_work_dir(dir);
-            }
-
-            if let Some(ref version) = expected_version {
-                flasher = flasher.with_expected_version(version);
-            }
-
-            if let Some(ref conf_url) = device_conf_url {
-                let conf_source = build_fw_source(
-                    conf_url,
+            let device_conf_credentials = if device_conf_url.is_some() {
+                build_credentials(
                     device_conf_bearer_token.as_deref(),
                     device_conf_basic_auth.as_deref(),
                     device_conf_ssh_key.as_ref(),
                     device_conf_ssh_agent,
-                )?;
-                flasher = flasher.with_device_conf(conf_source);
-            }
+                )?
+            } else {
+                None
+            };
 
-            flasher.flash().await?;
+            let flash_spec = FlashSpec {
+                firmware_url,
+                firmware_credentials,
+                device_conf_url,
+                device_conf_credentials,
+                verify_from_cache: false,
+                cache_dir: work_dir,
+            };
+
+            flasher.flash(&flash_spec).await?;
         }
 
         FirmwareAction::FlashConfig {
             device,
             config_file,
         } => {
-            let flasher = FirmwareFlasher::from_config_file(&device, &config_file)?;
-            let flasher = flasher.with_dry_run(dry_run);
+            let profile = FirmwareFlasherProfile::from_file(&config_file)?;
+            let flasher =
+                FirmwareFlasher::new(&device, &profile.firmware_spec)?.with_dry_run(dry_run);
 
-            let flasher = match work_dir {
-                Some(ref dir) => flasher.with_work_dir(dir),
-                None => flasher,
-            };
-
-            flasher.flash().await?;
+            flasher.apply(&profile).await?;
         }
 
         FirmwareAction::VerifyImage {
             device,
+            part_number,
+            psid,
+            version,
             image_url,
             bearer_token,
             basic_auth,
             ssh_key,
             ssh_agent,
         } => {
-            let image_source = build_fw_source(
-                &image_url,
+            let spec = FirmwareSpec {
+                part_number,
+                psid,
+                version,
+            };
+            let flasher = FirmwareFlasher::new(&device, &spec)?.with_dry_run(dry_run);
+
+            let firmware_credentials = build_credentials(
                 bearer_token.as_deref(),
                 basic_auth.as_deref(),
                 ssh_key.as_ref(),
                 ssh_agent,
             )?;
 
-            let staging_dir =
-                work_dir.unwrap_or_else(|| std::env::temp_dir().join("mlxconfig-firmware"));
-            std::fs::create_dir_all(&staging_dir)
-                .map_err(|e| format!("Failed to create staging dir: {e}"))?;
+            let flash_spec = FlashSpec {
+                firmware_url: image_url,
+                firmware_credentials,
+                device_conf_url: None,
+                device_conf_credentials: None,
+                verify_from_cache: false,
+                cache_dir: work_dir,
+            };
 
-            let image_path = image_source.resolve(&staging_dir).await?;
-
-            let flasher = FirmwareFlasher::new(&device).with_dry_run(dry_run);
-
-            flasher.verify_image(&image_path)?;
+            flasher.verify_image(&flash_spec).await?;
         }
 
         FirmwareAction::VerifyVersion {
             device,
-            expected_version,
+            part_number,
+            psid,
+            version,
         } => {
-            let flasher = FirmwareFlasher::new(&device)
-                .with_dry_run(dry_run)
-                .with_expected_version(&expected_version);
+            let spec = FirmwareSpec {
+                part_number,
+                psid,
+                version,
+            };
+            let flasher = FirmwareFlasher::new(&device, &spec)?.with_dry_run(dry_run);
 
             flasher.verify_version()?;
         }
 
-        FirmwareAction::Reset { device, level } => {
-            let flasher = FirmwareFlasher::new(&device)
-                .with_dry_run(dry_run)
-                .with_reset_level(level);
+        FirmwareAction::Reset {
+            device,
+            part_number,
+            psid,
+            version,
+            level,
+        } => {
+            let spec = FirmwareSpec {
+                part_number,
+                psid,
+                version,
+            };
+            let flasher = FirmwareFlasher::new(&device, &spec)?.with_dry_run(dry_run);
 
-            flasher.reset()?;
+            flasher.reset_with_level(level)?;
         }
 
         FirmwareAction::ConfigReset { device } => {
@@ -1122,31 +1146,26 @@ async fn run_firmware_command(
     Ok(())
 }
 
-// build_fw_source constructs a FirmwareSource from CLI arguments.
-// URL parsing and source type detection is handled by
-// FirmwareSource::from_url(). Credential flags are applied based
-// on which ones are set.
-fn build_fw_source(
-    url: &str,
+// build_credentials constructs an optional Credentials from CLI flags.
+// At most one credential type should be set.
+fn build_credentials(
     bearer_token: Option<&str>,
     basic_auth: Option<&str>,
     ssh_key: Option<&std::path::PathBuf>,
     ssh_agent: bool,
-) -> Result<FirmwareSource, Box<dyn std::error::Error>> {
-    let mut source = FirmwareSource::from_url(url)?;
-
+) -> Result<Option<Credentials>, Box<dyn std::error::Error>> {
     if let Some(token) = bearer_token {
-        source = source.with_credentials(Credentials::bearer_token(token));
+        Ok(Some(Credentials::bearer_token(token)))
     } else if let Some(auth) = basic_auth {
         let (username, password) = auth
             .split_once(':')
             .ok_or("Basic auth must be in user:password format")?;
-        source = source.with_credentials(Credentials::basic_auth(username, password));
+        Ok(Some(Credentials::basic_auth(username, password)))
     } else if ssh_agent {
-        source = source.with_credentials(Credentials::ssh_agent());
+        Ok(Some(Credentials::ssh_agent()))
     } else if let Some(key_path) = ssh_key {
-        source = source.with_credentials(Credentials::ssh_key(key_path.to_string_lossy()));
+        Ok(Some(Credentials::ssh_key(key_path.to_string_lossy())))
+    } else {
+        Ok(None)
     }
-
-    Ok(source)
 }

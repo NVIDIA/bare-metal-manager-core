@@ -25,7 +25,7 @@
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
+use super::*;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -71,7 +71,7 @@ fn parse_generate_host_uefi_password() {
     let cmd = Cmd::try_parse_from(["host", "generate-host-uefi-password"])
         .expect("should parse generate-host-uefi-password");
 
-    assert!(matches!(cmd, Cmd::GenerateHostUefiPassword));
+    assert!(matches!(cmd, Cmd::GenerateHostUefiPassword(_)));
 }
 
 // Define a basic/working MachineId for testing.
@@ -85,7 +85,7 @@ fn parse_reprovision_set() {
         .expect("should parse reprovision set");
 
     match cmd {
-        Cmd::Reprovision(HostReprovision::Set(args)) => {
+        Cmd::Reprovision(reprovision::args::Args::Set(args)) => {
             assert_eq!(args.id.to_string(), TEST_MACHINE_ID);
             assert!(!args.update_firmware);
             assert!(args.update_message.is_none());
@@ -111,7 +111,7 @@ fn parse_reprovision_set_with_options() {
     .expect("should parse reprovision set with options");
 
     match cmd {
-        Cmd::Reprovision(HostReprovision::Set(args)) => {
+        Cmd::Reprovision(reprovision::args::Args::Set(args)) => {
             assert!(args.update_firmware);
             assert_eq!(
                 args.update_message,
@@ -130,7 +130,7 @@ fn parse_reprovision_clear() {
         .expect("should parse reprovision clear");
 
     match cmd {
-        Cmd::Reprovision(HostReprovision::Clear(args)) => {
+        Cmd::Reprovision(reprovision::args::Args::Clear(args)) => {
             assert_eq!(args.id.to_string(), TEST_MACHINE_ID);
             assert!(!args.update_firmware);
         }
@@ -145,7 +145,10 @@ fn parse_reprovision_list() {
     let cmd = Cmd::try_parse_from(["host", "reprovision", "list"])
         .expect("should parse reprovision list");
 
-    assert!(matches!(cmd, Cmd::Reprovision(HostReprovision::List)));
+    assert!(matches!(
+        cmd,
+        Cmd::Reprovision(reprovision::args::Args::List)
+    ));
 }
 
 // parse_reprovision_set_missing_id_fails ensures
@@ -170,7 +173,7 @@ fn parse_reprovision_mark_manual_upgrade_complete() {
     .expect("should parse mark-manual-upgrade-complete");
 
     match cmd {
-        Cmd::Reprovision(HostReprovision::MarkManualUpgradeComplete(args)) => {
+        Cmd::Reprovision(reprovision::args::Args::MarkManualUpgradeComplete(args)) => {
             assert_eq!(args.id.to_string(), TEST_MACHINE_ID);
         }
         _ => panic!("expected Reprovision MarkManualUpgradeComplete variant"),

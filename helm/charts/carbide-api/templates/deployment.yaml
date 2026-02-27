@@ -1,0 +1,167 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbide-api
+  namespace: {{ include "carbide-api.namespace" . }}
+  labels:
+    {{- include "carbide-api.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.annotations | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "carbide-api.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "carbide-api.labels" . | nindent 8 }}
+      annotations:
+        kubectl.kubernetes.io/default-container: carbide-api
+    spec:
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: carbide-api
+          image: "{{ include "carbide-api.image" . }}"
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          securityContext:
+            capabilities:
+              add:
+                - SYS_PTRACE
+          command:
+            {{- toYaml .Values.command | nindent 12 }}
+          env:
+            - name: VAULT_ROLE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.envFrom.vaultApproleTokens.secretName }}
+                  key: VAULT_ROLE_ID
+                  optional: true
+            - name: VAULT_SECRET_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.envFrom.vaultApproleTokens.secretName }}
+                  key: VAULT_SECRET_ID
+                  optional: true
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.envFrom.vaultToken.secretName }}
+                  key: token
+            - name: VAULT_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.envFrom.vaultClusterInfo.configMapName }}
+                  key: VAULT_SERVICE
+            - name: VAULT_MOUNT_LOCATION
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.envFrom.vaultClusterInfo.configMapName }}
+                  key: FORGE_VAULT_MOUNT
+            - name: VAULT_KV_MOUNT_LOCATION
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.envFrom.vaultClusterInfo.configMapName }}
+                  key: FORGE_VAULT_MOUNT
+            - name: VAULT_PKI_MOUNT_LOCATION
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.envFrom.vaultClusterInfo.configMapName }}
+                  key: FORGE_VAULT_PKI_MOUNT
+            - name: VAULT_PKI_ROLE_NAME
+              value: {{ .Values.env.VAULT_PKI_ROLE_NAME | quote }}
+            - name: DATASTORE_USER
+              valueFrom:
+                secretKeyRef:
+                  key: username
+                  name: {{ .Values.envFrom.databaseCredentials.secretName }}
+            - name: DATASTORE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: {{ .Values.envFrom.databaseCredentials.secretName }}
+            - name: DATASTORE_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.envFrom.databaseConfig.configMapName }}
+                  key: DB_HOST
+            - name: DATASTORE_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.envFrom.databaseConfig.configMapName }}
+                  key: DB_PORT
+            - name: DATASTORE_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.envFrom.databaseConfig.configMapName }}
+                  key: DB_NAME
+            - name: CARBIDE_API_DATABASE_URL
+              value: "postgres://$(DATASTORE_USER):$(DATASTORE_PASSWORD)@$(DATASTORE_HOST):$(DATASTORE_PORT)/$(DATASTORE_NAME)"
+            - name: CARBIDE_WEB_PRIVATE_COOKIEJAR_KEY
+              value: "$(DATASTORE_PASSWORD)"
+            - name: CARBIDE_WEB_HOSTNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.envFrom.carbideWebHostname.configMapName }}
+                  key: hostname
+            - name: RUST_BACKTRACE
+              value: {{ .Values.env.RUST_BACKTRACE | quote }}
+            - name: RUST_LIB_BACKTRACE
+              value: {{ .Values.env.RUST_LIB_BACKTRACE | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.service.grpc.port }}
+            - name: metrics
+              containerPort: {{ .Values.service.metrics.port }}
+            - name: profiler
+              containerPort: {{ .Values.service.profiler.port }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          volumeMounts:
+            - name: carbide-api-config-files
+              mountPath: /etc/forge/carbide-api
+            - name: carbide-api-site-config-files
+              mountPath: /etc/forge/carbide-api/site
+            - name: persistence
+              mountPath: /mnt/persistence
+            - name: spiffe
+              mountPath: "/var/run/secrets/spiffe.io"
+              readOnly: true
+            - name: forge-roots
+              mountPath: "/var/run/secrets/forge-roots"
+              readOnly: true
+            - name: firmware
+              mountPath: "/opt/carbide/firmware"
+              readOnly: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: carbide-api-config-files
+          configMap:
+            name: carbide-api-config-files
+        - name: carbide-api-site-config-files
+          configMap:
+            name: carbide-api-site-config-files
+        - name: persistence
+          emptyDir: {}
+        - name: spiffe
+          secret:
+            secretName: carbide-api-certificate
+        - name: forge-roots
+          secret:
+            secretName: forge-roots
+        - name: firmware
+          emptyDir: {}

@@ -325,7 +325,7 @@ pub enum CliCommand {
     /// Note: These commands update the DPF state of the machine, which determines DPF-based DPU re-provisioning.
     /// The state is saved in the machine's metadata and will be deleted if the machine is force-deleted.
     /// To make the state persistent, add the DPF state for a machine (host) to the expected machines table.
-    Dpf(crate::dpf::args::Cmd),
+    Dpf(crate::dpf::Cmd),
 
     #[clap(about = "Tenant management", subcommand, visible_alias = "tm")]
     Tenant(tenant::Cmd),

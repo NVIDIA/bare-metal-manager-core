@@ -1,0 +1,10 @@
+apiVersion: v2
+name: carbide-dns
+description: Helm chart for the Carbide DNS component
+type: application
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - carbide
+  - dns
+  - forge

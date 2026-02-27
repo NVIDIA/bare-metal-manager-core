@@ -1,0 +1,44 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+use clap::Parser;
+use mac_address::MacAddress;
+
+#[derive(Parser, Debug, Clone)]
+pub struct Args {
+    #[clap(long, short, help = "IP of the BMC where we want to create a new user")]
+    pub ip_address: Option<String>,
+    #[clap(long, help = "MAC of the BMC where we want to create a new user")]
+    pub mac_address: Option<MacAddress>,
+    #[clap(
+        long,
+        short,
+        help = "ID of the machine where we want to create a new user"
+    )]
+    pub machine: Option<String>,
+
+    #[clap(long, short, help = "Username of new BMC account")]
+    pub username: String,
+    #[clap(long, short, help = "Password of new BMC account")]
+    pub password: String,
+    #[clap(
+        long,
+        short,
+        help = "Role of new BMC account ('administrator', 'operator', 'readonly', 'noaccess')"
+    )]
+    pub role_id: Option<String>,
+}

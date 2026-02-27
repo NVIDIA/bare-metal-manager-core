@@ -17,7 +17,7 @@
 use std::fmt::Write;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -134,16 +134,13 @@ impl UrlResolver {
     /// Input name should be hostname, not url.
     /// valid: carbide-pxe.forge, nvidia.com, www.nvidia.com
     /// Invalid: https://www.nvidia.com/extra/uri
-    pub async fn resolve(&mut self, name: &str) -> Result<Vec<Ipv4Addr>, eyre::Report> {
+    pub async fn resolve(&mut self, name: &str) -> Result<Vec<IpAddr>, eyre::Report> {
         let ip = self
             .resolver
             .call(Name::from_str(name)?)
             .await?
-            .filter_map(|x| match x.ip() {
-                IpAddr::V4(x) => Some(x),
-                _ => None,
-            })
-            .collect::<Vec<Ipv4Addr>>();
+            .map(|x| x.ip())
+            .collect::<Vec<IpAddr>>();
 
         Ok(ip)
     }

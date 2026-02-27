@@ -283,7 +283,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 }
             };
 
-            vpc_vni = vpc.vni.map(|x|x as u32);
+            vpc_vni = vpc.status.as_ref().and_then(|v| v.vni.map(|x|x as u32));
 
             let suppress_tenant_security_groups = match &snapshot.managed_state {
                 ManagedHostState::Assigned { instance_state } => {

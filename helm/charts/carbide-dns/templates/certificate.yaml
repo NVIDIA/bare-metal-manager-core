@@ -1,0 +1,9 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: carbide-dns-certificate
+  namespace: {{ include "carbide-dns.namespace" . }}
+  labels:
+    {{- include "carbide-dns.labels" . | nindent 4 }}
+spec:
+  {{- include "carbide-dns.certificateSpec" (dict "name" "carbide-dns-certificate" "cert" .Values.certificate "global" .Values.global "namespace" (include "carbide-dns.namespace" .)) | nindent 2 }}

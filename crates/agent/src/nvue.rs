@@ -302,6 +302,9 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         vf_intercept_hbn_representor_ip,
         public_prefix_internal_next_hop,
         intercept_bridge_prefix_len,
+        // IPv4 only for now. Internal HBN bridge plumbing uses 169.254.x.x
+        // link-local addressing for DPU to HBN communication. An IPv6 equivalent
+        // (fe80:: or similar) may be needed in the future for dual-stack bridging.
     ) = if let Some(bridge_prefix) = conf
         .internal_bridge_routing_prefix
         .map(|p| p.parse::<Ipv4Net>())

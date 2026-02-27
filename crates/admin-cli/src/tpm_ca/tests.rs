@@ -25,7 +25,7 @@
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
+use super::*;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -49,7 +49,7 @@ fn verify_cmd_structure() {
 fn parse_show() {
     let cmd = Cmd::try_parse_from(["tpm-ca", "show"]).expect("should parse show");
 
-    assert!(matches!(cmd, Cmd::Show));
+    assert!(matches!(cmd, Cmd::Show(_)));
 }
 
 // parse_delete ensures delete parses with ca_id.
@@ -86,7 +86,7 @@ fn parse_show_unmatched_ek() {
     let cmd = Cmd::try_parse_from(["tpm-ca", "show-unmatched-ek"])
         .expect("should parse show-unmatched-ek");
 
-    assert!(matches!(cmd, Cmd::ShowUnmatchedEk));
+    assert!(matches!(cmd, Cmd::ShowUnmatchedEk(_)));
 }
 
 // parse_add_bulk ensures add-bulk parses with dirname.

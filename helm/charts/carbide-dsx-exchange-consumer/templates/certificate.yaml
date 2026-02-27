@@ -1,0 +1,9 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: carbide-dsx-exchange-consumer-certificate
+  namespace: {{ include "carbide-dsx-exchange-consumer.namespace" . }}
+  labels:
+    {{- include "carbide-dsx-exchange-consumer.labels" . | nindent 4 }}
+spec:
+  {{- include "carbide-dsx-exchange-consumer.certificateSpec" (dict "name" "carbide-dsx-exchange-consumer-certificate" "cert" .Values.certificate "global" .Values.global "namespace" (include "carbide-dsx-exchange-consumer.namespace" .)) | nindent 2 }}

@@ -64,28 +64,37 @@ pub async fn find_ids(
     let mut builder = sqlx::QueryBuilder::new("SELECT id FROM instances WHERE TRUE "); // The TRUE will be optimized away.
 
     if let Some(label) = filter.label {
-        if label.key.is_empty() && label.value.is_some() {
-            builder.push(
-                " AND EXISTS (
+        match (label.key.is_empty(), label.value) {
+            // Label key is empty, label value is set.
+            (true, Some(value)) => {
+                builder.push(
+                    " AND EXISTS (
                         SELECT 1
                         FROM jsonb_each_text(labels) AS kv
                         WHERE kv.value = ",
-            );
-            builder.push_bind(label.value.unwrap());
-            builder.push(")");
-        } else if label.key.is_empty() && label.value.is_none() {
-            return Err(DatabaseError::InvalidArgument(
-                "finding instances based on label needs either key or a value.".to_string(),
-            ));
-        } else if !label.key.is_empty() && label.value.is_none() {
-            builder.push(" AND labels ->> ");
-            builder.push_bind(label.key);
-            builder.push(" IS NOT NULL");
-        } else if !label.key.is_empty() && label.value.is_some() {
-            builder.push(" AND labels ->> ");
-            builder.push_bind(label.key);
-            builder.push(" = ");
-            builder.push_bind(label.value.unwrap());
+                );
+                builder.push_bind(value);
+                builder.push(")");
+            }
+            // Label key is empty, label value is not set.
+            (true, None) => {
+                return Err(DatabaseError::InvalidArgument(
+                    "finding instances based on label needs either key or a value.".to_string(),
+                ));
+            }
+            // Label key is not empty, label value is not set.
+            (false, None) => {
+                builder.push(" AND labels ->> ");
+                builder.push_bind(label.key);
+                builder.push(" IS NOT NULL");
+            }
+            // Label key is not empty, label value is set.
+            (false, Some(value)) => {
+                builder.push(" AND labels ->> ");
+                builder.push_bind(label.key);
+                builder.push(" = ");
+                builder.push_bind(value);
+            }
         }
     }
 

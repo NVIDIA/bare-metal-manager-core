@@ -1,0 +1,37 @@
+apiVersion: v2
+name: carbide
+description: Umbrella chart for the Carbide Bare Metal Manager platform
+type: application
+version: 0.1.0
+appVersion: "v2025.12.30-rc1"
+keywords:
+  - carbide
+  - forge
+  - bare-metal
+  - umbrella
+
+dependencies:
+  - name: carbide-api
+    version: "0.1.0"
+    condition: carbide-api.enabled
+  - name: carbide-dhcp
+    version: "0.1.0"
+    condition: carbide-dhcp.enabled
+  - name: carbide-dns
+    version: "0.1.0"
+    condition: carbide-dns.enabled
+  - name: carbide-dsx-exchange-consumer
+    version: "0.1.0"
+    condition: carbide-dsx-exchange-consumer.enabled
+  - name: carbide-hardware-health
+    version: "0.1.0"
+    condition: carbide-hardware-health.enabled
+  - name: carbide-pxe
+    version: "0.1.0"
+    condition: carbide-pxe.enabled
+  - name: carbide-ssh-console-rs
+    version: "0.1.0"
+    condition: carbide-ssh-console-rs.enabled
+  - name: unbound
+    version: "0.1.0"
+    condition: unbound.enabled

@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbide-dhcp
+  namespace: {{ include "carbide-dhcp.namespace" . }}
+  labels:
+    {{- include "carbide-dhcp.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.annotations | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "carbide-dhcp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "carbide-dhcp.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: carbide-dhcp
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: carbide-dhcp
+          image: "{{ include "carbide-dhcp.image" . }}"
+          command: ['sh', '-c', 'mkdir -vp /var/run/kea /var/lib/kea && /sbin/kea-dhcp4 -c /tmp/kea_config.json']
+          env:
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          securityContext:
+            capabilities:
+              add:
+                - SYS_PTRACE
+          ports:
+            - name: udp
+              containerPort: {{ .Values.service.port }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+          volumeMounts:
+            - name: spiffe
+              mountPath: /var/run/secrets/spiffe.io
+              readOnly: true
+            - name: config
+              mountPath: /tmp
+      volumes:
+        - name: spiffe
+          secret:
+            secretName: carbide-dhcp-certificate
+        - name: config
+          configMap:
+            defaultMode: 420
+            name: carbide-dhcp-config

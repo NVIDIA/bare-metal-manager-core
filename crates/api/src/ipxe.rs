@@ -203,21 +203,23 @@ exit ||
                 return Ok(UNKNOWN_HOST_INSTRUCTIONS.to_string());
             };
 
+            let (machine_type, console) = match target.arch {
+                rpc::MachineArchitecture::X86 => (MachineType::PredictedHost, console),
+                rpc::MachineArchitecture::Arm => {
+                    if endpoint.is_bluefield_model() {
+                        (MachineType::Dpu, console)
+                    } else {
+                        (MachineType::PredictedHost, "ttyAMA0")
+                    }
+                }
+            };
+
             return Ok(PxeInstructions::get_pxe_instruction_for_arch(
                 target.arch,
                 target.interface_id,
                 interface.mac_address,
                 console,
-                match target.arch {
-                    rpc::MachineArchitecture::X86 => MachineType::PredictedHost,
-                    rpc::MachineArchitecture::Arm => {
-                        if endpoint.is_bluefield_model() {
-                            MachineType::Dpu
-                        } else {
-                            MachineType::PredictedHost
-                        }
-                    }
-                },
+                machine_type,
             ));
         };
 
@@ -288,7 +290,9 @@ exit ||
             }
         }
 
-        if let Some(hardware_info) = machine.hardware_info.as_ref()
+        if target.arch == rpc::MachineArchitecture::Arm {
+            console = "ttyAMA0";
+        } else if let Some(hardware_info) = machine.hardware_info.as_ref()
             && let Some(dmi_info) = hardware_info.dmi_data.as_ref()
             && (dmi_info.sys_vendor == "Lenovo" || dmi_info.sys_vendor == "Supermicro")
         {

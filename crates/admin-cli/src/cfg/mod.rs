@@ -17,4 +17,5 @@
 pub mod cli_options;
 pub mod dispatch;
 pub mod measurement;
+pub mod run;
 pub mod runtime;

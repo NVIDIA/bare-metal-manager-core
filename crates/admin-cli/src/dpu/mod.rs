@@ -15,53 +15,32 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmds;
+mod agent_upgrade_policy;
+mod network;
+mod reprovision;
+mod status;
+mod versions;
+
+// Cross-module re-exports for machine module
+pub use network::cmd::show_dpu_status;
 
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Reprovision(reprov) => cmds::reprovision(&ctx.api_client, reprov).await,
-            Cmd::AgentUpgradePolicy(args::AgentUpgrade { set }) => {
-                cmds::agent_upgrade_policy(&ctx.api_client, set).await
-            }
-            Cmd::Versions(options) => {
-                cmds::versions(
-                    &mut ctx.output_file,
-                    ctx.config.format,
-                    &ctx.api_client,
-                    options,
-                    ctx.config.page_size,
-                )
-                .await
-            }
-            Cmd::Status => {
-                cmds::status(
-                    &mut ctx.output_file,
-                    ctx.config.format,
-                    &ctx.api_client,
-                    ctx.config.page_size,
-                )
-                .await
-            }
-            Cmd::Network(cmd) => {
-                cmds::network(
-                    &ctx.api_client,
-                    &mut ctx.output_file,
-                    cmd,
-                    ctx.config.format,
-                )
-                .await
-            }
-        }
-    }
+#[derive(Parser, Debug, Dispatch)]
+pub enum Cmd {
+    #[clap(subcommand, about = "DPU Reprovisioning handling")]
+    Reprovision(reprovision::Args),
+    #[clap(about = "Get or set forge-dpu-agent upgrade policy")]
+    AgentUpgradePolicy(agent_upgrade_policy::Args),
+    #[clap(about = "View DPU firmware status")]
+    Versions(versions::Args),
+    #[clap(about = "View DPU Status")]
+    Status(status::Args),
+    #[clap(subcommand, about = "Networking information")]
+    Network(network::Args),
 }

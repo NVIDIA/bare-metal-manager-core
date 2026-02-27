@@ -15,33 +15,23 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmds;
+mod set_virtualizer;
+mod show;
+
+// Cross-module re-exports for jump module
+pub use show::args::Args as ShowVpc;
+pub use show::cmd::show;
 
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Show(args) => {
-                cmds::show(
-                    args,
-                    ctx.config.format,
-                    &ctx.api_client,
-                    ctx.config.page_size,
-                )
-                .await
-            }
-            Cmd::SetVirtualizer(args) => {
-                cmds::set_network_virtualization_type(&ctx.api_client, args).await
-            }
-        }
-    }
+#[derive(Parser, Debug, Dispatch)]
+pub enum Cmd {
+    #[clap(about = "Display VPC information")]
+    Show(show::Args),
+    SetVirtualizer(set_virtualizer::Args),
 }

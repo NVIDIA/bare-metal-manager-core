@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forge-unbound
+  namespace: {{ include "unbound.namespace" . }}
+  labels:
+    {{- include "unbound.labels" . | nindent 4 }}
+  annotations:
+    {{- include "unbound.annotations" . | nindent 4 }}
+    configmap.reloader.stakater.com/reload: "unbound-local-config, unbound-envvars"
+spec:
+  selector:
+    matchLabels:
+      {{- include "unbound.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- include "unbound.annotations" . | nindent 8 }}
+        prometheus.io/port: "9167"
+        prometheus.io/scrape: "1"
+      labels:
+        {{- include "unbound.podLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: unbound
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: dns-udp
+              containerPort: 53
+              protocol: UDP
+            - name: dns-tcp
+              containerPort: 53
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: 53
+          readinessProbe:
+            tcpSocket:
+              port: 53
+          volumeMounts:
+            - name: local-config
+              mountPath: /etc/unbound/local.conf.d
+            - name: control-keys
+              mountPath: /etc/unbound/keys
+          envFrom:
+            - configMapRef:
+                name: unbound-envvars
+        - name: unbound-metrics
+          image: "{{ .Values.exporterImage.repository }}:{{ .Values.exporterImage.tag }}"
+          imagePullPolicy: {{ .Values.exporterImage.pullPolicy }}
+          env:
+            - name: KEYS_DIR
+              value: /etc/unbound/keys
+          volumeMounts:
+            - name: control-keys
+              mountPath: /etc/unbound/keys
+              readOnly: true
+          ports:
+            - name: metrics
+              containerPort: 9167
+              protocol: TCP
+      volumes:
+        - name: local-config
+          configMap:
+            name: unbound-local-config
+        - name: control-keys
+          emptyDir: {}

@@ -148,6 +148,7 @@ pub enum ValueType {
     Integer = 0,
     Ipv4,
     Ipv6,
+    Ipv6Prefix,
 }
 
 impl fmt::Display for ValueType {
@@ -156,6 +157,7 @@ impl fmt::Display for ValueType {
             Self::Integer => write!(f, "Integer"),
             Self::Ipv4 => write!(f, "Ipv4"),
             Self::Ipv6 => write!(f, "Ipv6"),
+            Self::Ipv6Prefix => write!(f, "Ipv6Prefix"),
         }
     }
 }

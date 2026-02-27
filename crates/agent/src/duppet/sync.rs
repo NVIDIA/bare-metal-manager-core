@@ -315,11 +315,9 @@ pub fn maybe_update_file_permissions(
 ) -> io::Result<bool> {
     // If not configured to manage the mode,
     // just return nothing was changed.
-    if expected_mode.is_none() {
+    let Some(expected_mode) = expected_mode else {
         return Ok(false);
-    }
-
-    let expected_mode = expected_mode.unwrap();
+    };
     let file = File::open(path)?;
     let metadata = file.metadata()?;
     let mut perms = metadata.permissions();

@@ -180,11 +180,7 @@ impl MachineAttestationSummaryList {
                 .iter()
                 .map(|e| MachineAttestationSummaryPb {
                     machine_id: e.machine_id.to_string(),
-                    bundle_id: if e.bundle_id.is_none() {
-                        None
-                    } else {
-                        Some(e.bundle_id.unwrap())
-                    },
+                    bundle_id: e.bundle_id,
                     profile_name: e.profile_name.clone(),
                     ts: Some(e.ts.into()),
                 })
@@ -204,14 +200,13 @@ impl MachineAttestationSummaryList {
                 })?,
                 bundle_id: pb.bundle_id,
                 profile_name: pb.profile_name.clone(),
-                ts: if pb.ts.is_none() {
-                    chrono::DateTime::<Utc>::default()
-                } else {
-                    chrono::DateTime::<Utc>::try_from(pb.ts.unwrap()).map_err(|err| {
+                ts: match pb.ts {
+                    Some(ts) => chrono::DateTime::<Utc>::try_from(ts).map_err(|err| {
                         super::Error::RpcConversion(format!(
                             "Could not deserialize ListAttestationSummaryResponse(timestamp): {err}"
                         ))
-                    })?
+                    })?,
+                    None => chrono::DateTime::<Utc>::default(),
                 },
             });
         }

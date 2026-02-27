@@ -15,25 +15,30 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmds;
+mod add;
+mod common;
+mod get;
+mod remove;
+mod replace;
 
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Get => cmds::get(ctx.config.format, &ctx.api_client).await,
-            Cmd::Add(args) => cmds::add(args, &ctx.api_client).await,
-            Cmd::Remove(args) => cmds::remove(args, &ctx.api_client).await,
-            Cmd::Replace(args) => cmds::replace(args, &ctx.api_client).await,
-        }
-    }
+#[derive(Parser, Debug, Dispatch)]
+pub enum Cmd {
+    #[clap(about = "Get all route servers")]
+    Get(get::Args),
+
+    #[clap(about = "Add route server addresses")]
+    Add(add::Args),
+
+    #[clap(about = "Remove route server addresses")]
+    Remove(remove::Args),
+
+    #[clap(about = "Replace all route server addresses")]
+    Replace(replace::Args),
 }

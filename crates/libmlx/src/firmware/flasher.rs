@@ -17,168 +17,80 @@
 
 // src/flasher.rs
 // FirmwareFlasher is the main orchestrator for the firmware flash lifecycle.
-// It coordinates device config application, firmware burning, verification,
-// and device reset across the mlxconfig-runner, mlxconfig-lockdown, and
-// mlxfwreset tools.
+// It coordinates firmware burning, verification, and device reset across
+// flint and mlxfwreset.
+//
+// Constructed via new(device_id, &FirmwareSpec), which discovers the device
+// and validates that the hardware identity (part_number, psid) matches the
+// spec. This RAII-esque validation ensures firmware is never flashed to the
+// wrong device.
+//
+// From there, you can use various config structs to perform subsequent
+// operations on the underlying target device, or apply an entire workflow
+// profile with a FirmwareFlasherProfile.
 
 use std::path::PathBuf;
 
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
 use tracing;
 
-use crate::firmware::config::SupernicFirmwareConfig;
+use crate::firmware::config::{FirmwareFlasherProfile, FirmwareSpec, FlashSpec};
 use crate::firmware::error::{FirmwareError, FirmwareResult};
 use crate::firmware::reset::{DEFAULT_RESET_LEVEL, MlxFwResetRunner};
-use crate::firmware::source::FirmwareSource;
+use crate::firmware::result::FirmwareFlashReport;
 use crate::lockdown::runner::FlintRunner;
 use crate::runner::applier::MlxConfigApplier;
 use crate::runner::exec_options::ExecOptions;
 
 // FirmwareFlasher manages the firmware flash lifecycle for Mellanox NICs.
-// It supports both production firmware (direct flash) and debug firmware
-// (device config application followed by flash).
+// Constructed via new(), which integrates validation by discovering the
+// device and confirming the hardware identity matches the FirmwareSpec.
+// Individual operations (flash, verify_image, verify_version, reset) can
+// be called directly, or apply() orchestrates the full lifecycle from a
+// FirmwareFlasherProfile.
 pub struct FirmwareFlasher {
     // device_id is the PCI address of the target device (e.g., "4b:00.0").
     device_id: String,
-    // reset_device is the device identifier for mlxfwreset, which may
-    // differ from the PCI address (e.g., "/dev/mst/mt41692_pciconf0").
-    // If not set, the PCI address from device_id is used.
-    reset_device: Option<String>,
-    // firmware is the source of the firmware binary to flash.
-    // Set via with_firmware(). Required for flash(), not needed
-    // for verify_version() or reset().
-    firmware: Option<FirmwareSource>,
-    // device_conf is the optional device configuration to apply before
-    // flashing (e.g., a debug token or mlxconfig config blob). When set,
-    // it is applied via `mlxconfig apply` before burning firmware.
-    device_conf: Option<FirmwareSource>,
-    // expected_version is the firmware version string expected after
-    // flashing (e.g., "32.43.1014"). When set, verify_version() will
-    // query the device via mlxfwmanager and compare the installed
-    // version against this value.
-    expected_version: Option<String>,
-    // work_dir is the directory for staging downloaded firmware files.
-    // Defaults to a temporary directory if not specified.
-    work_dir: PathBuf,
-    // reset_level is the mlxfwreset level to use when resetting the device.
-    reset_level: u8,
+    // firmware_spec is the validated firmware target identity and version.
+    firmware_spec: FirmwareSpec,
     // dry_run enables dry-run mode across all underlying operations.
     dry_run: bool,
 }
 
-// FlashResult captures the outcome of a firmware flash operation,
-// including details about each step that was performed.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct FlashResult {
-    // device_id is the device that was flashed.
-    pub device_id: String,
-    // firmware_source is a human-readable description of where the
-    // firmware was sourced from.
-    pub firmware_source: String,
-    // device_conf_applied indicates whether a device config was applied.
-    pub device_conf_applied: bool,
-    // flint_output is the raw output from the flint burn command.
-    pub flint_output: String,
-    // timestamp is when the flash operation completed.
-    pub timestamp: String,
-}
-
 impl FirmwareFlasher {
-    // from_config creates a FirmwareFlasher from a SupernicFirmwareConfig.
-    // The config's firmware_url and credentials are used to build the
-    // firmware source, and the optional device_conf_url and credentials
-    // build the device config source. The expected_version field is also
-    // applied to the flasher if set.
-    pub fn from_config(
-        device_id: impl Into<String>,
-        config: &SupernicFirmwareConfig,
-    ) -> FirmwareResult<Self> {
-        let firmware = config.build_firmware_source()?;
-        let mut flasher = Self::new(device_id).with_firmware(firmware);
+    // new creates a FirmwareFlasher with integrated validation. Discovers the
+    // device via mlxfwmanager and confirms the device's part_number and
+    // psid match the provided FirmwareSpec. Returns an error if the device
+    // cannot be found or if the identity doesn't match.
+    pub fn new(device_id: impl Into<String>, spec: &FirmwareSpec) -> FirmwareResult<Self> {
+        let device_id = device_id.into();
 
-        if let Some(device_conf_source) = config.build_device_conf_source()? {
-            flasher = flasher.with_device_conf(device_conf_source);
+        let device_info = crate::device::discovery::discover_device(&device_id).map_err(|e| {
+            FirmwareError::ConfigError(format!("Failed to discover device '{}': {e}", device_id))
+        })?;
+
+        let actual_pn = device_info.part_number.as_deref().unwrap_or("unknown");
+        let actual_psid = device_info.psid.as_deref().unwrap_or("unknown");
+
+        if actual_pn != spec.part_number || actual_psid != spec.psid {
+            return Err(FirmwareError::ConfigError(format!(
+                "Device '{}' has part_number '{}' / psid '{}', expected '{}' / '{}'",
+                device_id, actual_pn, actual_psid, spec.part_number, spec.psid,
+            )));
         }
 
-        if let Some(ref version) = config.expected_version {
-            flasher = flasher.with_expected_version(version);
-        }
+        tracing::info!(
+            device = %device_id,
+            part_number = %spec.part_number,
+            psid = %spec.psid,
+            version = %spec.version,
+            "FirmwareFlasher initialized — device identity validated"
+        );
 
-        Ok(flasher)
-    }
-
-    // from_config_file creates a FirmwareFlasher by loading a
-    // SupernicFirmwareConfig from a TOML file and applying it.
-    pub fn from_config_file(
-        device_id: impl Into<String>,
-        path: impl AsRef<std::path::Path>,
-    ) -> FirmwareResult<Self> {
-        let config = SupernicFirmwareConfig::from_file(path)?;
-        Self::from_config(device_id, &config)
-    }
-
-    // new creates a new FirmwareFlasher for the specified device.
-    // Use with_firmware() to set the firmware source for flash
-    // operations. For verify_version() and reset(), no firmware
-    // source is needed.
-    pub fn new(device_id: impl Into<String>) -> Self {
-        Self {
-            device_id: device_id.into(),
-            reset_device: None,
-            firmware: None,
-            device_conf: None,
-            expected_version: None,
-            work_dir: std::env::temp_dir().join("mlxconfig-firmware"),
-            reset_level: DEFAULT_RESET_LEVEL,
+        Ok(Self {
+            device_id,
+            firmware_spec: spec.clone(),
             dry_run: false,
-        }
-    }
-
-    // with_firmware sets the firmware source for flash operations.
-    // Required before calling flash().
-    pub fn with_firmware(mut self, firmware: FirmwareSource) -> Self {
-        self.firmware = Some(firmware);
-        self
-    }
-
-    // with_device_conf sets the device configuration to apply before
-    // flashing. This is used for debug firmware builds that require
-    // a configuration blob (e.g., debug token) to be applied via
-    // `mlxconfig apply` before the firmware can be burned.
-    pub fn with_device_conf(mut self, device_conf: FirmwareSource) -> Self {
-        self.device_conf = Some(device_conf);
-        self
-    }
-
-    // with_reset_device sets the device identifier to use with mlxfwreset.
-    // This may differ from the PCI address used with flint and mlxconfig
-    // (e.g., an MST device path like "/dev/mst/mt41692_pciconf0").
-    pub fn with_reset_device(mut self, device: impl Into<String>) -> Self {
-        self.reset_device = Some(device.into());
-        self
-    }
-
-    // with_work_dir sets the directory used for staging downloaded
-    // firmware files. Defaults to a temporary directory.
-    pub fn with_work_dir(mut self, dir: impl Into<PathBuf>) -> Self {
-        self.work_dir = dir.into();
-        self
-    }
-
-    // with_reset_level sets the mlxfwreset level (default: 3).
-    pub fn with_reset_level(mut self, level: u8) -> Self {
-        self.reset_level = level;
-        self
-    }
-
-    // with_expected_version sets the expected firmware version string
-    // after flashing (e.g., "32.43.1014"). When set, verify_version()
-    // will query the device via mlxfwmanager and confirm the installed
-    // firmware matches this value.
-    pub fn with_expected_version(mut self, version: impl Into<String>) -> Self {
-        self.expected_version = Some(version.into());
-        self
+        })
     }
 
     // with_dry_run enables or disables dry-run mode. When enabled, no
@@ -188,47 +100,45 @@ impl FirmwareFlasher {
         self
     }
 
-    // flash executes the full firmware flash sequence. For debug firmware
-    // (when a device config is configured), this applies the config first.
-    // Then burns the firmware image via flint. Requires a firmware source
-    // to be set via with_firmware().
-    pub async fn flash(&self) -> FirmwareResult<FlashResult> {
-        let firmware = self.firmware.as_ref().ok_or_else(|| {
-            FirmwareError::ConfigError(
-                "No firmware source configured. Use with_firmware() before calling flash()."
-                    .to_string(),
-            )
-        })?;
+    // flash burns the firmware image to the device via flint. The FlashSpec
+    // provides the firmware source, optional device config, and cache dir.
+    // Returns the local path of the resolved firmware image on success.
+    //
+    // This performs only the burn operation — no reset or verification.
+    // For the full lifecycle, use apply().
+    pub async fn flash(&self, spec: &FlashSpec) -> FirmwareResult<PathBuf> {
+        let firmware = spec.build_firmware_source()?;
+        let cache_dir = spec.cache_dir_or_default();
 
-        tracing::info!(device = %self.device_id, source = %firmware.description(), "Starting firmware flash");
+        tracing::info!(
+            device = %self.device_id,
+            source = %firmware.description(),
+            "Starting firmware flash"
+        );
 
-        // Ensure the work directory exists.
-        tokio::fs::create_dir_all(&self.work_dir)
+        // Ensure the cache directory exists.
+        tokio::fs::create_dir_all(&cache_dir)
             .await
             .map_err(FirmwareError::Io)?;
 
-        let exec_options = ExecOptions::new().with_dry_run(self.dry_run);
+        // If a device config is configured, apply it before burning.
+        if let Some(device_conf) = spec.build_device_conf_source()? {
+            tracing::info!(source = %device_conf.description(), "Applying device config");
 
-        let applier = MlxConfigApplier::with_options(&self.device_id, exec_options);
-        let mut device_conf_applied = false;
+            let exec_options = ExecOptions::new().with_dry_run(self.dry_run);
+            let applier = MlxConfigApplier::with_options(&self.device_id, exec_options);
 
-        // Step 1: If a device config is configured, apply it.
-        if let Some(ref device_conf_source) = self.device_conf {
-            tracing::info!(source = %device_conf_source.description(), "Applying device config");
-
-            let conf_path = device_conf_source.resolve(&self.work_dir).await?;
+            let conf_path = device_conf.resolve(&cache_dir).await?;
             tracing::debug!(path = %conf_path.display(), "Device config resolved");
 
             applier.apply(&conf_path)?;
-            device_conf_applied = true;
             tracing::info!("Device config applied");
         }
 
-        // Step 2: Resolve the firmware source to a local path.
-        let firmware_path = firmware.resolve(&self.work_dir).await?;
+        // Resolve the firmware source to a local path and burn.
+        let firmware_path = firmware.resolve(&cache_dir).await?;
         tracing::debug!(path = %firmware_path.display(), "Firmware resolved");
 
-        // Step 3: Burn the firmware via flint.
         tracing::info!(device = %self.device_id, "Burning firmware via flint");
 
         let flint = if self.dry_run {
@@ -237,41 +147,60 @@ impl FirmwareFlasher {
             FlintRunner::new().map_err(FirmwareError::FlintError)?
         };
 
-        let flint_output = match flint.burn(&self.device_id, &firmware_path) {
-            Ok(output) => output,
+        match flint.burn(&self.device_id, &firmware_path) {
+            Ok(output) => {
+                tracing::debug!(output = %output, "Flint output");
+            }
             Err(crate::lockdown::error::MlxError::DryRun(cmd)) => {
                 tracing::debug!(cmd = %cmd, "Dry run");
-                format!("[DRY RUN] {cmd}")
             }
             Err(e) => return Err(FirmwareError::FlintError(e)),
         };
 
-        tracing::debug!(output = %flint_output, "Flint output");
-
-        let result = FlashResult {
-            device_id: self.device_id.clone(),
-            firmware_source: firmware.description(),
-            device_conf_applied,
-            flint_output,
-            timestamp: Utc::now().to_rfc3339(),
-        };
-
         tracing::info!(
-            device = %result.device_id,
-            source = %result.firmware_source,
-            device_conf = result.device_conf_applied,
+            device = %self.device_id,
+            source = %firmware.description(),
             "Flash complete"
         );
 
-        Ok(result)
+        Ok(firmware_path)
     }
 
     // verify_image verifies the firmware on the device by comparing it
-    // against a provided firmware image file. This runs flint's verify
-    // command with the -i flag: `flint -d <dev> -i <image> verify`.
-    // This is the recommended verification method for encrypted flash
-    // devices (e.g., BF3 SuperNIC).
-    pub fn verify_image(&self, image_path: &std::path::Path) -> FirmwareResult<String> {
+    // against a firmware image file. This runs flint's verify command:
+    // `flint -d <dev> -i <image> verify`.
+    //
+    // If spec.verify_from_cache is true and a cached firmware file exists
+    // in cache_dir, that file is used. Otherwise the firmware is resolved
+    // from the source URL.
+    pub async fn verify_image(&self, spec: &FlashSpec) -> FirmwareResult<String> {
+        let cache_dir = spec.cache_dir_or_default();
+
+        // Determine the image path. Attempt to use cache (per cache_dir)
+        // if requested. Otherwise resolve + pull from the source. If not
+        // found in the cache, also resolve + pull from the source.
+        let image_path = if spec.verify_from_cache {
+            // Look for an existing firmware file in cache_dir matching the
+            // filename from the URL. If not found, fall back to resolving.
+            let filename = spec
+                .firmware_url
+                .rsplit('/')
+                .next()
+                .unwrap_or("firmware.bin");
+            let cached = cache_dir.join(filename);
+            if cached.exists() {
+                tracing::debug!(path = %cached.display(), "Using cached firmware for verify");
+                cached
+            } else {
+                tracing::debug!("Cached firmware not found, resolving from source");
+                let firmware = spec.build_firmware_source()?;
+                firmware.resolve(&cache_dir).await?
+            }
+        } else {
+            let firmware = spec.build_firmware_source()?;
+            firmware.resolve(&cache_dir).await?
+        };
+
         tracing::info!(
             device = %self.device_id,
             image = %image_path.display(),
@@ -284,7 +213,7 @@ impl FirmwareFlasher {
             FlintRunner::new().map_err(FirmwareError::FlintError)?
         };
 
-        match flint.verify_image(&self.device_id, image_path) {
+        match flint.verify_image(&self.device_id, &image_path) {
             Ok(output) => {
                 tracing::info!(device = %self.device_id, "Image verification passed");
                 tracing::debug!(output = %output, "Flint verify output");
@@ -299,17 +228,11 @@ impl FirmwareFlasher {
     }
 
     // verify_version checks that the firmware version on the device
-    // matches the expected version configured via with_expected_version().
-    // This queries the device using mlxfwmanager (via mlxconfig-device)
-    // and compares the reported firmware version. Returns Ok with the
-    // installed version string on match, or a VerificationFailed error
-    // if the versions don't match. If no expected version is configured,
-    // this is a no-op and returns Ok.
+    // matches the version in the FirmwareSpec. Queries the device via
+    // mlxfwmanager and compares. Returns Ok(Some(observed_version)) on
+    // match, or Err on mismatch.
     pub fn verify_version(&self) -> FirmwareResult<Option<String>> {
-        let expected = match &self.expected_version {
-            Some(v) => v,
-            None => return Ok(None),
-        };
+        let expected = &self.firmware_spec.version;
 
         tracing::info!(
             device = %self.device_id,
@@ -353,14 +276,18 @@ impl FirmwareFlasher {
         }
     }
 
-    // reset resets the device to activate the new firmware. Uses
-    // mlxfwreset with the configured reset level (default: 3).
+    // reset resets the device to activate the new firmware using the
+    // default reset level (3).
     pub fn reset(&self) -> FirmwareResult<String> {
-        let reset_device = self.reset_device.as_deref().unwrap_or(&self.device_id);
+        self.reset_with_level(DEFAULT_RESET_LEVEL)
+    }
 
+    // reset_with_level resets the device via mlxfwreset at the specified
+    // reset level.
+    pub fn reset_with_level(&self, level: u8) -> FirmwareResult<String> {
         tracing::info!(
-            device = %reset_device,
-            level = %self.reset_level,
+            device = %self.device_id,
+            level = %level,
             "Resetting device via mlxfwreset"
         );
 
@@ -370,9 +297,9 @@ impl FirmwareFlasher {
             MlxFwResetRunner::new()?
         };
 
-        match runner.reset(reset_device, self.reset_level) {
+        match runner.reset(&self.device_id, level) {
             Ok(output) => {
-                tracing::info!(device = %reset_device, "Device reset complete");
+                tracing::info!(device = %self.device_id, "Device reset complete");
                 tracing::debug!(output = %output, "mlxfwreset output");
                 Ok(output)
             }
@@ -382,5 +309,128 @@ impl FirmwareFlasher {
             }
             Err(e) => Err(e),
         }
+    }
+
+    // apply executes the full firmware lifecycle from a FirmwareFlasherProfile:
+    //
+    //   1. Flash firmware (burn via flint) — Err = burn failed, caller retries
+    //   2. Reset device via mlxfwreset (if flash_options.reset)
+    //   3. Verify firmware image via flint verify (if flash_options.verify_image)
+    //   4. Verify firmware version (if flash_options.verify_version)
+    //
+    // Returns Err if the flash itself fails (step 1).
+    // For post-flash steps (2-4), failures are captured in the
+    // returned FirmwareFlashReport rather than returning an error,
+    // so the caller always gets visibility into what happened, which
+    // in this case is useful for scout logging + reporting back to
+    // carbide-api which part(s) failed.
+    pub async fn apply(
+        &self,
+        profile: &FirmwareFlasherProfile,
+    ) -> FirmwareResult<FirmwareFlashReport> {
+        let options = &profile.flash_options;
+
+        // Step 1: Flash firmware.
+        self.flash(&profile.flash_spec).await?;
+
+        // Step 2: Reset device (if enabled).
+        let reset_result = if options.reset {
+            Some(match self.reset_with_level(options.reset_level) {
+                Ok(_) => true,
+                Err(e) => {
+                    tracing::error!(device = %self.device_id, %e, "post-flash reset failed");
+                    false
+                }
+            })
+        } else {
+            tracing::debug!(device = %self.device_id, "reset not enabled, skipping");
+            None
+        };
+
+        // Step 3: Verify firmware image (if enabled).
+        let verified_image = if options.verify_image {
+            Some(match self.verify_image(&profile.flash_spec).await {
+                Ok(_) => true,
+                Err(e) => {
+                    tracing::error!(device = %self.device_id, %e, "post-flash image verification failed");
+                    false
+                }
+            })
+        } else {
+            tracing::debug!(device = %self.device_id, "image verification not enabled, skipping");
+            None
+        };
+
+        // Step 4: Verify firmware version (if enabled).
+        let (observed_version, verified_version) = if options.verify_version {
+            let observed = match crate::device::discovery::discover_device(&self.device_id) {
+                Ok(info) => info.fw_version_current,
+                Err(e) => {
+                    tracing::error!(
+                        device = %self.device_id, %e,
+                        "failed to query device for observed firmware version"
+                    );
+                    None
+                }
+            };
+
+            let expected = &self.firmware_spec.version;
+            let verified = match &observed {
+                Some(obs) => {
+                    let matched = obs == expected;
+                    if matched {
+                        tracing::info!(
+                            device = %self.device_id,
+                            observed_version = %obs,
+                            expected_version = %expected,
+                            "firmware version verified"
+                        );
+                    } else {
+                        tracing::warn!(
+                            device = %self.device_id,
+                            observed_version = %obs,
+                            expected_version = %expected,
+                            "firmware version mismatch"
+                        );
+                    }
+                    Some(matched)
+                }
+                None => {
+                    tracing::warn!(
+                        device = %self.device_id,
+                        expected_version = %expected,
+                        "could not query device for observed firmware version"
+                    );
+                    Some(false)
+                }
+            };
+
+            (observed, verified)
+        } else {
+            tracing::debug!(device = %self.device_id, "version verification not enabled, skipping");
+            (None, None)
+        };
+
+        let report = FirmwareFlashReport {
+            flashed: true,
+            reset: reset_result,
+            verified_image,
+            verified_version,
+            observed_version,
+            expected_version: Some(self.firmware_spec.version.clone()),
+        };
+
+        tracing::info!(
+            device = %self.device_id,
+            flashed = report.flashed,
+            reset = ?report.reset,
+            verified_image = ?report.verified_image,
+            verified_version = ?report.verified_version,
+            observed_version = report.observed_version.as_deref().unwrap_or("none"),
+            expected_version = report.expected_version.as_deref().unwrap_or("none"),
+            "firmware lifecycle complete"
+        );
+
+        Ok(report)
     }
 }

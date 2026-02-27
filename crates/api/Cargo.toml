@@ -91,6 +91,7 @@ hyper-timeout = { workspace = true }
 hyper-util = { workspace = true }
 ipnetwork = { workspace = true, features = ["serde"] }
 itertools = { workspace = true }
+jsonwebtoken = { features = ["rust_crypto"], workspace = true }
 lazy_static = { workspace = true }
 libredfish = { workspace = true }
 librms = { workspace = true }

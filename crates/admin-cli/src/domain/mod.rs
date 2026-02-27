@@ -15,25 +15,21 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmds;
+mod show;
+
+// Cross-module re-exports for jump module
+pub use show::args::Args as ShowDomain;
+pub use show::cmd::handle_show;
 
 #[cfg(test)]
 mod tests;
 
-// Export so the CLI builder can just pull in domain::Cmd.
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Show(show_args) => {
-                cmds::handle_show(&show_args, ctx.config.format, &ctx.api_client).await
-            }
-        }
-    }
+#[derive(Parser, Debug, Dispatch)]
+pub enum Cmd {
+    #[clap(about = "Display Domain information")]
+    Show(show::Args),
 }

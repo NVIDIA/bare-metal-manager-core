@@ -26,7 +26,7 @@
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
+use super::*;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -50,7 +50,7 @@ fn verify_cmd_structure() {
 fn parse_get_no_args() {
     let cmd = Cmd::try_parse_from(["route-server", "get"]).expect("should parse get");
 
-    assert!(matches!(cmd, Cmd::Get));
+    assert!(matches!(cmd, Cmd::Get(_)));
 }
 
 // parse_add_single_ip ensures add parses with a single
@@ -62,8 +62,8 @@ fn parse_add_single_ip() {
 
     match cmd {
         Cmd::Add(args) => {
-            assert_eq!(args.ip.len(), 1);
-            assert_eq!(args.ip[0].to_string(), "192.168.1.1");
+            assert_eq!(args.inner.ip.len(), 1);
+            assert_eq!(args.inner.ip[0].to_string(), "192.168.1.1");
         }
         _ => panic!("expected Add variant"),
     }
@@ -78,7 +78,7 @@ fn parse_add_multiple_ips() {
 
     match cmd {
         Cmd::Add(args) => {
-            assert_eq!(args.ip.len(), 3);
+            assert_eq!(args.inner.ip.len(), 3);
         }
         _ => panic!("expected Add variant"),
     }
@@ -112,7 +112,7 @@ fn parse_add_no_ips() {
 
     match cmd {
         Cmd::Add(args) => {
-            assert!(args.ip.is_empty());
+            assert!(args.inner.ip.is_empty());
         }
         _ => panic!("expected Add variant"),
     }
@@ -127,7 +127,7 @@ fn parse_remove_no_ips() {
 
     match cmd {
         Cmd::Remove(args) => {
-            assert!(args.ip.is_empty());
+            assert!(args.inner.ip.is_empty());
         }
         _ => panic!("expected Remove variant"),
     }
@@ -142,7 +142,7 @@ fn parse_replace_no_ips() {
 
     match cmd {
         Cmd::Replace(args) => {
-            assert!(args.ip.is_empty());
+            assert!(args.inner.ip.is_empty());
         }
         _ => panic!("expected Replace variant"),
     }
@@ -170,7 +170,7 @@ fn parse_add_with_source_type_admin_api() {
     match cmd {
         Cmd::Add(args) => {
             // AdminApi = 1 in the proto enum
-            assert_eq!(args.source_type as i32, 1);
+            assert_eq!(args.inner.source_type as i32, 1);
         }
         _ => panic!("expected Add variant"),
     }
@@ -192,7 +192,7 @@ fn parse_add_with_source_type_config_file() {
     match cmd {
         Cmd::Add(args) => {
             // ConfigFile = 0 in the proto enum
-            assert_eq!(args.source_type as i32, 0);
+            assert_eq!(args.inner.source_type as i32, 0);
         }
         _ => panic!("expected Add variant"),
     }

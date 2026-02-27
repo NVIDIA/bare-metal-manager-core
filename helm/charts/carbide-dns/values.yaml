@@ -1,0 +1,72 @@
+## carbide-dns — Authoritative DNS server for managed machines and VPCs
+## Global settings (overridden by umbrella chart)
+global:
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  certificate:
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+    issuerRef:
+      kind: ClusterIssuer
+      name: vault-forge-issuer
+      group: cert-manager.io
+  spiffe:
+    trustDomain: forge.local
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: site-controller
+
+## Override the release namespace (defaults to helm install -n <namespace>)
+namespaceOverride: ""
+
+replicas: 2
+annotations:
+  configmap.reloader.stakater.com/reload: "carbide-dns, carbide-dns-config"
+
+service:
+  ports:
+    - port: 53
+      name: tcp
+      protocol: TCP
+    - port: 53
+      name: udp
+      protocol: UDP
+
+certificate:
+  ## serviceName is used to auto-generate dnsNames and SPIFFE URIs based on the release namespace
+  serviceName: carbide-dns
+  extraDnsNames: []
+  extraUris: []
+
+env:
+  FORGE_ROOT_CA_PATH: /run/secrets/spiffe.io/ca.crt
+  RUST_BACKTRACE: "full"
+  RUST_LIB_BACKTRACE: "0"
+
+## ConfigMap settings for the env ConfigMap
+config:
+  ## CARBIDE_API, CARBIDE_API_HOST, CARBIDE_API_PORT are auto-generated
+  ## from the release namespace in the configmap template
+  carbideApiPort: "1079"
+  extraData: {}  # additional keys to add to the ConfigMap
+
+envFrom:
+  carbideDnsConfig:
+    configMapName: carbide-dns
+
+## External LoadBalancer Services (per-pod, for bare-metal / MetalLB)
+externalService:
+  enabled: false
+  type: LoadBalancer
+  ## Per-pod annotations (index matches pod ordinal)
+  ## Each entry is a map of annotations for that pod's external services
+  perPodAnnotations: []
+  # perPodAnnotations:
+  #   - metallb.universe.tf/loadBalancerIPs: "10.x.x.1"  # pod-0
+  #   - metallb.universe.tf/loadBalancerIPs: "10.x.x.2"  # pod-1

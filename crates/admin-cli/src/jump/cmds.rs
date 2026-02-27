@@ -21,6 +21,7 @@ use std::str::FromStr;
 use ::rpc::admin_cli::CarbideCliError;
 use ::rpc::forge as forgerpc;
 use carbide_uuid::machine::MachineId;
+use dpa::ShowDpa;
 use mac_address::MacAddress;
 
 use super::args::Cmd;
@@ -83,8 +84,8 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                 RouteServerFromConfigFile => tracing::info!("Route Server from Carbide config"),
                 RouteServerFromAdminApi => tracing::info!("Route Server from Admin API"),
                 InstanceAddress => {
-                    instance::cmds::handle_show(
-                        instance::args::ShowInstance {
+                    instance::handle_show(
+                        instance::ShowInstance {
                             id: m.owner_id.ok_or(CarbideCliError::GenericError(
                                 "failed to unwrap owner_id after finding instance for IP"
                                     .to_string(),
@@ -137,8 +138,8 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                         &mut ctx.output_file,
                         config_format,
                         ctx.config.page_size,
-                        site_explorer::args::GetReportMode::Endpoint(
-                            site_explorer::args::EndpointInfo {
+                        site_explorer::GetReportMode::Endpoint(
+                            site_explorer::EndpointInfo {
                                 address: if m.owner_id.is_some() {
                                     m.owner_id
                                 } else {
@@ -157,8 +158,8 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                 }
 
                 NetworkSegment => {
-                    network_segment::cmds::handle_show(
-                        network_segment::args::ShowNetworkSegment {
+                    network_segment::handle_show(
+                        network_segment::ShowNetworkSegment {
                             network: Some(
                                 m.owner_id
                                     .ok_or(CarbideCliError::GenericError(
@@ -175,10 +176,10 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     )
                     .await?
                 }
-                ResourcePool => resource_pool::cmds::list(&ctx.api_client).await?,
+                ResourcePool => resource_pool::list(&ctx.api_client).await?,
                 DpaInterface =>  {
-                    dpa::cmds::show(
-                        &dpa::args::ShowDpa {
+                    dpa::show(
+                        &ShowDpa {
                             id: Some(m.owner_id.ok_or(CarbideCliError::GenericError(
                                 "failed to unwrap owner_id after dpa interface for IP".to_string(),
                             ))?.parse()?),
@@ -203,8 +204,8 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
         match ctx.api_client.identify_uuid(u).await {
             Ok(o) => match o {
                 forgerpc::UuidType::NetworkSegment => {
-                    network_segment::cmds::handle_show(
-                        network_segment::args::ShowNetworkSegment {
+                    network_segment::handle_show(
+                        network_segment::ShowNetworkSegment {
                             network: Some(args.id.parse()?),
                             tenant_org_id: None,
                             name: None,
@@ -216,8 +217,8 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     .await?
                 }
                 forgerpc::UuidType::Instance => {
-                    instance::cmds::handle_show(
-                        instance::args::ShowInstance {
+                    instance::handle_show(
+                        instance::ShowInstance {
                             id: args.id,
                             extrainfo: true,
                             tenant_org_id: None,
@@ -235,8 +236,8 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     .await?
                 }
                 forgerpc::UuidType::MachineInterface => {
-                    machine_interfaces::cmds::handle_show(
-                        machine_interfaces::args::ShowMachineInterfaces {
+                    machine_interfaces::handle_show(
+                        machine_interfaces::ShowMachineInterfaces {
                             interface_id: Some(args.id.parse()?),
                             all: false,
                             more: true,
@@ -247,8 +248,8 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     .await?
                 }
                 forgerpc::UuidType::Vpc => {
-                    vpc::cmds::show(
-                        vpc::args::ShowVpc {
+                    vpc::show(
+                        vpc::ShowVpc {
                             id: Some(args.id.parse()?),
                             tenant_org_id: None,
                             name: None,
@@ -262,8 +263,8 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     .await?
                 }
                 forgerpc::UuidType::Domain => {
-                    domain::cmds::handle_show(
-                        &domain::args::ShowDomain {
+                    domain::handle_show(
+                        &domain::ShowDomain {
                             domain: Some(args.id.parse()?),
                             all: false,
                         },
@@ -273,8 +274,8 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     .await?
                 }
                 forgerpc::UuidType::DpaInterfaceId => {
-                    dpa::cmds::show(
-                        &dpa::args::ShowDpa {
+                    dpa::show(
+                        &ShowDpa {
                             id: Some(args.id.parse()?),
                         },
                         ctx.config.format,
@@ -298,8 +299,8 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
         match ctx.api_client.identify_mac(m).await {
             Ok((mac_owner, primary_key)) => match mac_owner {
                 forgerpc::MacOwner::MachineInterface => {
-                    machine_interfaces::cmds::handle_show(
-                        machine_interfaces::args::ShowMachineInterfaces {
+                    machine_interfaces::handle_show(
+                        machine_interfaces::ShowMachineInterfaces {
                             interface_id: Some(primary_key.parse()?),
                             all: false,
                             more: true,
@@ -320,8 +321,8 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     );
                 }
                 forgerpc::MacOwner::DpaInterface => {
-                    dpa::cmds::show(
-                        &dpa::args::ShowDpa {
+                    dpa::show(
+                        &ShowDpa {
                             id: Some(primary_key.parse()?),
                         },
                         ctx.config.format,

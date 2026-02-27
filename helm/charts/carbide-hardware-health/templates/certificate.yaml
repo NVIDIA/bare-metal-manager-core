@@ -1,0 +1,9 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: carbide-hardware-health-certificate
+  namespace: {{ include "carbide-hardware-health.namespace" . }}
+  labels:
+    {{- include "carbide-hardware-health.labels" . | nindent 4 }}
+spec:
+  {{- include "carbide-hardware-health.certificateSpec" (dict "name" "carbide-hardware-health-certificate" "cert" .Values.certificate "global" .Values.global "namespace" (include "carbide-hardware-health.namespace" .)) | nindent 2 }}

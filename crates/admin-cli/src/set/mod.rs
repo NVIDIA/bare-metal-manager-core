@@ -15,25 +15,29 @@
  * limitations under the License.
  */
 
-pub mod args;
-pub mod cmds;
+mod bmc_proxy;
+mod create_machines;
+mod log_filter;
+mod tracing_enabled;
 
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::LogFilter(opts) => cmds::log_filter(opts, &ctx.api_client).await,
-            Cmd::CreateMachines(opts) => cmds::create_machines(opts, &ctx.api_client).await,
-            Cmd::BmcProxy(opts) => cmds::bmc_proxy(opts, &ctx.api_client).await,
-            Cmd::TracingEnabled { value } => cmds::tracing_enabled(value, &ctx.api_client).await,
-        }
-    }
+#[derive(Parser, Debug, Clone, Dispatch)]
+#[clap(rename_all = "kebab_case")]
+pub enum Cmd {
+    #[clap(about = "Set RUST_LOG")]
+    LogFilter(log_filter::Args),
+    #[clap(about = "Set create_machines")]
+    CreateMachines(create_machines::Args),
+    #[clap(about = "Set bmc_proxy")]
+    BmcProxy(bmc_proxy::Args),
+    #[clap(
+        about = "Configure whether trace/span information is sent to an OTLP endpoint like Tempo"
+    )]
+    TracingEnabled(tracing_enabled::Args),
 }

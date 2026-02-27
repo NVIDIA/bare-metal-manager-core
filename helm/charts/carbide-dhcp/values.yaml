@@ -1,0 +1,113 @@
+## carbide-dhcp — DHCP server (Kea-based) for PXE boot and network assignment
+## Global settings (overridden by umbrella chart)
+global:
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  certificate:
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+    issuerRef:
+      kind: ClusterIssuer
+      name: vault-forge-issuer
+      group: cert-manager.io
+  spiffe:
+    trustDomain: forge.local
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: site-controller
+
+## Override the release namespace (defaults to helm install -n <namespace>)
+namespaceOverride: ""
+
+replicas: 1
+annotations:
+  configmap.reloader.stakater.com/reload: "carbide-dhcp-config"
+
+service:
+  port: 67
+  protocol: UDP
+metrics:
+  port: 1089
+
+certificate:
+  ## serviceName is used to auto-generate dnsNames and SPIFFE URIs based on the release namespace
+  serviceName: carbide-dhcp
+  extraDnsNames: []
+  extraUris: []
+
+env:
+  FORGE_ROOT_CAFILE_PATH: /var/run/secrets/spiffe.io/ca.crt
+  FORGE_CLIENT_CERT_PATH: /var/run/secrets/spiffe.io/tls.crt
+  FORGE_CLIENT_KEY_PATH: /var/run/secrets/spiffe.io/tls.key
+  RUST_BACKTRACE: "full"
+  RUST_LIB_BACKTRACE: "0"
+
+## ConfigMap created by this chart (config.enabled=true) or external (false)
+## The ConfigMap is mounted at /tmp in the pod, and kea-dhcp4 reads /tmp/kea_config.json.
+## In Kustomize, this comes from configMapGenerator with files/kea_config.json.
+config:
+  enabled: true
+  ## Full Kea DHCPv4 configuration JSON. This must be valid JSON for kea-dhcp4.
+  ## Override per-environment with the correct IPs for nameservers, NTP, PXE, etc.
+  keaConfigJson: |
+    {
+      "Dhcp4": {
+        "interfaces-config": {
+          "interfaces": ["eth0"],
+          "dhcp-socket-type": "udp"
+        },
+        "lease-database": {
+          "type": "memfile",
+          "lfc-interval": 3600
+        },
+        "match-client-id": false,
+        "authoritative": true,
+        "renew-timer": 900,
+        "rebind-timer": 1800,
+        "valid-lifetime": 3600,
+        "hooks-libraries": [
+          {
+            "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so",
+            "parameters": {
+              "carbide-api-url": "https://carbide-api.__NAMESPACE__.svc.cluster.local:1079",
+              "carbide-metrics-endpoint": "[::]:1089",
+              "carbide-nameservers": "127.0.0.1",
+              "carbide-ntpserver": "127.0.0.1",
+              "carbide-provisioning-server-ipv4": "127.0.0.1"
+            }
+          }
+        ],
+        "subnet4": [
+          {
+            "subnet": "0.0.0.0/0",
+            "pools": [
+              {
+                "pool": "0.0.0.0-255.255.255.255"
+              }
+            ]
+          }
+        ],
+        "loggers": [
+          { "name": "kea-dhcp4", "severity": "INFO", "output_options": [{ "output": "stdout" }] },
+          { "name": "kea-dhcp4.hooks", "severity": "INFO", "output_options": [{ "output": "stdout" }] },
+          { "name": "kea-dhcp4.carbide-rust", "severity": "INFO", "output_options": [{ "output": "stdout" }] }
+        ]
+      }
+    }
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 25s
+
+## External LoadBalancer Service (for bare-metal / MetalLB)
+externalService:
+  enabled: false
+  type: LoadBalancer
+  annotations: {}

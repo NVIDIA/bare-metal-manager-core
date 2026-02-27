@@ -21,9 +21,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use nv_redfish::ServiceRoot;
 use nv_redfish::core::{Bmc, FilterQuery, ODataId};
 use nv_redfish::log_service::LogService;
+use nv_redfish::{Resource, ServiceRoot};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use tokio::io::AsyncWriteExt;
@@ -318,9 +318,9 @@ impl<B: Bmc + 'static> LogsCollector<B> {
         let mut services = Vec::new();
         let mut seen_ids = HashSet::new();
 
-        if let Ok(manager_collection) = service_root.managers().await {
-            for manager in manager_collection.members().await.unwrap_or_default() {
-                if let Ok(log_services) = manager.log_services().await {
+        if let Ok(Some(manager_collection)) = service_root.managers().await {
+            for manager in manager_collection.members().await.iter().flatten() {
+                if let Ok(Some(log_services)) = manager.log_services().await {
                     for service in log_services {
                         let service_id = service.odata_id().to_string();
                         if seen_ids.insert(service_id) {
@@ -331,9 +331,9 @@ impl<B: Bmc + 'static> LogsCollector<B> {
             }
         }
 
-        if let Ok(chassis_collection) = service_root.chassis().await {
-            for chassis in chassis_collection.members().await.unwrap_or_default() {
-                if let Ok(log_services) = chassis.log_services().await {
+        if let Ok(Some(chassis_collection)) = service_root.chassis().await {
+            for chassis in chassis_collection.members().await.iter().flatten() {
+                if let Ok(Some(log_services)) = chassis.log_services().await {
                     for service in log_services {
                         let service_id = service.odata_id().to_string();
                         if seen_ids.insert(service_id) {
@@ -344,9 +344,9 @@ impl<B: Bmc + 'static> LogsCollector<B> {
             }
         }
 
-        if let Ok(system_collection) = service_root.systems().await {
-            for system in system_collection.members().await.unwrap_or_default() {
-                if let Ok(log_services) = system.log_services().await {
+        if let Ok(Some(system_collection)) = service_root.systems().await {
+            for system in system_collection.members().await.iter().flatten() {
+                if let Ok(Some(log_services)) = system.log_services().await {
                     for service in log_services {
                         let service_id = service.odata_id().to_string();
                         if seen_ids.insert(service_id) {
@@ -432,7 +432,8 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                         .filter_entries(FilterQuery::gt(&"Id", last_id))
                         .await
                     {
-                        Ok(e) => e,
+                        Ok(Some(e)) => e,
+                        Ok(None) => continue,
                         Err(error) => {
                             tracing::debug!(
                                 %service_id,
@@ -441,7 +442,8 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                             );
                             // Fallback - if filter is not supported properly
                             match service.entries().await {
-                                Ok(e) => e,
+                                Ok(Some(e)) => e,
+                                Ok(None) => continue,
                                 Err(error) => {
                                     tracing::warn!(
                                         %service_id,
@@ -469,12 +471,15 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                         .collect()
                 }
                 None => match service.entries().await {
-                    Ok(error) => {
+                    Ok(Some(v)) => {
                         tracing::info!(
                             %service_id,
                             endpont=?self.endpoint.addr,
                             "Last seen id is empty, fetching all entries");
-                        error
+                        v
+                    }
+                    Ok(None) => {
+                        continue;
                     }
                     Err(error) => {
                         tracing::warn!(

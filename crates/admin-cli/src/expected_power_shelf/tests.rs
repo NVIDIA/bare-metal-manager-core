@@ -25,7 +25,7 @@
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
+use super::*;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -184,7 +184,7 @@ fn parse_replace_all() {
 fn parse_erase() {
     let cmd = Cmd::try_parse_from(["expected-power-shelf", "erase"]).expect("should parse erase");
 
-    assert!(matches!(cmd, Cmd::Erase));
+    assert!(matches!(cmd, Cmd::Erase(_)));
 }
 
 // parse_add_missing_required_fails ensures add fails
