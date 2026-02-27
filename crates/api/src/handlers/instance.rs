@@ -847,7 +847,8 @@ pub(crate) async fn invoke_power(
 
     // For non-always-PXE instances, set use_custom_pxe_on_boot based on the request.
     // This tells the iPXE handler whether to serve the custom script or return "exit".
-    if !run_provisioning_instructions_on_every_boot {
+    // If we are using the state machine for a custom pxe reboot, let the state machine set the use_custom_ipxe_on_next_boot flag.
+    if !use_state_machine_for_reboot && !run_provisioning_instructions_on_every_boot {
         db::instance::use_custom_ipxe_on_next_boot(
             &machine_id,
             request.boot_with_custom_ipxe,
