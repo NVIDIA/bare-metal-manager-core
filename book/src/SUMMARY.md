@@ -77,14 +77,9 @@
     - [Collecting Debug Bundles](playbooks/debugging_machine/debug_bundle.md)
 - [InfiniBand setup](playbooks/ib_runbook.md)
 - [Hardware](playbooks/hardware/hardware.md)
-    - [Lenovo SR670 V2](playbooks/hardware/sr670v2.md)
-    - [Lenovo SR650 V2](playbooks/hardware/sr650v2.md)
-    - [Lenovo SR675 V3](playbooks/hardware/sr675v3.md)
-    - [Lenovo SR665 V3](playbooks/hardware/sr665v3.md)
-    - [Lenovo SR655 V3](playbooks/hardware/sr655v3.md)
-    - [OneCLI](playbooks/hardware/onecli.md)
-    - [Getting Support](playbooks/hardware/getsupport.md)
     - [Desired Firmware Version](desired_firmware.md)
+    - [Getting Support](playbooks/hardware/getsupport.md)
+    - [OneCLI](playbooks/hardware/onecli.md)
 
 # Glossary
 

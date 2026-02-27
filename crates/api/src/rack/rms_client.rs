@@ -280,5 +280,23 @@ pub mod test_support {
         ) -> Result<rms::PollJobStatusResponse, RackManagerError> {
             Ok(rms::PollJobStatusResponse::default())
         }
+        async fn update_node_firmware_async(
+            &self,
+            _cmd: rms::UpdateNodeFirmwareRequest,
+        ) -> Result<rms::UpdateNodeFirmwareResponse, RackManagerError> {
+            Ok(rms::UpdateNodeFirmwareResponse::default())
+        }
+        async fn update_firmware_by_node_type_async(
+            &self,
+            _cmd: rms::UpdateFirmwareByNodeTypeRequest,
+        ) -> Result<rms::UpdateFirmwareByNodeTypeAsyncResponse, RackManagerError> {
+            Ok(rms::UpdateFirmwareByNodeTypeAsyncResponse::default())
+        }
+        async fn get_firmware_job_status(
+            &self,
+            _cmd: rms::GetFirmwareJobStatusRequest,
+        ) -> Result<rms::GetFirmwareJobStatusResponse, RackManagerError> {
+            Ok(rms::GetFirmwareJobStatusResponse::default())
+        }
     }
 }

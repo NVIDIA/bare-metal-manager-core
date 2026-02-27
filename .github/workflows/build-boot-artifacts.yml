@@ -245,7 +245,32 @@ jobs:
           echo "============================="
           echo "Extracted extras content:"
           ls -lah pxe/.scout-extras || echo "No extras directory"
-          echo "✅ Carbide extras setup complete"
+          echo "Carbide extras setup complete"
+
+      - name: Verify required extras binaries are present
+        if: inputs.inject_extras == true && inputs.extras_container != ''
+        run: |
+          set -euo pipefail
+
+          REQUIRED_BINARIES=(
+            "pxe/.scout-extras/opt/forge/bin/mnv_cli"
+          )
+
+          MISSING=0
+          for bin in "${REQUIRED_BINARIES[@]}"; do
+            if [ ! -f "${bin}" ]; then
+              echo "ERROR: Required binary missing from extras container: ${bin}"
+              echo "This binary is needed for Lenovo M.2 NVMe 2-Bay RAID Kit cleanup."
+              echo "Ensure the extras container includes all required Lenovo tools."
+              MISSING=1
+            else
+              echo "OK: ${bin}"
+            fi
+          done
+
+          if [ "${MISSING}" -eq 1 ]; then
+            exit 1
+          fi
 
       # Run build in container mode (for boot artifacts)
       - name: Run cargo make task (container mode)

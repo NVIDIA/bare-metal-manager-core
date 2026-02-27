@@ -20,6 +20,7 @@ mod create;
 mod delete;
 mod get;
 mod list;
+mod status;
 
 #[cfg(test)]
 mod tests;
@@ -44,4 +45,7 @@ pub enum Cmd {
 
     #[clap(about = "Apply firmware to all devices in a rack")]
     Apply(apply::Args),
+
+    #[clap(about = "Check the status of an async firmware update job")]
+    Status(status::Args),
 }

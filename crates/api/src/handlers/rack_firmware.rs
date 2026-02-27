@@ -22,9 +22,10 @@ use db::DatabaseError;
 use db::rack_firmware::RackFirmware as DbRackFirmware;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 use rpc::forge::{
-    DeviceUpdateResult, RackFirmware, RackFirmwareApplyRequest, RackFirmwareApplyResponse,
-    RackFirmwareCreateRequest, RackFirmwareDeleteRequest, RackFirmwareGetRequest, RackFirmwareList,
-    RackFirmwareListRequest,
+    DeviceUpdateResult, NodeJobInfo, RackFirmware, RackFirmwareApplyRequest,
+    RackFirmwareApplyResponse, RackFirmwareCreateRequest, RackFirmwareDeleteRequest,
+    RackFirmwareGetRequest, RackFirmwareJobStatusRequest, RackFirmwareJobStatusResponse,
+    RackFirmwareList, RackFirmwareListRequest,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -635,15 +636,16 @@ fn get_firmware_components_for_device_type(
     match device_type {
         DeviceType::GB200ComputeTray => vec![
             // (Component name in JSON, Key in lookup table, Redfish target)
-            ("HMC", "HMC", "HGX_Chassis_0"),
+            ("HMC", "HMC", "/redfish/v1/Chassis/HGX_Chassis_0"),
             ("BMC", "BMC", "FW_BMC_0"),
         ],
         DeviceType::JulietSwitch => vec![
-            // (Component name in JSON, Key in lookup table, Redfish target)
-            // TODO: Confirm correct targets for Juliet switch components
-            ("BMC+FPGA+EROT", "BMC", "TODO_BMC_TARGET"),
-            ("SBIOS+EROT", "SBIOS", "TODO_SBIOS_TARGET"),
-            ("CPLD", "CPLD", "TODO_CPLD_TARGET"),
+            ("BMC+FPGA+EROT", "BMC", "bmc"),
+            ("BMC+FPGA+EROT", "FPGA", "fpga"),
+            ("BMC+FPGA+EROT", "EROT", "erot"),
+            // CPLD — disabled: RMS does not support CPLD updates yet
+            // ("CPLD", "CPLD", "cpld"),
+            ("SBIOS+EROT", "BIOS", "bios"),
         ],
         DeviceType::PowerShelf => vec![
             // Power Shelf firmware - found in GB200ComputeTray BoardSKU
@@ -920,7 +922,7 @@ pub async fn apply(
         "Starting firmware apply operation"
     );
 
-    // 1. Get the RackFirmware configuration from the database
+    // Get the RackFirmware configuration from the database
     let fw_config = DbRackFirmware::find_by_id(&api.database_connection, &req.firmware_id)
         .await
         .map_err(|e| Status::internal(format!("Failed to get firmware configuration: {}", e)))?;
@@ -948,22 +950,11 @@ pub async fn apply(
     // Convert rack to proto to get device IDs
     let rack_proto: rpc::forge::Rack = rack.into();
 
-    // Collect all devices from the rack
-    let mut all_devices = Vec::new();
-    for machine_id in rack_proto.compute_trays {
-        all_devices.push((machine_id.to_string(), "Compute Node".to_string()));
-    }
-    for power_shelf_id in rack_proto.power_shelves {
-        all_devices.push((power_shelf_id.to_string(), "Power Shelf".to_string()));
-    }
-    // TODO: Add switches once nvlink_switches is implemented in RackConfig
-    // Currently both nvlink_switches and expected_nvlink_switches are commented out
-    // in the RackConfig struct (api/src/model/rack/mod.rs), so this will always be empty
-    // for switch_id in &rack_proto.expected_nvlink_switches {
-    //     all_devices.push((switch_id.clone(), "Switch Tray".to_string()));
-    // }
+    let has_compute_trays = !rack_proto.compute_trays.is_empty();
+    let has_power_shelves = !rack_proto.power_shelves.is_empty();
+    let has_switches = !rack_proto.expected_nvlink_switches.is_empty();
 
-    if all_devices.is_empty() {
+    if !has_compute_trays && !has_power_shelves && !has_switches {
         return Err(Status::failed_precondition(format!(
             "Rack '{}' contains no devices",
             rack_id
@@ -972,117 +963,192 @@ pub async fn apply(
 
     tracing::info!(
         rack_id = %rack_id,
-        device_count = all_devices.len(),
+        compute_trays = rack_proto.compute_trays.len(),
+        power_shelves = rack_proto.power_shelves.len(),
+        switches = rack_proto.expected_nvlink_switches.len(),
         "Found devices in rack"
     );
 
-    // 3. Apply firmware to each device
+    // Each device type is updated via a single update_firmware_by_node_type_async
+    // call — RMS handles distributing to all nodes of that type in the rack.
     let mut device_results = Vec::new();
     let mut successful_updates = 0;
     let mut failed_updates = 0;
 
-    for (device_id, hardware_type) in all_devices {
-        // Find all firmware components for this device type
-        let firmware_components = find_firmware_components_for_device(
-            &parsed_components,
-            &hardware_type,
-            &req.firmware_type,
-        );
+    // Device types to update: (lookup_table_key, RMS NodeType, display_name, has_devices, activate)
+    // activate=true for compute trays (Redfish activation after flash).
+    // activate=false for switches (activation is handled internally via power cycle).
+    let device_types: &[(&str, i32, &str, bool, bool)] = &[
+        (
+            "Compute Node",
+            librms::protos::rack_manager::NodeType::Compute as i32,
+            "Compute Node",
+            has_compute_trays,
+            true,
+        ),
+        (
+            "Power Shelf",
+            librms::protos::rack_manager::NodeType::Powershelf as i32,
+            "Power Shelf",
+            has_power_shelves,
+            false,
+        ),
+        (
+            "Switch Tray",
+            librms::protos::rack_manager::NodeType::Switch as i32,
+            "Switch",
+            has_switches,
+            false,
+        ),
+    ];
+
+    for &(lookup_key, node_type, display_name, has_devices, activate) in device_types {
+        if !has_devices {
+            continue;
+        }
+
+        let mut firmware_components =
+            find_firmware_components_for_device(&parsed_components, lookup_key, &req.firmware_type);
+
+        // Sort components into the required flashing order for this device type
+        let flash_order = get_firmware_flash_order(lookup_key);
+        firmware_components.sort_by_key(|(_, _, target)| {
+            flash_order
+                .iter()
+                .position(|&t| t == target.as_str())
+                .unwrap_or(usize::MAX)
+        });
 
         if firmware_components.is_empty() {
+            tracing::warn!(
+                rack_id = %rack_id,
+                device_type = %display_name,
+                "No matching firmware found in config"
+            );
             device_results.push(DeviceUpdateResult {
-                device_id: device_id.clone(),
-                device_type: hardware_type,
+                device_id: rack_id.to_string(),
+                device_type: display_name.to_string(),
                 success: false,
-                message: "No matching firmware found in config".to_string(),
+                message: format!("No matching firmware found in config for {}", display_name),
+                job_id: String::new(),
+                node_jobs: vec![],
             });
             failed_updates += 1;
             continue;
         }
 
+        let Some(rms_client) = &api.rms_client else {
+            tracing::warn!(
+                rack_id = %rack_id,
+                device_type = %display_name,
+                "RMS client not configured, cannot update firmware"
+            );
+            device_results.push(DeviceUpdateResult {
+                device_id: rack_id.to_string(),
+                device_type: display_name.to_string(),
+                success: false,
+                message: "RMS client not configured".to_string(),
+                job_id: String::new(),
+                node_jobs: vec![],
+            });
+            failed_updates += 1;
+            continue;
+        };
+
+        // Build FirmwareTarget entries from the lookup table
+        let firmware_targets: Vec<librms::protos::rack_manager::FirmwareTarget> =
+            firmware_components
+                .iter()
+                .map(|(_component_name, filename, target)| {
+                    let full_firmware_path = format!(
+                        "/forge-boot-artifacts/blobs/internal/fw/rack_firmware/{}/{}",
+                        req.firmware_id, filename
+                    );
+                    librms::protos::rack_manager::FirmwareTarget {
+                        target: target.clone(),
+                        filename: full_firmware_path,
+                    }
+                })
+                .collect();
+
         tracing::info!(
-            device_id = %device_id,
-            hardware_type = %hardware_type,
-            component_count = firmware_components.len(),
-            "Updating device with multiple firmware components"
+            rack_id = %rack_id,
+            device_type = %display_name,
+            firmware_target_count = firmware_targets.len(),
+            targets = ?firmware_targets.iter().map(|t| &t.target).collect::<Vec<_>>(),
+            "Applying firmware via async batch API"
         );
 
-        // Apply each firmware component to the device
-        for (component_name, filename, target) in firmware_components {
-            let full_firmware_path = format!(
-                "/forge-boot-artifacts/blobs/internal/fw/rack_firmware/{}/{}",
-                req.firmware_id, filename
-            );
+        let rms_request = librms::protos::rack_manager::UpdateFirmwareByNodeTypeRequest {
+            metadata: None,
+            node_type,
+            filename: String::new(),
+            target: String::new(),
+            rack_id: rack_id.to_string(),
+            firmware_targets,
+            activate,
+        };
 
-            tracing::debug!(
-                device_id = %device_id,
-                component = %component_name,
-                firmware_path = %full_firmware_path,
-                target = %target,
-                "Updating device firmware component"
-            );
+        match rms_client
+            .update_firmware_by_node_type_async(rms_request)
+            .await
+        {
+            Ok(response) => {
+                let success =
+                    response.status == librms::protos::rack_manager::ReturnCode::Success as i32;
 
-            let Some(rms_client) = &api.rms_client else {
-                tracing::warn!(
-                    device_id = %device_id,
-                    component = %component_name,
-                    "RMS client not configured, cannot update firmware"
-                );
-
-                device_results.push(DeviceUpdateResult {
-                    device_id: device_id.clone(),
-                    device_type: format!("{} ({})", hardware_type, component_name),
-                    success: false,
-                    message: "RMS client not configured".to_string(),
-                });
-                failed_updates += 1;
-                continue;
-            };
-
-            let request = librms::protos::rack_manager::UpdateNodeFirmwareRequest {
-                metadata: None,
-                node_id: device_id.clone(),
-                filename: full_firmware_path.clone(),
-                target: target.clone(),
-                activate: false,
-                rack_id: rack_id.to_string(),
-                ..Default::default()
-            };
-            match rms_client.update_node_firmware(request).await {
-                Ok(response) => {
-                    let status_msg = response.message;
-                    let success =
-                        response.status == librms::protos::rack_manager::ReturnCode::Success as i32;
-
-                    if success {
-                        successful_updates += 1;
-                    } else {
-                        failed_updates += 1;
-                    }
-
-                    device_results.push(DeviceUpdateResult {
-                        device_id: device_id.clone(),
-                        device_type: format!("{} ({})", hardware_type, component_name),
-                        success,
-                        message: status_msg,
-                    });
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        device_id = %device_id,
-                        component = %component_name,
-                        error = %e,
-                        "Failed to update device firmware component"
-                    );
-
-                    device_results.push(DeviceUpdateResult {
-                        device_id: device_id.clone(),
-                        device_type: format!("{} ({})", hardware_type, component_name),
-                        success: false,
-                        message: format!("RMS API Error: {}", e),
-                    });
+                if success {
+                    successful_updates += 1;
+                } else {
                     failed_updates += 1;
                 }
+
+                let node_jobs: Vec<NodeJobInfo> = response
+                    .node_jobs
+                    .iter()
+                    .map(|j| NodeJobInfo {
+                        node_id: j.node_id.clone(),
+                        job_id: j.job_id.clone(),
+                    })
+                    .collect();
+
+                for node_job in &response.node_jobs {
+                    tracing::info!(
+                        device_type = %display_name,
+                        node_id = %node_job.node_id,
+                        job_id = %node_job.job_id,
+                        "Firmware update job created"
+                    );
+                }
+
+                device_results.push(DeviceUpdateResult {
+                    device_id: rack_id.to_string(),
+                    device_type: display_name.to_string(),
+                    success,
+                    message: format!(
+                        "Async firmware update initiated for {} nodes: {}",
+                        response.total_nodes, response.message
+                    ),
+                    job_id: response.job_id,
+                    node_jobs,
+                });
+            }
+            Err(e) => {
+                tracing::warn!(
+                    rack_id = %rack_id,
+                    device_type = %display_name,
+                    error = %e,
+                    "Failed to initiate async firmware update"
+                );
+                device_results.push(DeviceUpdateResult {
+                    device_id: rack_id.to_string(),
+                    device_type: display_name.to_string(),
+                    success: false,
+                    message: format!("RMS API Error: {}", e),
+                    job_id: String::new(),
+                    node_jobs: vec![],
+                });
+                failed_updates += 1;
             }
         }
     }
@@ -1102,6 +1168,14 @@ pub async fn apply(
         failed_updates,
         device_results,
     }))
+}
+
+fn get_firmware_flash_order(device_type_key: &str) -> &'static [&'static str] {
+    match device_type_key {
+        "Switch Tray" => &["bmc", "fpga", "erot", "bios"],
+        "Compute Node" => &["/redfish/v1/Chassis/HGX_Chassis_0", "FW_BMC_0"],
+        _ => &[],
+    }
 }
 
 /// Helper function to find all firmware components for a specific device type using the lookup table
@@ -1184,4 +1258,50 @@ fn find_firmware_components_for_device(
     }
 
     results
+}
+
+/// Get the status of an async firmware update job by proxying to RMS GetFirmwareJobStatus
+pub async fn get_job_status(
+    api: &Api,
+    request: Request<RackFirmwareJobStatusRequest>,
+) -> Result<Response<RackFirmwareJobStatusResponse>, Status> {
+    let req = request.into_inner();
+
+    if req.job_id.is_empty() {
+        return Err(Status::invalid_argument("job_id is required"));
+    }
+
+    let rms_client = api
+        .rms_client
+        .as_ref()
+        .ok_or_else(|| Status::failed_precondition("RMS client not configured"))?;
+
+    let rms_request = librms::protos::rack_manager::GetFirmwareJobStatusRequest {
+        metadata: None,
+        job_id: req.job_id.clone(),
+    };
+
+    let rms_response = rms_client
+        .get_firmware_job_status(rms_request)
+        .await
+        .map_err(|e| Status::internal(format!("RMS API error: {}", e)))?;
+
+    // Map FirmwareJobState enum to human-readable string
+    let state = match rms_response.job_state {
+        0 => "QUEUED",
+        1 => "RUNNING",
+        2 => "COMPLETED",
+        3 => "FAILED",
+        _ => "UNKNOWN",
+    };
+
+    Ok(Response::new(RackFirmwareJobStatusResponse {
+        job_id: rms_response.job_id,
+        state: state.to_string(),
+        state_description: rms_response.state_description,
+        rack_id: rms_response.rack_id,
+        node_id: rms_response.node_id,
+        error_message: rms_response.error_message,
+        result_json: rms_response.result_json,
+    }))
 }

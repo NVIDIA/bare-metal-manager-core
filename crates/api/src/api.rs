@@ -1418,6 +1418,13 @@ impl Forge for Api {
         crate::handlers::rack_firmware::apply(self, request).await
     }
 
+    async fn get_rack_firmware_job_status(
+        &self,
+        request: tonic::Request<rpc::RackFirmwareJobStatusRequest>,
+    ) -> Result<Response<rpc::RackFirmwareJobStatusResponse>, tonic::Status> {
+        crate::handlers::rack_firmware::get_job_status(self, request).await
+    }
+
     async fn get_expected_power_shelf(
         &self,
         request: Request<rpc::ExpectedPowerShelfRequest>,

@@ -350,6 +350,8 @@ service Forge {
   rpc DeleteRackFirmware(RackFirmwareDeleteRequest) returns (google.protobuf.Empty);
   // Apply firmware to all devices in a rack
   rpc ApplyRackFirmware(RackFirmwareApplyRequest) returns (RackFirmwareApplyResponse);
+  // Check the status of an async firmware update job
+  rpc GetRackFirmwareJobStatus(RackFirmwareJobStatusRequest) returns (RackFirmwareJobStatusResponse);
 
   // Replace all expected machines in site
   rpc ReplaceAllExpectedMachines(ExpectedMachineList) returns (google.protobuf.Empty);
@@ -6526,6 +6528,27 @@ message DeviceUpdateResult {
   string device_type = 2;
   bool success = 3;
   string message = 4;
+  string job_id = 5;             // Parent job ID for async firmware updates (use with RMS GetFirmwareJobStatus)
+  repeated NodeJobInfo node_jobs = 6; // Per-node job IDs for tracking individual node progress
+}
+
+message NodeJobInfo {
+  string node_id = 1;
+  string job_id = 2;
+}
+
+message RackFirmwareJobStatusRequest {
+  string job_id = 1;
+}
+
+message RackFirmwareJobStatusResponse {
+  string job_id = 1;
+  string state = 2;              // QUEUED, RUNNING, COMPLETED, FAILED
+  string state_description = 3;  // Human-readable description
+  string rack_id = 4;
+  string node_id = 5;
+  string error_message = 6;      // Populated if state is FAILED
+  string result_json = 7;        // Detailed result data on completion
 }
 
 message ModifyDPFStateRequest {

@@ -93,7 +93,10 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, Machineatron, SiteAgent],
         );
         x.perm("CreateNetworkSegment", vec![Machineatron, SiteAgent]);
-        x.perm("DeleteNetworkSegment", vec![Machineatron, SiteAgent]);
+        x.perm(
+            "DeleteNetworkSegment",
+            vec![ForgeAdminCLI, Machineatron, SiteAgent],
+        );
         x.perm("NetworkSegmentsForVpc", vec![]);
         x.perm("FindIBPartitionIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindIBPartitionsByIds", vec![ForgeAdminCLI, SiteAgent]);
@@ -367,6 +370,7 @@ impl InternalRBACRules {
         x.perm("ListRackFirmware", vec![ForgeAdminCLI]);
         x.perm("GetRackFirmware", vec![ForgeAdminCLI]);
         x.perm("ApplyRackFirmware", vec![ForgeAdminCLI]);
+        x.perm("GetRackFirmwareJobStatus", vec![ForgeAdminCLI]);
         x.perm("RebootCompleted", vec![Machineatron, Scout]);
         x.perm("PersistValidationResult", vec![Scout]);
         x.perm("GetMachineValidationResults", vec![ForgeAdminCLI, Scout]);

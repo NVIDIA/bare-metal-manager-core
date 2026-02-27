@@ -6,128 +6,140 @@ subcommands, in the `admin-cli` crate (for `carbide-admin-cli`).
 ## Table of Contents
 
 - [Module Structure](#module-structure)
-- [The Dispatch Trait](#the-dispatch-trait)
+- [The Dispatch and Run Traits](#the-dispatch-and-run-traits)
+- [The Dispatch Derive Macro](#the-dispatch-derive-macro)
 - [RuntimeContext and RuntimeConfig](#runtimecontext-and-runtimeconfig)
 - [Creating a New Subcommand](#creating-a-new-subcommand)
+- [Nested Command Groups](#nested-command-groups)
 - [Testing](#testing)
 
 ## Module Structure
 
-Each subcommand lives in its own module directory under `src/`. A complete
-subcommand module should generally contain, at least, these four basic files:
+Each command group lives in its own module directory under `src/`. Within
+that directory, each leaf command (show, list, delete, etc.) gets its own
+subdirectory with a consistent three-file structure:
 
 ```
 src/
-└── my_subcommand/
-    ├── mod.rs      # Module root with Dispatch implementation.
-    ├── args.rs     # Clap argument definitions.
-    ├── cmds.rs     # Command handler implementations.
-    └── tests.rs    # Unit tests.
+└── my_command/
+    ├── mod.rs          # Cmd enum with #[derive(Dispatch)].
+    ├── tests.rs        # Unit tests for arg parsing.
+    ├── show/
+    │   ├── mod.rs      # Run implementation for show.
+    │   ├── args.rs     # Clap argument definitions.
+    │   └── cmd.rs      # Command handler implementation.
+    ├── list/
+    │   ├── mod.rs      # Run implementation for list.
+    │   ├── args.rs     # Clap argument definitions.
+    │   └── cmd.rs      # Command handler implementation.
+    └── delete/
+        ├── mod.rs      # Run implementation for delete.
+        ├── args.rs     # Clap argument definitions.
+        └── cmd.rs      # Command handler implementation.
 ```
 
-### mod.rs
+### Command Group mod.rs
 
-The module root file declares submodules, exports the `Cmd` type, and
-implements the `Dispatch` trait. This is where command routing happens.
+The command group's `mod.rs` declares its leaf command submodules, exports
+the `Cmd` enum, and derives `Dispatch`. This is all that's needed -- the
+derive macro auto-generates the dispatch routing.
 
-An example `mod.rs` might look something like:
 ```rust
-pub mod args;
-pub mod cmds;
+mod delete;
+mod list;
+mod show;
 
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
+
+#[derive(Parser, Debug, Dispatch)]
+pub enum Cmd {
+    #[clap(about = "Show items")]
+    Show(show::Args),
+    #[clap(about = "List all items")]
+    List(list::Args),
+    #[clap(about = "Delete an item")]
+    Delete(delete::Args),
+}
+```
+
+### Leaf Command mod.rs
+
+Each leaf command's `mod.rs` implements the `Run` trait on its `Args`
+type. This is the bridge between argument parsing and execution --
+it pulls what it needs from `RuntimeContext` and delegates to the
+handler in `cmd.rs`.
+
+```rust
+pub mod args;
+pub mod cmd;
+
+use ::rpc::admin_cli::CarbideCliResult;
+pub use args::Args;
+
+use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Show(args) => {
-                cmds::show(args, ctx.config.format, &ctx.api_client).await
-            }
-            Cmd::Create(args) => {
-                cmds::create(args, &ctx.api_client).await
-            }
-        }
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::show(&ctx.api_client, self, ctx.config.format).await
     }
 }
 ```
 
-### args.rs
+### Leaf Command args.rs
 
-Contains all clap argument definitions. The root `Cmd` enum defines
-available subcommands, with each variant holding its argument struct.
+Contains the clap argument definitions for a single leaf command:
 
 ```rust
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-pub enum Cmd {
-    #[clap(about = "Display items")]
-    Show(ShowArgs),
-
-    #[clap(about = "Create a new item")]
-    Create(CreateArgs),
-}
-
-#[derive(Parser, Debug)]
-pub struct ShowArgs {
-    #[clap(help = "Item ID to display")]
+pub struct Args {
+    #[clap(help = "Optional item ID")]
     pub id: Option<String>,
 
     #[clap(short, long, help = "Filter by name")]
     pub name: Option<String>,
 }
-
-#[derive(Parser, Debug)]
-pub struct CreateArgs {
-    #[clap(long, help = "Name for the new item")]
-    pub name: String,
-
-    #[clap(long, help = "Optional description")]
-    pub description: Option<String>,
-}
 ```
 
-### cmds.rs
+### Leaf Command cmd.rs
 
-Contains the actual command handler implementations. Each handler receives
-parsed arguments and runtime dependencies (API client, format, etc.), which
-are passed down via the main `RuntimeContext` through the `Dispatch` handler.
+Contains the actual command handler. Receives parsed arguments and
+only the specific dependencies it needs (not the full RuntimeContext):
 
 ```rust
 use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 
-use super::args::{CreateArgs, ShowArgs};
+use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn show(
-    args: ShowArgs,
+    api_client: &ApiClient,
+    args: Args,
     format: OutputFormat,
-    api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    // Implementation here
-    Ok(())
-}
-
-pub async fn create(
-    args: CreateArgs,
-    api_client: &ApiClient,
-) -> CarbideCliResult<()> {
-    // Implementation here
+    // Implementation here.
     Ok(())
 }
 ```
 
-## The Dispatch Trait
+## The Dispatch and Run Traits
 
-The `Dispatch` trait (defined in `src/cfg/dispatch.rs`) provides a unified
-interface for executing commands with the runtime context:
+Command execution flows through two traits that separate routing from
+execution.
+
+### Dispatch
+
+The `Dispatch` trait (defined in `src/cfg/dispatch.rs`) is implemented
+on command group `Cmd` enums. It routes a parsed command to the correct
+leaf handler. You should never need to implement this by hand -- use
+`#[derive(Dispatch)]` instead (see below).
 
 ```rust
 pub(crate) trait Dispatch {
@@ -138,35 +150,61 @@ pub(crate) trait Dispatch {
 }
 ```
 
-Every subcommand's `Cmd` type must implement this trait. The implementation
-routes to the appropriate handler in `cmds.rs` based on which variant was
-parsed.
+### Run
 
-### Key Points
-
-- The trait consumes `self` (takes ownership of the parsed command).
-- Returns a `CarbideCliResult<()>` future.
-- The `ctx` parameter provides all runtime dependencies.
-
-### Handling Output Files
-
-Depending on runtime output configuration, a command may write to a file. If your
-command  needs the output file, take `mut ctx` to get mutable access:
+The `Run` trait (defined in `src/cfg/run.rs`) is implemented on leaf
+command `Args` structs. It executes a single command, pulling what it
+needs from the `RuntimeContext`.
 
 ```rust
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Show(args) => {
-                cmds::show(
-                    args,
-                    &mut ctx.output_file,  // <-- Do it here.
-                    ctx.config.format,
-                    &ctx.api_client,
-                ).await
-            }
-        }
-    }
+pub(crate) trait Run {
+    fn run(
+        self,
+        ctx: &mut RuntimeContext,
+    ) -> impl std::future::Future<Output = CarbideCliResult<()>>;
+}
+```
+
+### Key Differences
+
+| | Dispatch | Run |
+|---|---|---|
+| **Implemented on** | `Cmd` enums (command groups) | `Args` structs (leaf commands) |
+| **Context** | Takes `ctx` by value (ownership) | Takes `&mut ctx` (mutable borrow) |
+| **Generated by** | `#[derive(Dispatch)]` | Hand-written |
+| **Purpose** | Routes to the correct leaf command | Executes a single command |
+
+## The Dispatch Derive Macro
+
+The `#[derive(Dispatch)]` macro (defined in `crates/macros`) generates
+a `Dispatch` impl automatically. It iterates the enum's variants and
+calls `.run(&mut ctx)` on each variant's inner type.
+
+```rust
+use crate::cfg::dispatch::Dispatch;
+
+#[derive(Parser, Debug, Dispatch)]
+pub enum Cmd {
+    Show(show::Args),    // show::Args implements Run
+    List(list::Args),    // list::Args implements Run
+    Delete(delete::Args) // delete::Args implements Run
+}
+```
+
+The import `use crate::cfg::dispatch::Dispatch` brings both the trait
+and the derive macro into scope (they share the name, like clap's
+`Parser`).
+
+For nested command groups where a variant holds another `Cmd` enum
+that implements `Dispatch` (rather than a leaf `Args` that implements
+`Run`), annotate the variant with `#[dispatch]`:
+
+```rust
+#[derive(Parser, Debug, Dispatch)]
+pub enum Cmd {
+    Show(show::Args),       // Leaf command -- calls .run()
+    #[dispatch]
+    SubGroup(sub::Cmd),     // Nested group -- calls .dispatch()
 }
 ```
 
@@ -184,45 +222,47 @@ pub struct RuntimeContext {
 
 pub struct RuntimeConfig {
     pub format: OutputFormat,           // Output format (Table, JSON, CSV)
-    pub page_size: usize,               // Pagination size for list operations
-    pub extended: bool,                 // Show extended/detailed output
-    pub cloud_unsafe_op_enabled: bool,  // Allow unsafe cloud operations
-    pub sort_by: SortField,             // Sort field for list operations
+    pub page_size: usize,              // Pagination size for list operations
+    pub extended: bool,                // Show extended/detailed output
+    pub cloud_unsafe_op_enabled: bool, // Allow unsafe cloud operations
+    pub sort_by: SortField,            // Sort field for list operations
 }
 ```
 
-### Using RuntimeConfig Fields
+### Using RuntimeContext in Run Implementations
 
-Extract only what your handler needs:
+Extract only what your handler needs in the `Run` impl, and pass
+those specific values to `cmd.rs`:
 
 ```rust
-// Simple handler -- just needs format and API client.
-cmds::show(args, ctx.config.format, &ctx.api_client).await
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        // Simple handler -- just needs API client.
+        cmd::show(&ctx.api_client, self).await
 
-// Paginated list additionally needs page_size.
-cmds::list(args, ctx.config.format, &ctx.api_client, ctx.config.page_size).await
+        // Paginated list additionally needs page_size.
+        cmd::list(&ctx.api_client, self, ctx.config.page_size).await
 
-// Extended output additionally needs the extended flag.
-cmds::show(args, ctx.config.format, &ctx.api_client, ctx.config.extended).await
+        // Extended output additionally needs the extended flag.
+        cmd::show(&ctx.api_client, self, ctx.config.format, ctx.config.extended).await
 
-// For those needing support for sorting.
-cmds::list(args, &ctx.api_client, ctx.config.sort_by).await
-
-// ..and finally, writing to file.
-cmds::export(&mut ctx.output_file, args, &ctx.api_client).await
+        // Writing to file.
+        cmd::export(&mut ctx.output_file, &ctx.api_client, self).await
+    }
+}
 ```
 
 ## Creating a New Subcommand
 
-### Step 1: Create the Module Directory
+### Step 1: Create the Directory Structure
 
 ```bash
-mkdir src/my_subcommand
+mkdir -p src/my_command/show
 ```
 
-### Step 2: Create args.rs
+### Step 2: Create the Leaf Command
 
-Define your command enum and argument structs:
+Create `src/my_command/show/args.rs`:
 
 ```rust
 /*
@@ -234,21 +274,13 @@ Define your command enum and argument structs:
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-pub enum Cmd {
-    #[clap(about = "Show items")]
-    Show(ShowArgs),
-}
-
-#[derive(Parser, Debug)]
-pub struct ShowArgs {
+pub struct Args {
     #[clap(help = "Optional item ID")]
     pub id: Option<String>,
 }
 ```
 
-### Step 3: Create cmds.rs
-
-Implement your command handlers:
+Create `src/my_command/show/cmd.rs`:
 
 ```rust
 /*
@@ -257,24 +289,18 @@ Implement your command handlers:
  * ..etc etc.
  */
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::CarbideCliResult;
 
-use super::args::ShowArgs;
+use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn show(
-    args: ShowArgs,
-    format: OutputFormat,
-    api_client: &ApiClient,
-) -> CarbideCliResult<()> {
+pub async fn show(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
     // Your implementation here.
     Ok(())
 }
 ```
 
-### Step 4: Create mod.rs
-
-Wire up the dispatch:
+Create `src/my_command/show/mod.rs`:
 
 ```rust
 /*
@@ -284,38 +310,58 @@ Wire up the dispatch:
  */
 
 pub mod args;
-pub mod cmds;
-
-#[cfg(test)]
-mod tests;
+pub mod cmd;
 
 use ::rpc::admin_cli::CarbideCliResult;
-pub use args::Cmd;
+pub use args::Args;
 
-use crate::cfg::dispatch::Dispatch;
+use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
-        match self {
-            Cmd::Show(args) => {
-                cmds::show(args, ctx.config.format, &ctx.api_client).await
-            }
-        }
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::show(&ctx.api_client, self).await
     }
 }
 ```
 
-### Step 5: Create tests.rs
+### Step 3: Create the Command Group
+
+Create `src/my_command/mod.rs`:
+
+```rust
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-License-Identifier: Apache-2.0
+ * ..etc etc.
+ */
+
+mod show;
+
+#[cfg(test)]
+mod tests;
+
+use clap::Parser;
+
+use crate::cfg::dispatch::Dispatch;
+
+#[derive(Parser, Debug, Dispatch)]
+pub enum Cmd {
+    #[clap(about = "Show items")]
+    Show(show::Args),
+}
+```
+
+### Step 4: Create tests.rs
 
 Add unit tests (see [Testing](#testing) section below).
 
-### Step 6: Register the Subcommand
+### Step 5: Register the Subcommand
 
 Add to `src/main.rs`:
 
 ```rust
-mod my_subcommand;
+mod my_command;
 ```
 
 Add to `CliCommand` enum in `src/cfg/cli_options.rs`:
@@ -324,7 +370,7 @@ Add to `CliCommand` enum in `src/cfg/cli_options.rs`:
 pub enum CliCommand {
     // ... existing commands ...
     #[clap(about = "My subcommand description", subcommand)]
-    MySubcommand(my_subcommand::Cmd),
+    MyCommand(my_command::Cmd),
 }
 ```
 
@@ -333,13 +379,40 @@ Add dispatch routing in `src/main.rs`:
 ```rust
 match command {
     // ... existing commands ...
-    CliCommand::MySubcommand(cmd) => cmd.dispatch(ctx).await?,
+    CliCommand::MyCommand(cmd) => cmd.dispatch(ctx).await?,
 }
 ```
 
+## Nested Command Groups
+
+Sometimes a command group contains other command groups rather than
+(or in addition to) leaf commands. For example, a `machine` command
+might have both leaf commands (`show`, `reboot`) and a nested group
+(`network` with its own subcommands).
+
+Use the `#[dispatch]` attribute on variants that hold a nested `Cmd`
+enum:
+
+```rust
+#[derive(Parser, Debug, Dispatch)]
+pub enum Cmd {
+    #[clap(about = "Show machine info")]
+    Show(show::Args),                        // Leaf -- implements Run.
+    #[clap(about = "Reboot a machine")]
+    Reboot(reboot::Args),                    // Leaf -- implements Run.
+    #[clap(subcommand, about = "Networking")]
+    #[dispatch]
+    Network(network::Cmd),                   // Nested group -- implements Dispatch.
+}
+```
+
+The nested group (`network`) follows the same structure -- its own
+`mod.rs` with `#[derive(Dispatch)]`, its own leaf commands, and
+potentially its own nested groups.
+
 ## Testing
 
-Each subcommand should have a `tests.rs` file that validates command
+Each command group should have a `tests.rs` file that validates command
 structure and argument parsing. Tests are organized into categories.
 Note the repetitive/boilerplate comments. While not needed, it helps those
 who happen to look at your specific `tests.rs`.
@@ -365,7 +438,7 @@ who happen to look at your specific `tests.rs`.
 
 use clap::{CommandFactory, Parser};
 
-use super::args::*;
+use super::*;
 ```
 
 ### Boilerplate Tests (Required!)
