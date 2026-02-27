@@ -5604,6 +5604,18 @@ impl StateHandler for InstanceStateHandler {
                     // Otherwise, follow the normal termination/reprovision flow through
                     // BootingWithDiscoveryImage.
                     if instance.custom_pxe_reboot_requested {
+                        if !instance
+                            .config
+                            .os
+                            .run_provisioning_instructions_on_every_boot
+                        {
+                            ctx.pending_db_writes
+                                .push(MachineWriteOp::UseCustomIpxeOnNextBoot {
+                                    machine_id: mh_snapshot.host_snapshot.id,
+                                    boot_with_custom_ipxe: true,
+                                });
+                        }
+
                         let next_state = ManagedHostState::Assigned {
                             instance_state: InstanceState::WaitingForRebootToReady,
                         };
