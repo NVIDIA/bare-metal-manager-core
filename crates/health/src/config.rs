@@ -204,6 +204,9 @@ pub struct CollectorsConfig {
 
     /// Switch NMX-T collector configuration (if present, nmxt collector is enabled)
     pub nmxt: Configurable<NmxtCollectorConfig>,
+
+    /// NVUE collector configuration for direct NVUE HTTP(s) polling of NVLink switches
+    pub nvue: Configurable<NvueCollectorConfig>,
 }
 
 impl Default for CollectorsConfig {
@@ -213,6 +216,7 @@ impl Default for CollectorsConfig {
             firmware: Configurable::Disabled,
             logs: Configurable::Disabled,
             nmxt: Configurable::Disabled,
+            nvue: Configurable::Disabled,
         }
     }
 }
@@ -347,6 +351,65 @@ impl Default for NmxtCollectorConfig {
     fn default() -> Self {
         Self {
             scrape_interval: Duration::from_secs(60),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NvueCollectorConfig {
+    pub rest: Configurable<NvueRestConfig>,
+}
+
+impl Default for NvueCollectorConfig {
+    fn default() -> Self {
+        Self {
+            rest: Configurable::Enabled(NvueRestConfig::default()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NvueRestConfig {
+    /// Interval between NVUE REST poll iterations.
+    #[serde(with = "humantime_serde")]
+    pub poll_interval: Duration,
+
+    /// Timeout for individual REST requests.
+    #[serde(with = "humantime_serde")]
+    pub request_timeout: Duration,
+
+    /// NVUE REST paths to poll.
+    pub paths: NvueRestPaths,
+}
+
+impl Default for NvueRestConfig {
+    fn default() -> Self {
+        Self {
+            poll_interval: Duration::from_secs(300),
+            request_timeout: Duration::from_secs(30),
+            paths: NvueRestPaths::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NvueRestPaths {
+    pub system_health_enabled: bool,
+    pub cluster_apps_enabled: bool,
+    pub sdn_partitions_enabled: bool,
+    pub interfaces_enabled: bool,
+}
+
+impl Default for NvueRestPaths {
+    fn default() -> Self {
+        Self {
+            system_health_enabled: true,
+            cluster_apps_enabled: true,
+            sdn_partitions_enabled: true,
+            interfaces_enabled: true,
         }
     }
 }
@@ -541,6 +604,7 @@ mod tests {
         assert!(config.collectors.sensors.is_enabled());
         assert!(config.collectors.firmware.is_enabled());
         assert!(config.collectors.logs.is_enabled());
+        assert!(config.collectors.nvue.is_enabled());
         assert!(!config.sinks.tracing.is_enabled());
         assert!(config.sinks.prometheus.is_enabled());
 
@@ -569,6 +633,17 @@ mod tests {
         assert_eq!(config.shards_count, 1);
 
         assert_eq!(config.cache_size, 100);
+
+        if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
+            if let Configurable::Enabled(ref rest) = nvue.rest {
+                assert_eq!(rest.poll_interval, Duration::from_secs(60));
+                assert_eq!(rest.request_timeout, Duration::from_secs(30));
+            } else {
+                panic!("nvue rest config should be enabled in example config");
+            }
+        } else {
+            panic!("nvue config should be enabled in example config");
+        }
     }
 
     #[test]
@@ -683,5 +758,148 @@ cache_size = 50
         assert_eq!(config.metrics.endpoint, "0.0.0.0:9009");
         assert!(config.rate_limit.is_enabled());
         assert!(config.processors.leak_detection.is_enabled());
+        assert!(!config.collectors.nvue.is_enabled());
+    }
+
+    #[test]
+    fn test_nvue_config_defaults() {
+        let defaults = NvueCollectorConfig::default();
+        assert!(defaults.rest.is_enabled());
+
+        if let Configurable::Enabled(ref rest) = defaults.rest {
+            assert_eq!(rest.poll_interval, Duration::from_secs(300));
+            assert_eq!(rest.request_timeout, Duration::from_secs(30));
+            assert!(rest.paths.system_health_enabled);
+            assert!(rest.paths.cluster_apps_enabled);
+            assert!(rest.paths.sdn_partitions_enabled);
+            assert!(rest.paths.interfaces_enabled);
+        }
+    }
+
+    #[test]
+    fn test_nvue_config_parsing() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_override]
+enabled = false
+
+[collectors.nvue.rest]
+poll_interval = "2m"
+request_timeout = "45s"
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse nvue config");
+
+        assert!(config.collectors.nvue.is_enabled());
+
+        if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
+            if let Configurable::Enabled(ref rest) = nvue.rest {
+                assert_eq!(rest.poll_interval, Duration::from_secs(120));
+                assert_eq!(rest.request_timeout, Duration::from_secs(45));
+                assert!(rest.paths.system_health_enabled);
+            } else {
+                panic!("nvue rest config should be enabled");
+            }
+        } else {
+            panic!("nvue config should be enabled");
+        }
+    }
+
+    #[test]
+    fn test_nvue_config_disabled_by_default() {
+        let config = Config::default();
+        assert!(!config.collectors.nvue.is_enabled());
+    }
+
+    #[test]
+    fn test_nvue_config_explicit_disable() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_override]
+enabled = false
+
+[collectors.nvue]
+enabled = false
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse");
+
+        assert!(!config.collectors.nvue.is_enabled());
+    }
+
+    #[test]
+    fn test_nvue_config_rest_only() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_override]
+enabled = false
+
+[collectors.nvue.rest]
+poll_interval = "1m"
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse");
+
+        assert!(config.collectors.nvue.is_enabled());
+        if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
+            assert!(nvue.rest.is_enabled());
+        }
+    }
+
+    #[test]
+    fn test_nvue_config_selective_endpoints() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_override]
+enabled = false
+
+[collectors.nvue.rest]
+poll_interval = "1m"
+
+[collectors.nvue.rest.paths]
+system_health_enabled = true
+cluster_apps_enabled = false
+sdn_partitions_enabled = true
+interfaces_enabled = false
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse nvue config with selective endpoints");
+
+        if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
+            if let Configurable::Enabled(ref rest) = nvue.rest {
+                assert!(rest.paths.system_health_enabled);
+                assert!(!rest.paths.cluster_apps_enabled);
+                assert!(rest.paths.sdn_partitions_enabled);
+                assert!(!rest.paths.interfaces_enabled);
+            } else {
+                panic!("nvue rest config should be enabled");
+            }
+        } else {
+            panic!("nvue config should be enabled");
+        }
     }
 }

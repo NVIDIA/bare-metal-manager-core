@@ -73,6 +73,12 @@ pub enum HealthError {
 
     #[error("BMC Error: {0}")]
     BmcError(#[from] Box<dyn std::error::Error + Send + Sync>),
+
+    #[error("{protocol} error: {message}")]
+    HttpError {
+        protocol: &'static str,
+        message: String,
+    },
 }
 
 impl From<String> for HealthError {
@@ -114,6 +120,7 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
             source_cfg.client_key.clone(),
             &source_cfg.api_url,
             config.collectors.nmxt.is_enabled(),
+            config.collectors.nvue.is_enabled(),
         ));
         sources.push(api_client as Arc<dyn EndpointSource>);
     }
