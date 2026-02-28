@@ -31,7 +31,7 @@ use crate::{
 
 #[derive(Parser, Debug)]
 #[clap(name = "carbide-admin-cli")]
-#[clap(author = "Slack channel #dsx-carbide-devel")]
+#[clap(author = "https://github.com/NVIDIA/bare-metal-manager-core")]
 pub struct CliOptions {
     #[clap(
         long,
