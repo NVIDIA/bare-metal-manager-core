@@ -8,7 +8,7 @@ This crate provides a flexible, template-based approach to generating iPXE boot 
 
 - Template-based iPXE script generation
 - Parameter substitution with validation
-- Potential artifact caching with local URL generation
+- Potential artifact caching with local URL generation enabling a future caching service
 - Deterministic hashing for change/tamper detection
 - Required and reserved parameter enforcement
 - Support for optional parameters if needed
@@ -20,13 +20,8 @@ This crate provides a flexible, template-based approach to generating iPXE boot 
 - **`IpxeOsRenderer`**: Main trait for rendering iPXE scripts
 - **`DefaultIpxeOsRenderer`**: Default implementation with built-in templates
 - **Template Management**: Support for multiple iPXE script templates
-- **Artifact Caching**: Local caching of remote artifacts (kernels, initrds, images)
+- **Artifact Caching**: Potential ocal caching of remote artifacts (kernels, initrds, images)
 - **Parameter Validation**: Validates required, reserved, and optional parameters
-
-### Built-in Templates
-
-1. **qcow-image**: Template for booting QCOW images using qcow-imager.efi
-2. **ubuntu-autoinstall**: Template for Ubuntu autoinstall
 
 ## Usage
 
@@ -90,17 +85,20 @@ cargo test --package carbide-ipxe-renderer -- --nocapture
 
 ## Template System
 
+Parameters and Artifacts are typically used on the kernel command line in iPXE scripts.<br>
+They can be defined multiple times as needed (example: console, crashkernel, ...).
+
 ### Parameters
 
 Templates support three types of parameters:
 
 1. **Required**: Must be provided in OS definition (e.g., `image_url`)
 2. **Reserved**: Provided by carbide-core at render time (e.g., `base_url`, `console`)
-3. **Optional**: Extra parameters replaced via `{{extra}}` placeholder
+3. **Optional**: Extra parameters added via `{{extra}}` placeholder
 
 ### Artifacts
 
-Artifacts represent downloadable components (kernels, initrds, images):
+Artifacts represent downloadable components (kernels, initrds, images, ...):
 
 ```rust
 IpxeOsArtifact {
@@ -124,6 +122,7 @@ The renderer validates:
 
 This implementation follows the design specified in `nvmetal/designs/designs/0076-Operating-System-Management-Move-to-Carbide-Core.md`.
 
-## License
-
-LicenseRef-NvidiaProprietary
+**Usage hierarchy**:
+1. Templates (currently a static list)
+2. iPXE OS definitions referencing templates, providing parameters/artifacts and optional user data
+3. Instances referencing iPXE OS definitions and providing optional user data
