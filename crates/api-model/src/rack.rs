@@ -163,11 +163,83 @@ pub enum RackState {
     /// Rack is fully validated and ready for production workloads.
     Ready,
 
+    /// Rack is undergoing maintenance (firmware upgrade, power sequencing, etc.).
+    /// Maintenance happens after discovery and before validation.
+    Maintenance {
+        rack_maintenance: RackMaintenanceState,
+    },
+
     /// Rack encountered an unrecoverable error.
     Error { cause: String },
 
     /// Rack is being deleted.
     Deleting,
+}
+
+/// Sub-states of rack maintenance.
+///
+/// The rack enters maintenance after discovery (all devices found, all machines
+/// ready) and exits into `Discovered` once maintenance is complete, at which
+/// point the validation flow takes over.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RackMaintenanceState {
+    FirmwareUpgrade {
+        rack_firmware_upgrade: RackFirmwareUpgradeState,
+    },
+    PowerSequence {
+        rack_power: RackPowerState,
+    },
+    Completed,
+}
+
+impl Display for RackMaintenanceState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RackMaintenanceState::FirmwareUpgrade { rack_firmware_upgrade } => {
+                write!(f, "FirmwareUpgrade({})", rack_firmware_upgrade)
+            }
+            RackMaintenanceState::PowerSequence { rack_power } => {
+                write!(f, "PowerSequence({})", rack_power)
+            }
+            RackMaintenanceState::Completed => write!(f, "Completed"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RackFirmwareUpgradeState {
+    Compute,
+    Switch,
+    PowerShelf,
+    All,
+}
+
+impl Display for RackFirmwareUpgradeState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RackFirmwareUpgradeState::Compute => write!(f, "Compute"),
+            RackFirmwareUpgradeState::Switch => write!(f, "Switch"),
+            RackFirmwareUpgradeState::PowerShelf => write!(f, "PowerShelf"),
+            RackFirmwareUpgradeState::All => write!(f, "All"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RackPowerState {
+    PoweringOn,
+    PoweringOff,
+    PowerReset,
+}
+
+impl Display for RackPowerState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RackPowerState::PoweringOn => write!(f, "PoweringOn"),
+            RackPowerState::PoweringOff => write!(f, "PoweringOff"),
+            RackPowerState::PowerReset => write!(f, "PowerReset"),
+        }
+    }
 }
 
 impl Default for RackState {
@@ -188,6 +260,9 @@ impl Display for RackState {
             RackState::RackValidated => write!(f, "RackValidated"),
             RackState::RackFailed => write!(f, "RackFailed"),
             RackState::Ready => write!(f, "Ready"),
+            RackState::Maintenance { rack_maintenance } => {
+                write!(f, "Maintenance({})", rack_maintenance)
+            }
             RackState::Error { cause } => write!(f, "Error({})", cause),
             RackState::Deleting => write!(f, "Deleting"),
         }
@@ -231,7 +306,7 @@ pub fn state_sla(state: &RackState, state_version: &ConfigVersion) -> StateSla {
         .to_std()
         .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
 
-    // TODO[#416]: Define SLAs for validation states
+    // TODO[#416]: Define SLAs for validation and maintenance states
     match state {
         RackState::Expected => StateSla::no_sla(),
         RackState::Discovering => StateSla::no_sla(),
@@ -242,6 +317,7 @@ pub fn state_sla(state: &RackState, state_version: &ConfigVersion) -> StateSla {
         RackState::RackValidated => StateSla::no_sla(),
         RackState::RackFailed => StateSla::no_sla(),
         RackState::Ready => StateSla::no_sla(),
+        RackState::Maintenance { .. } => StateSla::no_sla(),
         RackState::Error { .. } => StateSla::no_sla(),
         RackState::Deleting => StateSla::no_sla(),
     }

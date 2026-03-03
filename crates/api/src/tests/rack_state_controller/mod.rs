@@ -22,7 +22,9 @@ use std::time::Duration;
 
 use carbide_uuid::rack::RackId;
 use db::rack as db_rack;
-use model::rack::{Rack, RackState};
+use model::rack::{
+    Rack, RackFirmwareUpgradeState, RackMaintenanceState, RackState,
+};
 use rpc::forge::RackStateHistoryRecord;
 use rpc::forge::forge_server::Forge;
 
@@ -70,7 +72,18 @@ impl StateHandler for TestRackStateHandler {
 
         let state = match controller_state {
             RackState::Expected => RackState::Discovering,
-            RackState::Discovering => RackState::Discovered,
+            RackState::Discovering => RackState::Maintenance {
+                rack_maintenance: RackMaintenanceState::FirmwareUpgrade {
+                    rack_firmware_upgrade: RackFirmwareUpgradeState::Compute,
+                },
+            },
+            RackState::Maintenance { rack_maintenance } => match rack_maintenance {
+                RackMaintenanceState::FirmwareUpgrade { .. } => RackState::Maintenance {
+                    rack_maintenance: RackMaintenanceState::Completed,
+                },
+                RackMaintenanceState::Completed => RackState::Discovered,
+                _ => return Ok(StateHandlerOutcome::do_nothing()),
+            },
             RackState::Discovered => RackState::ValidationInProgress,
             RackState::ValidationInProgress => RackState::ValidationPartial,
             RackState::ValidationPartial => RackState::RackValidated,
@@ -385,6 +398,14 @@ async fn test_rack_state_transition_validation(
     // Test state transitions by manually setting different states
     let states = vec![
         RackState::Discovering,
+        RackState::Maintenance {
+            rack_maintenance: RackMaintenanceState::FirmwareUpgrade {
+                rack_firmware_upgrade: RackFirmwareUpgradeState::Compute,
+            },
+        },
+        RackState::Maintenance {
+            rack_maintenance: RackMaintenanceState::Completed,
+        },
         RackState::Discovered,
         RackState::ValidationInProgress,
         RackState::ValidationPartial,

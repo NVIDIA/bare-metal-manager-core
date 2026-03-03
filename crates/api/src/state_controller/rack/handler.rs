@@ -36,7 +36,9 @@ use db::{self, expected_machine as db_expected_machine, rack as db_rack};
 use model::instance::snapshot::InstanceSnapshot;
 use model::machine::{LoadSnapshotOptions, ManagedHostState};
 use model::metadata::Metadata;
-use model::rack::{Rack, RackState};
+use model::rack::{
+    Rack, RackFirmwareUpgradeState, RackMaintenanceState, RackPowerState, RackState,
+};
 use sqlx::PgTransaction;
 
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
@@ -539,13 +541,96 @@ impl StateHandler for RackStateHandler {
                 let (all_ready, txn) = all_machines_ready(id, state, ctx).await?;
 
                 if all_ready {
+                    // TODO[#416]: The entry point into maintenance is currently
+                    // hardcoded to FirmwareUpgrade(Compute). This should become
+                    // configurable or determined by rack/site config so that
+                    // different maintenance workflows can be selected.
                     tracing::info!(
-                        "Rack {} has all machines ready, entering Discovered state",
+                        "Rack {} has all machines ready, entering maintenance",
                         id
                     );
-                    Ok(StateHandlerOutcome::transition(RackState::Discovered).with_txn(txn))
+                    Ok(StateHandlerOutcome::transition(RackState::Maintenance {
+                        rack_maintenance: RackMaintenanceState::FirmwareUpgrade {
+                            rack_firmware_upgrade: RackFirmwareUpgradeState::Compute,
+                        },
+                    })
+                    .with_txn(txn))
                 } else {
                     Ok(StateHandlerOutcome::do_nothing().with_txn(txn))
+                }
+            }
+
+            RackState::Maintenance { rack_maintenance } => {
+                match rack_maintenance {
+                    RackMaintenanceState::FirmwareUpgrade { rack_firmware_upgrade } => {
+                        match rack_firmware_upgrade {
+                            RackFirmwareUpgradeState::Compute => {
+                                // TODO[#416]: Implement compute firmware upgrade
+                                // orchestration via Rack Manager Service.
+                                // For now, skip straight to Completed.
+                                tracing::info!(
+                                    "Rack {} firmware upgrade (compute) - stubbed, completing",
+                                    id
+                                );
+                                Ok(StateHandlerOutcome::transition(RackState::Maintenance {
+                                    rack_maintenance: RackMaintenanceState::Completed,
+                                }))
+                            }
+                            RackFirmwareUpgradeState::Switch => {
+                                // TODO[#416]: Implement switch firmware upgrade
+                                tracing::info!(
+                                    "Rack {} firmware upgrade (switch) - stubbed",
+                                    id
+                                );
+                                Ok(StateHandlerOutcome::do_nothing())
+                            }
+                            RackFirmwareUpgradeState::PowerShelf => {
+                                // TODO[#416]: Implement power shelf firmware upgrade
+                                tracing::info!(
+                                    "Rack {} firmware upgrade (power shelf) - stubbed",
+                                    id
+                                );
+                                Ok(StateHandlerOutcome::do_nothing())
+                            }
+                            RackFirmwareUpgradeState::All => {
+                                // TODO[#416]: Implement full-rack firmware upgrade
+                                // (likely delegated to Rack Manager for the entire rack)
+                                tracing::info!(
+                                    "Rack {} firmware upgrade (all) - stubbed",
+                                    id
+                                );
+                                Ok(StateHandlerOutcome::do_nothing())
+                            }
+                        }
+                    }
+                    RackMaintenanceState::PowerSequence { rack_power } => {
+                        match rack_power {
+                            RackPowerState::PoweringOn => {
+                                // TODO[#416]: Implement power-on sequencing
+                                tracing::info!("Rack {} power sequence (on) - stubbed", id);
+                                Ok(StateHandlerOutcome::do_nothing())
+                            }
+                            RackPowerState::PoweringOff => {
+                                // TODO[#416]: Implement power-off sequencing
+                                tracing::info!("Rack {} power sequence (off) - stubbed", id);
+                                Ok(StateHandlerOutcome::do_nothing())
+                            }
+                            RackPowerState::PowerReset => {
+                                // TODO[#416]: Implement power reset sequencing
+                                tracing::info!("Rack {} power sequence (reset) - stubbed", id);
+                                Ok(StateHandlerOutcome::do_nothing())
+                            }
+                        }
+                    }
+                    RackMaintenanceState::Completed => {
+                        // Maintenance is done — transition to Discovered so the
+                        // validation flow can take over.
+                        tracing::info!(
+                            "Rack {} maintenance completed, entering Discovered state",
+                            id
+                        );
+                        Ok(StateHandlerOutcome::transition(RackState::Discovered))
+                    }
                 }
             }
 
@@ -606,7 +691,11 @@ impl StateHandler for RackStateHandler {
 
             RackState::Ready => {
                 // Rack is ready for production workloads, but check if this is
-                // still the case
+                // still the case.
+                // TODO[#416]: Ready should also be able to transition into
+                // Maintenance (e.g. firmware upgrade triggered on a live rack).
+                // The mechanism for that is TBD — it may come from an external
+                // API call or a config change rather than being polled here.
                 let summary = load_partition_summary(id, state, ctx).await?;
                 if let Some(next_state) = compute_validation_transition(controller_state, &summary)
                 {
