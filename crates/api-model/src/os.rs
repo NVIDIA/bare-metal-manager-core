@@ -128,10 +128,18 @@ impl TryFrom<rpc::forge::OperatingSystem> for OperatingSystem {
                 })?)
             }
             rpc::forge::operating_system::Variant::IpxeOsDef(ipxe_os_def) => {
+                let id = ipxe_os_def
+                    .id
+                    .ok_or(RpcDataConversionError::MissingArgument(
+                        "IpxeOsDefinition::id",
+                    ))?;
                 OperatingSystemVariant::IpxeOsDefinition(
-                    Uuid::try_from(ipxe_os_def.os_definition_id).map_err(|e| {
-                        RpcDataConversionError::InvalidUuid("ipxe_os_definition_id: ", e.to_string())
-                    })?
+                    Uuid::try_from(id).map_err(|e| {
+                        RpcDataConversionError::InvalidUuid(
+                            "ipxe_os_definition_id: ",
+                            e.to_string(),
+                        )
+                    })?,
                 )
             }
         };
@@ -161,9 +169,21 @@ impl TryFrom<OperatingSystem> for rpc::forge::OperatingSystem {
             }
             OperatingSystemVariant::IpxeOsDefinition(id) => {
                 rpc::forge::operating_system::Variant::IpxeOsDef(
-                    rpc::forge::IpxeOsDefinitionRef {
-                        os_definition_id: id.into(),
-                    }
+                    rpc::forge::IpxeOsDefinition {
+                        id: Some(id.into()),
+                        name: String::new(),
+                        description: None,
+                        hash: String::new(),
+                        tenant_id: None,
+                        scope: None,
+                        ipxe_template_name: String::new(),
+                        parameters: vec![],
+                        artifacts: vec![],
+                        allow_override: false,
+                        created: String::new(),
+                        updated: String::new(),
+                        created_by: None,
+                    },
                 )
             }
         };

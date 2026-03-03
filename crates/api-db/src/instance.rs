@@ -323,6 +323,7 @@ pub async fn update_config(
             os_ipxe_script = ipxe.ipxe_script.clone();
         }
         OperatingSystemVariant::OsImage(id) => os_image_id = Some(id),
+        OperatingSystemVariant::IpxeOsDefinition(_) => {}
     }
 
     let query = "UPDATE instances SET config_version=$1,
@@ -379,6 +380,7 @@ pub async fn update_os(
             os_ipxe_script = ipxe.ipxe_script.clone();
         }
         OperatingSystemVariant::OsImage(id) => os_image_id = Some(id),
+        OperatingSystemVariant::IpxeOsDefinition(_) => {}
     }
 
     let query = "UPDATE instances SET config_version=$1,
@@ -580,6 +582,7 @@ pub async fn batch_persist<'a>(
                 os_ipxe_script = ipxe.ipxe_script.clone();
             }
             OperatingSystemVariant::OsImage(id) => os_image_id = Some(*id),
+            OperatingSystemVariant::IpxeOsDefinition(_) => {}
         }
 
         separated.push("(");

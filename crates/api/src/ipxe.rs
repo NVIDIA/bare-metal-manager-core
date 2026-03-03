@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use ::rpc::forge as rpc;
-use carbide_ipxe_renderer::{DefaultIpxeOsRenderer, IpxeOs, IpxeOsArtifact, IpxeOsParameter, IpxeOsRenderer, ArtifactCacheStrategy};
+use carbide_ipxe_renderer::{DefaultIpxeOsRenderer, IpxeOs, IpxeOsParameter, IpxeOsRenderer};
 use carbide_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
 use db::{self};
 use mac_address::MacAddress;
@@ -131,7 +131,7 @@ impl PxeInstructions {
         }
         
         renderer.render(ipxeos, &reserved_params)
-            .map_err(|e| CarbideError::InternalError(format!("Failed to render iPXE script: {}", e)))
+            .map_err(|e| CarbideError::internal(format!("Failed to render iPXE script: {}", e)))
     }
 
     pub async fn get_pxe_instructions(
