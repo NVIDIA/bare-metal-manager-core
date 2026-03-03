@@ -123,6 +123,7 @@ impl StateControllerIO for RackStateControllerIO {
             RackState::RackValidated => ("rack_validated", ""),
             RackState::RackFailed => ("rack_failed", ""),
             RackState::Ready => ("ready", ""),
+            RackState::Maintenance { .. } => ("maintenance", ""),
             RackState::Error { .. } => ("error", ""),
             RackState::Deleting => ("deleting", ""),
         }
