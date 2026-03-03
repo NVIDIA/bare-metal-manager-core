@@ -69,7 +69,6 @@ impl StateHandler for TestRackStateHandler {
         }
 
         let state = match controller_state {
-            RackState::Unknown => RackState::Expected,
             RackState::Expected => RackState::Discovering,
             RackState::Discovering => RackState::Discovered,
             RackState::Discovered => RackState::ValidationInProgress,

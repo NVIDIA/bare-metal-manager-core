@@ -102,31 +102,20 @@ impl<'r> FromRow<'r, PgRow> for Rack {
 /// ## State Flow
 ///
 /// ```text
-/// Unknown → Expected → Discovering → AwaitingValidation
-///                                          ↓
-///                     ┌─────────── ValidationInProgress
-///                     │                    │
-///                     ↓                    ↓
-///              ValidationFailed ←→ ValidationPartial
-///                     │                    │
-///                     ↓                    ↓
-///                RackFailed          RackValidated → Ready
+/// Expected -> Discovering -> AwaitingValidation
+///                                          |
+///                     ------------- ValidationInProgress
+///                     |                    |
+///                     |                    |
+///              ValidationFailed <-> ValidationPartial
+///                     |                    |
+///                     |                    |
+///                RackFailed          RackValidated -> Ready
 /// ```
 ///
-/// ## Validation States
-///
-/// - `AwaitingValidation`: All nodes discovered, waiting for Anvil to start validation
-/// - `ValidationInProgress`: At least one partition has started validation
-/// - `ValidationPartial`: At least one partition passed, none failed
-/// - `ValidationFailed`: At least one partition failed
-/// - `RackValidated`: All partitions passed validation
-/// - `RackFailed`: All partitions failed validation
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum RackState {
-    /// Default/initial state
-    Unknown,
-
     /// Rack is expected - waiting for machines to be discovered.
     /// Created when ExpectedMachine/Switch/PS references this rack.
     Expected,
@@ -179,14 +168,13 @@ pub enum RackState {
 
 impl Default for RackState {
     fn default() -> Self {
-        RackState::Unknown
+        RackState::Expected
     }
 }
 
 impl Display for RackState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RackState::Unknown => write!(f, "Unknown"),
             RackState::Expected => write!(f, "Expected"),
             RackState::Discovering => write!(f, "Discovering"),
             RackState::Discovered => write!(f, "Discovered"),
@@ -241,7 +229,6 @@ pub fn state_sla(state: &RackState, state_version: &ConfigVersion) -> StateSla {
 
     // TODO[542]: Define SLAs for validation states
     match state {
-        RackState::Unknown => StateSla::no_sla(),
         RackState::Expected => StateSla::no_sla(),
         RackState::Discovering => StateSla::no_sla(),
         RackState::Discovered => StateSla::no_sla(),
