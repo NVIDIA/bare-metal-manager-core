@@ -217,7 +217,6 @@ impl RvPartitions {
 }
 
 //------------------------------------------------------------------------------
-// PARTITION SUMMARY LOADING - Stub for DB/metadata queries
 
 /// Loads the aggregated partition validation summary for a rack.
 ///
@@ -226,20 +225,8 @@ impl RvPartitions {
 ///
 /// ## Expected Instance Metadata Labels
 ///
-/// - `validation.partition-id`: Identifies which partition the node belongs to
-/// - `validation.status`: One of "pending", "in_progress", "validated", "failed"
-///
-/// ## Implementation Notes
-///
-/// The actual implementation will:
-/// 1. Query all instances associated with machines in this rack
-/// 2. Group instances by `validation.partition-id`
-/// 3. For each partition, determine aggregate status:
-///    - If any node is "failed" -> partition is Failed
-///    - Else if any node is "in_progress" -> partition is InProgress
-///    - Else if all nodes are "validated" -> partition is Validated
-///    - Else -> partition is Pending
-/// 4. Count partitions in each status and return summary
+/// - `rv.part-id`: Identifies which partition the node belongs to
+/// - `rv.st`: One of "idle", "inp", "pass", "fail"
 ///
 /// TBD0: potential race condition where partitions aren't fully manifested yet,
 /// but the rack validation is already started on some of them. Maybe in such
@@ -277,7 +264,6 @@ async fn load_partition_summary(
     Ok(partitions.summarize())
 }
 
-///
 /// Checks if all expected machines in the rack have been discovered and linked.
 ///
 /// Returns `true` if:
@@ -365,8 +351,6 @@ async fn all_expected_devices_discovered(
 ///
 /// This is a prerequisite for entering the validation phase.
 ///
-/// TODO[#416]: this part was reused from an old state machine, hence it should be
-/// re-reviewed/covered with units to make sure it does what's intended
 /// TODO[#416]: eventually, the check must migrate from queriying ::Ready state to
 /// something like ::WaitingForPartitionValidation or something similar.
 async fn all_machines_ready(
