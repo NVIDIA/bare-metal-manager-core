@@ -9017,7 +9017,6 @@ async fn log_host_config(redfish_client: &dyn Redfish, mh_snapshot: &ManagedHost
     );
 }
 
-#[allow(txn_held_across_await)]
 async fn handle_instance_host_platform_config(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     mh_snapshot: &mut ManagedHostStateSnapshot,
