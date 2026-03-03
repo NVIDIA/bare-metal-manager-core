@@ -469,6 +469,7 @@ impl IpxeOsRenderer for DefaultIpxeOsRenderer {
     }
 
     fn fabricate_local_urls(&self, ipxeos: &IpxeOs) -> IpxeOs {
+        // TODO: this is a placeholder until we have a caching service.
         let mut new_ipxeos = ipxeos.clone();
 
         for artifact in &mut new_ipxeos.artifacts {
