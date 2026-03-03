@@ -537,7 +537,7 @@ impl From<DatabaseError> for tonic::Status {
             error @ DatabaseError::Internal { .. } => Status::internal(error.to_string()),
             DatabaseError::InvalidArgument(msg) => Status::invalid_argument(msg),
             DatabaseError::InvalidConfiguration(e) => Status::invalid_argument(e.to_string()),
-            error @ DatabaseError::DhcpError(_) => Status::invalid_argument(error.to_string()),
+            error @ DatabaseError::DhcpError(_) => Status::resource_exhausted(error.to_string()),
             DatabaseError::MissingArgument(msg) => Status::invalid_argument(*msg),
             DatabaseError::NetworkParseError(e) => Status::invalid_argument(e.to_string()),
             DatabaseError::NetworkSegmentDelete(msg) => Status::invalid_argument(msg),
@@ -798,11 +798,11 @@ mod tests {
     }
 
     #[test]
-    fn test_dhcp_error_maps_to_invalid_argument_status() {
+    fn test_dhcp_error_maps_to_resource_exhausted_status() {
         let err = DatabaseError::DhcpError(DhcpError::PrefixExhausted(
             "10.217.5.160".parse().expect("valid IP"),
         ));
         let status: tonic::Status = err.into();
-        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+        assert_eq!(status.code(), tonic::Code::ResourceExhausted);
     }
 }
