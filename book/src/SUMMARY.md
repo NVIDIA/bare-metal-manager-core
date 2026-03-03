@@ -1,7 +1,7 @@
 # NVIDIA Bare Metal Manager
 
 - [Introduction](README.md)
-- [Hardware Compatbility List (WIP)](HCL.md)
+- [Hardware Compatbility List](hcl.md)
 - [Release Notes](release-notes.md)
 - [FAQs](faqs.md)
 
@@ -76,10 +76,6 @@
 - [Debugging Machine]()
     - [Collecting Debug Bundles](playbooks/debugging_machine/debug_bundle.md)
 - [InfiniBand setup](playbooks/ib_runbook.md)
-- [Hardware](playbooks/hardware/hardware.md)
-    - [Desired Firmware Version](desired_firmware.md)
-    - [Getting Support](playbooks/hardware/getsupport.md)
-    - [OneCLI](playbooks/hardware/onecli.md)
 
 # Glossary
 
