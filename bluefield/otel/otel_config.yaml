@@ -473,6 +473,7 @@ service:
       processors:
         - memory_limiter
         - resourcedetection
+        - fileresource
         - resource/hostmetrics
         - telemetry_stats
         - batch/metrics
