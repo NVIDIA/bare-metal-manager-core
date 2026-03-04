@@ -234,6 +234,7 @@ fn build_leak_alert_report(metadata: &LeakMetadata, leak_type: LeakPointType) ->
 
     HealthReport {
         source: HEALTH_REPORT_SOURCE.to_string(),
+        triggered_by: None,
         observed_at: Some(chrono::Utc::now()),
         successes: vec![],
         alerts: vec![alert],

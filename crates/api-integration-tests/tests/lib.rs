@@ -33,6 +33,7 @@ use futures::future::join_all;
 use itertools::Itertools;
 use sqlx::{Postgres, Row};
 use tokio::time::sleep;
+use tokio_util::sync::CancellationToken;
 
 #[ctor::ctor]
 fn setup() {
@@ -74,6 +75,7 @@ async fn test_integration() -> eyre::Result<()> {
 
     // Begin the integration test by starting an API server. This will be shared between multiple
     // individual machine-a-tron-based tests, which can run in parallel against the same instance.
+    let cancel_token = CancellationToken::new();
     let (server_handle_1, server_handle_2) = (
         utils::start_api_server(
             test_env.clone(),
@@ -84,6 +86,7 @@ async fn test_integration() -> eyre::Result<()> {
             empty_firmware_dir.path().to_owned(),
             0,
             true,
+            cancel_token.clone(),
         )
         .await?,
         utils::start_api_server(
@@ -95,6 +98,7 @@ async fn test_integration() -> eyre::Result<()> {
             empty_firmware_dir.path().to_owned(),
             1,
             true,
+            cancel_token.clone(),
         )
         .await?,
     );
@@ -154,8 +158,9 @@ async fn test_integration() -> eyre::Result<()> {
 
     generate_core_metric_docs(&test_env.carbide_metrics_addrs);
 
-    server_handle_1.stop().await?;
-    server_handle_2.stop().await?;
+    cancel_token.cancel();
+    server_handle_1.wait().await?;
+    server_handle_2.wait().await?;
     test_env.db_pool.close().await;
     bmc_mock_handle.stop().await?;
     Ok(())
@@ -260,6 +265,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
 
     // Begin the integration test by starting an API server. This will be shared between multiple
     // individual machine-a-tron-based tests, which can run in parallel against the same instance.
+    let cancel_token = CancellationToken::new();
     let server_handle = utils::start_api_server(
         test_env.clone(),
         Some(HostPortPair::HostAndPort(
@@ -269,6 +275,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
         empty_firmware_dir.path().to_owned(),
         0,
         true,
+        cancel_token.clone(),
     )
     .await?;
 
@@ -410,7 +417,8 @@ async fn test_metrics_integration() -> eyre::Result<()> {
 
     sleep(time::Duration::from_millis(500)).await;
     bmc_mock_handle.stop().await?;
-    server_handle.stop().await?;
+    cancel_token.cancel();
+    server_handle.wait().await?;
     db_pool.close().await;
     Ok(())
 }

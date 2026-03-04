@@ -731,10 +731,9 @@ fn build_firmware_lookup_table(
                                 target = %target,
                                 "Added firmware component to lookup table"
                             );
-                            break; // Found the file, move to next component
+                            break; // Found the file for this target
                         }
                     }
-                    break; // Found matching component definition
                 }
             }
 

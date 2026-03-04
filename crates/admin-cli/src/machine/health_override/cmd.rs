@@ -31,6 +31,7 @@ use crate::rpc::ApiClient;
 fn get_empty_template() -> HealthReport {
     HealthReport {
         source: "".to_string(),
+        triggered_by: None,
         observed_at: Some(Utc::now()),
         successes: vec![HealthProbeSuccess {
             id: HealthProbeId::from_str("test").unwrap(),
@@ -57,6 +58,7 @@ pub fn get_health_report(
 ) -> HealthReport {
     let mut report = HealthReport {
         source: "admin-cli".to_string(),
+        triggered_by: None,
         observed_at: Some(Utc::now()),
         successes: vec![],
         alerts: vec![HealthProbeAlert {

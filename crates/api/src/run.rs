@@ -20,8 +20,8 @@ use std::sync::Arc;
 use eyre::WrapErr;
 use forge_secrets::forge_vault;
 use forge_secrets::forge_vault::VaultConfig;
-use tokio::sync::oneshot;
-use tokio::sync::oneshot::{Receiver, Sender};
+use tokio::sync::oneshot::Sender;
+use tokio_util::sync::CancellationToken;
 use tracing::subscriber::NoSubscriber;
 use utils::HostPortPair;
 
@@ -38,7 +38,7 @@ pub async fn run(
     site_config_str: Option<String>,
     vault_config: VaultConfig,
     skip_logging_setup: bool,
-    stop_channel: Receiver<()>,
+    cancel_token: CancellationToken,
     ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
     let carbide_config = setup::parse_carbide_config(config_str, site_config_str)?;
@@ -85,7 +85,6 @@ pub async fn run(
     create_metric_for_spancount_reader(&metrics.meter, tconf.spancount_reader);
 
     // Spin up the webserver which servers `/metrics` requests
-    let (metrics_stop_tx, metrics_stop_rx) = oneshot::channel();
     if let Some(metrics_address) = carbide_config.metrics_endpoint {
         // If a replacement prefix for "carbide_" is configured, also emit metrics under that
         let additional_prefix = carbide_config
@@ -94,18 +93,21 @@ pub async fn run(
             .map(|alt_prefix| ("carbide_".to_string(), alt_prefix));
         tokio::task::Builder::new()
             .name("metrics_endpoint")
-            .spawn(async move {
-                if let Err(e) = run_metrics_endpoint(
-                    &MetricsEndpointConfig {
-                        address: metrics_address,
-                        registry: metrics.registry,
-                        additional_prefix,
-                    },
-                    metrics_stop_rx,
-                )
-                .await
-                {
-                    tracing::error!("Metrics endpoint failed with error: {}", e);
+            .spawn({
+                let cancel_token = cancel_token.clone();
+                async move {
+                    if let Err(e) = run_metrics_endpoint(
+                        &MetricsEndpointConfig {
+                            address: metrics_address,
+                            registry: metrics.registry,
+                            additional_prefix,
+                        },
+                        cancel_token,
+                    )
+                    .await
+                    {
+                        tracing::error!("Metrics endpoint failed with error: {}", e);
+                    }
                 }
             })?;
     }
@@ -182,28 +184,13 @@ pub async fn run(
         Arc::new(redfish_pool)
     };
 
-    // Split stop_channel into a task which will stop both the API server and metrics server
-    let (api_stop_tx, api_stop_rx) = oneshot::channel();
-    tokio::spawn(async move {
-        stop_channel.await.inspect_err(|error| {
-            tracing::error!(%error, "error waiting on stop channel");
-        })?;
-        _ = metrics_stop_tx.send(()).inspect_err(|_| {
-            tracing::error!("could not send stop signal to metrics server. already stopped?");
-        });
-        _ = api_stop_tx.send(()).inspect_err(|_| {
-            tracing::error!("could not send stop signal to api server. already stopped?");
-        });
-        Ok::<(), eyre::Report>(())
-    });
-
     setup::start_api(
         carbide_config,
         metrics.meter,
         dynamic_settings,
         redfish_pool,
         vault_client,
-        api_stop_rx,
+        cancel_token,
         ready_channel,
     )
     .await

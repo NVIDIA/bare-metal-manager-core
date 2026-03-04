@@ -62,7 +62,7 @@ pub(super) struct StateProcessor<IO: StateControllerIO> {
     pub(super) object_metrics: HashMap<IO::ObjectId, CollectedMetrics<IO>>,
     /// The iteration ID for which metrics have been passed towards `metric_holder`
     pub(super) published_metrics_iteration_id: Option<ControllerIterationId>,
-    pub(super) stop_token: CancellationToken,
+    pub(super) cancel_token: CancellationToken,
     pub(super) iteration_config: IterationConfig,
     /// IDs of objects where the task handler is currently executed
     pub(super) in_flight: HashSet<IO::ObjectId>,
@@ -189,7 +189,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             use rand::Rng;
             let sleep_time = next_dispatch_at.saturating_duration_since(std::time::Instant::now());
             if !sleep_time.is_zero() {
-                let cancelled_future = self.stop_token.cancelled();
+                let cancelled_future = self.cancel_token.cancelled();
                 tokio::pin!(cancelled_future);
                 tokio::select! {
                         biased;
@@ -199,7 +199,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
                     }
                     _ = tokio::time::sleep(sleep_time) => {},
                 }
-            } else if self.stop_token.is_cancelled() {
+            } else if self.cancel_token.is_cancelled() {
                 tracing::info!(
                     controller = IO::LOG_SPAN_CONTROLLER_NAME,
                     "State processor stop was requested"
@@ -401,7 +401,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
                 }
             }
             _ = tokio::time::sleep(max_duration) => {
-                // Timeout
+                tracing::error!(in_flight=self.in_flight.len(), "Timed out waiting for state controller object handling tasks to complete")
             }
         };
 
@@ -543,10 +543,9 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         .await?;
         txn.commit().await?;
 
-        debug_assert_eq!(
-            object_ids.len(),
-            num_deleted,
-            "Not all objects have been deleted from the database"
+        test_assert!(
+            object_ids.len() == num_deleted,
+            "BUG: Not all objects have been deleted from the database after cleanup"
         );
 
         self.stats_since_last_log.num_deleted_queued_objects += num_deleted;

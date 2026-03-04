@@ -28,9 +28,9 @@ use forge_secrets::forge_vault::VaultConfig;
 use metrics_endpoint::MetricsSetup;
 use sqlx::migrate::MigrateDatabase;
 use sqlx::{Pool, Postgres};
-use tokio::sync::oneshot::Sender;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
+use tokio_util::sync::CancellationToken;
 use utils::HostPortPair;
 
 use crate::api_server::StartArgs;
@@ -190,6 +190,7 @@ pub async fn start_api_server(
     firmware_directory: PathBuf,
     addr_index: usize,
     put_dev_bin_in_path: bool,
+    cancel_token: CancellationToken,
 ) -> eyre::Result<ApiServerHandle> {
     // Destructure into vars to save typing
     let IntegrationTestEnvironment {
@@ -240,10 +241,10 @@ pub async fn start_api_server(
 
     populate_initial_vault_secrets(&vault_config, &metrics).await?;
 
-    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let join_handle = tokio::spawn({
         let root_dir = root_dir.clone();
+        let cancel_token = cancel_token.clone();
         async move {
             api_server::start(StartArgs {
                 addr: carbide_api_addrs[addr_index],
@@ -252,7 +253,7 @@ pub async fn start_api_server(
                 db_url,
                 bmc_proxy,
                 firmware_directory,
-                stop_channel: stop_rx,
+                cancel_token,
                 ready_channel: ready_tx,
                 vault_config,
             })
@@ -265,25 +266,17 @@ pub async fn start_api_server(
 
     ready_rx.await.unwrap();
 
-    Ok(ApiServerHandle {
-        stop_channel: Some(stop_tx),
-        join_handle,
-    })
+    Ok(ApiServerHandle { join_handle })
 }
 
 /// When dropped, this will invalidate the API server.
 pub struct ApiServerHandle {
-    stop_channel: Option<Sender<()>>,
     join_handle: JoinHandle<eyre::Result<()>>,
 }
 
 impl ApiServerHandle {
-    pub async fn stop(mut self) -> eyre::Result<()> {
-        if let Some(stop_channel) = self.stop_channel.take() {
-            stop_channel.send(()).unwrap();
-        };
-        self.join_handle.await??;
-        Ok(())
+    pub async fn wait(self) -> eyre::Result<()> {
+        self.join_handle.await.expect("task panicked")
     }
 }
 

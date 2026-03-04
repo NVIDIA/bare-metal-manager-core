@@ -74,6 +74,7 @@ use site_explorer::new_host_with_machine_validation;
 use sqlx::PgPool;
 use sqlx::postgres::PgConnectOptions;
 use tokio::sync::Mutex;
+use tokio_util::sync::{CancellationToken, DropGuard};
 use tonic::Request;
 use tracing_subscriber::EnvFilter;
 
@@ -347,6 +348,7 @@ pub struct TestEnv {
     pub nvl_partition_monitor: Arc<Mutex<NvlPartitionMonitor>>,
     pub test_credential_provider: Arc<TestCredentialProvider>,
     pub rms_sim: Arc<RmsSim>,
+    pub drop_guard: DropGuard,
 }
 
 impl TestEnv {
@@ -1479,6 +1481,7 @@ pub async fn create_test_env_with_overrides(
     });
 
     let state_controller_id = uuid::Uuid::new_v4().to_string();
+    let cancel_token = CancellationToken::new();
 
     let machine_controller = StateController::<MachineStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
@@ -1489,7 +1492,7 @@ pub async fn create_test_env_with_overrides(
         .io(Arc::new(MachineStateControllerIO {
             host_health: config.host_health,
         }))
-        .build_for_manual_iterations()
+        .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build state controller");
 
     let spdm_controller = StateController::<SpdmStateControllerIO>::builder()
@@ -1499,7 +1502,7 @@ pub async fn create_test_env_with_overrides(
         .services(handler_services.clone())
         .state_handler(Arc::new(spdm_swap.clone()))
         .io(Arc::new(SpdmStateControllerIO {}))
-        .build_for_manual_iterations()
+        .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build spdm state controller");
 
     let ib_swap = SwapHandler {
@@ -1512,7 +1515,7 @@ pub async fn create_test_env_with_overrides(
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(ib_swap.clone()))
-        .build_for_manual_iterations()
+        .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build state controller");
 
     let network_swap = SwapHandler {
@@ -1531,7 +1534,7 @@ pub async fn create_test_env_with_overrides(
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(network_swap.clone()))
-        .build_for_manual_iterations()
+        .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build state controller");
 
     let power_shelf_controller = StateController::builder()
@@ -1540,7 +1543,7 @@ pub async fn create_test_env_with_overrides(
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(PowerShelfStateHandler::default()))
-        .build_for_manual_iterations()
+        .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build PowerShelfStateController");
 
     let switch_controller = StateController::builder()
@@ -1549,7 +1552,7 @@ pub async fn create_test_env_with_overrides(
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(SwitchStateHandler::default()))
-        .build_for_manual_iterations()
+        .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build state controller");
 
     let fake_endpoint_explorer = MockEndpointExplorer {
@@ -1678,6 +1681,7 @@ pub async fn create_test_env_with_overrides(
         nvl_partition_monitor: Arc::new(Mutex::new(nvl_partition_monitor)),
         test_credential_provider: credential_provider.clone(),
         rms_sim,
+        drop_guard: cancel_token.drop_guard(),
     }
 }
 
@@ -2088,6 +2092,7 @@ pub async fn network_configured_with_health(
 
     let dpu_health = dpu_health.unwrap_or_else(|| rpc::health::HealthReport {
         source: "forge-dpu-agent".to_string(),
+        triggered_by: None,
         observed_at: None,
         successes: vec![],
         alerts: vec![],

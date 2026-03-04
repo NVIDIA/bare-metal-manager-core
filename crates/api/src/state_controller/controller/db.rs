@@ -189,9 +189,13 @@ pub async fn acquire_queued_objects(
     processor_id: &str,
     max_outdated: std::time::Duration,
 ) -> Result<Vec<QueuedObject>, DatabaseError> {
+    // Grab the oldest ones first
     let query = format!(
         "WITH dequeued_ids AS (
-            SELECT object_id FROM {table_id} WHERE (processed_by IS NULL OR processing_started_at + $1::interval < now()) FOR UPDATE SKIP LOCKED LIMIT {count}
+            SELECT object_id FROM {table_id} WHERE (processed_by IS NULL OR processing_started_at + $1::interval < now())
+            ORDER BY processing_started_at ASC
+            FOR UPDATE SKIP LOCKED
+            LIMIT {count}
         )
         UPDATE {table_id} SET processed_by=$2, processing_started_at=now() WHERE object_id in (SELECT object_id FROM dequeued_ids) RETURNING *"
     );

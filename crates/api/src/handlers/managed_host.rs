@@ -24,6 +24,7 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
+use crate::auth::AuthContext;
 use crate::handlers::utils::convert_and_log_machine_id;
 
 // This is a work-around for FORGE-7085.  Due to an issue with interface reporting in the host BMC
@@ -214,6 +215,11 @@ pub(crate) async fn set_maintenance(
     request: Request<rpc::MaintenanceRequest>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
+    let triggered_by = request
+        .extensions()
+        .get::<AuthContext>()
+        .and_then(|ctx| ctx.get_external_user_name())
+        .map(String::from);
     let req = request.into_inner();
     let machine_id = convert_and_log_machine_id(req.host_id.as_ref())?;
 
@@ -252,6 +258,7 @@ pub(crate) async fn set_maintenance(
                     r#override: Some(::rpc::forge::HealthReportOverride {
                         report: Some(health_report::HealthReport {
                             source: "maintenance".to_string(),
+                            triggered_by,
                             observed_at: Some(chrono::Utc::now()),
                             successes: Vec::new(),
                             alerts: vec![health_report::HealthProbeAlert {

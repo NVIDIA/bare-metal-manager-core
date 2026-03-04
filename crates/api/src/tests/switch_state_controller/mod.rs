@@ -24,6 +24,7 @@ use carbide_uuid::switch::SwitchId;
 use db::switch as db_switch;
 use model::switch::{Switch, SwitchControllerState};
 use rpc::forge::forge_server::Forge;
+use tokio_util::sync::CancellationToken;
 
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::config::IterationConfig;
@@ -113,6 +114,7 @@ async fn test_switch_state_transitions(
         rms_client: None,
     });
 
+    let cancel_token = CancellationToken::new();
     let handle = StateController::<SwitchStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
@@ -123,12 +125,12 @@ async fn test_switch_state_transitions(
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(switch_handler.clone())
-        .build_and_spawn()
+        .build_and_spawn(cancel_token.clone())
         .unwrap();
 
     tokio::time::sleep(TEST_TIME).await;
-    drop(handle);
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    cancel_token.cancel();
+    handle.wait().await;
 
     // Verify that the handler was called
     let count = switch_handler.count.load(Ordering::SeqCst);
@@ -182,6 +184,7 @@ async fn test_switch_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         rms_client: None,
     });
 
+    let cancel_token = CancellationToken::new();
     let handle = StateController::<SwitchStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
@@ -192,7 +195,7 @@ async fn test_switch_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(switch_handler.clone())
-        .build_and_spawn()
+        .build_and_spawn(cancel_token.clone())
         .unwrap();
 
     // Let the controller process the active switch
@@ -214,10 +217,9 @@ async fn test_switch_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .delete_switch(tonic::Request::new(delete_request))
         .await?;
 
-    // Let the controller run for a bit more after deletion
     tokio::time::sleep(TEST_TIME).await;
-    drop(handle);
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    cancel_token.cancel();
+    handle.wait().await;
 
     // Verify that the handler count didn't increase significantly after deletion
     // (since deleted switches should not be processed)
@@ -274,6 +276,7 @@ async fn test_switch_error_state_handling(
         rms_client: None,
     });
 
+    let cancel_token = CancellationToken::new();
     let handle = StateController::<SwitchStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
@@ -284,12 +287,12 @@ async fn test_switch_error_state_handling(
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(switch_handler.clone())
-        .build_and_spawn()
+        .build_and_spawn(cancel_token.clone())
         .unwrap();
 
     tokio::time::sleep(TEST_TIME).await;
-    drop(handle);
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    cancel_token.cancel();
+    handle.wait().await;
 
     // Verify that the handler was called even in error state
     let count = switch_handler.count.load(Ordering::SeqCst);
@@ -394,6 +397,7 @@ async fn test_switch_deletion_with_state_controller(
         rms_client: None,
     });
 
+    let cancel_token = CancellationToken::new();
     let handle = StateController::<SwitchStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
@@ -404,7 +408,7 @@ async fn test_switch_deletion_with_state_controller(
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(switch_handler.clone())
-        .build_and_spawn()
+        .build_and_spawn(cancel_token.clone())
         .unwrap();
 
     // Let the controller run for a bit to process the active switch
@@ -422,8 +426,8 @@ async fn test_switch_deletion_with_state_controller(
 
     // Let the controller run for a bit more after marking as deleted
     tokio::time::sleep(TEST_TIME).await;
-    drop(handle);
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    cancel_token.cancel();
+    handle.wait().await;
 
     // Verify that the handler count didn't increase significantly after marking as deleted
     // (since deleted switches should not be processed)

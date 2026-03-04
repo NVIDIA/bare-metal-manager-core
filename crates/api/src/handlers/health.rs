@@ -24,6 +24,7 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::Api;
+use crate::auth::AuthContext;
 use crate::handlers::utils::convert_and_log_machine_id;
 
 pub async fn record_hardware_health_report(
@@ -194,6 +195,12 @@ pub async fn insert_health_report_override(
     api: &Api,
     request: Request<rpc::InsertHealthReportOverrideRequest>,
 ) -> Result<Response<()>, Status> {
+    let triggered_by = request
+        .extensions()
+        .get::<AuthContext>()
+        .and_then(|ctx| ctx.get_external_user_name())
+        .map(String::from);
+
     let rpc::InsertHealthReportOverrideRequest {
         machine_id,
         r#override: Some(rpc::HealthReportOverride { report, mode }),
@@ -222,6 +229,7 @@ pub async fn insert_health_report_override(
     if report.observed_at.is_none() {
         report.observed_at = Some(chrono::Utc::now());
     }
+    report.triggered_by = triggered_by;
     report.update_in_alert_since(None);
 
     // In case a report with the same source exists, either as merge or replace,

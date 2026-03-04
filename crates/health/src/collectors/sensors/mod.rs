@@ -329,6 +329,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
 
             let report = health_report::HealthReport {
                 source: "hardware-health".to_string(),
+                triggered_by: None,
                 observed_at: Some(chrono::Utc::now()),
                 successes,
                 alerts,

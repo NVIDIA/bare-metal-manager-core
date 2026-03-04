@@ -1806,6 +1806,7 @@ async fn test_cannot_create_instance_on_unhealthy_dpu(
         &dpu_machine_id,
         Some(rpc::health::HealthReport {
             source: "forge-dpu-agent".to_string(),
+            triggered_by: None,
             observed_at: None,
             successes: vec![],
             alerts: vec![rpc::health::HealthProbeAlert {
@@ -1870,6 +1871,7 @@ async fn test_create_instance_with_allow_unhealthy_machine_true(
         &dpu_machine_id,
         Some(rpc::health::HealthReport {
             source: "forge-dpu-agent".to_string(),
+            triggered_by: None,
             observed_at: None,
             successes: vec![],
             alerts: vec![rpc::health::HealthProbeAlert {

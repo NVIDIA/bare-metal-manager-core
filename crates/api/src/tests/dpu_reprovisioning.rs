@@ -1888,6 +1888,7 @@ impl TestManagedHost {
                         report: Some(
                             health_report::HealthReport {
                                 source: "host-update".to_string(),
+                                triggered_by: None,
                                 observed_at: None,
                                 successes: Vec::new(),
                                 alerts: vec![health_report::HealthProbeAlert {

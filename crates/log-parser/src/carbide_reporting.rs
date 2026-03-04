@@ -143,6 +143,7 @@ pub(crate) async fn send_health_alerts(
 ) -> Result<(), ReportingError> {
     let mut report = HealthReport {
         source: pipeline.to_string(),
+        triggered_by: None,
         observed_at: None,
         successes: vec![],
         alerts: vec![],

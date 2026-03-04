@@ -484,10 +484,7 @@ async fn process_batch_operations(
     let mut results = Vec::new();
 
     if accept_partial {
-        let mut txn: Option<db::Transaction<'_>> = None;
-
         for machine in machines {
-            debug_assert!(txn.is_none());
             let request_id = machine
                 .id
                 .as_ref()
@@ -511,8 +508,8 @@ async fn process_batch_operations(
                 value: id.to_string(),
             });
 
-            txn = match api.txn_begin().await {
-                Ok(txn) => Some(txn),
+            let mut txn = match api.txn_begin().await {
+                Ok(txn) => txn,
                 Err(e) => {
                     results.push(build_failure_result(
                         id,
@@ -521,10 +518,6 @@ async fn process_batch_operations(
                     continue;
                 }
             };
-
-            let mut txn = txn
-                .take()
-                .expect("transaction should be present when beginning per-machine work");
 
             match apply_operation(op, txn.as_pgconn(), machine, id, parsed_mac).await {
                 Ok(_) => match txn.commit().await {

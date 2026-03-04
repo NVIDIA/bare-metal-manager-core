@@ -5837,6 +5837,7 @@ impl StateHandler for InstanceStateHandler {
                             // IB Monitor will unbind before clearing
                             let health_report = HealthReport {
                                 source: "ib-cleanup-validation".to_string(),
+                                triggered_by: None,
                                 observed_at: Some(chrono::Utc::now()),
                                 alerts: vec![HealthProbeAlert {
                                     id: HealthProbeId::from_str("IbCleanupPending")
@@ -9017,7 +9018,6 @@ async fn log_host_config(redfish_client: &dyn Redfish, mh_snapshot: &ManagedHost
     );
 }
 
-#[allow(txn_held_across_await)]
 async fn handle_instance_host_platform_config(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     mh_snapshot: &mut ManagedHostStateSnapshot,

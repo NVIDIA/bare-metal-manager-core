@@ -30,9 +30,10 @@ use rustls::server::WebPkiClientVerifier;
 use rustls_pki_types::CertificateDer;
 use tokio::net::TcpListener;
 use tokio::select;
-use tokio::sync::oneshot::{Receiver, Sender};
+use tokio::sync::oneshot::Sender;
 use tokio_rustls::TlsAcceptor;
 use tokio_rustls::rustls::{RootCertStore, ServerConfig};
+use tokio_util::sync::CancellationToken;
 use tonic_reflection::server::Builder;
 use tower_http::add_extension::AddExtensionLayer;
 use tower_http::auth::AsyncRequireAuthorizationLayer;
@@ -183,7 +184,7 @@ pub async fn listen_and_serve(
     listen_port: SocketAddr,
     auth_config: &Option<AuthConfig>,
     meter: Meter,
-    mut stop_channel: Receiver<()>,
+    cancel_token: CancellationToken,
     ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
     let api_reflection_service = Builder::configure()
@@ -298,7 +299,7 @@ pub async fn listen_and_serve(
     loop {
         let incoming_connection = select! {
             incoming_connection = listener.accept() => incoming_connection,
-            _ = &mut stop_channel => {
+            _ = cancel_token.cancelled() => {
                 tracing::info!("carbide-api shutting down");
                 return Ok(());
             }

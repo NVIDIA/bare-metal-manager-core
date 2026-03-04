@@ -551,6 +551,7 @@ impl From<DatabaseError> for tonic::Status {
             error @ DatabaseError::Internal { .. } => Status::internal(error.to_string()),
             DatabaseError::InvalidArgument(msg) => Status::invalid_argument(msg),
             DatabaseError::InvalidConfiguration(e) => Status::invalid_argument(e.to_string()),
+            error @ DatabaseError::DhcpError(_) => Status::resource_exhausted(error.to_string()),
             DatabaseError::MissingArgument(msg) => Status::invalid_argument(*msg),
             DatabaseError::NetworkParseError(e) => Status::invalid_argument(e.to_string()),
             DatabaseError::NetworkSegmentDelete(msg) => Status::invalid_argument(msg),
@@ -782,6 +783,7 @@ fn setup_test_logging() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ip_allocator::DhcpError;
 
     #[test]
     fn test_database_error_new() {
@@ -807,5 +809,14 @@ mod tests {
         assert_eq!(err.line, line!() - 4);
         assert_eq!(err.file, file!());
         assert!(format!("{err}").contains(DB_QUERY));
+    }
+
+    #[test]
+    fn test_dhcp_error_maps_to_resource_exhausted_status() {
+        let err = DatabaseError::DhcpError(DhcpError::PrefixExhausted(
+            "10.217.5.160".parse().expect("valid IP"),
+        ));
+        let status: tonic::Status = err.into();
+        assert_eq!(status.code(), tonic::Code::ResourceExhausted);
     }
 }
