@@ -143,6 +143,7 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
 
     let health_report = health_report::HealthReport {
         source: "forge-dpu-agent".to_string(),
+        triggered_by: None,
         observed_at: Some(chrono::Utc::now()),
         successes: vec![],
         alerts: vec![health_report::HealthProbeAlert {

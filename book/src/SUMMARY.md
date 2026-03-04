@@ -42,6 +42,10 @@
 
 - [carbide-admin-cli access](sites/forge_admin_cli.md)
 
+# Design
+
+- [SPIFFE SVID Design](design/spiffe-svid-sdd.md)
+
 # Development
 
 - [Contributing](contributing.md)

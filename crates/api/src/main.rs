@@ -20,9 +20,10 @@ use std::str::FromStr;
 
 use carbide::{Command, Options};
 use clap::CommandFactory;
-use forge_secrets::forge_vault::VaultConfig;
+use forge_secrets::CredentialConfig;
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
+use tokio_util::sync::CancellationToken;
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
@@ -65,15 +66,14 @@ async fn main() -> eyre::Result<()> {
                 None
             };
 
-            let (_stop_tx, stop_rx) = tokio::sync::oneshot::channel();
             let (ready_tx, _ready_rx) = tokio::sync::oneshot::channel();
             carbide::run(
                 debug,
                 config_str,
                 site_config_str,
-                VaultConfig::default(),
+                CredentialConfig::default(),
                 false,
-                stop_rx,
+                CancellationToken::new(),
                 ready_tx,
             )
             .await?;

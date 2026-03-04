@@ -158,12 +158,13 @@ fn make_rustls_server_config() -> eyre::Result<ServerConfig> {
         .next()
         .ok_or(eyre::eyre!("No keys in key file"))??;
 
-    let mut server_config =
-        ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-            .with_safe_default_protocol_versions()
-            .unwrap()
-            .with_no_client_auth()
-            .with_single_cert(certs, key)?;
+    let mut server_config = ServerConfig::builder_with_provider(Arc::new(
+        rustls::crypto::aws_lc_rs::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_no_client_auth()
+    .with_single_cert(certs, key)?;
     // This is what axum is normally doing for you
     server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     Ok(server_config)

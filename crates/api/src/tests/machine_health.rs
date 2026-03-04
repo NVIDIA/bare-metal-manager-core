@@ -670,6 +670,7 @@ fn hr(
 ) -> health_report::HealthReport {
     health_report::HealthReport {
         source: source.to_string(),
+        triggered_by: None,
         observed_at: None,
         successes: successes
             .into_iter()
@@ -866,6 +867,7 @@ async fn test_tenant_reported_issue_health_override_template(
     // Create a TenantReportedIssue health override using the API
     let tenant_issue_override = health_report::HealthReport {
         source: "tenant-reported-issue".to_string(),
+        triggered_by: None,
         observed_at: Some(chrono::Utc::now()),
         successes: vec![],
         alerts: vec![health_report::HealthProbeAlert {
@@ -939,6 +941,7 @@ async fn test_request_repair_health_override_template(
     // Create a RequestRepair health override using the API
     let repair_request_override = health_report::HealthReport {
         source: "repair-request".to_string(),
+        triggered_by: None,
         observed_at: Some(chrono::Utc::now()),
         successes: vec![],
         alerts: vec![health_report::HealthProbeAlert {
@@ -1010,6 +1013,7 @@ async fn test_tenant_reported_issue_and_request_repair_combined(
     // Apply both overrides to the same machine
     let tenant_issue_override = health_report::HealthReport {
         source: "tenant-reported-issue".to_string(),
+        triggered_by: None,
         observed_at: Some(chrono::Utc::now()),
         successes: vec![],
         alerts: vec![health_report::HealthProbeAlert {
@@ -1027,6 +1031,7 @@ async fn test_tenant_reported_issue_and_request_repair_combined(
 
     let repair_request_override = health_report::HealthReport {
         source: "repair-request".to_string(),
+        triggered_by: None,
         observed_at: Some(chrono::Utc::now()),
         successes: vec![],
         alerts: vec![health_report::HealthProbeAlert {

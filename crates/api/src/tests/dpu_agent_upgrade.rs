@@ -72,6 +72,7 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
             observed_at: None,
             dpu_health: Some(::rpc::health::HealthReport {
                 source: "forge-dpu-agent".to_string(),
+                triggered_by: None,
                 observed_at: None,
                 successes: vec![],
                 alerts: vec![],
@@ -253,6 +254,7 @@ impl TestManagedHost {
                 observed_at: None,
                 dpu_health: Some(::rpc::health::HealthReport {
                     source: "forge-dpu-agent".to_string(),
+                    triggered_by: None,
                     observed_at: None,
                     successes: vec![],
                     alerts: vec![],

@@ -15,6 +15,7 @@
 		<tr>
 			<th>Source</th>
 			<th>Mode</th>
+			<th>Triggered By</th>
 			<th>Alerts</th>
 			<th>Classifications</th>
 			<th>Details</th>
@@ -25,6 +26,7 @@
 		<tr>
 			<td>{{ override.health_report.source }}</td>
 			<td>{{ override.mode }}</td>
+			<td>{% match override.health_report.triggered_by %}{% when Some with (v) %}{{ v }}{% when None %}—{% endmatch %}</td>
 			<td>{{ override.health_report.alerts|health_alerts_fmt(false, false)|safe }}</td>
 			<td>{{ override.health_report.alerts|health_alert_classifications_fmt|safe }}</td>
 			<td>

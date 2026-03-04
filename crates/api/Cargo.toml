@@ -123,7 +123,7 @@ reqwest = { default-features = false, features = [
 ], workspace = true }
 rsa = { workspace = true }
 rumqttc = { workspace = true }
-rustls = { workspace = true, features = ["default", "ring"] }
+rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 rustls-pki-types = { workspace = true }
 serde = { features = ["derive"], workspace = true }

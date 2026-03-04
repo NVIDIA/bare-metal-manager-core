@@ -1,6 +1,16 @@
 # Contributing to NVIDIA Bare Metal Manager
 
-Thank you for your interest in contributing to NVIDIA Bare Metal Manager! We welcome contributions from the community.
+Thank you for your interest in contributing to NVIDIA Bare Metal Manager! 
+
+We welcome contributions of all sizes — from fixing a typo in the docs to adding a new API endpoint. Whether you're a first-time contributor or a seasoned open source developer, there's a place for you here.
+
+> **Project Status:** NVIDIA Bare Metal Manager is currently in **experimental**. This means:
+>
+> - APIs, configurations, and features may change without notice between releases.
+> - Review timelines may vary as the team focuses on stabilizing the core platform.
+> - Not all contributions will be accepted — we prioritize changes that align with the current roadmap.
+>
+> We appreciate your patience and contributions as we work toward a stable release.
 
 ## Table of Contents
 

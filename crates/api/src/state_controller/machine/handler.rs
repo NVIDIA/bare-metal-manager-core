@@ -31,9 +31,7 @@ use db::DatabaseError;
 use db::db_read::PgPoolReader;
 use db::machine::mark_machine_ingestion_done_with_dpf;
 use eyre::eyre;
-use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
-};
+use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
 use futures::TryFutureExt;
 use futures_util::FutureExt;
 use health_report::{
@@ -212,7 +210,7 @@ pub struct MachineStateHandlerBuilder {
     common_pools: Option<Arc<CommonPools>>,
     bom_validation: BomValidationConfig,
     instance_autoreboot_period: Option<TimePeriod>,
-    credential_provider: Option<Arc<dyn CredentialProvider>>,
+    credential_reader: Option<Arc<dyn CredentialReader>>,
     power_options_config: PowerOptionConfig,
     enable_secure_boot: bool,
     hgx_bmc_gpu_reboot_delay: chrono::Duration,
@@ -243,7 +241,7 @@ impl MachineStateHandlerBuilder {
             common_pools: None,
             bom_validation: BomValidationConfig::default(),
             instance_autoreboot_period: None,
-            credential_provider: None,
+            credential_reader: None,
             power_options_config: PowerOptionConfig {
                 enabled: true,
                 next_try_duration_on_success: chrono::Duration::minutes(0),
@@ -264,8 +262,8 @@ impl MachineStateHandlerBuilder {
         self
     }
 
-    pub fn credential_provider(mut self, credential_provider: Arc<dyn CredentialProvider>) -> Self {
-        self.credential_provider = Some(credential_provider);
+    pub fn credential_reader(mut self, credential_reader: Arc<dyn CredentialReader>) -> Self {
+        self.credential_reader = Some(credential_reader);
         self
     }
     pub fn dpu_up_threshold(mut self, dpu_up_threshold: chrono::Duration) -> Self {
@@ -394,7 +392,7 @@ impl MachineStateHandler {
             no_firmware_update_reset_retries: builder.no_firmware_update_reset_retries,
             instance_autoreboot_period: builder.instance_autoreboot_period,
             upgrade_script_state: Default::default(),
-            credential_provider: builder.credential_provider,
+            credential_reader: builder.credential_reader,
             async_firmware_uploader: Arc::new(Default::default()),
             hgx_bmc_gpu_reboot_delay: builder
                 .hgx_bmc_gpu_reboot_delay
@@ -5837,6 +5835,7 @@ impl StateHandler for InstanceStateHandler {
                             // IB Monitor will unbind before clearing
                             let health_report = HealthReport {
                                 source: "ib-cleanup-validation".to_string(),
+                                triggered_by: None,
                                 observed_at: Some(chrono::Utc::now()),
                                 alerts: vec![HealthProbeAlert {
                                     id: HealthProbeId::from_str("IbCleanupPending")
@@ -6488,7 +6487,7 @@ struct HostUpgradeState {
     no_firmware_update_reset_retries: bool,
     instance_autoreboot_period: Option<TimePeriod>,
     upgrade_script_state: Arc<UpdateScriptManager>,
-    credential_provider: Option<Arc<dyn CredentialProvider>>,
+    credential_reader: Option<Arc<dyn CredentialReader>>,
     async_firmware_uploader: Arc<AsyncFirmwareUploader>,
     hgx_bmc_gpu_reboot_delay: tokio::time::Duration,
 }
@@ -6922,7 +6921,7 @@ impl HostUpgradeState {
         let address = explored_endpoint.address.to_string().clone();
         let script = to_install.script.unwrap_or("/bin/false".into()); // Should always be Some at this point
         let upgrade_script_state = self.upgrade_script_state.clone();
-        let (username, password) = if let Some(credential_provider) = &self.credential_provider {
+        let (username, password) = if let Some(credential_reader) = &self.credential_reader {
             let bmc_mac_address =
                 state
                     .host_snapshot
@@ -6935,7 +6934,7 @@ impl HostUpgradeState {
             let key = CredentialKey::BmcCredentials {
                 credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
             };
-            match credential_provider.get_credentials(&key).await {
+            match credential_reader.get_credentials(&key).await {
                 Ok(Some(credentials)) => match credentials {
                     Credentials::UsernamePassword { username, password } => (username, password),
                 },
@@ -9017,7 +9016,6 @@ async fn log_host_config(redfish_client: &dyn Redfish, mh_snapshot: &ManagedHost
     );
 }
 
-#[allow(txn_held_across_await)]
 async fn handle_instance_host_platform_config(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     mh_snapshot: &mut ManagedHostStateSnapshot,

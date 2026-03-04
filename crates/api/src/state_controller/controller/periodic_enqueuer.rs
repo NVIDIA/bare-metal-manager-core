@@ -38,7 +38,7 @@ pub(super) struct PeriodicEnqueuer<IO: StateControllerIO> {
     pub(super) work_lock_manager_handle: WorkLockManagerHandle,
     pub(super) io: Arc<IO>,
     pub(super) metric_emitter: Option<EnqueuerMetricsEmitter>,
-    pub(super) stop_token: CancellationToken,
+    pub(super) cancel_token: CancellationToken,
     pub(super) iteration_config: IterationConfig,
 }
 
@@ -85,7 +85,7 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
                 .saturating_sub(start.elapsed())
                 .saturating_add(Duration::from_millis(jitter));
 
-            let cancelled_future = self.stop_token.cancelled();
+            let cancelled_future = self.cancel_token.cancelled();
             tokio::pin!(cancelled_future);
             tokio::select! {
                 biased;

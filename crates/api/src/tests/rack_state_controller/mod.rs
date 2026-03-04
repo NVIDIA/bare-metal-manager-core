@@ -25,6 +25,7 @@ use db::rack as db_rack;
 use model::rack::{Rack, RackMaintenanceState, RackReadyState, RackState, RackValidationState};
 use rpc::forge::RackStateHistoryRecord;
 use rpc::forge::forge_server::Forge;
+use tokio_util::sync::CancellationToken;
 
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::controller::StateController;
@@ -136,6 +137,7 @@ async fn test_can_retrieve_rack_state_history(
 
     let handler_services = Arc::new(env.state_handler_services());
 
+    let cancel_token = CancellationToken::new();
     let mut controller = StateController::<RackStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
@@ -146,7 +148,7 @@ async fn test_can_retrieve_rack_state_history(
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services)
         .state_handler(rack_handler)
-        .build_for_manual_iterations()
+        .build_for_manual_iterations(cancel_token.clone())
         .unwrap();
 
     // iterate a few times to get state history
@@ -211,6 +213,7 @@ async fn test_rack_state_transitions(pool: sqlx::PgPool) -> Result<(), Box<dyn s
 
     let handler_services = Arc::new(env.state_handler_services());
 
+    let cancel_token = CancellationToken::new();
     let mut controller = StateController::<RackStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
@@ -221,7 +224,7 @@ async fn test_rack_state_transitions(pool: sqlx::PgPool) -> Result<(), Box<dyn s
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(rack_handler.clone())
-        .build_for_manual_iterations()
+        .build_for_manual_iterations(cancel_token.clone())
         .unwrap();
 
     // iterate a few times
@@ -268,6 +271,7 @@ async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 
     let handler_services = Arc::new(env.state_handler_services());
 
+    let cancel_token = CancellationToken::new();
     let mut controller = StateController::<RackStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
@@ -278,7 +282,7 @@ async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(rack_handler.clone())
-        .build_for_manual_iterations()
+        .build_for_manual_iterations(cancel_token.clone())
         .unwrap();
 
     controller.run_single_iteration().await;
@@ -345,6 +349,7 @@ async fn test_rack_error_state_handling(
 
     let handler_services = Arc::new(env.state_handler_services());
 
+    let cancel_token = CancellationToken::new();
     let mut controller = StateController::<RackStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
@@ -355,7 +360,7 @@ async fn test_rack_error_state_handling(
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(rack_handler.clone())
-        .build_for_manual_iterations()
+        .build_for_manual_iterations(cancel_token.clone())
         .unwrap();
 
     controller.run_single_iteration().await;
@@ -444,6 +449,7 @@ async fn test_rack_deletion_with_state_controller(
 
     let handler_services = Arc::new(env.state_handler_services());
 
+    let cancel_token = CancellationToken::new();
     let mut controller = StateController::<RackStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
@@ -454,7 +460,7 @@ async fn test_rack_deletion_with_state_controller(
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(rack_handler.clone())
-        .build_for_manual_iterations()
+        .build_for_manual_iterations(cancel_token.clone())
         .unwrap();
 
     controller.run_single_iteration().await;

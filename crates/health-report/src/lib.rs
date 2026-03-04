@@ -28,6 +28,13 @@ pub struct HealthReport {
     /// This could e.g. be `forge-dpu-agent`, `forge-host-validation`,
     /// or an override (e.g. `overrides.sre-team`)
     pub source: String,
+    /// The person or system (service) that triggered this health report.
+    ///
+    /// For manually triggered reports (e.g. via web UI), this should identify
+    /// the user (e.g. a username or email). For automated reports, this field
+    /// is typically `None`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub triggered_by: Option<String>,
     /// The time when this health status was observed.
     ///
     /// Clients submitting a health report can leave this field empty in order
@@ -58,6 +65,7 @@ impl HealthReport {
             observed_at: Some(chrono::Utc::now()),
             successes: vec![],
             alerts: vec![],
+            triggered_by: None,
         }
     }
 
@@ -116,6 +124,7 @@ impl HealthReport {
             observed_at: Some(chrono::Utc::now()),
             successes: vec![],
             alerts: vec![HealthProbeAlert::missing_report()],
+            triggered_by: None,
         }
     }
 
@@ -126,6 +135,7 @@ impl HealthReport {
             observed_at: Some(chrono::Utc::now()),
             successes: vec![],
             alerts: vec![HealthProbeAlert::malformed_report(error.to_string())],
+            triggered_by: None,
         }
     }
 
@@ -137,6 +147,7 @@ impl HealthReport {
             observed_at: Some(chrono::Utc::now()),
             successes: vec![],
             alerts: vec![HealthProbeAlert::heartbeat_timeout(target, message)],
+            triggered_by: None,
         }
     }
 
@@ -157,6 +168,7 @@ impl HealthReport {
                 message,
                 prevent_allocations,
             )],
+            triggered_by: None,
         }
     }
 
@@ -167,6 +179,7 @@ impl HealthReport {
             observed_at: Some(chrono::Utc::now()),
             successes: vec![],
             alerts: vec![HealthProbeAlert::sku_mismatch(mismatches)],
+            triggered_by: None,
         }
     }
 
@@ -180,6 +193,7 @@ impl HealthReport {
                 target: None,
             }],
             alerts: vec![],
+            triggered_by: None,
         }
     }
 
@@ -190,6 +204,7 @@ impl HealthReport {
             observed_at: Some(chrono::Utc::now()),
             successes: vec![],
             alerts: vec![HealthProbeAlert::sku_missing(sku_id)],
+            triggered_by: None,
         }
     }
 
@@ -693,6 +708,7 @@ mod tests {
                     ],
                 },
             ],
+            triggered_by: None,
         };
 
         assert!(r1.has_classification(&HealthAlertClassification::prevent_allocations()));
@@ -756,6 +772,7 @@ mod tests {
                     classifications: vec![],
                 },
             ],
+            triggered_by: None,
         };
 
         let serialized = serde_json::to_string(&report).unwrap();
@@ -810,6 +827,7 @@ mod tests {
                     classifications: vec![],
                 },
             ],
+            triggered_by: None,
         };
 
         let mut new = HealthReport {
@@ -858,6 +876,7 @@ mod tests {
                     classifications: vec![],
                 },
             ],
+            triggered_by: None,
         };
 
         new.update_in_alert_since(Some(&old));
@@ -889,6 +908,7 @@ mod tests {
                 tenant_message: Some("Internal Error".to_string()),
                 classifications: vec![],
             }],
+            triggered_by: None,
         };
         new2.update_in_alert_since(None);
         assert!(new.alerts[0].in_alert_since.is_some());
@@ -975,6 +995,7 @@ mod tests {
                     classifications: vec![],
                 },
             ],
+            triggered_by: None,
         };
 
         let r2 = HealthReport {
@@ -1052,6 +1073,7 @@ mod tests {
                     classifications: vec![],
                 },
             ],
+            triggered_by: None,
         };
 
         let expected = HealthReport {
@@ -1157,6 +1179,7 @@ mod tests {
                     classifications: vec![],
                 },
             ],
+            triggered_by: None,
         };
 
         let mut merged = r1.clone();
@@ -1216,6 +1239,7 @@ mod tests {
                     classifications: vec![],
                 },
             ],
+            triggered_by: None,
         };
 
         let r2 = HealthReport {
@@ -1253,6 +1277,7 @@ mod tests {
                     classifications: vec![],
                 },
             ],
+            triggered_by: None,
         };
 
         let expected = HealthReport {
@@ -1301,6 +1326,7 @@ mod tests {
                     classifications: vec![],
                 },
             ],
+            triggered_by: None,
         };
 
         let mut merged = r1.clone();

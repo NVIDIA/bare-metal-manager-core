@@ -37,8 +37,9 @@ use db::network_security_group::create as create_network_security_group;
 use db::work_lock_manager;
 use dpu::DpuConfig;
 use forge_secrets::credentials::{
-    CredentialKey, CredentialProvider, CredentialType, Credentials, TestCredentialProvider,
+    CompositeCredentialManager, CredentialManager, CredentialReader, TestCredentialManager,
 };
+use forge_secrets::{ChainedCredentialReader, CredentialSnapshot, UsernamePassword};
 use futures::FutureExt as _;
 use health_report::{HealthReport, OverrideMode};
 use ipnetwork::IpNetwork;
@@ -74,6 +75,7 @@ use site_explorer::new_host_with_machine_validation;
 use sqlx::PgPool;
 use sqlx::postgres::PgConnectOptions;
 use tokio::sync::Mutex;
+use tokio_util::sync::{CancellationToken, DropGuard};
 use tonic::Request;
 use tracing_subscriber::EnvFilter;
 
@@ -345,8 +347,9 @@ pub struct TestEnv {
     pub underlay_segment: Option<NetworkSegmentId>,
     pub domain: uuid::Uuid,
     pub nvl_partition_monitor: Arc<Mutex<NvlPartitionMonitor>>,
-    pub test_credential_provider: Arc<TestCredentialProvider>,
+    pub test_credential_manager: Arc<TestCredentialManager>,
     pub rms_sim: Arc<RmsSim>,
+    pub drop_guard: DropGuard,
 }
 
 impl TestEnv {
@@ -1261,8 +1264,17 @@ pub async fn create_test_env_with_overrides(
     .await
     .expect("work_lock_manager failed to start: no availble connections?");
     let test_meter = TestMeter::default();
-    let credential_provider = Arc::new(TestCredentialProvider::default());
-    populate_default_credentials(credential_provider.as_ref()).await;
+    let credential_manager = Arc::new(TestCredentialManager::default());
+
+    let chained_reader = ChainedCredentialReader::from(vec![
+        Box::new(test_static_credential_snapshot()) as Box<dyn CredentialReader>,
+        Box::new(credential_manager.clone()),
+    ]);
+    let composite_manager: Arc<dyn CredentialManager> = Arc::new(CompositeCredentialManager::new(
+        chained_reader,
+        credential_manager.clone(),
+    ));
+
     let certificate_provider = Arc::new(TestCertificateProvider::new());
     let redfish_sim = Arc::new(RedfishSim::default());
     let nmxm_sim: Arc<dyn NmxmClientPool> =
@@ -1294,7 +1306,7 @@ pub async fn create_test_env_with_overrides(
 
     let ib_config = config.ib_config.clone().unwrap_or_default();
     let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
-        credential_provider.clone(),
+        composite_manager.clone(),
         ib::IBFabricManagerConfig {
             allow_insecure_fabric_configuration: ib_config.allow_insecure,
             endpoints: if ib_config.enabled {
@@ -1388,7 +1400,7 @@ pub async fn create_test_env_with_overrides(
     let bmc_explorer = Arc::new(BmcEndpointExplorer::new(
         redfish_sim.clone(),
         ipmi_tool.clone(),
-        credential_provider.clone(),
+        composite_manager.clone(),
         Arc::new(std::sync::atomic::AtomicBool::new(false)),
     ));
 
@@ -1404,7 +1416,7 @@ pub async fn create_test_env_with_overrides(
     let api = Arc::new(Api {
         kube_client_provider: Arc::new(TestDpfKubeClient {}),
         runtime_config: config.clone(),
-        credential_provider: credential_provider.clone(),
+        credential_manager: composite_manager,
         certificate_provider: certificate_provider.clone(),
         database_connection: db_pool.clone(),
         redfish_pool: redfish_sim.clone(),
@@ -1479,6 +1491,7 @@ pub async fn create_test_env_with_overrides(
     });
 
     let state_controller_id = uuid::Uuid::new_v4().to_string();
+    let cancel_token = CancellationToken::new();
 
     let machine_controller = StateController::<MachineStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
@@ -1489,7 +1502,7 @@ pub async fn create_test_env_with_overrides(
         .io(Arc::new(MachineStateControllerIO {
             host_health: config.host_health,
         }))
-        .build_for_manual_iterations()
+        .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build state controller");
 
     let spdm_controller = StateController::<SpdmStateControllerIO>::builder()
@@ -1499,7 +1512,7 @@ pub async fn create_test_env_with_overrides(
         .services(handler_services.clone())
         .state_handler(Arc::new(spdm_swap.clone()))
         .io(Arc::new(SpdmStateControllerIO {}))
-        .build_for_manual_iterations()
+        .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build spdm state controller");
 
     let ib_swap = SwapHandler {
@@ -1512,7 +1525,7 @@ pub async fn create_test_env_with_overrides(
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(ib_swap.clone()))
-        .build_for_manual_iterations()
+        .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build state controller");
 
     let network_swap = SwapHandler {
@@ -1531,7 +1544,7 @@ pub async fn create_test_env_with_overrides(
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(network_swap.clone()))
-        .build_for_manual_iterations()
+        .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build state controller");
 
     let power_shelf_controller = StateController::builder()
@@ -1540,7 +1553,7 @@ pub async fn create_test_env_with_overrides(
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(PowerShelfStateHandler::default()))
-        .build_for_manual_iterations()
+        .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build PowerShelfStateController");
 
     let switch_controller = StateController::builder()
@@ -1549,7 +1562,7 @@ pub async fn create_test_env_with_overrides(
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(SwitchStateHandler::default()))
-        .build_for_manual_iterations()
+        .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build state controller");
 
     let fake_endpoint_explorer = MockEndpointExplorer {
@@ -1676,8 +1689,9 @@ pub async fn create_test_env_with_overrides(
         underlay_segment,
         domain: domain.into(),
         nvl_partition_monitor: Arc::new(Mutex::new(nvl_partition_monitor)),
-        test_credential_provider: credential_provider.clone(),
+        test_credential_manager: credential_manager.clone(),
         rms_sim,
+        drop_guard: cancel_token.drop_guard(),
     }
 }
 
@@ -1818,43 +1832,22 @@ pub async fn populate_network_security_groups(api: Arc<Api>) {
     txn.commit().await.unwrap();
 }
 
-async fn populate_default_credentials(credential_provider: &dyn CredentialProvider) {
-    credential_provider
-        .set_credentials(
-            &CredentialKey::DpuRedfish {
-                credential_type: CredentialType::DpuHardwareDefault,
-            },
-            &Credentials::UsernamePassword {
-                username: "root".to_string(),
-                password: "dpuredfish_dpuhardwaredefault".to_string(),
-            },
-        )
-        .await
-        .unwrap();
-    credential_provider
-        .set_credentials(
-            &CredentialKey::DpuRedfish {
-                credential_type: CredentialType::SiteDefault,
-            },
-            &Credentials::UsernamePassword {
-                username: "root".to_string(),
-                password: "dpuredfish_sitedefault".to_string(),
-            },
-        )
-        .await
-        .unwrap();
-    credential_provider
-        .set_credentials(
-            &CredentialKey::HostRedfish {
-                credential_type: CredentialType::SiteDefault,
-            },
-            &Credentials::UsernamePassword {
-                username: "root".to_string(),
-                password: "hostredfish_sitedefault".to_string(),
-            },
-        )
-        .await
-        .unwrap();
+fn test_static_credential_snapshot() -> CredentialSnapshot {
+    CredentialSnapshot {
+        dpu_redfish_factory_default: Some(UsernamePassword {
+            username: "root".to_string(),
+            password: "dpuredfish_dpuhardwaredefault".to_string(),
+        }),
+        dpu_redfish_site_default: Some(UsernamePassword {
+            username: "root".to_string(),
+            password: "dpuredfish_sitedefault".to_string(),
+        }),
+        host_redfish_site_default: Some(UsernamePassword {
+            username: "root".to_string(),
+            password: "hostredfish_sitedefault".to_string(),
+        }),
+        ..Default::default()
+    }
 }
 
 fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> {
@@ -2088,6 +2081,7 @@ pub async fn network_configured_with_health(
 
     let dpu_health = dpu_health.unwrap_or_else(|| rpc::health::HealthReport {
         source: "forge-dpu-agent".to_string(),
+        triggered_by: None,
         observed_at: None,
         successes: vec![],
         alerts: vec![],

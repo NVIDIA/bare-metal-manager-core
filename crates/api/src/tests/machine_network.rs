@@ -117,6 +117,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     // Tell API about latest network config and machine health
     let dpu_health = rpc::health::HealthReport {
         source: "should-get-updated".to_string(),
+        triggered_by: None,
         observed_at: None,
         successes: vec![
             rpc::health::HealthProbeSuccess {
@@ -367,6 +368,7 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
 
     let dpu_health = rpc::health::HealthReport {
         source: "should-get-updated".to_string(),
+        triggered_by: None,
         observed_at: None,
         successes: vec![rpc::health::HealthProbeSuccess {
             id: "SuccessA".to_string(),

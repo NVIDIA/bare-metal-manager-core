@@ -74,6 +74,7 @@ pub fn create_host_update_health_report(
 
     health_report::HealthReport {
         source,
+        triggered_by: None,
         observed_at: Some(chrono::Utc::now()),
         successes: vec![],
         alerts: vec![health_report::HealthProbeAlert {

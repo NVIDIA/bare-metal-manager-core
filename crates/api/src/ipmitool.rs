@@ -21,7 +21,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use carbide_uuid::machine::MachineId;
 use eyre::eyre;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
+use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 use utils::cmd::{CmdError, CmdResult, TokioCmd};
 
 #[async_trait]
@@ -42,7 +42,7 @@ pub trait IPMITool: Send + Sync + 'static {
 }
 
 pub struct IPMIToolImpl {
-    credential_provider: Arc<dyn CredentialProvider>,
+    credential_reader: Arc<dyn CredentialReader>,
     attempts: u32,
 }
 
@@ -51,9 +51,9 @@ impl IPMIToolImpl {
     const IPMITOOL_BMC_RESET_COMMAND_ARGS: &'static str = "-I lanplus -C 17 bmc reset cold";
     const DPU_LEGACY_IPMITOOL_COMMAND_ARGS: &'static str = "-I lanplus -C 17 raw 0x32 0xA1 0x01";
 
-    pub fn new(credential_provider: Arc<dyn CredentialProvider>, attempts: &Option<u32>) -> Self {
+    pub fn new(credential_reader: Arc<dyn CredentialReader>, attempts: &Option<u32>) -> Self {
         IPMIToolImpl {
-            credential_provider,
+            credential_reader,
             attempts: attempts.unwrap_or(3),
         }
     }
@@ -67,7 +67,7 @@ impl IPMITool for IPMIToolImpl {
         credential_key: &CredentialKey,
     ) -> Result<(), eyre::Report> {
         let credentials = self
-            .credential_provider
+            .credential_reader
             .get_credentials(credential_key)
             .await
             .map_err(|e| {
@@ -92,7 +92,7 @@ impl IPMITool for IPMIToolImpl {
         credential_key: &CredentialKey,
     ) -> Result<(), eyre::Report> {
         let credentials: Credentials = self
-            .credential_provider
+            .credential_reader
             .get_credentials(credential_key)
             .await
             .map_err(|e| {
@@ -199,11 +199,11 @@ impl IPMITool for IPMIToolTestImpl {
 mod test {
     use std::sync::Arc;
 
-    use forge_secrets::credentials::{Credentials, TestCredentialProvider};
+    use forge_secrets::credentials::{Credentials, TestCredentialManager};
 
     #[test]
     pub fn test_ipmitool_new() {
-        let cp = Arc::new(TestCredentialProvider::new(Credentials::UsernamePassword {
+        let cp = Arc::new(TestCredentialManager::new(Credentials::UsernamePassword {
             username: "user".to_string(),
             password: "password".to_string(),
         }));

@@ -77,6 +77,7 @@ async fn update_network_status_observation(
             client_certificate_expiry_unix_epoch_secs: Some(10000000),
             dpu_health: Some(HealthReport {
                 source: "dpu-agent".to_string(),
+                triggered_by: None,
                 observed_at: Some(SystemTime::now().into()),
                 successes: vec![],
                 alerts: vec![],

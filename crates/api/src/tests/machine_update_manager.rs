@@ -284,6 +284,7 @@ async fn test_get_updating_machines(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     // Second Machine has a health report, but with an irrelevant alert
     let health_override_2 = health_report::HealthReport {
         source: "host-update".to_string(),
+        triggered_by: None,
         observed_at: Some(chrono::Utc::now()),
         successes: vec![],
         alerts: vec![health_report::HealthProbeAlert {
