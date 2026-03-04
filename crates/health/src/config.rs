@@ -96,15 +96,16 @@ pub struct StaticBmcEndpoint {
     pub mac: String,
     pub username: String,
     pub password: String,
+    pub switch_serial: Option<String>,
 }
 
-/// Debug structure omits credentials
 impl Debug for StaticBmcEndpoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StaticBmcEndpoint")
             .field("ip", &self.ip)
             .field("port", &self.port)
             .field("mac", &self.mac)
+            .field("switch_serial", &self.switch_serial)
             .finish()
     }
 }
@@ -854,5 +855,65 @@ interfaces_enabled = false
         } else {
             panic!("nvue config should be enabled");
         }
+    }
+
+    #[test]
+    fn test_static_endpoint_with_switch_serial() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_override]
+enabled = false
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.0.1"
+mac = "aa:bb:cc:dd:ee:ff"
+username = "admin"
+password = "pass"
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.1.1"
+mac = "11:22:33:44:55:66"
+username = "cumulus"
+password = "pass"
+switch_serial = "SN-SW-001"
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse static switch endpoint config");
+
+        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 2);
+        assert!(
+            config.endpoint_sources.static_bmc_endpoints[0]
+                .switch_serial
+                .is_none()
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[1]
+                .switch_serial
+                .as_deref(),
+            Some("SN-SW-001")
+        );
+    }
+
+    #[test]
+    fn test_example_config_static_endpoint_has_switch_serial() {
+        let toml_content = include_str!("../example/config.example.toml");
+        let config: Config = Figment::new()
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("could not parse config toml file");
+
+        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 1);
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[0]
+                .switch_serial
+                .as_deref(),
+            Some("SN-SWITCH-001")
+        );
     }
 }

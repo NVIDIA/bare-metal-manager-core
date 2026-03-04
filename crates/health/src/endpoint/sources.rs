@@ -22,7 +22,9 @@ use mac_address::MacAddress;
 
 use crate::HealthError;
 use crate::config::StaticBmcEndpoint;
-use crate::endpoint::{BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, EndpointSource};
+use crate::endpoint::{
+    BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, EndpointMetadata, EndpointSource, SwitchData,
+};
 
 pub struct StaticEndpointSource {
     endpoints: Vec<Arc<BmcEndpoint>>,
@@ -49,6 +51,12 @@ impl StaticEndpointSource {
 
                 let mac = MacAddress::from_str(&cfg.mac).ok()?;
 
+                let metadata = cfg.switch_serial.as_ref().map(|serial| {
+                    EndpointMetadata::Switch(SwitchData {
+                        serial: serial.clone(),
+                    })
+                });
+
                 Some(Arc::new(BmcEndpoint {
                     addr: BmcAddr {
                         ip,
@@ -59,7 +67,7 @@ impl StaticEndpointSource {
                         username: cfg.username.clone(),
                         password: cfg.password.clone(),
                     },
-                    metadata: None,
+                    metadata,
                 }))
             })
             .collect();

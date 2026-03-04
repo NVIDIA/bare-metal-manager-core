@@ -38,6 +38,7 @@ port = 443
 mac = "aa:bb:cc:dd:ee:ff"
 username = "admin"
 password = "secret"
+switch_serial = "SN-SWITCH-001"
 
 # ==============================================================================
 # Sinks: Where collector events are sent
