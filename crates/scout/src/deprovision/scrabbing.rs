@@ -61,7 +61,19 @@ fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
 }
 
 static NVME_CLI_PROG: &str = "/usr/sbin/nvme";
-static LENOVO_NVMI_CLI_PROG: &str = "/opt/forge/bin/mnv_cli";
+static LENOVO_NVMI_CLI_PROG_CANDIDATES: [&str; 4] = [
+    "/opt/forge/bin/mnv_cli",
+    "/opt/forge/mnv_cli",
+    "/build-output/extras/opt/forge/bin/mnv_cli",
+    "/build-output/extras/opt/forge/mnv_cli",
+];
+
+fn resolve_lenovo_mnv_cli_prog() -> Option<&'static str> {
+    LENOVO_NVMI_CLI_PROG_CANDIDATES
+        .iter()
+        .copied()
+        .find(|path| std::path::Path::new(path).exists())
+}
 
 lazy_static::lazy_static! {
     static ref NVME_NS_RE: Regex = Regex::new(r".*:(0x[0-9]+)").unwrap();
@@ -238,26 +250,29 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
     );
 
     if nvme_drive_params.mn.trim() == "M.2 NVMe 2-Bay RAID Kit" {
-        if !std::path::Path::new(LENOVO_NVMI_CLI_PROG).exists() {
-            return Err(CarbideClientError::GenericError(format!(
-                "Device {} is a Lenovo M.2 NVMe 2-Bay RAID Kit and requires {} for cleanup, \
-                 but the binary is not present in the scout image. \
-                 Ensure the Lenovo mnv_cli tool is included in the carbide extras container.",
-                nvmename, LENOVO_NVMI_CLI_PROG
-            )));
-        }
+        let lenovo_mnv_cli_prog = resolve_lenovo_mnv_cli_prog().ok_or_else(|| {
+            CarbideClientError::GenericError(format!(
+                "Device {} is a Lenovo M.2 NVMe 2-Bay RAID Kit and requires mnv_cli for \
+                     cleanup, but the binary was not found in any known location: {}. \
+                     Ensure the Lenovo mnv_cli tool is included in the carbide extras \
+                     container and staged into the scout image.",
+                nvmename,
+                LENOVO_NVMI_CLI_PROG_CANDIDATES.join(", ")
+            ))
+        })?;
 
-        let vd_out =
-            cmdrun::run_prog(LENOVO_NVMI_CLI_PROG, ["info", "-o", "vd", "-i", "0"]).await?;
+        tracing::info!("Using Lenovo mnv_cli at {}", lenovo_mnv_cli_prog);
+
+        let vd_out = cmdrun::run_prog(lenovo_mnv_cli_prog, ["info", "-o", "vd", "-i", "0"]).await?;
 
         // Some of the legacy raid kits were built with raid1. We need to remove the raid1
         // and the raid kit will replace it with two raid0's next reboot.
         if vd_out.contains("RAID1") {
-            cmdrun::run_prog(LENOVO_NVMI_CLI_PROG, ["vd", "-a", "delete", "-i", "0"]).await?;
+            cmdrun::run_prog(lenovo_mnv_cli_prog, ["vd", "-a", "delete", "-i", "0"]).await?;
         } else if vd_out.contains("RAID0") {
             // assume it is two raid 0s created by the RAID kit if we see a single raid0 output
-            cmdrun::run_prog(LENOVO_NVMI_CLI_PROG, ["vd", "-a", "delete", "-i", "0"]).await?;
-            cmdrun::run_prog(LENOVO_NVMI_CLI_PROG, ["vd", "-a", "delete", "-i", "1"]).await?;
+            cmdrun::run_prog(lenovo_mnv_cli_prog, ["vd", "-a", "delete", "-i", "0"]).await?;
+            cmdrun::run_prog(lenovo_mnv_cli_prog, ["vd", "-a", "delete", "-i", "1"]).await?;
         } else {
             return Err(CarbideClientError::GenericError(
                 "Could not find a RAID0 or RAID1 on the raid kit".to_string(),
@@ -266,7 +281,7 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
 
         // Clean the disks
         cmdrun::run_prog(
-            LENOVO_NVMI_CLI_PROG,
+            lenovo_mnv_cli_prog,
             [
                 "passthru",
                 "-i",
@@ -282,7 +297,7 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
         )
         .await?;
         cmdrun::run_prog(
-            LENOVO_NVMI_CLI_PROG,
+            lenovo_mnv_cli_prog,
             [
                 "passthru",
                 "-i",
