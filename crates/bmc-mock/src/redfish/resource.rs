@@ -67,13 +67,20 @@ impl JsonPatch for Resource<'_> {
 
 pub enum Status {
     Ok,
+    Warning,
+    Critical,
 }
 
 impl Status {
     pub fn into_json(self) -> serde_json::Value {
+        let health = match self {
+            Self::Ok => "OK",
+            Self::Warning => "Warning",
+            Self::Critical => "Critical",
+        };
         json!({
             "State": "Enabled",
-            "Health": "OK",
+            "Health": health,
         })
     }
 }

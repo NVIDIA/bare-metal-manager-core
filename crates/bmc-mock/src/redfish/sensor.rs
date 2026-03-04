@@ -58,11 +58,12 @@ pub struct Layout {
     pub fan: usize,
     pub power: usize,
     pub current: usize,
+    pub leak: usize,
 }
 
 impl Layout {
     pub const fn total(&self) -> usize {
-        self.temperature + self.fan + self.power + self.current
+        self.temperature + self.fan + self.power + self.current + self.leak
     }
 }
 
@@ -74,13 +75,43 @@ pub struct Sensor {
 
 impl Sensor {
     pub fn to_json(&self) -> serde_json::Value {
-        self.value.clone()
+        let Some(reading_type) = self
+            .value
+            .get("ReadingType")
+            .and_then(serde_json::Value::as_str)
+        else {
+            return self.value.clone();
+        };
+        let Some(kind) = SensorKind::from_reading_type(reading_type) else {
+            return self.value.clone();
+        };
+
+        let mut rng = rand::rng();
+
+        let reading = kind.random_reading(&mut rng);
+        let refreshed_builder = SensorBuilder {
+            id: self.id.clone(),
+            value: self
+                .value
+                .clone()
+                .patch(json!({ "Reading": reading.into_json() })),
+        };
+
+        refreshed_builder.build().value
     }
 }
 
 pub struct SensorBuilder {
     id: Cow<'static, str>,
     value: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Thresholds {
+    pub lower_critical: Option<f64>,
+    pub lower_caution: Option<f64>,
+    pub upper_caution: Option<f64>,
+    pub upper_critical: Option<f64>,
 }
 
 impl Builder for SensorBuilder {
@@ -93,6 +124,52 @@ impl Builder for SensorBuilder {
 }
 
 impl SensorBuilder {
+    fn reading(&self) -> Option<f64> {
+        self.value
+            .get("Reading")
+            .and_then(serde_json::Value::as_f64)
+    }
+
+    fn threshold(&self, threshold_name: &str) -> Option<f64> {
+        self.value
+            .get("Thresholds")
+            .and_then(|thresholds| thresholds.get(threshold_name))
+            .and_then(|threshold| threshold.get("Reading"))
+            .and_then(serde_json::Value::as_f64)
+    }
+
+    fn health_status(&self) -> redfish::resource::Status {
+        let Some(reading) = self.reading() else {
+            return redfish::resource::Status::Ok;
+        };
+
+        if let Some(upper_critical) = self.threshold("UpperCritical")
+            && reading >= upper_critical
+        {
+            return redfish::resource::Status::Critical;
+        }
+
+        if let Some(lower_critical) = self.threshold("LowerCritical")
+            && reading <= lower_critical
+        {
+            return redfish::resource::Status::Critical;
+        }
+
+        if let Some(upper_caution) = self.threshold("UpperCaution")
+            && reading >= upper_caution
+        {
+            return redfish::resource::Status::Warning;
+        }
+
+        if let Some(lower_caution) = self.threshold("LowerCaution")
+            && reading <= lower_caution
+        {
+            return redfish::resource::Status::Warning;
+        }
+
+        redfish::resource::Status::Ok
+    }
+
     pub fn name(self, value: &str) -> Self {
         self.add_str_field("Name", value)
     }
@@ -117,28 +194,122 @@ impl SensorBuilder {
         self.add_str_field("PhysicalContext", value)
     }
 
+    pub fn threshold_lower_critical(self, value: f64) -> Self {
+        self.apply_patch(json!({
+            "Thresholds": {
+                "LowerCritical": {
+                    "Reading": value
+                }
+            }
+        }))
+    }
+
+    pub fn threshold_lower_caution(self, value: f64) -> Self {
+        self.apply_patch(json!({
+            "Thresholds": {
+                "LowerCaution": {
+                    "Reading": value
+                }
+            }
+        }))
+    }
+
+    pub fn threshold_upper_caution(self, value: f64) -> Self {
+        self.apply_patch(json!({
+            "Thresholds": {
+                "UpperCaution": {
+                    "Reading": value
+                }
+            }
+        }))
+    }
+
+    pub fn threshold_upper_critical(self, value: f64) -> Self {
+        self.apply_patch(json!({
+            "Thresholds": {
+                "UpperCritical": {
+                    "Reading": value
+                }
+            }
+        }))
+    }
+
+    pub fn thresholds(mut self, thresholds: Thresholds) -> Self {
+        if let Some(value) = thresholds.lower_critical {
+            self = self.threshold_lower_critical(value);
+        }
+        if let Some(value) = thresholds.lower_caution {
+            self = self.threshold_lower_caution(value);
+        }
+        if let Some(value) = thresholds.upper_caution {
+            self = self.threshold_upper_caution(value);
+        }
+        if let Some(value) = thresholds.upper_critical {
+            self = self.threshold_upper_critical(value);
+        }
+        self
+    }
+
     pub fn build(self) -> Sensor {
+        let status = self.health_status();
         Sensor {
             id: self.id,
-            value: self.value,
+            value: self.value.patch(json!({
+                "Status": status.into_json(),
+            })),
         }
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 enum SensorKind {
     Temperature,
     Fan,
     Power,
     Current,
+    LeakDetector,
+}
+
+enum SensorReading {
+    Float(f64),
+    Unsigned(u32),
+}
+
+impl SensorReading {
+    fn into_json(self) -> serde_json::Value {
+        match self {
+            Self::Float(value) => json!(value),
+            Self::Unsigned(value) => json!(value),
+        }
+    }
+
+    fn apply(self, sensor: SensorBuilder) -> SensorBuilder {
+        match self {
+            Self::Float(value) => sensor.reading_f64(value),
+            Self::Unsigned(value) => sensor.reading_u32(value),
+        }
+    }
 }
 
 impl SensorKind {
+    fn from_reading_type(value: &str) -> Option<Self> {
+        match value {
+            "Temperature" => Some(Self::Temperature),
+            "Rotational" => Some(Self::Fan),
+            "Power" => Some(Self::Power),
+            "Current" => Some(Self::Current),
+            "Voltage" => Some(Self::LeakDetector),
+            _ => None,
+        }
+    }
+
     fn id_prefix(&self) -> &'static str {
         match self {
             SensorKind::Temperature => "Temp",
             SensorKind::Fan => "Fan",
             SensorKind::Power => "Power",
             SensorKind::Current => "Current",
+            SensorKind::LeakDetector => "LeakDetector",
         }
     }
 
@@ -148,6 +319,7 @@ impl SensorKind {
             SensorKind::Fan => "Fan Sensor",
             SensorKind::Power => "Power Sensor",
             SensorKind::Current => "Current Sensor",
+            SensorKind::LeakDetector => "Leak Detector Sensor",
         }
     }
 
@@ -157,6 +329,7 @@ impl SensorKind {
             SensorKind::Fan => "Rotational",
             SensorKind::Power => "Power",
             SensorKind::Current => "Current",
+            SensorKind::LeakDetector => "Voltage",
         }
     }
 
@@ -166,6 +339,7 @@ impl SensorKind {
             SensorKind::Fan => "RPM",
             SensorKind::Power => "W",
             SensorKind::Current => "A",
+            SensorKind::LeakDetector => "V",
         }
     }
 
@@ -175,7 +349,46 @@ impl SensorKind {
             SensorKind::Fan => "Fan",
             SensorKind::Power => "PowerSupply",
             SensorKind::Current => "SystemBoard",
+            SensorKind::LeakDetector => "SystemBoard",
         }
+    }
+
+    fn random_reading(self, rng: &mut impl Rng) -> SensorReading {
+        match self {
+            Self::Temperature => SensorReading::Float(random_tenths(rng, 28.0..=42.0)),
+            Self::Fan => SensorReading::Unsigned(rng.random_range(3800..=9400)),
+            Self::Power => SensorReading::Float(random_tenths(rng, 130.0..=780.0)),
+            Self::Current => SensorReading::Float(random_tenths(rng, 1.5..=42.0)),
+            Self::LeakDetector => SensorReading::Float(random_tenths(rng, 1.2..=1.85)),
+        }
+    }
+
+    fn default_thresholds(self) -> Thresholds {
+        match self {
+            Self::Temperature => Thresholds {
+                upper_caution: Some(38.0),
+                upper_critical: Some(40.0),
+                ..Default::default()
+            },
+            Self::Fan => Thresholds {
+                lower_critical: Some(5000.0),
+                ..Default::default()
+            },
+            Self::Power => Thresholds {
+                lower_caution: Some(200.0),
+                upper_caution: Some(700.0),
+                ..Default::default()
+            },
+            Self::Current => Thresholds::default(),
+            Self::LeakDetector => Thresholds {
+                lower_critical: Some(1.5),
+                ..Default::default()
+            },
+        }
+    }
+
+    fn with_random_reading(self, sensor: SensorBuilder, rng: &mut impl Rng) -> SensorBuilder {
+        self.random_reading(rng).apply(sensor)
     }
 }
 
@@ -210,6 +423,13 @@ pub fn generate_chassis_sensors(chassis_id: &str, layout: Layout) -> Vec<Sensor>
         SensorKind::Current,
         &mut rng,
     );
+    append_sensors(
+        &mut sensors,
+        chassis_id,
+        layout.leak,
+        SensorKind::LeakDetector,
+        &mut rng,
+    );
     sensors
 }
 
@@ -228,12 +448,9 @@ fn append_sensors(
             .reading_type(kind.reading_type())
             .reading_units(kind.reading_units())
             .physical_context(kind.physical_context());
-        let sensor = match kind {
-            SensorKind::Temperature => sensor.reading_f64(random_tenths(rng, 28.0..=42.0)),
-            SensorKind::Fan => sensor.reading_u32(rng.random_range(3800..=9400)),
-            SensorKind::Power => sensor.reading_f64(random_tenths(rng, 130.0..=780.0)),
-            SensorKind::Current => sensor.reading_f64(random_tenths(rng, 1.5..=42.0)),
-        };
+        let sensor = kind
+            .with_random_reading(sensor, rng)
+            .thresholds(kind.default_thresholds());
         sensors.push(sensor.build());
     }
 }
@@ -247,7 +464,7 @@ fn random_tenths(rng: &mut impl Rng, range: std::ops::RangeInclusive<f64>) -> f6
 mod tests {
     use std::collections::HashMap;
 
-    use super::{Layout, generate_chassis_sensors};
+    use super::{Layout, Thresholds, builder, chassis_resource, generate_chassis_sensors};
 
     #[test]
     fn generated_sensors_follow_layout_and_ranges() {
@@ -258,9 +475,10 @@ mod tests {
                 fan: 10,
                 power: 20,
                 current: 10,
+                leak: 4,
             },
         );
-        assert_eq!(sensors.len(), 50);
+        assert_eq!(sensors.len(), 54);
 
         let mut by_type: HashMap<String, usize> = HashMap::new();
         for sensor in sensors {
@@ -274,6 +492,7 @@ mod tests {
                 "Rotational" => assert!((3800.0..=9400.0).contains(&reading)),
                 "Power" => assert!((130.0..=780.0).contains(&reading)),
                 "Current" => assert!((1.5..=42.0).contains(&reading)),
+                "Voltage" => assert!((1.2..=1.85).contains(&reading)),
                 _ => panic!("unexpected ReadingType"),
             }
         }
@@ -282,5 +501,50 @@ mod tests {
         assert_eq!(by_type.get("Rotational").copied().unwrap_or_default(), 10);
         assert_eq!(by_type.get("Power").copied().unwrap_or_default(), 20);
         assert_eq!(by_type.get("Current").copied().unwrap_or_default(), 10);
+        assert_eq!(by_type.get("Voltage").copied().unwrap_or_default(), 4);
+    }
+
+    #[test]
+    fn sensor_status_is_ok_when_reading_within_thresholds() {
+        let sensor = builder(&chassis_resource("System.Embedded.1", "LeakDetector_1"))
+            .reading_f64(1.7)
+            .thresholds(Thresholds {
+                lower_critical: Some(1.5),
+                upper_critical: Some(1.8),
+                ..Default::default()
+            })
+            .build();
+
+        let json = sensor.to_json();
+        assert_eq!(json["Status"]["Health"], "OK");
+    }
+
+    #[test]
+    fn sensor_status_is_warning_when_crossing_caution_threshold() {
+        let sensor = builder(&chassis_resource("System.Embedded.1", "Temp_1"))
+            .reading_f64(39.0)
+            .thresholds(Thresholds {
+                upper_caution: Some(38.0),
+                upper_critical: Some(40.0),
+                ..Default::default()
+            })
+            .build();
+
+        let json = sensor.to_json();
+        assert_eq!(json["Status"]["Health"], "Warning");
+    }
+
+    #[test]
+    fn sensor_status_is_critical_when_crossing_critical_threshold() {
+        let sensor = builder(&chassis_resource("System.Embedded.1", "LeakDetector_1"))
+            .reading_f64(1.4)
+            .thresholds(Thresholds {
+                lower_critical: Some(1.5),
+                ..Default::default()
+            })
+            .build();
+
+        let json = sensor.to_json();
+        assert_eq!(json["Status"]["Health"], "Critical");
     }
 }

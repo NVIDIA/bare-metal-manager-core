@@ -36,6 +36,8 @@ pub struct Config {
 
     pub collectors: CollectorsConfig,
 
+    pub processors: ProcessorsConfig,
+
     pub metrics: MetricsConfig,
 
     /// Shard ordinal for this instance
@@ -58,6 +60,7 @@ impl Default for Config {
             sinks: SinksConfig::default(),
             rate_limit: Configurable::Enabled(RateLimitConfig::default()),
             collectors: CollectorsConfig::default(),
+            processors: ProcessorsConfig::default(),
             metrics: MetricsConfig::default(),
             shard: 0,
             shards_count: 1,
@@ -210,6 +213,37 @@ impl Default for CollectorsConfig {
             firmware: Configurable::Disabled,
             logs: Configurable::Disabled,
             nmxt: Configurable::Disabled,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProcessorsConfig {
+    /// Leak detection processor configuration (if present, leak detection is enabled)
+    pub leak_detection: Configurable<LeakDetectionProcessorConfig>,
+}
+
+impl Default for ProcessorsConfig {
+    fn default() -> Self {
+        Self {
+            leak_detection: Configurable::Enabled(LeakDetectionProcessorConfig::default()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LeakDetectionProcessorConfig {
+    /// Minimum number of leak-detector alerts required in one report window
+    /// to emit a derived leak health report.
+    pub minimum_alerts_per_report: usize,
+}
+
+impl Default for LeakDetectionProcessorConfig {
+    fn default() -> Self {
+        Self {
+            minimum_alerts_per_report: 1,
         }
     }
 }
@@ -389,6 +423,15 @@ impl Config {
             );
         }
 
+        if let Configurable::Enabled(leak_detection) = &self.processors.leak_detection
+            && leak_detection.minimum_alerts_per_report == 0
+        {
+            return Err(
+                "processors.leak_detection.minimum_alerts_per_report must be greater than 0"
+                    .to_string(),
+            );
+        }
+
         self.metrics_addr()?;
 
         Ok(())
@@ -514,6 +557,12 @@ mod tests {
             panic!("logs empty")
         }
 
+        if let Configurable::Enabled(ref leak_detection) = config.processors.leak_detection {
+            assert_eq!(leak_detection.minimum_alerts_per_report, 1);
+        } else {
+            panic!("leak detection processor is disabled")
+        }
+
         assert_eq!(config.metrics.endpoint, "0.0.0.0:9009");
 
         assert_eq!(config.shard, 0);
@@ -592,6 +641,7 @@ cache_size = 50
 
         assert!(!config.collectors.firmware.is_enabled());
         assert!(!config.collectors.logs.is_enabled());
+        assert!(config.processors.leak_detection.is_enabled());
 
         config.validate().expect("config should be valid");
     }
@@ -616,6 +666,12 @@ cache_size = 50
             max_jitter: Duration::from_secs(0),
         });
         assert!(config.validate().is_err());
+
+        config.rate_limit = Configurable::Enabled(RateLimitConfig::default());
+        config.processors.leak_detection = Configurable::Enabled(LeakDetectionProcessorConfig {
+            minimum_alerts_per_report: 0,
+        });
+        assert!(config.validate().is_err());
     }
 
     #[test]
@@ -626,5 +682,6 @@ cache_size = 50
         assert_eq!(config.cache_size, 100);
         assert_eq!(config.metrics.endpoint, "0.0.0.0:9009");
         assert!(config.rate_limit.is_enabled());
+        assert!(config.processors.leak_detection.is_enabled());
     }
 }
