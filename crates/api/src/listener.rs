@@ -93,7 +93,7 @@ fn get_tls_acceptor(tls_config: &ApiTlsConfig) -> Option<TlsAcceptor> {
             None
         })?;
 
-    let crypto_provider = Arc::new(rustls::crypto::ring::default_provider());
+    let crypto_provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
 
     let roots = {
         let mut roots = RootCertStore::empty();

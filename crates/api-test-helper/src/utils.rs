@@ -22,9 +22,8 @@ use std::time::Duration;
 use std::{env, path};
 
 use eyre::Report;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
-use forge_secrets::forge_vault;
-use forge_secrets::forge_vault::VaultConfig;
+use forge_secrets::credentials::{CredentialKey, CredentialType, CredentialWriter, Credentials};
+use forge_secrets::{CredentialConfig, VaultConfig, create_credential_manager};
 use metrics_endpoint::MetricsSetup;
 use sqlx::migrate::MigrateDatabase;
 use sqlx::{Pool, Postgres};
@@ -60,7 +59,7 @@ pub struct IntegrationTestEnvironment {
     pub db_url: String,
     pub db_pool: Pool<Postgres>,
     pub metrics: MetricsSetup,
-    pub vault_config: VaultConfig,
+    pub credential_config: CredentialConfig,
     pub _vault_handle: Arc<Vault>,
 }
 
@@ -121,12 +120,15 @@ impl IntegrationTestEnvironment {
 
         let vault = vault::start(vault_addr).await?;
 
-        let vault_config = VaultConfig {
-            address: Some(format!("http://{vault_addr}")),
-            kv_mount_location: Some("secret".to_string()),
-            pki_mount_location: Some("forgeca".to_string()),
-            pki_role_name: Some("forge-cluster".to_string()),
-            token: Some(vault.token.clone()),
+        let credential_config = CredentialConfig {
+            vault: VaultConfig {
+                address: Some(format!("http://{vault_addr}")),
+                kv_mount_location: Some("secret".to_string()),
+                pki_mount_location: Some("forgeca".to_string()),
+                pki_role_name: Some("forge-cluster".to_string()),
+                token: Some(vault.token.clone()),
+            },
+            ..Default::default()
         };
 
         // We have to do [sqlx::test] 's work manually here so that we can use a multi-threaded executor
@@ -138,7 +140,7 @@ impl IntegrationTestEnvironment {
             carbide_api_addrs,
             root_dir,
             carbide_metrics_addrs,
-            vault_config,
+            credential_config,
             db_url,
             db_pool,
             metrics: metrics_endpoint::new_metrics_setup("carbide-api", "forge-system", true)?, // unique to each test
@@ -200,7 +202,7 @@ pub async fn start_api_server(
         root_dir,
         carbide_metrics_addrs,
         metrics,
-        vault_config,
+        credential_config,
         _vault_handle,
     } = test_env;
 
@@ -239,7 +241,7 @@ pub async fn start_api_server(
     // Dependencies: Postgres, Vault and a Redfish BMC
     m.run(&db_pool).await?;
 
-    populate_initial_vault_secrets(&vault_config, &metrics).await?;
+    populate_initial_vault_secrets(&credential_config, &metrics).await?;
 
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let join_handle = tokio::spawn({
@@ -255,7 +257,7 @@ pub async fn start_api_server(
                 firmware_directory,
                 cancel_token,
                 ready_channel: ready_tx,
-                vault_config,
+                credential_config,
             })
             .await
             .inspect_err(|e| {
@@ -281,12 +283,12 @@ impl ApiServerHandle {
 }
 
 pub async fn populate_initial_vault_secrets(
-    vault_config_overrides: &VaultConfig,
+    credential_config: &CredentialConfig,
     metrics: &MetricsSetup,
 ) -> Result<(), Report> {
-    let vault_client =
-        forge_vault::create_vault_client(vault_config_overrides, metrics.meter.clone())?;
-    vault_client
+    let credential_manager =
+        create_credential_manager(credential_config, metrics.meter.clone()).await?;
+    credential_manager
         .set_credentials(
             &CredentialKey::BmcCredentials {
                 credential_type: forge_secrets::credentials::BmcCredentialType::SiteWideRoot,
@@ -297,10 +299,11 @@ pub async fn populate_initial_vault_secrets(
             },
         )
         .await?;
-    vault_client
+
+    credential_manager
         .set_credentials(
             &CredentialKey::DpuUefi {
-                credential_type: forge_secrets::credentials::CredentialType::SiteDefault,
+                credential_type: CredentialType::SiteDefault,
             },
             &Credentials::UsernamePassword {
                 username: "root".to_string(),
@@ -308,10 +311,11 @@ pub async fn populate_initial_vault_secrets(
             },
         )
         .await?;
-    vault_client
+
+    credential_manager
         .set_credentials(
             &CredentialKey::HostUefi {
-                credential_type: forge_secrets::credentials::CredentialType::SiteDefault,
+                credential_type: CredentialType::SiteDefault,
             },
             &Credentials::UsernamePassword {
                 username: "root".to_string(),

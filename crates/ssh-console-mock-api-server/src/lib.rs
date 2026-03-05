@@ -89,7 +89,7 @@ impl MockApiServer {
         let key = fs::read(&LOCALHOST_CERTS.server_key)?;
         let identity = Identity::from_pem(cert, key);
         let tls = ServerTlsConfig::new().identity(identity);
-        rustls::crypto::ring::default_provider()
+        rustls::crypto::aws_lc_rs::default_provider()
             .install_default()
             .inspect_err(|crypto_provider| {
                 tracing::warn!("Crypto provider already configured: {crypto_provider:?}")

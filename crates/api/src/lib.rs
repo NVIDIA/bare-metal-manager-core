@@ -90,6 +90,7 @@ mod mqtt_state_change_hook;
 mod network_segment;
 mod nvl_partition_monitor;
 mod nvlink;
+mod periodic_timer;
 mod preingestion_manager;
 mod rack;
 mod redfish;

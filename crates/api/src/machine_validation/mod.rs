@@ -26,6 +26,7 @@ use tokio::sync::oneshot;
 use self::metrics::MachineValidationMetrics;
 use crate::CarbideResult;
 use crate::cfg::file::MachineValidationConfig;
+use crate::periodic_timer::PeriodicTimer;
 
 pub struct MachineValidationManager {
     database_connection: sqlx::PgPool,
@@ -64,13 +65,15 @@ impl MachineValidationManager {
     }
 
     async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {
+        let timer = PeriodicTimer::new(self.config.run_interval);
         loop {
+            let tick = timer.tick();
             if let Err(e) = self.run_single_iteration().await {
                 tracing::warn!("MachineValidationManager error: {}", e);
             }
 
             tokio::select! {
-                _ = tokio::time::sleep(self.config.run_interval) => {},
+                _ = tick.sleep() => {},
                 _ = &mut stop_receiver => {
                     tracing::info!("MachineValidationManager stop was requested");
                     return;

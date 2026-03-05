@@ -74,7 +74,7 @@ pub(super) struct StateProcessor<IO: StateControllerIO> {
     pub(super) requeue_objects: HashSet<IO::ObjectId>,
     pub(super) task_sender: tokio::sync::mpsc::UnboundedSender<ObjectHandlingTaskResult<IO>>,
     pub(super) task_receiver: tokio::sync::mpsc::UnboundedReceiver<ObjectHandlingTaskResult<IO>>,
-    pub(super) data_since_iteration_start: DataSinceStartOfIteration,
+    pub(super) data_since_iteration_start: DataSinceStartOfEnqueuerIteration,
     /// The last time a log message had been emitted
     pub(super) last_log_time: std::time::Instant,
     pub(super) stats_since_last_log: StatsSinceLastLog,
@@ -95,16 +95,28 @@ pub(super) struct CollectedMetrics<IO: StateControllerIO> {
 }
 
 #[derive(Debug)]
-pub(super) struct DataSinceStartOfIteration {
-    /// The time when the first state state handling task for the iteration was dequeued
+pub(super) struct ProcessorIterationMetrics {
+    /// When the last state processor iteration started
     iteration_started_at: std::time::Instant,
-    iteration_started_at_utc: chrono::DateTime<chrono::Utc>,
 }
 
-impl std::default::Default for DataSinceStartOfIteration {
+impl std::default::Default for ProcessorIterationMetrics {
     fn default() -> Self {
         Self {
             iteration_started_at: std::time::Instant::now(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct DataSinceStartOfEnqueuerIteration {
+    /// The time when the first state state handling task with a certain Iteration ID was dequeued
+    iteration_started_at_utc: chrono::DateTime<chrono::Utc>,
+}
+
+impl std::default::Default for DataSinceStartOfEnqueuerIteration {
+    fn default() -> Self {
+        Self {
             iteration_started_at_utc: chrono::Utc::now(),
         }
     }
@@ -224,6 +236,8 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         max_completion_wait_time: std::time::Duration,
         allow_requeue: bool,
     ) -> Result<SingleIterationResult, IterationError> {
+        let run_metrics = ProcessorIterationMetrics::default();
+
         let num_dispatched_tasks = self.dequeue_and_dispatch_object_handling_tasks().await?;
         // We are assuming that we dispatch as many tasks that are available and fit into
         // the queue. Therefore its ok to wait until at least one task has been dequeued
@@ -248,6 +262,10 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         self.emit_metric_if_iteration_changed(&queue_stats);
 
         self.emit_periodic_log_if_necessary();
+
+        if let Some(emitter) = self.metric_emitter.as_ref() {
+            emitter.emit_run_counters_and_histograms(&run_metrics);
+        }
 
         Ok(SingleIterationResult {
             num_dispatched_tasks,
@@ -316,11 +334,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             &aggregate,
         );
 
-        if let Some(emitter) = self.metric_emitter.as_ref() {
-            emitter.emit_iteration_counters_and_histograms(&self.data_since_iteration_start);
-        }
-
-        self.data_since_iteration_start = DataSinceStartOfIteration::default();
+        self.data_since_iteration_start = DataSinceStartOfEnqueuerIteration::default();
 
         self.metric_holder
             .last_iteration_specific_metrics
@@ -807,7 +821,7 @@ async fn process_object<IO: StateControllerIO>(
 
 #[derive(Debug)]
 pub(super) struct ProcessorMetricsEmitter {
-    controller_iteration_latency: Histogram<f64>,
+    iteration_latency: Histogram<f64>,
     dispatched_tasks_counter: Counter<u64>,
     completed_tasks_counter: Counter<u64>,
     requeued_tasks_counter: Counter<u64>,
@@ -818,10 +832,10 @@ impl ProcessorMetricsEmitter {
     pub(super) fn new(object_type: &str, meter: &Meter) -> Self {
         let db = sqlx_query_tracing::DatabaseMetricEmitters::new(meter);
 
-        let controller_iteration_latency = meter
+        let iteration_latency = meter
             .f64_histogram(format!("{object_type}_iteration_latency"))
             .with_description(format!(
-                "The overall time it took to handle state for all {object_type} in the system"
+                "The elapsed time in the last state processor iteration to handle objects of type {object_type}"
             ))
             .with_unit("ms")
             .build();
@@ -848,7 +862,7 @@ impl ProcessorMetricsEmitter {
             .build();
 
         Self {
-            controller_iteration_latency,
+            iteration_latency,
             db,
             dispatched_tasks_counter,
             completed_tasks_counter,
@@ -867,9 +881,9 @@ impl ProcessorMetricsEmitter {
         self.db.emit(db_metrics, attrs);
     }
 
-    fn emit_iteration_counters_and_histograms(&self, iteration_data: &DataSinceStartOfIteration) {
-        self.controller_iteration_latency.record(
-            1000.0 * iteration_data.iteration_started_at.elapsed().as_secs_f64(),
+    fn emit_run_counters_and_histograms(&self, run_metrics: &ProcessorIterationMetrics) {
+        self.iteration_latency.record(
+            1000.0 * run_metrics.iteration_started_at.elapsed().as_secs_f64(),
             &[],
         );
     }

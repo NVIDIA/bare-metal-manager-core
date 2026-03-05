@@ -260,7 +260,7 @@ async fn get_credentials_for_extension_service(
 
     let stored_credential = env
         .api
-        .credential_provider
+        .credential_manager
         .get_credentials(&credential_key)
         .await?;
     stored_credential.ok_or_else(|| eyre::eyre!("Could not find the credential"))
@@ -387,7 +387,7 @@ async fn test_extension_service_create_failure(db_pool: sqlx::PgPool) -> Result<
 
     let stored_credential = env
         .api
-        .credential_provider
+        .credential_manager
         .get_credentials(&credential_key)
         .await?
         .expect("creating an extension service should have created a credential");
@@ -404,7 +404,7 @@ async fn test_extension_service_create_failure(db_pool: sqlx::PgPool) -> Result<
 
     let stored_credential_2 = env
         .api
-        .credential_provider
+        .credential_manager
         .get_credentials(&credential_key)
         .await?
         .expect("Failing to create a second extension should not delete existing credentials");
@@ -453,7 +453,7 @@ async fn test_extension_service_update_race_condition(
         .unwrap();
 
     // Make the credential writes slow so that the database can conflict
-    env.test_credential_provider
+    env.test_credential_manager
         .set_credentials_sleep_time_ms
         .store(1000, Ordering::SeqCst);
 
@@ -636,7 +636,7 @@ async fn test_extension_service_create_race_condition(
     };
 
     // Make the credential writes slow so that the database can conflict
-    env.test_credential_provider
+    env.test_credential_manager
         .set_credentials_sleep_time_ms
         .store(1000, Ordering::SeqCst);
 
@@ -1832,7 +1832,7 @@ async fn test_extension_service_create_update_delete_credential(
 
     let stored_credential = env
         .api
-        .credential_provider
+        .credential_manager
         .get_credentials(&credential_key)
         .await?;
 
@@ -1877,7 +1877,7 @@ async fn test_extension_service_create_update_delete_credential(
     };
     let stored_credential = env
         .api
-        .credential_provider
+        .credential_manager
         .get_credentials(&credential_key)
         .await;
     assert!(stored_credential.is_ok());

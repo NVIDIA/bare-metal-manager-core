@@ -1,0 +1,8 @@
+apiVersion: v2
+name: carbide-dpu-otel-agent
+description: Carbide DPU OTel agent for mTLS certificate renewal
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+annotations:
+  dpu.nvidia.com/doca-version: ">= 2.9"

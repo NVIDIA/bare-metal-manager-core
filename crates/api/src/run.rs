@@ -18,8 +18,7 @@
 use std::sync::Arc;
 
 use eyre::WrapErr;
-use forge_secrets::forge_vault;
-use forge_secrets::forge_vault::VaultConfig;
+use forge_secrets::{CredentialConfig, create_credential_manager, create_vault_client};
 use tokio::sync::oneshot::Sender;
 use tokio_util::sync::CancellationToken;
 use tracing::subscriber::NoSubscriber;
@@ -36,7 +35,7 @@ pub async fn run(
     debug: u8,
     config_str: String,
     site_config_str: Option<String>,
-    vault_config: VaultConfig,
+    credential_config: CredentialConfig,
     skip_logging_setup: bool,
     cancel_token: CancellationToken,
     ready_channel: Sender<()>,
@@ -128,7 +127,11 @@ pub async fn run(
         "Start carbide-api",
     );
 
-    let vault_client = forge_vault::create_vault_client(&vault_config, metrics.meter.clone())?;
+    let certificate_provider =
+        create_vault_client(&credential_config.vault, metrics.meter.clone())?;
+    let credential_manager =
+        create_credential_manager(&credential_config, metrics.meter.clone()).await?;
+
     let redfish_pool = {
         let rf_pool = libredfish::RedfishClientPool::builder()
             .build()
@@ -176,8 +179,9 @@ pub async fn run(
             }
             (None, None, _) => {} // leave bmc_proxy untouched
         }
+
         let redfish_pool = RedfishClientPoolImpl::new(
-            vault_client.clone(),
+            credential_manager.clone(),
             rf_pool,
             carbide_config.site_explorer.bmc_proxy.clone(),
         );
@@ -189,7 +193,8 @@ pub async fn run(
         metrics.meter,
         dynamic_settings,
         redfish_pool,
-        vault_client,
+        credential_manager,
+        certificate_provider,
         cancel_token,
         ready_channel,
     )

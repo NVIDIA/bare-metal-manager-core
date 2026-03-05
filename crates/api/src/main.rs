@@ -20,7 +20,7 @@ use std::str::FromStr;
 
 use carbide::{Command, Options};
 use clap::CommandFactory;
-use forge_secrets::forge_vault::VaultConfig;
+use forge_secrets::CredentialConfig;
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
 use tokio_util::sync::CancellationToken;
@@ -71,7 +71,7 @@ async fn main() -> eyre::Result<()> {
                 debug,
                 config_str,
                 site_config_str,
-                VaultConfig::default(),
+                CredentialConfig::default(),
                 false,
                 CancellationToken::new(),
                 ready_tx,

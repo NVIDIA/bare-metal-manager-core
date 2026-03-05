@@ -70,7 +70,7 @@ thiserror = { workspace = true }
 tonic-prost = { workspace = true }
 tonic-prost-build = { workspace = true }
 tryhard = { workspace = true }
-rustls = { workspace = true, features = ["default", "ring"] }
+rustls = { workspace = true }
 async-trait = { workspace = true }
 nonempty = { workspace = true }
 clap = { features = ["derive"], optional = true, workspace = true }

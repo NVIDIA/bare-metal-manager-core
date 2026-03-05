@@ -23,9 +23,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, WithTransaction};
-use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
-};
+use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
 use futures_util::FutureExt;
 use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
@@ -43,6 +41,7 @@ use tokio::task::JoinSet;
 
 use crate::cfg::file::{CarbideConfig, FirmwareConfig, FirmwareGlobal};
 use crate::firmware_downloader::FirmwareDownloader;
+use crate::periodic_timer::PeriodicTimer;
 use crate::preingestion_manager::metrics::PreingestionMetrics;
 use crate::redfish::{RedfishClientCreationError, RedfishClientPool};
 use crate::{CarbideError, CarbideResult};
@@ -68,7 +67,7 @@ struct PreingestionManagerStatic {
     concurrency_limit: usize,
     hgx_bmc_gpu_reboot_delay: Duration,
     upgrade_script_state: Arc<UpdateScriptManager>,
-    credential_provider: Option<Arc<dyn CredentialProvider>>,
+    credential_reader: Option<Arc<dyn CredentialReader>>,
     work_lock_manager_handle: WorkLockManagerHandle,
 }
 
@@ -86,7 +85,7 @@ impl PreingestionManager {
         meter: Meter,
         downloader: Option<FirmwareDownloader>,
         upload_limiter: Option<Arc<Semaphore>>,
-        credential_provider: Option<Arc<dyn CredentialProvider>>,
+        credential_reader: Option<Arc<dyn CredentialReader>>,
         work_lock_manager_handle: WorkLockManagerHandle,
     ) -> PreingestionManager {
         let hold_period = config
@@ -112,7 +111,7 @@ impl PreingestionManager {
                 upload_limiter: upload_limiter.unwrap_or(Arc::new(Semaphore::new(5))),
                 concurrency_limit: config.firmware_global.concurrency_limit,
                 upgrade_script_state: Default::default(),
-                credential_provider,
+                credential_reader,
                 hgx_bmc_gpu_reboot_delay: config
                     .firmware_global
                     .hgx_bmc_gpu_reboot_delay
@@ -134,7 +133,9 @@ impl PreingestionManager {
     }
 
     async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {
+        let timer = PeriodicTimer::new(self.static_info.run_interval);
         loop {
+            let tick = timer.tick();
             let res = self.run_single_iteration().await;
 
             if let Err(e) = &res {
@@ -144,7 +145,7 @@ impl PreingestionManager {
             // If we were able to go through everything (few or no uploads), or if we ran into a database error,
             // we will wait before checking if new state changes need to happen.
             tokio::select! {
-                _ = tokio::time::sleep(self.static_info.run_interval) => {},
+                _ = tick.sleep() => {},
                 _ = &mut stop_receiver => {
                     tracing::info!("Preingestion manager stop was requested");
                     return;
@@ -1485,7 +1486,7 @@ impl PreingestionManagerStatic {
         let address = endpoint_address.to_string();
         let script = to_install.script.clone().unwrap_or("/bin/false".into()); // Should always be Some at this point
         let upgrade_script_state = self.upgrade_script_state.clone();
-        let (username, password) = if let Some(credential_provider) = &self.credential_provider {
+        let (username, password) = if let Some(credential_reader) = &self.credential_reader {
             // We need to backtrack from the IP address to get the MAC address, which is what the credentials database is keyed on
             let interface = db::machine_interface::find_by_ip(db, endpoint_address).await?;
             let Some(interface) = interface else {
@@ -1500,7 +1501,7 @@ impl PreingestionManagerStatic {
                     bmc_mac_address: interface.mac_address,
                 },
             };
-            match credential_provider.get_credentials(&key).await {
+            match credential_reader.get_credentials(&key).await {
                 Ok(Some(credentials)) => match credentials {
                     Credentials::UsernamePassword { username, password } => (username, password),
                 },

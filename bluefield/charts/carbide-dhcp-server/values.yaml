@@ -1,0 +1,24 @@
+### DPF contract ###
+serviceDaemonSet:
+  nodeSelector:
+  labels: {}
+  annotations: {}
+  updateStrategy: {}
+  resources: {}
+exposedPorts:
+  labels: {}
+  ports: {}
+
+### Service specific values ###
+image:
+  repository: ""
+  pullPolicy: IfNotPresent
+  tag: ""
+imagePullSecrets: []
+podSecurityContext: {}
+securityContext:
+  capabilities:
+    add:
+      - NET_ADMIN
+      - NET_RAW
+tolerations: []

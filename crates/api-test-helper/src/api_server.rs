@@ -17,7 +17,7 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use forge_secrets::forge_vault::VaultConfig;
+use forge_secrets::CredentialConfig;
 use tokio::sync::oneshot::Sender;
 use tokio_util::sync::CancellationToken;
 use utils::HostPortPair;
@@ -36,7 +36,7 @@ pub struct StartArgs {
     pub firmware_directory: PathBuf,
     pub cancel_token: CancellationToken,
     pub ready_channel: Sender<()>,
-    pub vault_config: VaultConfig,
+    pub credential_config: CredentialConfig,
 }
 
 pub async fn start(
@@ -50,7 +50,7 @@ pub async fn start(
         firmware_directory,
         cancel_token,
         ready_channel,
-        vault_config,
+        credential_config,
     }: StartArgs,
 ) -> eyre::Result<()> {
     let firmware_directory_str = firmware_directory.to_string_lossy();
@@ -276,7 +276,7 @@ pub async fn start(
         0,
         carbide_config_str,
         None,
-        vault_config,
+        credential_config,
         true,
         cancel_token,
         ready_channel,

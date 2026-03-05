@@ -41,6 +41,7 @@ use self::dpu_nic_firmware::DpuNicFirmwareUpdate;
 use self::metrics::MachineUpdateManagerMetrics;
 use crate::CarbideResult;
 use crate::cfg::file::{CarbideConfig, MaxConcurrentUpdates};
+use crate::periodic_timer::PeriodicTimer;
 
 /// The MachineUpdateManager periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
 /// On each iteration the MachineUpdateManager will:
@@ -132,13 +133,15 @@ impl MachineUpdateManager {
     }
 
     async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {
+        let timer = PeriodicTimer::new(self.run_interval);
         loop {
+            let tick = timer.tick();
             if let Err(e) = self.run_single_iteration().await {
                 tracing::warn!("MachineUpdateManager error: {}", e);
             }
 
             tokio::select! {
-                _ = tokio::time::sleep(self.run_interval) => {},
+                _ = tick.sleep() => {},
                 _ = &mut stop_receiver => {
                     tracing::info!("Machine update manager stop was requested");
                     return;

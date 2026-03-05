@@ -31,9 +31,7 @@ use db::DatabaseError;
 use db::db_read::PgPoolReader;
 use db::machine::mark_machine_ingestion_done_with_dpf;
 use eyre::eyre;
-use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
-};
+use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
 use futures::TryFutureExt;
 use futures_util::FutureExt;
 use health_report::{
@@ -45,7 +43,7 @@ use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{Boot, EnabledDisabled, PowerState, Redfish, RedfishError, SystemPowerControl};
 use librms::RackManagerError;
-use librms::protos::rack_manager::NodeType as RmsNodeType;
+use librms::protos::rack_manager::{NewNodeInfo, NodeType as RmsNodeType};
 use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
 use measured_boot::records::MeasurementMachineState;
 use model::DpuModel;
@@ -212,7 +210,7 @@ pub struct MachineStateHandlerBuilder {
     common_pools: Option<Arc<CommonPools>>,
     bom_validation: BomValidationConfig,
     instance_autoreboot_period: Option<TimePeriod>,
-    credential_provider: Option<Arc<dyn CredentialProvider>>,
+    credential_reader: Option<Arc<dyn CredentialReader>>,
     power_options_config: PowerOptionConfig,
     enable_secure_boot: bool,
     hgx_bmc_gpu_reboot_delay: chrono::Duration,
@@ -243,7 +241,7 @@ impl MachineStateHandlerBuilder {
             common_pools: None,
             bom_validation: BomValidationConfig::default(),
             instance_autoreboot_period: None,
-            credential_provider: None,
+            credential_reader: None,
             power_options_config: PowerOptionConfig {
                 enabled: true,
                 next_try_duration_on_success: chrono::Duration::minutes(0),
@@ -264,8 +262,8 @@ impl MachineStateHandlerBuilder {
         self
     }
 
-    pub fn credential_provider(mut self, credential_provider: Arc<dyn CredentialProvider>) -> Self {
-        self.credential_provider = Some(credential_provider);
+    pub fn credential_reader(mut self, credential_reader: Arc<dyn CredentialReader>) -> Self {
+        self.credential_reader = Some(credential_reader);
         self
     }
     pub fn dpu_up_threshold(mut self, dpu_up_threshold: chrono::Duration) -> Self {
@@ -394,7 +392,7 @@ impl MachineStateHandler {
             no_firmware_update_reset_retries: builder.no_firmware_update_reset_retries,
             instance_autoreboot_period: builder.instance_autoreboot_period,
             upgrade_script_state: Default::default(),
-            credential_provider: builder.credential_provider,
+            credential_reader: builder.credential_reader,
             async_firmware_uploader: Arc::new(Default::default()),
             hgx_bmc_gpu_reboot_delay: builder
                 .hgx_bmc_gpu_reboot_delay
@@ -852,17 +850,20 @@ impl MachineStateHandler {
                 // of an "already exists" error. However, the proto spec doesn't
                 // seem to define this, so once that's sorted, make sure to
                 // integrate that here.
-                match rms::add_node_to_rms(
-                    rms_client.as_ref(),
-                    rack_id,
-                    host_machine_id.to_string(),
-                    bmc_ip,
-                    443,
-                    bmc_mac.unwrap_or_default(),
-                    RmsNodeType::Compute,
-                )
-                .await
-                {
+                let new_node_info = NewNodeInfo {
+                    rack_id: rack_id.to_string(),
+                    node_id: host_machine_id.to_string(),
+                    mac_address: bmc_mac.unwrap_or_default().to_string(),
+                    ip_address: bmc_ip,
+                    port: 443,
+                    username: None,
+                    password: None,
+                    r#type: Some(RmsNodeType::Compute.into()),
+                    vault_path: String::new(),
+                    host_ip_addresses: vec![],
+                    host_mac_addresses: vec![],
+                };
+                match rms::add_node_to_rms(rms_client.as_ref(), new_node_info).await {
                     Ok(()) => {
                         tracing::info!(
                             machine_id = %host_machine_id,
@@ -6489,7 +6490,7 @@ struct HostUpgradeState {
     no_firmware_update_reset_retries: bool,
     instance_autoreboot_period: Option<TimePeriod>,
     upgrade_script_state: Arc<UpdateScriptManager>,
-    credential_provider: Option<Arc<dyn CredentialProvider>>,
+    credential_reader: Option<Arc<dyn CredentialReader>>,
     async_firmware_uploader: Arc<AsyncFirmwareUploader>,
     hgx_bmc_gpu_reboot_delay: tokio::time::Duration,
 }
@@ -6923,7 +6924,7 @@ impl HostUpgradeState {
         let address = explored_endpoint.address.to_string().clone();
         let script = to_install.script.unwrap_or("/bin/false".into()); // Should always be Some at this point
         let upgrade_script_state = self.upgrade_script_state.clone();
-        let (username, password) = if let Some(credential_provider) = &self.credential_provider {
+        let (username, password) = if let Some(credential_reader) = &self.credential_reader {
             let bmc_mac_address =
                 state
                     .host_snapshot
@@ -6936,7 +6937,7 @@ impl HostUpgradeState {
             let key = CredentialKey::BmcCredentials {
                 credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
             };
-            match credential_provider.get_credentials(&key).await {
+            match credential_reader.get_credentials(&key).await {
                 Ok(Some(credentials)) => match credentials {
                     Credentials::UsernamePassword { username, password } => (username, password),
                 },

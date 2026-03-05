@@ -18,7 +18,7 @@
 use std::sync::Arc;
 
 use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
+    BmcCredentialType, CredentialKey, CredentialManager, CredentialType, Credentials,
 };
 use mac_address::MacAddress;
 use model::site_explorer::EndpointExplorationError;
@@ -40,7 +40,7 @@ pub fn get_bmc_nvos_admin_credential_key(bmc_mac_address: MacAddress) -> Credent
 }
 
 pub struct CredentialClient {
-    credential_provider: Arc<dyn CredentialProvider>,
+    credential_manager: Arc<dyn CredentialManager>,
 }
 
 impl CredentialClient {
@@ -64,7 +64,7 @@ impl CredentialClient {
         credential_key: &CredentialKey,
     ) -> Result<Credentials, EndpointExplorationError> {
         match self
-            .credential_provider
+            .credential_manager
             .get_credentials(credential_key)
             .await
         {
@@ -96,7 +96,7 @@ impl CredentialClient {
         credentials: &Credentials,
     ) -> Result<(), EndpointExplorationError> {
         match self
-            .credential_provider
+            .credential_manager
             .set_credentials(credential_key, credentials)
             .await
         {
@@ -108,10 +108,8 @@ impl CredentialClient {
         }
     }
 
-    pub fn new(credential_provider: Arc<dyn CredentialProvider>) -> Self {
-        Self {
-            credential_provider,
-        }
+    pub fn new(credential_manager: Arc<dyn CredentialManager>) -> Self {
+        Self { credential_manager }
     }
 
     pub async fn check_preconditions(

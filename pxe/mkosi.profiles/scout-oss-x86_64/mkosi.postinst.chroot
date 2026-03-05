@@ -6,6 +6,8 @@ fi
 
 set -Eeux
 
+echo "$PKG_VERSION" >/etc/scout-image-version
+
 # ============================================================================
 # NVIDIA DRIVERS & DCGM
 # ============================================================================
@@ -47,6 +49,19 @@ cp /build-output/check-scout-updates.timer /etc/systemd/system
 
 ln -s /etc/systemd/system/check-scout-updates.service /etc/systemd/system/multi-user.target.wants/check-scout-updates.service
 ln -s /etc/systemd/system/check-scout-updates.timer /etc/systemd/system/timers.target.wants/check-scout-updates.timer
+
+# Ensure key commands are present
+for bin in /opt/forge/forge-scout \
+           /usr/bin/dcgmi \
+           /usr/libexec/datacenter-gpu-manager-4/nvvs \
+           /usr/libexec/datacenter-gpu-manager-4/plugins/cuda13/BwChecker_13
+do
+  if [ ! -e $bin ]
+  then
+    echo "ERROR: Potentially missing command ${bin}."
+    exit 1
+  fi
+done
 
 # Ensure no missing libraries for key commands
 for bin in /opt/forge/forge-scout \

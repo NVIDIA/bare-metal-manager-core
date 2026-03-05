@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
+use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 pub use model::ib::{IBMtu, IBRateLimit, IBServiceLevel};
 
 #[cfg(test)]
@@ -48,7 +48,7 @@ pub enum IBFabricManagerType {
 
 pub struct IBFabricManagerImpl {
     config: IBFabricManagerConfig,
-    credential_provider: Arc<dyn CredentialProvider>,
+    credential_reader: Arc<dyn CredentialReader>,
     #[cfg(test)]
     mock_fabric: Arc<mock::MockIBFabric>,
     disable_fabric: Arc<dyn IBFabric>,
@@ -93,7 +93,7 @@ impl Default for IBFabricManagerConfig {
 }
 
 pub fn create_ib_fabric_manager(
-    credential_provider: Arc<dyn CredentialProvider>,
+    credential_reader: Arc<dyn CredentialReader>,
     config: IBFabricManagerConfig,
 ) -> Result<IBFabricManagerImpl, eyre::Report> {
     for (fabric_id, endpoints) in config.endpoints.iter() {
@@ -118,7 +118,7 @@ pub fn create_ib_fabric_manager(
     let disable_fabric = Arc::new(disable::DisableIBFabric {});
 
     Ok(IBFabricManagerImpl {
-        credential_provider,
+        credential_reader,
         config,
         #[cfg(test)]
         mock_fabric,
@@ -152,7 +152,7 @@ impl IBFabricManager for IBFabricManagerImpl {
                     fabric: fabric_name.to_string(),
                 };
                 let credentials = self
-                    .credential_provider
+                    .credential_reader
                     .get_credentials(key)
                     .await
                     .map_err(|err| {

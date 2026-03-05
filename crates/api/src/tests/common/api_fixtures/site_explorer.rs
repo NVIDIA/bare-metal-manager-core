@@ -1225,7 +1225,7 @@ pub async fn new_mock_host(
         .chain(config.dpus.iter().map(|d| d.bmc_mac_address))
     {
         env.api
-            .credential_provider
+            .credential_manager
             .set_credentials(
                 &CredentialKey::BmcCredentials {
                     credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
@@ -1685,7 +1685,7 @@ pub async fn new_mock_host_with_dpf(
         .chain(config.dpus.iter().map(|d| d.bmc_mac_address))
     {
         env.api
-            .credential_provider
+            .credential_manager
             .set_credentials(
                 &CredentialKey::BmcCredentials {
                     credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },

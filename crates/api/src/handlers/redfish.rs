@@ -24,7 +24,7 @@ use db::redfish_actions::{
     approve_request, delete_request, fetch_request, find_serials, insert_request, list_requests,
     set_applied, update_response,
 };
-use forge_secrets::credentials::CredentialProvider;
+use forge_secrets::credentials::CredentialReader;
 use http::header::CONTENT_TYPE;
 use http::{HeaderMap, HeaderValue, Uri};
 use model::redfish::BMCResponse;
@@ -57,7 +57,7 @@ pub async fn redfish_browse(
     let (metadata, new_uri, headers, http_client) = create_client(
         uri,
         &api.database_connection,
-        api.credential_provider.as_ref(),
+        api.credential_manager.as_ref(),
         &api.dynamic_settings.bmc_proxy,
     )
     .await?;
@@ -247,7 +247,7 @@ pub async fn redfish_apply_action(
         // Spawn off the task to send the request, open a transaction, and store the result.
         tokio::spawn({
             let pool = api.database_connection.clone();
-            let credential_provider = api.credential_provider.clone();
+            let credential_reader = api.credential_manager.clone();
             let bmc_proxy = api.dynamic_settings.bmc_proxy.clone();
             let mut parameters = action_request.parameters.clone();
             async move {
@@ -259,7 +259,7 @@ pub async fn redfish_apply_action(
                     parameters,
                     uri,
                     &pool,
-                    credential_provider.as_ref(),
+                    credential_reader.as_ref(),
                     bmc_proxy.as_ref(),
                     test_behavior,
                 )
@@ -297,13 +297,13 @@ async fn handle_request(
     parameters: String,
     uri: Uri,
     pool: &PgPool,
-    credential_provider: &dyn CredentialProvider,
+    credential_reader: &dyn CredentialReader,
     bmc_proxy: &ArcSwap<Option<HostPortPair>>,
     test_behavior: Option<TestBehavior>,
 ) -> BMCResponse {
     // Allow test mocks for returning errors at defined points
     let (metadata, new_uri, mut headers, http_client) = match (
-        create_client(uri, pool, credential_provider, bmc_proxy).await,
+        create_client(uri, pool, credential_reader, bmc_proxy).await,
         test_behavior.and_then(TestBehavior::into_client_creation_error),
     ) {
         (Ok(tuple), None) => tuple,
@@ -383,7 +383,7 @@ async fn handle_request(
 async fn create_client(
     uri: http::Uri,
     pool: &PgPool,
-    credential_provider: &dyn CredentialProvider,
+    credential_reader: &dyn CredentialReader,
     bmc_proxy: &ArcSwap<Option<HostPortPair>>,
 ) -> Result<
     (
@@ -405,7 +405,7 @@ async fn create_client(
     };
 
     let metadata =
-        crate::handlers::bmc_metadata::get_inner(bmc_metadata_request, pool, credential_provider)
+        crate::handlers::bmc_metadata::get_inner(bmc_metadata_request, pool, credential_reader)
             .await?;
 
     let proxy_address = bmc_proxy.load();

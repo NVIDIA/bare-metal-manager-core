@@ -1,6 +1,9 @@
 forged/
 target/*
 !target/release/forge-admin-cli
+!target/aarch64-unknown-linux-gnu/release/forge-dpu-agent
+!target/aarch64-unknown-linux-gnu/release/forge-dpu-otel-agent
+!target/aarch64-unknown-linux-gnu/release/forge-dhcp-server
 .git/
 pxe/mkiso/
 **/.mkosi*

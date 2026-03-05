@@ -427,7 +427,7 @@ struct ExecuteRequestResult {
 
 // Wrap ClientConfig::builder_with_provider() with defaults
 fn rustls_client_builder() -> ConfigBuilder<ClientConfig, WantsVerifier> {
-    ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+    ClientConfig::builder_with_provider(Arc::new(rustls::crypto::aws_lc_rs::default_provider()))
         .with_safe_default_protocol_versions()
         // unwrap safety: the error only comes if the configured protocol versions are
         // invalid, which should never happen with the safe defaults.

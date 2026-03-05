@@ -45,6 +45,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       helm_version: ${{ steps.version.outputs.helm_version }}
       short_sha: ${{ steps.version.outputs.short_sha }}
+      extras_container_ref: ${{ steps.resolve-extras.outputs.extras_container_ref }}
       build_container_x86_64_run: ${{ steps.base-container-gate.outputs.build_container_x86_64_run }}
       build_container_x86_64_version: ${{ steps.base-container-gate.outputs.build_container_x86_64_version }}
       runtime_container_x86_64_run: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_run }}
@@ -120,6 +121,34 @@ jobs:
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| VERSION | \`${VERSION}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| HELM_VERSION | \`${HELM_VERSION}\` |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Login to NVCR
+        uses: ./.github/actions/docker-auth
+        with:
+          username: ${{ secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NVCR_TOKEN }}
+
+      - name: Resolve pinned carbide-extras image digest
+        id: resolve-extras
+        env:
+          EXTRAS_IMAGE: nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-extras:latest
+        run: |
+          set -euo pipefail
+          docker pull "${EXTRAS_IMAGE}"
+          EXTRAS_REF="$(docker inspect --format='{{index .RepoDigests 0}}' "${EXTRAS_IMAGE}")"
+
+          if [ -z "${EXTRAS_REF}" ]; then
+            echo "::error::Failed to resolve digest for ${EXTRAS_IMAGE}"
+            exit 1
+          fi
+
+          echo "extras_container_ref=${EXTRAS_REF}" >> "$GITHUB_OUTPUT"
+          echo "Resolved extras image to pinned digest: ${EXTRAS_REF}"
+
+          echo "## 📌 Carbide Extras Image" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Requested | Pinned |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`${EXTRAS_IMAGE}\` | \`${EXTRAS_REF}\` |" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Decide if build-container-x86_64 must run
         id: base-container-gate
@@ -530,7 +559,7 @@ jobs:
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
       inject_extras: true
-      extras_container: 'nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-extras:latest'
+      extras_container: ${{ needs.prepare.outputs.extras_container_ref }}
     secrets: inherit
 
   build-boot-artifacts-bfb:
@@ -548,7 +577,7 @@ jobs:
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
       inject_extras: true
-      extras_container: 'nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-extras:latest'
+      extras_container: ${{ needs.prepare.outputs.extras_container_ref }}
     secrets: inherit
 
   # ============================================================================
@@ -572,7 +601,7 @@ jobs:
       use_container: false
       sa_enablement: true
       inject_extras: true
-      extras_container: 'nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-extras:latest'
+      extras_container: ${{ needs.prepare.outputs.extras_container_ref }}
     secrets: inherit
 
   build-boot-artifacts-ephemeral-image-arm-host:
@@ -591,7 +620,7 @@ jobs:
       use_container: false
       sa_enablement: true
       inject_extras: true
-      extras_container: 'nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-extras:latest'
+      extras_container: ${{ needs.prepare.outputs.extras_container_ref }}
     secrets: inherit
 
   # ============================================================================

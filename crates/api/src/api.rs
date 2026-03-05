@@ -37,7 +37,7 @@ use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, DatabaseResult, WithTransaction};
 use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
+use forge_secrets::credentials::CredentialManager;
 use librms::RmsApi;
 use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -63,7 +63,7 @@ use crate::{CarbideError, CarbideResult};
 
 pub struct Api {
     pub(crate) database_connection: sqlx::PgPool,
-    pub(crate) credential_provider: Arc<dyn CredentialProvider>,
+    pub(crate) credential_manager: Arc<dyn CredentialManager>,
     pub(crate) certificate_provider: Arc<dyn CertificateProvider>,
     pub(crate) redfish_pool: Arc<dyn RedfishClientPool>,
     pub(crate) eth_data: EthVirtData,
