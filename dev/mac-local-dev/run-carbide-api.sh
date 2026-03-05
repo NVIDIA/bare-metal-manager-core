@@ -84,8 +84,8 @@ else
   info "Configuring vault secrets..."
   docker exec "$VAULT_CONTAINER" sh -c "
     export VAULT_ADDR=http://127.0.0.1:8200
-    vault operator unseal $UNSEAL_KEY
-    vault login $ROOT_TOKEN
+    vault operator unseal \"$UNSEAL_KEY\"
+    vault login \"$ROOT_TOKEN\"
     vault secrets enable -path=secrets -version=2 kv
     echo '{\"UsernamePassword\": {\"username\": \"root\", \"password\": \"vault-password\" }}' | vault kv put /secrets/machines/bmc/site/root -
     echo '{\"UsernamePassword\": {\"username\": \"root\", \"password\": \"vault-password\" }}' | vault kv put /secrets/machines/all_dpus/site_default/uefi-metadata-items/auth -
