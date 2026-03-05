@@ -236,6 +236,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                     })
                 })
                 .transpose()?,
+            Disabled: network.disabled,
         };
 
         vpc_configs
@@ -359,6 +360,8 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     let mut vpcs = vpc_configs.into_values().collect::<Vec<TmplVpc>>();
     vpcs.sort_by(|a, b| a.L3VNI.cmp(&b.L3VNI));
 
+    let port_configs = port_configs.into_iter().filter(|p| !p.Disabled).collect::<Vec<_>>();
+
     let params = TmplNvue {
         UseAdminNetwork: conf.use_admin_network,
         LoopbackIP: conf.loopback_ip,
@@ -450,7 +453,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             VrfName: conf.ct_vrf_name,
             L3VNI: conf.ct_l3_vni.unwrap_or_default().to_string(),
             VrfLoopback: vrf_loopback,
-            PortConfigs: port_configs,
+            PortConfigs: port_configs.clone(),
             HasHostASN: conf.tenant_host_asn.is_some(),
             HostASN: conf.tenant_host_asn.unwrap_or_default(),
             HostInterfaces: host_interfaces,
@@ -476,7 +479,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         StorageL3VNI: 0,                          // XXX (Classic, L3)
         StorageLoopback: "127.8.8.8".to_string(), // XXX (Classic, L3)
         DPUstorageprefix: "127.7.7.7/32".to_string(),
-        IncludeBridge: include_bridge,
+        IncludeBridge: include_bridge && !port_configs.is_empty(),
     };
 
     // Returns the full content of the nvue template for the forge-dpu-agent
@@ -1008,6 +1011,7 @@ pub struct PortConfig {
     pub is_l2_segment: bool,
     pub is_phy: bool,
     pub network_security_group_id: Option<String>,
+    pub disabled: bool,
 }
 
 //
@@ -1326,6 +1330,7 @@ struct TmplConfigPort {
 
     HasNetworkSecurityGroup: bool,
     NetworkSecurityGroupIndex: Option<u16>,
+    Disabled: bool,
 }
 
 #[allow(non_snake_case)]

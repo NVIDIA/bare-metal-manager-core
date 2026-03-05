@@ -21,14 +21,13 @@ use std::fs::File;
 use std::io::Read;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::time::Duration;
 use std::{fmt, fs, io};
 
 use ::rpc::InterfaceFunctionType;
 use ::rpc::forge::{
-    self as rpc, FlatInterfaceConfig, ManagedHostNetworkConfigResponse,
-    NetworkSecurityGroupRuleAction, NetworkSecurityGroupRuleProtocol,
+    self as rpc, FlatInterfaceConfig, NetworkSecurityGroupRuleAction,
+    NetworkSecurityGroupRuleProtocol,
 };
 use eyre::WrapErr;
 use forge_network::ip::prefix::Ipv4Net;
@@ -59,71 +58,6 @@ struct EthernetVirtualizerPaths {
     frr: FPath,
     daemons: FPath,
     acl_rules: FPath,
-}
-
-#[derive(PartialEq, Debug, Clone)]
-pub enum InterfaceState {
-    Up,
-    Down,
-}
-
-impl FromStr for InterfaceState {
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.contains("DOWN") {
-            return Ok(InterfaceState::Down);
-        }
-        Ok(InterfaceState::Up)
-    }
-
-    type Err = eyre::Report;
-}
-
-impl InterfaceState {
-    pub fn command(&self, hbn_device_names: &HBNDeviceNames) -> String {
-        if InterfaceState::Up == *self {
-            format!("ifup {}", hbn_device_names.reps[0])
-        } else {
-            format!("ifdown {}", hbn_device_names.reps[0])
-        }
-    }
-
-    pub async fn update_state(
-        needed_state: &Self,
-        hbn_device_names: &HBNDeviceNames,
-        current_state: &Option<InterfaceState>,
-    ) -> eyre::Result<Option<InterfaceState>> {
-        let current_state = if let Some(current_state) = current_state {
-            current_state
-        } else {
-            // Let's try to find out.
-            &get_interface_state(hbn_device_names).await?
-        };
-
-        if current_state != needed_state {
-            // Execute command only if interface state is changed.
-            let cmd = needed_state.command(hbn_device_names);
-            tracing::info!(
-                "Updating interface state from {:?} to {:?} with command: {}",
-                current_state,
-                needed_state,
-                cmd
-            );
-            hbn::run_in_container_shell(&cmd).await?;
-
-            // Let's check if interface state is updated or not.
-            let new_state = get_interface_state(hbn_device_names).await?;
-            if &new_state != needed_state {
-                return Err(eyre::eyre!(
-                    r#"State is not updated after command execution. Will try in next iteration. 
-                Needed {needed_state:?}, After updating {new_state:?}, Interface: {}"#,
-                    hbn_device_names.reps[0]
-                ));
-            }
-        }
-
-        // Return new state.
-        Ok(Some(needed_state.clone()))
-    }
 }
 
 impl EthernetVirtualizerPaths {
@@ -257,6 +191,7 @@ pub async fn update_nvue(
                 // Why false in legacy case? ¯\_(ツ)_/¯
                 false
             },
+            disabled: !nc.is_primary_dpu,
         }]
     } else {
         let mut ifs = Vec::with_capacity(nc.tenant_interfaces.len());
@@ -289,6 +224,7 @@ pub async fn update_nvue(
                     .as_ref()
                     .map(|n| n.id.clone()),
                 is_l2_segment: net.is_l2_segment,
+                disabled: false,
             });
         }
         ifs
@@ -766,48 +702,6 @@ async fn do_post(
         eyre::bail!(err_message);
     }
     Ok(has_changes)
-}
-
-async fn get_interface_state(hbn_device_names: &HBNDeviceNames) -> eyre::Result<InterfaceState> {
-    let cmd = format!("ip link show {}", hbn_device_names.reps[0]);
-    let output = hbn::run_in_container(
-        &hbn::get_hbn_container_id().await?,
-        &["bash", "-c", &cmd],
-        true,
-    )
-    .await?;
-
-    InterfaceState::from_str(&output)
-}
-
-fn needed_interface_state(is_primary_dpu: bool, use_admin_network: bool) -> InterfaceState {
-    // Interface is always UP on primary DPU.
-    if is_primary_dpu {
-        return InterfaceState::Up;
-    }
-
-    // If secondary DPU and on tenant network, enable the interface.
-    if !use_admin_network {
-        return InterfaceState::Up;
-    }
-
-    // If secondary DPU and on admin network, disable the interface.
-    InterfaceState::Down
-}
-
-pub async fn update_interface_state(
-    nc: &ManagedHostNetworkConfigResponse,
-    skip_reload: bool,
-    hbn_device_names: &HBNDeviceNames,
-    current_state: &Option<InterfaceState>,
-) -> eyre::Result<Option<InterfaceState>> {
-    if skip_reload {
-        return Ok(current_state.clone());
-    }
-
-    let needed_state = needed_interface_state(nc.is_primary_dpu, nc.use_admin_network);
-
-    InterfaceState::update_state(&needed_state, hbn_device_names, current_state).await
 }
 
 pub async fn update_dhcp(
@@ -1710,9 +1604,7 @@ mod tests {
     use utils::models::dhcp::{DhcpConfig, HostConfig};
 
     use super::FPath;
-    use crate::ethernet_virtualization::{
-        InterfaceState, ServiceAddresses, needed_interface_state,
-    };
+    use crate::ethernet_virtualization::ServiceAddresses;
     use crate::{HBNDeviceNames, dhcp, nvue};
     #[ctor::ctor]
     fn setup() {
@@ -2645,6 +2537,7 @@ mod tests {
             vpc_peer_prefixes: vec![],
             vpc_peer_vnis: vec![],
             is_l2_segment: true,
+            disabled: false,
         }];
         let hostname = super::hostname().wrap_err("gethostname error")?;
         let vpc_vni = 7777;
@@ -3219,21 +3112,4 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_cmd_return_val() {
-        // Primary dpu admin network
-        assert_eq!(needed_interface_state(true, true), InterfaceState::Up);
-
-        // Primary dpu tenant network
-        assert_eq!(needed_interface_state(true, false), InterfaceState::Up);
-
-        // Primary dpu admin network
-        assert_eq!(needed_interface_state(true, true), InterfaceState::Up);
-
-        // Secondary dpu admin network
-        assert_eq!(needed_interface_state(false, true), InterfaceState::Down);
-
-        // Secondary dpu tenant network
-        assert_eq!(needed_interface_state(false, false), InterfaceState::Up);
-    }
 }
