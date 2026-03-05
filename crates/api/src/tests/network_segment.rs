@@ -825,12 +825,14 @@ async fn test_network_segment_metrics(
         );
     }
 
+    let actual_metrics = env.test_meter.export_metrics();
+
     assert_eq!(
-        env.test_meter
-            .export_metrics()
-            .parse::<ParsedPrometheusMetrics>()
-            .unwrap(),
-        test_type.fixture()
+        actual_metrics.parse::<ParsedPrometheusMetrics>().unwrap(),
+        test_type.fixture(),
+        "Metrics for test {} are not as expected, Actual metrics are:\n{}",
+        test_type,
+        actual_metrics
     );
 
     Ok(())
