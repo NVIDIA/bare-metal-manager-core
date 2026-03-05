@@ -149,11 +149,10 @@ async fn test_can_retrieve_rack_state_history(
         .build_for_manual_iterations()
         .unwrap();
 
-    // iterate a few times to get state history
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
+    // iterate enough times to walk through the full state chain:
+    for _ in 0..10 {
+        controller.run_single_iteration().await;
+    }
 
     // get state history
 
@@ -175,12 +174,14 @@ async fn test_can_retrieve_rack_state_history(
 
     assert!(records.len() > 1);
 
-    // we should have run through a few states, validate that we did.
+    // We should have run through a few states, validate that we did.
+    // States are serialized via serde with #[serde(tag = "state", rename_all = "snake_case")].
     let expected = vec![
         "{\"state\": \"discovering\"}",
-        "{\"state\": \"ready\", \"rack_ready\": \"Partial\"}",
-        "{\"state\": \"ready\", \"rack_ready\": \"Full\"}",
-        "{\"state\": \"maintenance\", \"rack_maintenance\": {\"RackValidation\": {\"rack_validation\": \"Topology\"}}}",
+        "{\"state\": \"maintenance\", \"rack_maintenance\": {\"FirmwareUpgrade\": {\"rack_firmware_upgrade\": \"Compute\"}}}",
+        "{\"state\": \"maintenance\", \"rack_maintenance\": \"Completed\"}",
+        "{\"state\": \"discovered\"}",
+        "{\"state\": \"ready\"}",
     ];
     assert!(validate_state_change_history(&records, &expected));
 
