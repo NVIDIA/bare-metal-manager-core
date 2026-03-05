@@ -29,6 +29,7 @@ command = "mdbook-mermaid"
 
 [preprocessor.plantuml]
 command = "mdbook-plantuml"
+plantuml-cmd = "plantuml"
 
 [output]
 [output.html]

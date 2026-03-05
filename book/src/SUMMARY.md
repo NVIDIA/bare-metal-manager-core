@@ -20,6 +20,7 @@
     - [NIC and Port selection](architecture/infiniband/nic_selection.md)
 - [State Machines]()
     - [Managed Host](architecture/state_machines/managedhost.md)
+    - [Rack](architecture/state_machines/rack.md)
 
 # Manuals
 
