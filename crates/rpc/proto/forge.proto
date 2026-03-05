@@ -6403,6 +6403,7 @@ message ScoutStreamApiBoundMessage {
     mlx_device.MlxDeviceConfigSyncResponse mlx_device_config_sync_response = 12;
     mlx_device.MlxDeviceConfigCompareResponse mlx_device_config_compare_response = 13;
     ScoutStreamAgentPingResponse scout_stream_agent_ping_response = 14;
+    ScoutRemoteExecResponse scout_remote_exec_response = 15;
   }
 }
 
@@ -6432,6 +6433,7 @@ message ScoutStreamScoutBoundMessage {
     mlx_device.MlxDeviceConfigSyncRequest mlx_device_config_sync_request = 13;
     mlx_device.MlxDeviceConfigCompareRequest mlx_device_config_compare_request = 14;
     ScoutStreamAgentPingRequest scout_stream_agent_ping_request = 15;
+    ScoutRemoteExecRequest scout_remote_exec_request = 16;
   }
 }
 
@@ -6491,6 +6493,30 @@ message ScoutStreamAgentPingResponse {
     string pong = 1;
     ScoutStreamError error = 2;
   }
+}
+
+// ScoutRemoteExecRequest is sent from carbide-api to the scout agent
+// to download files and execute a script on the host.
+message ScoutRemoteExecRequest {
+  string component_type = 1;
+  string target_version = 2;
+  string script_url = 3;
+  uint32 timeout_seconds = 4;
+  // Files to download before running the script.
+  // Keys are download URLs, values are expected SHA-256 hex checksums.
+  // Scout will verify each file after download and reject execution
+  // if any checksum does not match.
+  map<string, string> download_files = 5;
+}
+
+// ScoutRemoteExecResponse is the result of a scout remote execution,
+// sent from scout back to carbide-api.
+message ScoutRemoteExecResponse {
+  bool success = 1;
+  int32 exit_code = 2;
+  string stdout = 3;
+  string stderr = 4;
+  string error = 5;
 }
 
 // ScoutStreamConnectionInfo contains information about an

@@ -2187,6 +2187,7 @@ dependencies = [
 name = "carbide-scout"
 version = "0.0.1"
 dependencies = [
+ "axum 0.8.6",
  "carbide-host-support",
  "carbide-libmlx",
  "carbide-machine-validation",
@@ -2209,7 +2210,9 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "smbios-lib",
+ "tempfile",
  "thiserror 2.0.17",
  "tokio",
  "tokio-stream",

@@ -66,9 +66,14 @@ reqwest = { default-features = false, features = [
   "rustls-tls",
   "stream",
 ], workspace = true }
+sha2 = { workspace = true }
+tempfile = { workspace = true }
 futures-util = { workspace = true }
 prost-types = { workspace = true }
 x509-parser = { workspace = true }
+
+[dev-dependencies]
+axum = { workspace = true }
 
 [build-dependencies]
 carbide-version = { path = "../version" }

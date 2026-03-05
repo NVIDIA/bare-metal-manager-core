@@ -53,6 +53,7 @@ mod discovery;
 mod machine_validation;
 mod mlx_device;
 mod register;
+mod remote_exec;
 mod stream;
 
 struct DevEnv {

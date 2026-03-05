@@ -24,7 +24,7 @@ use rpc::protos::forge::{scout_stream_api_bound_message, scout_stream_scout_boun
 use tokio::sync::mpsc;
 
 use crate::cfg::Options;
-use crate::{client, mlx_device};
+use crate::{client, mlx_device, remote_exec};
 
 // ScoutStreamError represents errors that can
 // occur during the life of a scout stream connection.
@@ -90,6 +90,9 @@ async fn run_scout_stream_loop(
         .await
         .map_err(|e| ScoutStreamError::ClientError(e.to_string()))?;
 
+    let http_client = client::create_http_client(options)
+        .map_err(|e| ScoutStreamError::ClientError(e.to_string()))?;
+
     // Create channels for bidirectional streaming.
     let (tx, rx) = mpsc::channel::<ScoutStreamApiBoundMessage>(100);
     let request_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
@@ -132,7 +135,9 @@ async fn run_scout_stream_loop(
 
             // Handle the oneof message type from the ScoutStreamScoutBoundMessage,
             // generating a follow-up ScoutStreamApiBoundMessage "response".
-            let payload = handle_scout_stream_api_bound_message(flow_uuid, machine_id, request);
+            let payload =
+                handle_scout_stream_api_bound_message(&http_client, flow_uuid, machine_id, request)
+                    .await;
 
             // And then send the response back to carbide-api.
             if let Err(e) = tx.send(payload).await {
@@ -150,7 +155,8 @@ async fn run_scout_stream_loop(
 
 // handle_scout_stream_api_bound_message routes incoming oneof-based requests
 // to the appropriate handler.
-fn handle_scout_stream_api_bound_message(
+async fn handle_scout_stream_api_bound_message(
+    http_client: &reqwest::Client,
     flow_uuid: uuid::Uuid,
     machine_id: MachineId,
     request: scout_stream_scout_bound_message::Payload,
@@ -256,6 +262,13 @@ fn handle_scout_stream_api_bound_message(
             ScoutStreamApiBoundMessage::from_flow(
                 flow_uuid,
                 scout_stream_api_bound_message::Payload::MlxDeviceConfigCompareResponse(response),
+            )
+        }
+        scout_stream_scout_bound_message::Payload::ScoutRemoteExecRequest(req) => {
+            let response = remote_exec::handle_remote_exec(http_client, req).await;
+            ScoutStreamApiBoundMessage::from_flow(
+                flow_uuid,
+                scout_stream_api_bound_message::Payload::ScoutRemoteExecResponse(response),
             )
         }
     }
