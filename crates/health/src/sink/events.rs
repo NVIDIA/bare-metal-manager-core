@@ -16,6 +16,10 @@
  */
 
 use carbide_uuid::machine::MachineId;
+use health_report::{
+    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess,
+    HealthReport as CarbideHealthReport, HealthReportConversionError,
+};
 use nv_redfish::resource::Health as BmcHealth;
 
 use crate::endpoint::{BmcAddr, BmcEndpoint, EndpointMetadata};
@@ -178,5 +182,77 @@ impl Classification {
             Self::Leak => "Leak",
             Self::LeakDetector => "LeakDetector",
         }
+    }
+}
+
+impl TryFrom<Probe> for HealthProbeId {
+    type Error = HealthReportConversionError;
+
+    fn try_from(value: Probe) -> Result<Self, Self::Error> {
+        value.as_str().parse()
+    }
+}
+
+impl TryFrom<Classification> for HealthAlertClassification {
+    type Error = HealthReportConversionError;
+
+    fn try_from(value: Classification) -> Result<Self, Self::Error> {
+        value.as_str().parse()
+    }
+}
+
+impl TryFrom<HealthReportSuccess> for HealthProbeSuccess {
+    type Error = HealthReportConversionError;
+
+    fn try_from(value: HealthReportSuccess) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: value.probe_id.try_into()?,
+            target: value.target,
+        })
+    }
+}
+
+impl TryFrom<HealthReportAlert> for HealthProbeAlert {
+    type Error = HealthReportConversionError;
+
+    fn try_from(value: HealthReportAlert) -> Result<Self, Self::Error> {
+        let mut classifications = Vec::with_capacity(value.classifications.len().max(1));
+        for classification in value.classifications {
+            classifications.push(classification.try_into()?);
+        }
+
+        // Marks report as Hardware, used to filter all reports coming from health service.
+        classifications.push(HealthAlertClassification::hardware());
+
+        Ok(Self {
+            id: value.probe_id.try_into()?,
+            target: value.target,
+            in_alert_since: None,
+            message: value.message,
+            tenant_message: None,
+            classifications,
+        })
+    }
+}
+
+impl TryFrom<HealthReport> for CarbideHealthReport {
+    type Error = HealthReportConversionError;
+
+    fn try_from(value: HealthReport) -> Result<Self, Self::Error> {
+        Ok(Self {
+            source: value.source.as_str().to_string(),
+            triggered_by: None,
+            observed_at: value.observed_at,
+            successes: value
+                .successes
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, _>>()?,
+            alerts: value
+                .alerts
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, _>>()?,
+        })
     }
 }

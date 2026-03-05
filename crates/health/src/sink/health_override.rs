@@ -15,20 +15,14 @@
  * limitations under the License.
  */
 
-use std::str::FromStr;
 use std::sync::Arc;
 
-use health_report::{
-    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess,
-};
 use tokio::sync::mpsc;
 
 use super::{CollectorEvent, DataSink, EventContext};
 use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
 use crate::config::CarbideApiConnectionConfig;
-use crate::sink::{Classification, HealthReport, HealthReportAlert, HealthReportSuccess};
-
 struct HealthOverrideJob {
     machine_id: carbide_uuid::machine::MachineId,
     report: health_report::HealthReport,
@@ -84,90 +78,23 @@ impl HealthOverrideSink {
 
         Ok(Self { sender })
     }
-
-    fn parse_probe_id(probe_id: &str) -> Option<HealthProbeId> {
-        match HealthProbeId::from_str(probe_id) {
-            Ok(probe_id) => Some(probe_id),
-            Err(error) => {
-                tracing::warn!(?error, probe_id, "Failed to parse health probe id");
-                None
-            }
-        }
-    }
-
-    fn parse_classifications(
-        classifications: &Vec<Classification>,
-    ) -> Vec<HealthAlertClassification> {
-        let mut parsed = Vec::with_capacity(classifications.len().max(1));
-        for classification in classifications {
-            match classification.as_str().parse::<HealthAlertClassification>() {
-                Ok(classification) => parsed.push(classification),
-                Err(error) => {
-                    tracing::warn!(
-                        ?error,
-                        classification = classification.as_str(),
-                        "Failed to parse health alert classification"
-                    );
-                }
-            }
-        }
-
-        parsed.push(HealthAlertClassification::hardware());
-
-        parsed
-    }
-
-    fn convert_success(success: &HealthReportSuccess) -> Option<HealthProbeSuccess> {
-        let id = Self::parse_probe_id(success.probe_id.as_str())?;
-        Some(HealthProbeSuccess {
-            id,
-            target: success.target.clone(),
-        })
-    }
-
-    fn convert_alert(alert: &HealthReportAlert) -> Option<HealthProbeAlert> {
-        let id = Self::parse_probe_id(alert.probe_id.as_str())?;
-        Some(HealthProbeAlert {
-            id,
-            target: alert.target.clone(),
-            in_alert_since: None,
-            message: alert.message.clone(),
-            tenant_message: None,
-            classifications: Self::parse_classifications(&alert.classifications),
-        })
-    }
-
-    fn to_carbide_report(report: &HealthReport) -> health_report::HealthReport {
-        let successes = report
-            .successes
-            .iter()
-            .filter_map(Self::convert_success)
-            .collect();
-        let alerts = report
-            .alerts
-            .iter()
-            .filter_map(Self::convert_alert)
-            .collect();
-
-        health_report::HealthReport {
-            source: report.source.as_str().into(),
-            triggered_by: None,
-            observed_at: report.observed_at,
-            successes,
-            alerts,
-        }
-    }
 }
 
 impl DataSink for HealthOverrideSink {
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         if let CollectorEvent::HealthReport(report) = event {
             if let Some(machine_id) = context.machine_id() {
-                if let Err(error) = self.sender.send(HealthOverrideJob {
-                    machine_id,
-                    report: Self::to_carbide_report(report),
-                }) {
-                    tracing::warn!(?error, "failed to enqueue health override report");
+                match report.clone().try_into() {
+                    Ok(report) => {
+                        if let Err(error) =
+                            self.sender.send(HealthOverrideJob { machine_id, report })
+                        {
+                            tracing::warn!(?error, "failed to enqueue health override report");
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(?error, report = ?report, "Failed to convert health report");
+                    }
                 }
             } else {
                 tracing::warn!(
