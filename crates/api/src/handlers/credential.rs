@@ -103,7 +103,7 @@ pub(crate) async fn create_credential(
                     credential_type: CredentialType::SiteDefault,
                 })
                 .await)
-                .is_ok()
+                .is_ok_and(|result| result.is_some())
             {
                 // TODO: support reset credential
                 return Err(tonic::Status::already_exists(
@@ -132,7 +132,7 @@ pub(crate) async fn create_credential(
                     credential_type: CredentialType::SiteDefault,
                 })
                 .await
-                .is_ok()
+                .is_ok_and(|result| result.is_some())
             {
                 // TODO: support reset credential
                 return Err(tonic::Status::already_exists(
