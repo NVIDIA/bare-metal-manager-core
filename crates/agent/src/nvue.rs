@@ -281,7 +281,9 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     }
 
     let vrf_loopback = port_configs[0].VrfLoopback.clone();
-    let include_bridge = port_configs.iter().fold(true, |a, b| a & b.IsL2Segment);
+    let include_bridge = port_configs
+        .iter()
+        .fold(true, |a, b| a & b.IsL2Segment & !b.Disabled);
 
     let (
         ingress_ipv4_override_rules,
@@ -456,7 +458,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             VrfName: conf.ct_vrf_name,
             L3VNI: conf.ct_l3_vni.unwrap_or_default().to_string(),
             VrfLoopback: vrf_loopback,
-            PortConfigs: port_configs.clone(),
+            PortConfigs: port_configs,
             HasHostASN: conf.tenant_host_asn.is_some(),
             HostASN: conf.tenant_host_asn.unwrap_or_default(),
             HostInterfaces: host_interfaces,
@@ -482,7 +484,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         StorageL3VNI: 0,                          // XXX (Classic, L3)
         StorageLoopback: "127.8.8.8".to_string(), // XXX (Classic, L3)
         DPUstorageprefix: "127.7.7.7/32".to_string(),
-        IncludeBridge: include_bridge && !port_configs.is_empty(),
+        IncludeBridge: include_bridge,
     };
 
     // Returns the full content of the nvue template for the forge-dpu-agent
