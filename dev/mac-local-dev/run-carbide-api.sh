@@ -47,10 +47,10 @@ echo ""
 echo "=== Carbide API - Mac Local Development ==="
 echo ""
 
-for cmd in docker cargo jq; do
+for cmd in docker cargo jq curl; do
   command -v "$cmd" >/dev/null 2>&1 || die "$cmd not found. Please install it."
 done
-ok "Required binaries: docker, cargo, jq"
+ok "Required binaries: docker, cargo, jq, curl"
 
 if ! docker ps >/dev/null 2>&1; then
   die "Docker is not running. Start Docker Desktop."
