@@ -686,7 +686,6 @@ impl MainLoop {
                             status_out.network_config_error = Some(err.to_string());
                         }
                     }
-
                 }
 
                 // Feed the latest instance metadata to FMDS and acknowledge it

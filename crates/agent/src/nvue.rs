@@ -360,7 +360,10 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     let mut vpcs = vpc_configs.into_values().collect::<Vec<TmplVpc>>();
     vpcs.sort_by(|a, b| a.L3VNI.cmp(&b.L3VNI));
 
-    let port_configs = port_configs.into_iter().filter(|p| !p.Disabled).collect::<Vec<_>>();
+    let port_configs = port_configs
+        .into_iter()
+        .filter(|p| !p.Disabled)
+        .collect::<Vec<_>>();
 
     let params = TmplNvue {
         UseAdminNetwork: conf.use_admin_network,
