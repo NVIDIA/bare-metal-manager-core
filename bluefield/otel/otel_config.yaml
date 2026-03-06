@@ -223,6 +223,13 @@ receivers:
       filesystem:
       paging:
 
+  punt_stats:
+    file_path: /cumulus/nl2docad/run/stats/punt
+    container_name: doca-hbn
+    # 5m hits Prometheus staleness limit, causing a discontinuity in the
+    # graphed time series.
+    scrape_interval: 4m
+
 processors:
   batch/logs:
     send_batch_size: 8192
@@ -314,6 +321,11 @@ processors:
     attributes:
       - key: component
         value: transceiver-exporter
+        action: upsert
+  resource/punt-stats:
+    attributes:
+      - key: component
+        value: punt_stats
         action: upsert
   resourcedetection:
     # Add hostname at the resource level
@@ -493,6 +505,16 @@ service:
         - resource/log-stats
         - batch/metrics
       exporters: [otlp/site, prometheus]
+    metrics/punt-stats:
+      receivers: [punt_stats]
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - resource/punt-stats
+        - telemetry_stats
+        - batch/metrics
+      exporters: [otlp/site, prometheus]
+
   extensions: [file_storage/cursors]
   # Internal otel collector metrics by default are exposed on port 8888,
   # already in use by Forge, causing otelcol-contrib to terminate with an
