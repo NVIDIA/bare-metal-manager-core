@@ -9548,6 +9548,15 @@ async fn set_host_boot_order(
                                 )
                                 .await?
                             };
+
+                        // Log boot options and PCIe device list whenever a fresh reboot is
+                        // triggered so we capture full diagnostic context (UEFI device paths +
+                        // PCIe inventory) before state resets. Skipped when waiting on an
+                        // already-in-progress reboot to avoid redundant Redfish calls.
+                        if reboot_status.increase_retry_count {
+                            log_host_config(redfish_client, mh_snapshot).await;
+                        }
+
                         // Return wait instead of Err to ensure the transaction is committed
                         // and last_reboot_requested is persisted. Returning Err would cause a transaction
                         // rollback, leading to a tight reboot loop since the reboot timestamp is lost.
