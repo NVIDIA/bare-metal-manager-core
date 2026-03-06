@@ -292,11 +292,13 @@ A new table will be created to store tenant signing key pairs and optional token
 | `VARCHAR(255)` | `algorithm` | Signing algorithm |
 | `VARCHAR(255)` | `master_key_id` | To identify master key used for encrypting signing key |
 | `BOOLEAN` | `enabled` | Key signing enabled by default. Set enable=false to disable |
+| `TIMESTAMPTZ` | `created_at` | When identity config was first created |
+| `TIMESTAMPTZ` | `updated_at` | When identity config or token delegation was last updated |
 | `VARCHAR(512)` | `token_endpoint` | Token exchange endpoint URL (optional; from PUT identity/token-delegation) |
-| `VARCHAR(64)` | `auth_method` | e.g. client_secret_basic, none (optional) |
-| `VARCHAR(255)` | `client_id` | OAuth client ID (optional) |
-| `TEXT` | `client_secret` | OAuth client secret, encrypted at rest (optional, write-only) |
+| `VARCHAR(64)` | `auth_method` | e.g. client_secret_basic, private_key_jwt (optional) |
+| `TEXT` | `encrypted_auth_method_config` | Encrypted blob of method-specific fields. For example: to store client_d and client_secret. (optional) |
 | `VARCHAR(255)` | `subject_token_audience` | Audience to include in Carbide JWT-SVID sent to exchange (optional) |
+| `TIMESTAMPTZ` | `token_delegation_created_at` | When token delegation was first configured (optional) |
 
 ### **3.4.2 Configuration**
 
@@ -309,10 +311,10 @@ enabled = true
 algorithm = "ES256"
 token_ttl_min = 60 # min ttl permitted in seconds
 token_ttl_max = 86400 # max ttl permitted in seconds
-token_delegation_http_proxy = "https://carbide-ext.com" # optional, SSRF mitigation for token exchange
+token_endpoint_http_proxy = "https://carbide-ext.com" # optional, SSRF mitigation for token exchange
 ```
 
-**Global vs per-org:** Global config provides the master switch (`enabled`), site-wide signing algorithm (`algorithm`), optional token TTL bounds (`token_ttl_min`, `token_ttl_max`), and optional HTTP proxy for token exchange (`token_delegation_http_proxy`). All identity settings (`issuer`, `defaultAudience`, `allowedAudiences`, `tokenTtl`, `subjectDomainPrefix` etc.) are **per-org only** and orgs supply them when calling PUT identity/config. There is no global fallback; orgs must provide these to generate keys and receive tokens. Per-org `enabled` can further disable an org when global is true (default `true` when unset). 
+**Global vs per-org:** Global config provides the master switch (`enabled`), site-wide signing algorithm (`algorithm`), optional token TTL bounds (`token_ttl_min`, `token_ttl_max`), and optional HTTP proxy for token endpoint calls (`token_endpoint_http_proxy`). All identity settings (`issuer`, `defaultAudience`, `allowedAudiences`, `tokenTtl`, `subjectDomainPrefix` etc.) are **per-org only** and orgs supply them when calling PUT identity/config. There is no global fallback; orgs must provide these to generate keys and receive tokens. Per-org `enabled` can further disable an org when global is true (default `true` when unset). 
 
 **PUT prerequisite:** Per-org config can only be created or updated when global `enabled` is `true`; otherwise PUT returns `503 Service Unavailable`.
 
@@ -320,7 +322,7 @@ token_delegation_http_proxy = "https://carbide-ext.com" # optional, SSRF mitigat
 
 When the `[machine-identity]` section exists but is incomplete or invalid, the following behavior applies.
 
-**Required fields (when section exists and `enabled` is true):** `algorithm`. Optional: `token_delegation_http_proxy`.
+**Required fields (when section exists and `enabled` is true):** `algorithm`. Optional: `token_endpoint_http_proxy`.
 
 | Scenario | Behavior |
 | :------- | :------- |
@@ -456,7 +458,7 @@ PUT https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/identity/confi
 {
   "orgId": "org-id",
   "enabled": true,
-  "issuer": "https://carbide-rest.example.com",
+  "issuer": "https://carbide-rest.example.com/org/{org-id}/site/{site-id}",
   "defaultAudience": "carbide-tenant-xxx",
   "allowedAudiences": ["carbide-tenant-xxx", "tenant-a", "tenant-b"],
   "tokenTtl": 300,
@@ -484,7 +486,7 @@ Response:
 {
   "orgId": "org-id",
   "enabled": true,
-  "issuer": "https://carbide-rest.example.com",
+  "issuer": "https://carbide-rest.example.com/org/{org-id}/site/{site-id}",
   "defaultAudience": "carbide-tenant-xxx",
   "allowedAudiences": ["carbide-tenant-xxx", "tenant-a", "tenant-b"],
   "tokenTtl": 300,
@@ -507,7 +509,7 @@ These APIs let Carbide tenants register a token exchange callback endpoint (RFC 
 | Setting | Scope | Effect on token delegation |
 | :------ | :---- | :------------------------- |
 | `enabled` | Global | Master switch. If false, PUT token-delegation is rejected (same as identity/config). |
-| `token_delegation_http_proxy` | Global | Outbound calls from Carbide to the tenant's token endpoint use this proxy (SSRF mitigation). |
+| `token_endpoint_http_proxy` | Global | Outbound calls from Carbide to the tenant's token endpoint use this proxy (SSRF mitigation). |
 | Identity config (issuer, audiences, TTL) | Per-org (with global defaults) | The JWT-SVID sent to the exchange server is signed using the org's effective identity config. |
 | Token delegation config | Per-org | Each org registers its own `tokenEndpoint`, `authMethod`, `subjectTokenAudience`, etc. |
 
@@ -526,8 +528,10 @@ PUT https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/identity/token
 {
   "tokenEndpoint": "https://auth.acme.com/oauth2/token",
   "authMethod": "client_secret_basic",
-  "clientId": "abc123",
-  "clientSecret": "super-secret",
+  "authMethodConfig": {
+    "client_id": "abc123",
+    "client_secret": "super-secret"
+  },
   "subjectTokenAudience": "value"
 }
 ```
@@ -539,20 +543,25 @@ Response:
   "orgId": "org-id",
   "tokenEndpoint": "https://tenant.example.com/oauth2/token",
   "authMethod": "client_secret_basic",
-  "clientId": "abc123",
-  "subjectTokenAudience": "tenant-layer-exchange-token-service-id"
+  "authMethodConfig": {
+    "client_id": "abc123",
+    "client_secret_hash": "sha256:a1b2c3d4"
+  },
+  "subjectTokenAudience": "tenant-layer-exchange-token-service-id",
+  "createdAt": "...",
+  "updatedAt": "..."
 }
 ```
 
-Note: `clientSecret` is write-only and is not returned in responses.
+Note: `authMethodConfig` omits secret keys; `client_secret_hash` (SHA256 prefix) is returned for verification. Non-secret fields (e.g. `client_id`) are returned.
 
-Possible values for `authMethod`:
+Possible ([openid client auth](https://openid.net/specs/openid-connect-core-1_0.html#ClientAuthentication
+)) values for `authMethod`:
 
-* `client_secret_basic` supported  
-* `none` supported. if set, the client_id and client_secret are ignored/not passed to exchange endpoint
-* `client_secret_post` currently unsupported  
-* `private_key_jwt` currently unsupported  
-* `mtls` currently unsupported
+* `client_secret_basic` supported (auth_method_config: client_id, client_secret)
+* `none` supported; if set, auth_method_config is ignored/not passed to exchange endpoint
+* `client_secret_post`, `private_key_jwt` extensible via auth_method_config without schema changes (currently unsupported)
+
 
 #### **3.5.1.3 Token Exchange Request**
 
@@ -684,17 +693,17 @@ service Forge {
 syntax = "proto3";
 // crates/rpc/proto/forge.proto
 
-// Token Delegation config message
-message TokenDelegation {
+// Token Delegation config message.
+// auth_method: e.g. "client_secret_basic", "private_key_jwt"
+// auth_method_config: method-specific fields (Struct). Secrets are write-only; never returned in responses.
+message TokenDelegationResponse {
   string org_id = 1;
   string token_endpoint = 2;
   string auth_method = 3;
-  string client_id = 4;
-  string client_secret = 5; // write-only, never returned in responses
-  string subject_token_audience = 6; // audience to include in Carbide JWT-SVID
-  bool enabled = 7;
-  google.protobuf.Timestamp created_at = 8;
-  google.protobuf.Timestamp updated_at = 9;
+  google.protobuf.Struct auth_method_config = 4;  // method-specific; never includes secrets in responses
+  string subject_token_audience = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
 }
 
 // Request for GET / DELETE (identifies org)
@@ -703,19 +712,13 @@ message GetTokenDelegationRequest {
 }
 
 // Request for PUT (includes delegation config)
-message SetTokenDelegationRequest {
+// auth_method_config: e.g. {"client_id":"...","client_secret":"..."} for client_secret_basic
+message TokenDelegationRequest {
   string org_id = 1;
   string token_endpoint = 2;
   string auth_method = 3;
-  string client_id = 4;
-  string client_secret = 5;
-  string subject_token_audience = 6;
-  bool enabled = 7;
-}
-
-// Response for GET / PUT
-message TokenDelegationResponse {
-  TokenDelegation delegation = 1;
+  google.protobuf.Struct auth_method_config = 4;
+  string subject_token_audience = 5;
 }
 
 // gRPC service
@@ -723,10 +726,16 @@ service Forge {
 
   // Token Delegation Endpoints
   rpc GetTokenDelegation(GetTokenDelegationRequest) returns (TokenDelegationResponse) {}
-  rpc SetTokenDelegation(SetTokenDelegationRequest) returns (TokenDelegationResponse) {}
+  rpc SetTokenDelegation(TokenDelegationRequest) returns (TokenDelegationResponse) {}
   rpc DeleteTokenDelegation(GetTokenDelegationRequest) returns (google.protobuf.Empty) {}
 }
 ```
+
+**Auth method extensibility:** Token delegation uses `auth_method` (string) + `auth_method_config` (Struct/JSONB) to support multiple auth methods without schema changes. Examples:
+- `client_secret_basic`: `auth_method_config` = `{"client_id":"...","client_secret":"..."}`
+- `none`: `auth_method_config` = `{}`
+
+**HTTP response for `authMethodConfig`:** Secret keys are omitted; corresponding `*_hash` fields are returned (e.g. `client_secret_hash` with `sha256:` + 8-char hex prefix). Example for `client_secret_basic`: `{"client_id":"abc123","client_secret_hash":"sha256:a1b2c3d4"}`.
 
 ```protobuf
 syntax = "proto3";

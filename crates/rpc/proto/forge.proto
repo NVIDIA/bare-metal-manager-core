@@ -689,8 +689,14 @@ service Forge {
   // SPIFFE Machine Identity APIs
   // Signs a JWT-SVID token for machine identity
   rpc SignMachineIdentity(MachineIdentityRequest) returns (MachineIdentityResponse);
-  // Create or replace per-org identity configuration (issuer, audiences, TTL, signing key)
+  // Get, set, or delete per-org identity configuration (issuer, audiences, TTL, signing key)
+  rpc GetIdentityConfiguration(GetIdentityConfigRequest) returns (IdentityConfigResponse);
   rpc SetIdentityConfiguration(IdentityConfigRequest) returns (IdentityConfigResponse);
+  rpc DeleteIdentityConfiguration(GetIdentityConfigRequest) returns (google.protobuf.Empty);
+  // Token delegation: get, set, or delete per-org token exchange config
+  rpc GetTokenDelegation(GetTokenDelegationRequest) returns (TokenDelegationResponse);
+  rpc SetTokenDelegation(TokenDelegationRequest) returns (TokenDelegationResponse);
+  rpc DeleteTokenDelegation(GetTokenDelegationRequest) returns (google.protobuf.Empty);
 
   // ScoutStream establishes a bidirectional streaming connection between
   // scout agents and carbide-api. The initial use-case for this is for
@@ -850,6 +856,10 @@ message MachineIdentityResponse {
 }
 
 // Identity configuration (per-org)
+message GetIdentityConfigRequest {
+  string org_id = 1;
+}
+
 message IdentityConfigRequest {
   string org_id = 1;
   bool enabled = 2;
@@ -869,8 +879,35 @@ message IdentityConfigResponse {
   repeated string allowed_audiences = 5;
   uint32 token_ttl = 6;
   string subject_domain = 7;
-  google.protobuf.Timestamp updated_at = 8;
-  string key_id = 9;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  string key_id = 10;
+}
+
+// Token delegation config (per-org token exchange for machine identity).
+// auth_method: e.g. "client_secret_basic", "private_key_jwt"
+// auth_method_config: method-specific fields (Struct). For client_secret_basic: client_id, client_secret.
+// Secrets in auth_method_config are write-only; responses omit them.
+message TokenDelegationResponse {
+  string org_id = 1;
+  string token_endpoint = 2;
+  string auth_method = 3;
+  google.protobuf.Struct auth_method_config = 4;  // method-specific; never includes secrets in responses
+  string subject_token_audience = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message GetTokenDelegationRequest {
+  string org_id = 1;
+}
+
+message TokenDelegationRequest {
+  string org_id = 1;
+  string token_endpoint = 2;
+  string auth_method = 3;
+  google.protobuf.Struct auth_method_config = 4;  // e.g. {"client_id":"...","client_secret":"..."} for client_secret_basic
+  string subject_token_audience = 5;
 }
 
 // Determines machine ingestion state in relation to the power on gate

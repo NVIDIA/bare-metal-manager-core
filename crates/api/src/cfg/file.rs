@@ -511,9 +511,9 @@ pub struct MachineIdentityConfig {
     /// Max token TTL permitted in seconds.
     #[serde(default = "machine_identity_default_token_ttl_max")]
     pub token_ttl_max: u32,
-    /// Optional HTTP proxy for token exchange (SSRF mitigation).
+    /// Optional HTTP proxy for token endpoint calls (SSRF mitigation).
     #[serde(default)]
-    pub token_delegation_http_proxy: Option<String>,
+    pub token_endpoint_http_proxy: Option<String>,
 }
 
 fn machine_identity_default_enabled() -> bool {
@@ -536,7 +536,7 @@ impl Default for MachineIdentityConfig {
             algorithm: machine_identity_default_algorithm(),
             token_ttl_min: machine_identity_default_token_ttl_min(),
             token_ttl_max: machine_identity_default_token_ttl_max(),
-            token_delegation_http_proxy: None,
+            token_endpoint_http_proxy: None,
         }
     }
 }

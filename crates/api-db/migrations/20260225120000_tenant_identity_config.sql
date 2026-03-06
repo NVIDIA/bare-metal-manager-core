@@ -3,6 +3,9 @@
 -- Private key is encrypted with a master key.
 -- Token delegation columns are nullable when an org does not use delegation.
 
+--this is a temporary table to hold the data before the migration. will be removed before checking in.
+--DROP TABLE IF EXISTS tenant_identity_config CASCADE;
+
 CREATE TABLE tenant_identity_config (
     organization_id   VARCHAR(255) PRIMARY KEY REFERENCES tenants(organization_id) ON DELETE CASCADE,
     -- Identity config (from PUT identity/config)
@@ -12,6 +15,7 @@ CREATE TABLE tenant_identity_config (
     token_ttl                INTEGER NOT NULL,
     subject_domain_prefix    VARCHAR(255) NOT NULL,
     enabled                  BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     -- Signing key (generated on first PUT identity/config)
     encrypted_signing_key    TEXT NOT NULL,
@@ -20,9 +24,11 @@ CREATE TABLE tenant_identity_config (
     algorithm                VARCHAR(255) NOT NULL,
     master_key_id            VARCHAR(255) NOT NULL,
     -- Token delegation (from PUT identity/token-delegation, optional)
-    token_endpoint           VARCHAR(512),
-    auth_method              VARCHAR(64),
-    client_id                VARCHAR(255),
-    encrypted_client_secret  TEXT,
-    subject_token_audience   VARCHAR(255)
+    -- auth_method: e.g. "client_secret_basic", "private_key_jwt"
+    -- encrypted_auth_method_config: encrypted blob (TEXT). API uses auth_method_config.
+    token_endpoint               VARCHAR(512),
+    auth_method                  VARCHAR(64),
+    encrypted_auth_method_config  TEXT,
+    subject_token_audience       VARCHAR(255),
+    token_delegation_created_at  TIMESTAMPTZ
 );

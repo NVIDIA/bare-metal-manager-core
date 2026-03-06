@@ -32,12 +32,20 @@ pub struct TenantIdentityConfig {
     pub token_ttl: i32,
     pub subject_domain_prefix: String,
     pub enabled: bool,
+    pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub encrypted_signing_key: String,
     pub signing_key_public: String,
     pub key_id: String,
     pub algorithm: String,
     pub master_key_id: String,
+    // Token delegation (optional)
+    pub token_endpoint: Option<String>,
+    pub auth_method: Option<String>,
+    /// Encrypted blob (TEXT). Until encryption is enabled, stores JSON string. API uses auth_method_config.
+    pub encrypted_auth_method_config: Option<String>,
+    pub subject_token_audience: Option<String>,
+    pub token_delegation_created_at: Option<DateTime<Utc>>,
 }
 
 /// Set identity config for an org. On first create, generates a placeholder key.
@@ -89,9 +97,9 @@ pub async fn set(
     let query = r#"
         INSERT INTO tenant_identity_config (
             organization_id, issuer, default_audience, allowed_audiences,
-            token_ttl, subject_domain_prefix, enabled, updated_at,
+            token_ttl, subject_domain_prefix, enabled, created_at, updated_at,
             encrypted_signing_key, signing_key_public, key_id, algorithm, master_key_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11, $12)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), $8, $9, $10, $11, $12)
         ON CONFLICT (organization_id) DO UPDATE SET
             issuer = EXCLUDED.issuer,
             default_audience = EXCLUDED.default_audience,
@@ -128,9 +136,76 @@ pub async fn set(
 
 pub async fn find(
     org_id: &str,
-    txn: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    txn: &mut PgConnection,
 ) -> DatabaseResult<Option<TenantIdentityConfig>> {
     let query = "SELECT * FROM tenant_identity_config WHERE organization_id = $1";
+    sqlx::query_as(query)
+        .bind(org_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Set token delegation for an org. Identity config must exist first.
+/// config_json: serialized auth_method_config. Stored as TEXT (future: encrypted).
+pub async fn set_token_delegation(
+    org_id: &str,
+    token_endpoint: &str,
+    auth_method: &str,
+    config_json: &str,
+    subject_token_audience: Option<&str>,
+    txn: &mut PgConnection,
+) -> DatabaseResult<TenantIdentityConfig> {
+    let query = r#"
+        UPDATE tenant_identity_config
+        SET token_endpoint = $2, auth_method = $3, encrypted_auth_method_config = $4,
+            subject_token_audience = $5, updated_at = NOW(),
+            token_delegation_created_at = COALESCE(token_delegation_created_at, NOW())
+        WHERE organization_id = $1
+        RETURNING *
+    "#;
+    let row = sqlx::query_as::<_, TenantIdentityConfig>(query)
+        .bind(org_id)
+        .bind(token_endpoint)
+        .bind(auth_method)
+        .bind(config_json)
+        .bind(subject_token_audience)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    row.ok_or_else(|| DatabaseError::NotFoundError {
+        kind: "tenant_identity_config",
+        id: org_id.to_string(),
+    })
+}
+
+/// Delete identity config for an org (removes the entire row).
+pub async fn delete(
+    org_id: &str,
+    txn: &mut PgConnection,
+) -> DatabaseResult<bool> {
+    let result = sqlx::query(
+        "DELETE FROM tenant_identity_config WHERE organization_id = $1",
+    )
+    .bind(org_id)
+    .execute(txn)
+    .await
+    .map_err(|e| DatabaseError::query("DELETE tenant_identity_config", e))?;
+    Ok(result.rows_affected() > 0)
+}
+
+/// Clear token delegation for an org.
+pub async fn delete_token_delegation(
+    org_id: &str,
+    txn: &mut PgConnection,
+) -> DatabaseResult<Option<TenantIdentityConfig>> {
+    let query = r#"
+        UPDATE tenant_identity_config
+        SET token_endpoint = NULL, auth_method = NULL, encrypted_auth_method_config = NULL,
+            subject_token_audience = NULL, token_delegation_created_at = NULL, updated_at = NOW()
+        WHERE organization_id = $1
+        RETURNING *
+    "#;
     sqlx::query_as(query)
         .bind(org_id)
         .fetch_optional(txn)
