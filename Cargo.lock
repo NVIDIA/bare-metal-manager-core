@@ -1423,6 +1423,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-health-report",
  "carbide-host-support",
+ "carbide-ipxe-renderer",
  "carbide-libmlx",
  "carbide-macros",
  "carbide-measured-boot",
