@@ -150,7 +150,7 @@ fi
 # -----------------------------------------------------------------------------
 echo ""
 echo "=== Running migrations ==="
-cargo run --package carbide-api --no-default-features migrate 2>/dev/null || true
+cargo run --package carbide-api --no-default-features migrate || die "Database migrations failed; fix the issue above and re-run this script."
 
 echo ""
 echo "=== Starting Carbide API ==="
