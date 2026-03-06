@@ -131,6 +131,18 @@ vaultClusterInfo: {}
 #  FORGE_VAULT_MOUNT: "secrets"
 #  FORGE_VAULT_PKI_MOUNT: "forgeca"
 
+## In addition to Vault, the following settings allow the application to read credentials from a Kubernetes secret.
+## The precedence is to try to find the credential in the secret and fall back to Vault in case it is not found.
+extraCredentialsSecret:
+  ## Whether to enable the extra credentials secret.
+  enabled: false
+  ## Name of the Kubernetes secret containing the credentials.
+  secretName: "carbide-extra-credentials"
+  ## Path to mount the secret in the container.
+  secretMountPath: "/etc/forge/carbide-api/credentials"
+  ## Key containing the credentials. The content must be a JSON object with the credentials.
+  secretKey: "credentials.json"
+
 databaseConfig: {}
 #  DB_HOST: "postgresql.forge-system.svc.cluster.local"
 #  DB_PORT: "5432"
