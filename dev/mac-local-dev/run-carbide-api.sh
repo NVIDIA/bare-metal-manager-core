@@ -63,6 +63,7 @@ ok "Docker is running"
 if docker ps --format '{{.Names}}' | grep -w "$VAULT_CONTAINER" >/dev/null; then
   ok "Vault container already running"
   [ -f "$TOKEN_FILE" ] || die "Token file missing. Remove container and retry: docker rm -f $VAULT_CONTAINER"
+  chmod 600 "$TOKEN_FILE"
 else
   info "Starting Vault on port $VAULT_PORT..."
   docker rm -f "$VAULT_CONTAINER" 2>/dev/null || true
@@ -79,7 +80,7 @@ else
   INIT=$(docker exec "$VAULT_CONTAINER" sh -c "export VAULT_ADDR=http://127.0.0.1:8200; vault operator init -key-shares=1 -key-threshold=1 -format=json")
   UNSEAL_KEY=$(echo "$INIT" | jq -r ".unseal_keys_b64[0]")
   ROOT_TOKEN=$(echo "$INIT" | jq -r ".root_token")
-  echo "$ROOT_TOKEN" > "$TOKEN_FILE"
+  (umask 077 && echo "$ROOT_TOKEN" > "$TOKEN_FILE")
 
   info "Configuring vault secrets..."
   docker exec "$VAULT_CONTAINER" sh -c "
