@@ -18,6 +18,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use carbide_host_support::hardware_enumeration::enumerate_hardware;
 use carbide_uuid::machine::MachineId;
 
 use crate::duppet::{self, FileEnsure, SyncOptions};
@@ -38,6 +39,7 @@ pub fn main_sync(
     // - /etc/dhcp/dhclient-exit-hooks.d/ntpsec
     // - /run/otelcol-contrib/machine-id
     // - /run/otelcol-contrib/host-machine-id
+    // - /run/otelcol-contrib/dpu-info
     let duppet_files: HashMap<PathBuf, duppet::FileSpec> = HashMap::from([
         (
             "/etc/cron.daily/apt-clean".into(),
@@ -77,6 +79,10 @@ pub fn main_sync(
                     .unwrap_or(Cow::Borrowed("")),
             )),
         ),
+        (
+            "/run/otelcol-contrib/dpu-info".into(),
+            duppet::FileSpec::new().with_content(build_otel_dpu_info_file_from_hw()),
+        ),
         // September 30, 2025.
         //
         // /etc/rc.local was added as a workaround for a bug pre-HBN 1.5,
@@ -111,4 +117,27 @@ pub fn build_otel_machine_id_file(machine_id: &MachineId) -> String {
 // resource attribute.
 pub fn build_otel_host_machine_id_file(host_machine_id: Cow<str>) -> String {
     format!("host.machine.id={host_machine_id}\n")
+}
+
+// Write DPU product name and vendor to a file so the OpenTelemetry collector can apply them as
+// resource attributes.
+pub fn build_otel_dpu_info_file(product_name: &str, vendor: &str) -> String {
+    format!("dpu.product.name={product_name}\ndpu.vendor={vendor}\n")
+}
+
+// Enumerate hardware to extract DPU product name and vendor, then build the dpu-info file
+// content. Falls back to empty strings if hardware enumeration fails.
+fn build_otel_dpu_info_file_from_hw() -> String {
+    match enumerate_hardware() {
+        Ok(info) => {
+            let dmi = info.dmi_data.as_ref();
+            let product_name = dmi.map(|d| d.product_name.as_str()).unwrap_or("");
+            let vendor = dmi.map(|d| d.sys_vendor.as_str()).unwrap_or("");
+            build_otel_dpu_info_file(product_name, vendor)
+        }
+        Err(e) => {
+            tracing::error!("Failed to enumerate hardware for dpu-info: {}", e);
+            build_otel_dpu_info_file("", "")
+        }
+    }
 }

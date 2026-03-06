@@ -237,6 +237,7 @@ processors:
     file_paths:
       - /run/otelcol-contrib/machine-id
       - /run/otelcol-contrib/host-machine-id
+      - /run/otelcol-contrib/dpu-info
     poll_interval: 5s
   telemetry_stats:
     metric_scrape_interval: 1m
@@ -472,6 +473,7 @@ service:
       processors:
         - memory_limiter
         - resourcedetection
+        - fileresource
         - resource/hostmetrics
         - telemetry_stats
         - batch/metrics
