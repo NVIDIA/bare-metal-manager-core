@@ -137,9 +137,10 @@ pub mod test_support {
             }
         }
 
-        pub fn with_default_partition() -> Self {
+        pub fn with_unknown_partition() -> Self {
             let client = Self::default();
-            client.create_default_partition(
+            client.create_partition(
+                12345,
                 client
                     ._gpus
                     .lock()
@@ -151,11 +152,26 @@ pub mod test_support {
             client
         }
 
-        /// Creates a default partition with partition_id 32766 containing the specified GPU IDs.
-        fn create_default_partition(&self, gpu_ids: Vec<String>) {
+        pub fn with_default_partition() -> Self {
+            let client = Self::default();
+            client.create_partition(
+                32766, // default partition id.
+                client
+                    ._gpus
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter_map(|gpu| gpu.id.clone())
+                    .collect(),
+            );
+            client
+        }
+
+        /// Creates a partition with given partition_id containing the specified GPU IDs.
+        fn create_partition(&self, partition_id: i32, gpu_ids: Vec<String>) {
             let partition = libnmxm::nmxm_model::Partition {
                 id: "default-partition".to_string(),
-                partition_id: 32766,
+                partition_id,
                 name: "Default Partition".to_string(),
                 r#type: libnmxm::nmxm_model::PartitionType::PartitionTypeIDBased,
                 health: libnmxm::nmxm_model::PartitionHealth::PartitionHealthHealthy,

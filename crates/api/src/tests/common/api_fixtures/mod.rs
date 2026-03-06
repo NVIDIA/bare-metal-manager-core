@@ -261,6 +261,7 @@ pub struct TestEnvOverrides {
     pub dpf_config: Option<DpfConfig>,
     pub fnn_config: Option<FnnConfig>,
     pub nmxm_default_partition: Option<bool>,
+    pub nmxm_unknown_partition: Option<bool>,
     // After n create_requests succeed, they will start failing.
     pub nmxm_fail_after_n_creates: Option<usize>,
 }
@@ -1282,6 +1283,8 @@ pub async fn create_test_env_with_overrides(
             NmxmSimClient::with_fail_after_n_creates(n)
         } else if overrides.nmxm_default_partition == Some(true) {
             NmxmSimClient::with_default_partition()
+        } else if overrides.nmxm_unknown_partition == Some(true) {
+            NmxmSimClient::with_unknown_partition()
         } else {
             NmxmSimClient::default()
         });
