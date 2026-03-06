@@ -58,7 +58,7 @@ struct NmxmPartitionOperation {
 enum NmxmPartitionOperationType {
     Create,
     Remove(String), // TODO: create an NmxMId type
-    RemoveDefaultPartition(String),
+    RemoveUnknownPartition(String),
     Update(String),
     Pending(String), // Operation ID
 }
@@ -67,7 +67,7 @@ enum NmxmPartitionOperationType {
 enum GpuAction {
     AddToPartition,
     RemoveFromPartition,
-    RemoveFromDefaultPartition,
+    RemoveFromUnknownPartition,
     NoOp,
 }
 
@@ -102,7 +102,7 @@ pub struct PartitionProcessingContext {
     machine_nvlink_info: HashMap<MachineId, Option<MachineNvLinkInfo>>,
     gpu_to_partition_map: HashMap<String, libnmxm::nmxm_model::Partition>, // NMX-M GPU ID to NMX-M partition
     nmx_m_operations: HashMap<NvLinkLogicalPartitionId, Vec<NmxmPartitionOperation>>,
-    default_partition_removal_operations: HashMap<String, Vec<NmxmPartitionOperation>>,
+    unknown_partition_removal_operations: HashMap<String, Vec<NmxmPartitionOperation>>,
 }
 
 impl PartitionProcessingContext {
@@ -132,7 +132,7 @@ impl PartitionProcessingContext {
             machine_nvlink_info,
             gpu_to_partition_map: gpu_map,
             nmx_m_operations: HashMap::new(),
-            default_partition_removal_operations: HashMap::new(),
+            unknown_partition_removal_operations: HashMap::new(),
         }
     }
     // Build a map from GPU IDs to their partition IDs from NMX-M partitions
@@ -277,7 +277,7 @@ impl PartitionProcessingContext {
         Some(gpus_to_keep)
     }
 
-    fn get_gpus_to_keep_in_default_partition_after_removal(
+    fn get_gpus_to_keep_in_unknown_partition_after_removal(
         &self,
         partition_nmx_m_id: &str,
         gpu_nmx_m_id: &str,
@@ -285,7 +285,7 @@ impl PartitionProcessingContext {
         device_instance: u32,
     ) -> Option<Vec<String>> {
         let gpus_to_keep = match self
-            .default_partition_removal_operations
+            .unknown_partition_removal_operations
             .get(partition_nmx_m_id)
         {
             Some(ops) => {
@@ -328,7 +328,7 @@ impl PartitionProcessingContext {
                 }
             }
             None => {
-                // No removal operations found, so get the GPUs from the default partition.
+                // No removal operations found, so get the GPUs from the unknown partition.
                 match self.nmx_m_partitions.get(partition_nmx_m_id) {
                     Some(p) => match p.members.as_ref() {
                         libnmxm::nmxm_model::PartitionMembers::Ids(ids) => ids
@@ -430,8 +430,8 @@ impl PartitionProcessingContext {
         Ok(())
     }
 
-    // Handle GPU removal from the default partition
-    fn handle_gpu_removal_from_default_partition(
+    // Handle GPU removal from the unknown partition
+    fn handle_gpu_removal_from_unknown_partition(
         &mut self,
         partition_nmx_m_id: &str,
         gpu_nmx_m_id: &str,
@@ -440,7 +440,7 @@ impl PartitionProcessingContext {
         if gpus_to_keep.is_empty() {
             let operation = NmxmPartitionOperation {
                 domain_uuid: None,
-                operation_type: NmxmPartitionOperationType::RemoveDefaultPartition(
+                operation_type: NmxmPartitionOperationType::RemoveUnknownPartition(
                     partition_nmx_m_id.to_string(),
                 ),
                 original_operation_type: None,
@@ -449,14 +449,14 @@ impl PartitionProcessingContext {
                 db_partition_id: None,
             };
 
-            self.default_partition_removal_operations
+            self.unknown_partition_removal_operations
                 .entry(partition_nmx_m_id.to_string())
                 .and_modify(|ops| {
                     if let Some(op) = ops
                         .iter_mut()
                         .find(|op| op.gpu_ids.contains(&gpu_nmx_m_id.to_string()))
                     {
-                        op.operation_type = NmxmPartitionOperationType::RemoveDefaultPartition(
+                        op.operation_type = NmxmPartitionOperationType::RemoveUnknownPartition(
                             partition_nmx_m_id.to_string(),
                         );
                         op.original_operation_type = None;
@@ -475,7 +475,7 @@ impl PartitionProcessingContext {
                 name: "".to_string(),
                 db_partition_id: None,
             };
-            self.default_partition_removal_operations
+            self.unknown_partition_removal_operations
                 .entry(partition_nmx_m_id.to_string())
                 .and_modify(|ops| {
                     if let Some(op) = ops
@@ -1109,20 +1109,31 @@ impl NvlPartitionMonitor {
                                 }
                                 None => {
                                     // TODO: should we add the partition NMX-M ID to the status obs?
-                                    if is_nmx_m_default_partition(&nmxm_partition)
-                                        && instance_gpu_config.is_some()
-                                    {
-                                        tracing::info!(
-                                            "Removing GPU {} in machine {} and instance {} from default partition {}",
+                                    if is_nmx_m_default_partition(&nmxm_partition) {
+                                        if instance_gpu_config.is_some() {
+                                            tracing::info!(
+                                                "Removing GPU {} in machine {} and instance {} from default partition {}",
+                                                nvlink_gpu.nmx_m_id,
+                                                instance.machine_id,
+                                                instance.id,
+                                                nmxm_partition.id
+                                            );
+                                            gpu_action = GpuAction::RemoveFromUnknownPartition;
+                                            gpu_ctx.partition_nmx_m_id = nmxm_partition.id;
+                                        } else {
+                                            // Do nothing if there is no config
+                                            gpu_action = GpuAction::NoOp;
+                                        }
+                                    } else {
+                                        // Monitor does not know about this partition, so just remove the GPU. On the next iteration
+                                        // the monitor will put the GPU in the correct partition (or leave it if the config says no partition)
+                                        tracing::warn!(
+                                            "Removing GPU {} from unknown partition with NMX-M ID {}",
                                             nvlink_gpu.nmx_m_id,
-                                            instance.machine_id,
-                                            instance.id,
                                             nmxm_partition.id
                                         );
-                                        gpu_action = GpuAction::RemoveFromDefaultPartition;
+                                        gpu_action = GpuAction::RemoveFromUnknownPartition;
                                         gpu_ctx.partition_nmx_m_id = nmxm_partition.id;
-                                    } else {
-                                        gpu_action = GpuAction::NoOp;
                                     }
                                 }
                             }
@@ -1183,16 +1194,16 @@ impl NvlPartitionMonitor {
 
                                 partition_ctx.handle_gpu_removal(&gpu_ctx, gpus_to_keep)?;
                             }
-                            GpuAction::RemoveFromDefaultPartition => {
+                            GpuAction::RemoveFromUnknownPartition => {
                                 if let Some(gpus_to_keep) = partition_ctx
-                                    .get_gpus_to_keep_in_default_partition_after_removal(
+                                    .get_gpus_to_keep_in_unknown_partition_after_removal(
                                         &gpu_ctx.partition_nmx_m_id,
                                         &gpu_ctx.gpu_nmx_m_id,
                                         &instance.machine_id,
                                         device_instance,
                                     )
                                 {
-                                    partition_ctx.handle_gpu_removal_from_default_partition(
+                                    partition_ctx.handle_gpu_removal_from_unknown_partition(
                                         &gpu_ctx.partition_nmx_m_id,
                                         &gpu_ctx.gpu_nmx_m_id,
                                         gpus_to_keep,
@@ -1225,7 +1236,7 @@ impl NvlPartitionMonitor {
 
         // Add all default partition removals to the normal list so they get executed.
         for (_partition_nmx_m_id, operations) in
-            partition_ctx.default_partition_removal_operations.iter()
+            partition_ctx.unknown_partition_removal_operations.iter()
         {
             for operation in operations {
                 partition_ctx
@@ -1452,7 +1463,7 @@ impl NvlPartitionMonitor {
                             }
                         }
                     }
-                    NmxmPartitionOperationType::RemoveDefaultPartition(nmx_m_partition_id) => {
+                    NmxmPartitionOperationType::RemoveUnknownPartition(nmx_m_partition_id) => {
                         tracing::info!("NOT Removing default partition {nmx_m_partition_id}");
                         // Remove from the default partition.
                         let result = nmxm_client
@@ -1472,7 +1483,7 @@ impl NvlPartitionMonitor {
                                         result.operation_id.clone(),
                                     ),
                                     original_operation_type: Some(
-                                        NmxmPartitionOperationType::RemoveDefaultPartition(
+                                        NmxmPartitionOperationType::RemoveUnknownPartition(
                                             nmx_m_partition_id.clone(),
                                         ),
                                     ),
@@ -1487,7 +1498,7 @@ impl NvlPartitionMonitor {
                                     result.operation_id.clone(),
                                 ),
                                 original_operation_type: Some(
-                                    NmxmPartitionOperationType::RemoveDefaultPartition(
+                                    NmxmPartitionOperationType::RemoveUnknownPartition(
                                         nmx_m_partition_id.clone(),
                                     ),
                                 ),
@@ -1799,7 +1810,7 @@ impl NvlPartitionMonitor {
                     NmxmPartitionOperationType::Pending(_operation_id) => {
                         // Should be no pending operations in this step.
                     }
-                    NmxmPartitionOperationType::RemoveDefaultPartition(_) => {
+                    NmxmPartitionOperationType::RemoveUnknownPartition(_) => {
                         // No-op, since default partition membership is not tracked in the partitions table. The status observation of the
                         // added/removed GPUs will be updated.
                     }
