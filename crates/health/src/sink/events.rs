@@ -216,7 +216,7 @@ impl TryFrom<HealthReportAlert> for HealthProbeAlert {
     type Error = HealthReportConversionError;
 
     fn try_from(value: HealthReportAlert) -> Result<Self, Self::Error> {
-        let mut classifications = Vec::with_capacity(value.classifications.len().max(1));
+        let mut classifications = Vec::with_capacity(value.classifications.len() + 1);
         for classification in value.classifications {
             classifications.push(classification.try_into()?);
         }
