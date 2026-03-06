@@ -23,6 +23,7 @@ use carbide_uuid::machine::MachineId;
 use db::dpa_interface;
 use eyre::eyre;
 use libmlx::device::report::MlxDeviceReport;
+use libmlx::profile::serialization::SerializableProfile;
 use model::dpa_interface::{
     CardState, DpaInterface, DpaInterfaceControllerState, DpaInterfaceNetworkStatusObservation,
     DpaLockMode, NewDpaInterface,
@@ -270,7 +271,7 @@ pub(crate) async fn process_scout_req(
                 build_apply_firmware_command(api, sn, machine_id, pci_name)
             }
             DpaInterfaceControllerState::ApplyProfile => {
-                build_apply_profile_command(api, machine_id, pci_name)
+                build_apply_profile_command(api, sn, machine_id, pci_name)?
             }
             DpaInterfaceControllerState::Locking => {
                 build_lock_command(api, sn, machine_id, pci_name).await?
@@ -387,18 +388,68 @@ fn build_apply_firmware_command<'a>(
     }
 }
 
+// build_apply_profile_command takes a target DpaInterface
+// and looks to see if an mlxconfig_profile name has been
+// configured for it. If not, then we'll return None, which
+// will make its way to scout, signaling that it just needs
+// to do a simple reset of mlxconfig parameters. If a name
+// HAS been set, then we will attempt to look it up in the
+// runtime config, and then serialize the values to populate
+// in the DpaCommand and send them down to the device.
+//
+// If a profile name is configured but cannot be resolved or
+// serialized, this returns an error — we must not send a None
+// to scout, as that would reset the card to factory defaults
+// without applying the intended profile.
 fn build_apply_profile_command(
     api: &Api,
+    interface: &DpaInterface,
     machine_id: MachineId,
     pci_name: &str,
-) -> DpaCommand<'static> {
-    let profstr = api.runtime_config.get_dpa_profile("Bluefield3".to_string());
-    tracing::info!(%machine_id, %pci_name, "Applying DPA profile");
-    DpaCommand {
+) -> CarbideResult<DpaCommand<'static>> {
+    let Some(profile_name) = &interface.mlxconfig_profile else {
+        tracing::info!(
+            %machine_id, %pci_name,
+            "no mlxconfig_profile assigned, reset only"
+        );
+        return Ok(DpaCommand {
+            op: OpCode::ApplyProfile {
+                serialized_profile: None,
+            },
+        });
+    };
+
+    let mlxconfig_profile = api
+        .runtime_config
+        .get_mlxconfig_profile(profile_name)
+        .ok_or_else(|| {
+            tracing::error!(
+                %machine_id, %pci_name, %profile_name,
+                "mlxconfig_profile not found in config"
+            );
+            CarbideError::GenericErrorFromReport(eyre!(
+                "mlxconfig_profile '{profile_name}' not found in config"
+            ))
+        })?;
+
+    let serialized_profile = SerializableProfile::from_profile(mlxconfig_profile).map_err(|e| {
+        tracing::error!(
+            %machine_id, %pci_name, %profile_name,
+            %e,
+            "failed to serialize mlxconfig profile"
+        );
+        CarbideError::GenericErrorFromReport(eyre!(
+            "failed to serialize mlxconfig_profile '{profile_name}': {e}"
+        ))
+    })?;
+
+    tracing::info!(%machine_id, %pci_name, %profile_name, "ApplyProfile");
+
+    Ok(DpaCommand {
         op: OpCode::ApplyProfile {
-            profile_str: profstr,
+            serialized_profile: Some(serialized_profile),
         },
-    }
+    })
 }
 
 async fn build_lock_command(

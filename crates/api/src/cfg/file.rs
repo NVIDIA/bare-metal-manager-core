@@ -637,13 +637,14 @@ impl CarbideConfig {
         self.supernic_firmware_profiles.get(part_number)?.get(psid)
     }
 
-    // Given a device_type, return the profile that needs to be applied
-    // to configure the DPA.
-    pub fn get_dpa_profile(&self, _device_type: String) -> String {
-        // XXX TODO XXX
-        // Figure out profile that needs to be applied to the given device type
-        // XXX TODO XXX
-        "bf3-spx-enabled".to_string()
+    // get_mlxconfig_profile looks up an MlxConfigProfile by name from
+    // the mlx-config-profiles config map. Returns None if the map is
+    // not configured or the name is not found.
+    pub fn get_mlxconfig_profile(
+        &self,
+        name: &str,
+    ) -> Option<&libmlx::profile::profile::MlxConfigProfile> {
+        self.mlxconfig_profiles.as_ref()?.get(name)
     }
 
     pub fn max_concurrent_machine_updates(&self) -> MaxConcurrentUpdates {
@@ -3945,6 +3946,42 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             .get_supernic_firmware_profile("900-9D3B4-00CV-TA0", "MT_0000000999")
             .unwrap();
         assert_eq!(p2.firmware_spec.version, "32.44.0000");
+    }
+
+    #[test]
+    fn get_mlxconfig_profile_lookup() {
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/full_config.toml")))
+            .extract()
+            .unwrap();
+
+        // Profile exists in config.
+        let profile = config
+            .get_mlxconfig_profile("test-profile")
+            .expect("should find test-profile");
+        assert_eq!(profile.name, "test-profile");
+        assert_eq!(profile.registry.name, "mlx_generic");
+
+        // Second profile also exists.
+        let profile2 = config
+            .get_mlxconfig_profile("test-profile2")
+            .expect("should find test-profile2");
+        assert_eq!(profile2.name, "test-profile2");
+
+        // Non-existent profile returns None.
+        assert!(config.get_mlxconfig_profile("nonexistent").is_none());
+    }
+
+    #[test]
+    fn get_mlxconfig_profile_none_when_unconfigured() {
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .extract()
+            .unwrap();
+
+        // No mlx-config-profiles section at all.
+        assert!(config.mlxconfig_profiles.is_none());
+        assert!(config.get_mlxconfig_profile("anything").is_none());
     }
 
     #[test]

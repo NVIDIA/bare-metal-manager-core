@@ -192,22 +192,7 @@ impl StateHandler for DpaInterfaceStateHandler {
                 ))
             }
 
-            DpaInterfaceControllerState::ApplyProfile => {
-                let Some(ref cs) = state.card_state else {
-                    // Card should be in unlocked state when we come here. So we do
-                    // expect card_state to be not NONE.
-                    tracing::error!("Unexpected - card_state none for dpa: {:#?}", state.id);
-                    return Ok(StateHandlerOutcome::do_nothing());
-                };
-                if cs.profile.is_some() && cs.profile_synced == Some(true) {
-                    let new_state = DpaInterfaceControllerState::Locking;
-                    tracing::info!(state = ?new_state, "Dpa Interface state transition");
-                    return Ok(StateHandlerOutcome::transition(new_state));
-                }
-                Ok(StateHandlerOutcome::wait(
-                    "Waiting for profile to be applied on card".to_string(),
-                ))
-            }
+            DpaInterfaceControllerState::ApplyProfile => handle_apply_profile(state),
             DpaInterfaceControllerState::Locking => {
                 let Some(ref cs) = state.card_state else {
                     tracing::error!("Unexpected - card_state none for dpa: {:#?}", state.id);
@@ -429,5 +414,187 @@ async fn send_set_vni_command<'a>(
             }
         }
         Err(_e) => Ok(None),
+    }
+}
+
+/// handle_apply_profile handles the ApplyProfile state for a
+/// SuperNIC/DPA interface, which means we sent an mlxconfig
+/// profile config down to scout (which takes care of resetting
+/// mlxconfig parameters back to defaults, and then potentially
+/// overlaying a profile of parameters over top of it).
+///
+/// And just so it's clear, there are two "success" cases that
+/// we check for here.
+/// 1. A profile was configured and successfully synced — scout
+///    reports a profile_name and profile_synced is true.
+/// 2. NO profile was configured (indicating reset only) — scout
+///    reports profile_name=None and profile_synced true. This is
+///    successful because the reset itself succeeded and there was
+///    nothing else to apply.
+///
+/// In both cases, profile_synced=Some(true) is the signal that
+/// the workflow completed successfully, and it's safe to transition
+/// to the next state.
+fn handle_apply_profile(
+    state: &DpaInterface,
+) -> Result<StateHandlerOutcome<DpaInterfaceControllerState>, StateHandlerError> {
+    let Some(ref cs) = state.card_state else {
+        tracing::info!(
+            "no profile report, because card_state none for dpa: {:#?}, waiting for retry",
+            state.id
+        );
+        return Ok(StateHandlerOutcome::wait(
+            "Waiting for profile to be applied".to_string(),
+        ));
+    };
+    if cs.profile_synced == Some(true) {
+        let new_state = DpaInterfaceControllerState::Locking;
+        tracing::info!(
+            state = ?new_state,
+            profile = cs.profile.as_deref().unwrap_or("none"),
+            "profile applied successfully, transitioning"
+        );
+        return Ok(StateHandlerOutcome::transition(new_state));
+    }
+    Ok(StateHandlerOutcome::wait(
+        "Waiting for profile to be applied".to_string(),
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use carbide_uuid::dpa_interface::DpaInterfaceId;
+    use carbide_uuid::machine::MachineId;
+    use config_version::{ConfigVersion, Versioned};
+    use mac_address::MacAddress;
+    use model::dpa_interface::{
+        CardState, DpaInterface, DpaInterfaceControllerState, DpaInterfaceNetworkConfig,
+    };
+
+    use super::*;
+
+    // test_dpa_interface is a small helper function used to build
+    // a minimal DpaInterface for testing the ApplyProfile handler.
+    fn test_dpa_interface(card_state: Option<CardState>) -> DpaInterface {
+        let now = chrono::Utc::now();
+        DpaInterface {
+            id: DpaInterfaceId::new(),
+            machine_id: MachineId::from_str(
+                "fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30",
+            )
+            .unwrap(),
+            mac_address: MacAddress::from_str("00:11:22:33:44:55").unwrap(),
+            pci_name: "01:00.0".to_string(),
+            underlay_ip: None,
+            overlay_ip: None,
+            created: now,
+            updated: now,
+            deleted: None,
+            controller_state: Versioned::new(
+                DpaInterfaceControllerState::ApplyProfile,
+                ConfigVersion::initial(),
+            ),
+            last_hb_time: now,
+            controller_state_outcome: None,
+            network_config: Versioned::new(
+                DpaInterfaceNetworkConfig::default(),
+                ConfigVersion::initial(),
+            ),
+            network_status_observation: None,
+            card_state,
+            device_info: None,
+            device_info_ts: None,
+            mlxconfig_profile: None,
+            history: vec![],
+        }
+    }
+
+    #[test]
+    fn apply_profile_no_card_state_waits() {
+        let state = test_dpa_interface(None);
+        let outcome = handle_apply_profile(&state).unwrap();
+        assert!(
+            matches!(outcome, StateHandlerOutcome::Wait { .. }),
+            "expected Wait when card_state is None"
+        );
+    }
+
+    #[test]
+    fn apply_profile_synced_with_profile_transitions() {
+        let cs = CardState {
+            profile: Some("bf3-spx-enabled".to_string()),
+            profile_synced: Some(true),
+            ..Default::default()
+        };
+        let state = test_dpa_interface(Some(cs));
+        let outcome = handle_apply_profile(&state).unwrap();
+        assert!(
+            matches!(
+                outcome,
+                StateHandlerOutcome::Transition {
+                    next_state: DpaInterfaceControllerState::Locking,
+                    ..
+                }
+            ),
+            "expected Transition to Locking when profile_synced is true"
+        );
+    }
+
+    #[test]
+    fn apply_profile_synced_without_profile_transitions() {
+        // This is the reset-only case -- no profile was configured,
+        // but the reset succeeded (yay), so profile_synced is true
+        // with profile=None.
+        let cs = CardState {
+            profile: None,
+            profile_synced: Some(true),
+            ..Default::default()
+        };
+        let state = test_dpa_interface(Some(cs));
+        let outcome = handle_apply_profile(&state).unwrap();
+        assert!(
+            matches!(
+                outcome,
+                StateHandlerOutcome::Transition {
+                    next_state: DpaInterfaceControllerState::Locking,
+                    ..
+                }
+            ),
+            "expected Transition to Locking for reset-only (no profile) success"
+        );
+    }
+
+    #[test]
+    fn apply_profile_sync_failed_waits() {
+        let cs = CardState {
+            profile: Some("bf3-spx-enabled".to_string()),
+            profile_synced: Some(false),
+            ..Default::default()
+        };
+        let state = test_dpa_interface(Some(cs));
+        let outcome = handle_apply_profile(&state).unwrap();
+        assert!(
+            matches!(outcome, StateHandlerOutcome::Wait { .. }),
+            "expected Wait when profile_synced is false (sync failed)"
+        );
+    }
+
+    #[test]
+    fn apply_profile_synced_not_yet_reported_waits() {
+        // scout hasn't reported back yet, so profile_synced is None,
+        // and we keep on waiting.
+        let cs = CardState {
+            profile: None,
+            profile_synced: None,
+            ..Default::default()
+        };
+        let state = test_dpa_interface(Some(cs));
+        let outcome = handle_apply_profile(&state).unwrap();
+        assert!(
+            matches!(outcome, StateHandlerOutcome::Wait { .. }),
+            "expected Wait when profile_synced is None (not yet reported)"
+        );
     }
 }
