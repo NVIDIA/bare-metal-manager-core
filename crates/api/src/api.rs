@@ -2873,6 +2873,61 @@ impl Forge for Api {
         crate::handlers::power_options::allow_ingestion_and_power_on(self, &request.into_inner())
             .await
     }
+
+    async fn get_ipxe_template(
+        &self,
+        request: tonic::Request<::rpc::forge::GetIpxeTemplateRequest>,
+    ) -> Result<tonic::Response<::rpc::forge::IpxeTemplate>, Status> {
+        use carbide_ipxe_renderer::IpxeOsRenderer;
+        
+        let req = request.into_inner();
+        let renderer = carbide_ipxe_renderer::DefaultIpxeOsRenderer::new();
+        
+        match renderer.get_template(&req.name) {
+            Some(template) => {
+                Ok(tonic::Response::new(::rpc::forge::IpxeTemplate {
+                    name: template.name.clone(),
+                    template: template.template.clone(),
+                    required_params: template.required_params.clone(),
+                    description: template.description.clone(),
+                    reserved_params: template.reserved_params.clone(),
+                    required_artifacts: template.required_artifacts.clone(),
+                }))
+            }
+            None => Err(Status::not_found(format!(
+                "iPXE template '{}' not found",
+                req.name
+            ))),
+        }
+    }
+
+    async fn list_ipxe_templates(
+        &self,
+        _request: tonic::Request<::rpc::forge::ListIpxeTemplatesRequest>,
+    ) -> Result<tonic::Response<::rpc::forge::ListIpxeTemplatesResponse>, Status> {
+        use carbide_ipxe_renderer::IpxeOsRenderer;
+        
+        let renderer = carbide_ipxe_renderer::DefaultIpxeOsRenderer::new();
+        let template_names = renderer.list_templates();
+        
+        let templates = template_names
+            .iter()
+            .filter_map(|name| {
+                renderer.get_template(name).map(|t| ::rpc::forge::IpxeTemplate {
+                    name: t.name.clone(),
+                    template: t.template.clone(),
+                    required_params: t.required_params.clone(),
+                    description: t.description.clone(),
+                    reserved_params: t.reserved_params.clone(),
+                    required_artifacts: t.required_artifacts.clone(),
+                })
+            })
+            .collect();
+        
+        Ok(tonic::Response::new(
+            ::rpc::forge::ListIpxeTemplatesResponse { templates },
+        ))
+    }
 }
 
 pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {

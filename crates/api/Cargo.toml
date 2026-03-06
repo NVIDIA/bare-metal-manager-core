@@ -39,6 +39,7 @@ carbide-network = { path = "../network", features = ["sqlx"] }
 carbide-secrets = { path = "../secrets" }
 carbide-version = { path = "../version" }
 carbide-health-report = { path = "../health-report" }
+carbide-ipxe-renderer = { path = "../ipxe-renderer" }
 dns-record = { path = "../dns-record" }
 libnmxm = { path = "../libnmxm" }
 logfmt = { path = "../logfmt" }
