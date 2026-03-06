@@ -46,7 +46,9 @@ carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 
 # Optional dependencies for carbide-dpf-api-harness binary
 clap = { workspace = true, features = ["derive"], optional = true }
-tracing-subscriber = { workspace = true, features = ["env-filter"], optional = true }
+tracing-subscriber = { workspace = true, features = [
+  "env-filter",
+], optional = true }
 libredfish = { workspace = true, optional = true }
 
 [dev-dependencies]

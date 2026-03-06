@@ -48,6 +48,7 @@ impl HealthOverrideSink {
             config.client_key.clone(),
             &config.api_url,
             false,
+            false,
         ));
 
         let (sender, mut receiver) = mpsc::unbounded_channel::<HealthOverrideJob>();

@@ -57,6 +57,7 @@ pub(super) fn stop_removed_bmc_collectors(
             remaining_collectors = ctx.collectors.len(CollectorKind::Logs),
             remaining_firmware_collectors = ctx.collectors.len(CollectorKind::Firmware),
             remaining_nmxt_collectors = ctx.collectors.len(CollectorKind::Nmxt),
+            remaining_nvue_rest_collectors = ctx.collectors.len(CollectorKind::NvueRest),
             "Cleaned up removed endpoints"
         );
     }
@@ -81,6 +82,7 @@ mod tests {
         );
         maps.insert(CollectorKind::Firmware, HashMap::new());
         maps.insert(CollectorKind::Nmxt, HashMap::new());
+        maps.insert(CollectorKind::NvueRest, HashMap::new());
 
         let active = HashSet::from(["b".to_string()]);
 
