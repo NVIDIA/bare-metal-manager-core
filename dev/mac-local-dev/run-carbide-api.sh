@@ -100,14 +100,20 @@ else
 fi
 
 # -----------------------------------------------------------------------------
+# TLS certificates
+# Runs unconditionally; gen-certs.sh is idempotent (skips files that exist
+# and are newer than their signing key), so this is fast on subsequent runs.
+# -----------------------------------------------------------------------------
+info "Ensuring TLS certificates are up to date..."
+(cd "$REPO_ROOT/dev/certs/localhost" && ./gen-certs.sh) >/dev/null 2>&1
+ok "TLS certificates ready"
+
+# -----------------------------------------------------------------------------
 # Start Postgres
 # -----------------------------------------------------------------------------
 if docker ps --format '{{.Names}}' | grep -w "$PG_CONTAINER" >/dev/null; then
   ok "Postgres already running"
 else
-  info "Generating SSL certificates for postgres..."
-  (cd dev/certs/localhost && ./gen-certs.sh) >/dev/null 2>&1
-
   CERTS_DIR="$REPO_ROOT/dev/certs/localhost"
   info "Starting Postgres..."
   docker run --rm --detach --name "$PG_CONTAINER" \
@@ -146,6 +152,21 @@ if [ ! -d /opt/carbide/firmware ]; then
 fi
 
 # -----------------------------------------------------------------------------
+# Generate a resolved config with absolute TLS paths
+#
+# carbide-api opens TLS paths relative to the process working directory, not
+# relative to the config file.  The checked-in config uses relative paths
+# (e.g. "dev/certs/…") which only work when CWD == repo root.  When launched
+# from an IDE or any other directory the cert load will silently fail.
+# We rewrite those paths to absolute ones in a throwaway /tmp copy so the
+# binary is always given correct paths regardless of CWD.
+# -----------------------------------------------------------------------------
+CARBIDE_TMP_CONFIG="/tmp/carbide-api-config-$$.toml"
+sed "s|= \"dev/|= \"$REPO_ROOT/dev/|g" \
+  "$REPO_ROOT/dev/mac-local-dev/carbide-api-config.toml" > "$CARBIDE_TMP_CONFIG"
+ok "Resolved config written to $CARBIDE_TMP_CONFIG"
+
+# -----------------------------------------------------------------------------
 # Migrations & Run
 # -----------------------------------------------------------------------------
 echo ""
@@ -162,4 +183,4 @@ echo "   gRPC:   grpcurl -insecure localhost:1079 list"
 echo ""
 
 exec env RUST_BACKTRACE=1 cargo run --package carbide-api --no-default-features -- run \
-  --config-path dev/mac-local-dev/carbide-api-config.toml
+  --config-path "$CARBIDE_TMP_CONFIG"
