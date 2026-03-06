@@ -21,7 +21,7 @@ use std::path::Path;
 
 use ::rpc::forge as rpc;
 use eyre::WrapErr;
-use forge_network::ip::prefix::Ipv4Net;
+use forge_network::ip::prefix::{IpNet, Ipv4Net};
 use forge_network::sanitized_mac;
 use forge_network::virtualization::VpcVirtualizationType;
 use gtmpl_derive::Gtmpl;
@@ -57,6 +57,52 @@ const NETWORK_SECURITY_GROUP_RULE_PRIORITY_START: u32 = 2000;
 /// each have a unique NSG associated, either directly or via different VPC
 /// associations per interface._*
 const NETWORK_SECURITY_GROUP_RULE_COUNT_MAX: usize = 10000;
+
+/// split_prefixes_by_family splits a list of CIDR prefix strings
+/// into IPv4 and IPv6 buckets. Each bucket gets sequential indices
+/// starting at `start_index`.
+///
+/// Previously we just passed through IPv4 addresses as strings
+/// without any sort of validation, so in the case where we fail
+/// to parse an address, just consider it IPv4 for the purpose of
+/// backwards compatibility, which is probably wrong to do, but
+/// I did it here in the interest of maintaining the same behavior.
+fn split_prefixes_by_family(prefixes: &[String], start_index: usize) -> (Vec<Prefix>, Vec<Prefix>) {
+    let mut ipv4 = Vec::new();
+    let mut ipv6 = Vec::new();
+    let mut ipv4_idx = start_index;
+    let mut ipv6_idx = start_index;
+    for s in prefixes {
+        match s.parse::<IpNet>() {
+            Ok(IpNet::V4(_)) => {
+                ipv4.push(Prefix {
+                    Index: format!("{ipv4_idx}"),
+                    Prefix: s.clone(),
+                });
+                ipv4_idx += 1;
+            }
+            Ok(IpNet::V6(_)) => {
+                ipv6.push(Prefix {
+                    Index: format!("{ipv6_idx}"),
+                    Prefix: s.clone(),
+                });
+                ipv6_idx += 1;
+            }
+            Err(_) => {
+                // ...see comment above around how we used to
+                // not parse at all, and why I'm just treating
+                // these as IPv4 addresses to maintain the same
+                // behavior.
+                ipv4.push(Prefix {
+                    Index: format!("{ipv4_idx}"),
+                    Prefix: s.clone(),
+                });
+                ipv4_idx += 1;
+            }
+        }
+    }
+    (ipv4, ipv6)
+}
 
 pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     if !conf.vpc_virtualization_type.supports_nvue() {
@@ -359,6 +405,10 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     let mut vpcs = vpc_configs.into_values().collect::<Vec<TmplVpc>>();
     vpcs.sort_by(|a, b| a.L3VNI.cmp(&b.L3VNI));
 
+    let (traffic_intercept_ipv4, traffic_intercept_ipv6) =
+        split_prefixes_by_family(&conf.traffic_intercept_public_prefixes, 1);
+    let (anycast_ipv4, anycast_ipv6) = split_prefixes_by_family(&conf.anycast_site_prefixes, 1000);
+
     let params = TmplNvue {
         UseAdminNetwork: conf.use_admin_network,
         LoopbackIP: conf.loopback_ip,
@@ -373,15 +423,8 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         PublicPrefixInternalNextHop: public_prefix_internal_next_hop,
         VfInterceptHbnRepresentorIp: vf_intercept_hbn_representor_ip,
         VfInterceptBridgeSf: conf.vf_intercept_bridge_sf.unwrap_or_default(),
-        TrafficInterceptPublicPrefixes: conf
-            .traffic_intercept_public_prefixes
-            .iter()
-            .enumerate()
-            .map(|(i, s)| Prefix {
-                Index: format!("{}", 1 + i),
-                Prefix: s.to_string(),
-            })
-            .collect(),
+        TrafficInterceptPublicPrefixes: traffic_intercept_ipv4,
+        TrafficInterceptPublicPrefixesIpv6: traffic_intercept_ipv6,
         ASN: conf.asn,
         DatacenterASN: conf.datacenter_asn,
         UseCommonInternalTenantRouteTarget: conf.common_internal_route_target.is_some(),
@@ -404,15 +447,8 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         Uplinks: conf.uplinks.clone(),
         RouteServers: conf.route_servers.clone(),
         DHCPServers: conf.dhcp_servers.clone(),
-        AnycastSitePrefixes: conf
-            .anycast_site_prefixes
-            .iter()
-            .enumerate()
-            .map(|(i, s)| Prefix {
-                Index: format!("{}", 1000 + i),
-                Prefix: s.to_string(),
-            })
-            .collect(),
+        AnycastSitePrefixes: anycast_ipv4,
+        AnycastSitePrefixesIpv6: anycast_ipv6,
         HasSiteFabricPrefixes: !conf.site_fabric_prefixes.is_empty(),
         SiteFabricPrefixes: conf
             .site_fabric_prefixes
@@ -1042,6 +1078,7 @@ struct TmplNvue {
     InterceptBridgePrefixLen: u8,
 
     TrafficInterceptPublicPrefixes: Vec<Prefix>,
+    TrafficInterceptPublicPrefixesIpv6: Vec<Prefix>,
 
     ASN: u32,
     DatacenterASN: u32,
@@ -1072,6 +1109,7 @@ struct TmplNvue {
     /// Format: CIDR of the site prefixes that tenants are allowed to
     /// from the host to the DPU.
     AnycastSitePrefixes: Vec<Prefix>,
+    AnycastSitePrefixesIpv6: Vec<Prefix>,
 
     // Whether VPC-isolation should be applied.
     UseVpcIsolation: bool,
@@ -1339,4 +1377,71 @@ struct Prefix {
 #[derive(Clone, Gtmpl, Debug)]
 struct TmplVni {
     Vni: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_split_prefixes_by_family() {
+        let prefixes = vec![
+            "10.0.0.0/8".to_string(),
+            "2001:db8::/32".to_string(),
+            "192.168.0.0/16".to_string(),
+            "fd00::/8".to_string(),
+        ];
+        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, 1000);
+
+        assert_eq!(ipv4.len(), 2);
+        assert_eq!(ipv6.len(), 2);
+
+        assert_eq!(ipv4[0].Index, "1000");
+        assert_eq!(ipv4[0].Prefix, "10.0.0.0/8");
+        assert_eq!(ipv4[1].Index, "1001");
+        assert_eq!(ipv4[1].Prefix, "192.168.0.0/16");
+
+        assert_eq!(ipv6[0].Index, "1000");
+        assert_eq!(ipv6[0].Prefix, "2001:db8::/32");
+        assert_eq!(ipv6[1].Index, "1001");
+        assert_eq!(ipv6[1].Prefix, "fd00::/8");
+    }
+
+    #[test]
+    fn test_split_prefixes_ipv4_only() {
+        let prefixes = vec!["10.0.0.0/8".to_string(), "172.16.0.0/12".to_string()];
+        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, 1);
+
+        assert_eq!(ipv4.len(), 2);
+        assert!(ipv6.is_empty());
+    }
+
+    #[test]
+    fn test_split_prefixes_ipv6_only() {
+        let prefixes = vec!["2001:db8::/32".to_string(), "fd00::/8".to_string()];
+        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, 1);
+
+        assert!(ipv4.is_empty());
+        assert_eq!(ipv6.len(), 2);
+    }
+
+    #[test]
+    fn test_split_prefixes_empty() {
+        let prefixes: Vec<String> = vec![];
+        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, 1000);
+
+        assert!(ipv4.is_empty());
+        assert!(ipv6.is_empty());
+    }
+
+    #[test]
+    fn test_split_prefixes_unparseable_falls_back_to_ipv4() {
+        let prefixes = vec!["not-a-cidr".to_string(), "10.0.0.0/8".to_string()];
+        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, 1);
+
+        assert_eq!(ipv4.len(), 2);
+        assert_eq!(ipv4[0].Prefix, "not-a-cidr");
+        assert_eq!(ipv4[1].Prefix, "10.0.0.0/8");
+        assert!(ipv6.is_empty());
+    }
 }
