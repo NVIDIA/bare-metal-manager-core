@@ -80,6 +80,32 @@ script = '''
   cp ${REPO_ROOT}/pxe/common_files/disk_imaging.sh ${REPO_ROOT}/pxe/mkosi.profiles/qcow-imager-aarch64/mkosi.extra/opt/forge/disk_imaging.sh
 '''
 
+[tasks.build-qcow-imager-x86]
+category = "qcow-imager"
+description = "Build qcow-imager.efi for x86_64 only (without scout/BFB); output: static/blobs/internal/x86_64/qcow-imager.efi"
+dependencies = [
+  "mkosi-remove-zypper-from-debian-tools",
+  "mkdir-static",
+  "mkosi-generate-build-tmpdir",
+  "stage-disk_imaging-script",
+  "mkosi-build-qcow-imager",
+  "mkosi-copy-qcow-imager-to-webroot-x86_64",
+  "mkosi-clean-qcow-imager",
+]
+
+[tasks.build-qcow-imager-aarch64]
+category = "qcow-imager"
+description = "Build qcow-imager.efi for aarch64 only (without scout/BFB); output: static/blobs/internal/aarch64/qcow-imager.efi"
+dependencies = [
+  "mkosi-remove-zypper-from-debian-tools",
+  "mkdir-static",
+  "mkosi-generate-build-tmpdir",
+  "stage-disk_imaging-script",
+  "mkosi-build-qcow-imager-aarch64",
+  "mkosi-copy-qcow-imager-to-webroot-aarch64",
+  "mkosi-clean-qcow-imager-aarch64",
+]
+
 [tasks.stage-scout-loader-rclocal]
 description = "Copies the rc.local script to the scout loader profile directories"
 script = '''
