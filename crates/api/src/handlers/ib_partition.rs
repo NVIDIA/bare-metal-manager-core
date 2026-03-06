@@ -90,6 +90,81 @@ pub(crate) async fn create(
     Ok(resp)
 }
 
+
+pub(crate) async fn update(
+    api: &Api,
+    request: Request<rpc::IbPartitionUpdateRequest>,
+) -> Result<Response<rpc::IbPartition>, Status> {
+    log_request_data(&request);
+
+    let mut txn = api.txn_begin().await?;
+    
+    let request = request.into_inner();
+    let config = req.config.ok_or(CarbideError::MissingArgument("config"))?;
+    let metadata = req.metadata.ok_or(CarbideError::MissingArgument("metadata"))?;
+
+    let mut partitions = db::ib_partition::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(ib_partition::IdColumn, &id),
+    )
+    .await?;
+
+    let partition = match partitions.len() {
+        1 => partitions.remove(0),
+        _ => {
+            return Err(CarbideError::NotFoundError {
+                kind: "ib_partition",
+                id: id.to_string(),
+            }
+            .into());
+        }
+    };
+
+    if let Some(if_version_match) = req.if_version_match {
+        let target_version = if_version_match
+            .parse::<ConfigVersion>()
+            .map_err(CarbideError::from)?;
+
+        if partition.config_version != target_version {
+            return Err(CarbideError::ConcurrentModificationError(
+                "IBPartition",
+                target_version.to_string(),
+            )
+            .into());
+        }
+    };
+
+    let name = metadata.name;
+    let description = metadata.description;
+    let labels = metadata.labels;
+    if config.tenant_organization_id != partition.tenant_organization_id.to_string() {
+        return Err(CarbideError::InvalidArgument(
+            "Tenant organization ID should not be updated".to_string(),
+        )
+        .into());
+    }
+
+    // validate the metadata
+    metadata.validate(true).map_err(CarbideError::from)?;
+
+    if metadata.pkey != partition.metadata.pkey {
+        return Err(CarbideError::InvalidArgument(
+            "Partition key should not be updated".to_string(),
+        )
+        .into());
+    }
+    
+    // Update the metadata of the partition
+    partition.metadata.name = name;
+    partition.metadata.description = description;
+    partition.metadata.labels = labels;
+
+    let resp = db::ib_partition::update(&partition, &mut txn).await?;
+    txn.commit().await?;
+
+    Ok(Response::new(rpc::IbPartition::try_from(resp)?))
+}
+
 pub(crate) async fn find_ids(
     api: &Api,
     request: Request<rpc::IbPartitionSearchFilter>,
