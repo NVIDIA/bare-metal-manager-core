@@ -1633,6 +1633,7 @@ mod tests {
             24,
             true,
             None,
+            false,
         );
 
         let f = tempfile::NamedTempFile::new()?;
@@ -1690,7 +1691,7 @@ mod tests {
 
         // Test without an NSG to make sure there are no changes for pre-FNN users
         // if they don't opt-in to a network security group.
-        let network_config = netconf(virtualization_type, 32, 24, false, None);
+        let network_config = netconf(virtualization_type, 32, 24, false, None, false);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -1722,11 +1723,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_with_tenant_nvue_with_bridge() -> Result<(), Box<dyn std::error::Error>> {
+        let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
+
+        // Both interfaces are L2 segments, so IncludeBridge is true and the bridge block is emitted.
+        let network_config = netconf(virtualization_type, 32, 24, false, None, true);
+
+        let td = tempfile::tempdir()?;
+        let hbn_root = td.path();
+        fs::create_dir_all(hbn_root.join("var/support"))?;
+        fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
+
+        let has_changes = super::update_nvue(
+            virtualization_type,
+            hbn_root,
+            &network_config,
+            true,
+            HBNDeviceNames::hbn_23(),
+        )
+        .await?;
+        assert!(
+            has_changes,
+            "update_nvue should have written the file, there should be changes"
+        );
+
+        // check ACLs
+        let expected = include_str!("../templates/tests/70-forge_nvue.rules.expected");
+        compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
+
+        // check startup.yaml (includes bridge block)
+        let expected = include_str!("../templates/tests/nvue_startup_with_bridge.yaml.expected");
+        compare_diffed(hbn_root.join(nvue::PATH), expected)?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_with_tenant_nvue_quarantined() -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
 
         let network_config = {
-            let mut cfg = netconf(virtualization_type, 32, 24, true, None);
+            let mut cfg = netconf(virtualization_type, 32, 24, true, None, false);
             match cfg.managed_host_config.as_mut() {
                 Some(c) => {
                     c.quarantine_state = Some(rpc::ManagedHostQuarantineState {
@@ -1773,7 +1810,7 @@ mod tests {
         let virtualization_type = VpcVirtualizationType::Fnn;
 
         let network_config = {
-            let mut cfg = netconf(virtualization_type, 32, 24, true, None);
+            let mut cfg = netconf(virtualization_type, 32, 24, true, None, false);
             match cfg.managed_host_config.as_mut() {
                 Some(c) => {
                     c.quarantine_state = Some(rpc::ManagedHostQuarantineState {
@@ -1821,7 +1858,7 @@ mod tests {
         // Test WITH an NSG
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
 
-        let network_config = netconf(virtualization_type, 32, 24, true, None);
+        let network_config = netconf(virtualization_type, 32, 24, true, None, false);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -1856,7 +1893,7 @@ mod tests {
     async fn test_with_tenant_nvue_with_empty_nsg_default_deny()
     -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
-        let mut network_config = netconf(virtualization_type, 32, 24, true, None);
+        let mut network_config = netconf(virtualization_type, 32, 24, true, None, false);
 
         // Empty out all NSG rules.  This should result in config that
         // just has a single default deny.
@@ -1910,7 +1947,7 @@ mod tests {
     async fn test_with_tenant_nvue_fnn_classic_with_nsg() -> Result<(), Box<dyn std::error::Error>>
     {
         let virtualization_type = VpcVirtualizationType::Fnn;
-        let network_config = netconf(virtualization_type, 32, 24, true, None);
+        let network_config = netconf(virtualization_type, 32, 24, true, None, false);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -1956,7 +1993,7 @@ mod tests {
     async fn test_with_tenant_nvue_fnn_classic_with_empty_nsg_default_deny()
     -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::Fnn;
-        let mut network_config = netconf(virtualization_type, 32, 24, true, Some(3109));
+        let mut network_config = netconf(virtualization_type, 32, 24, true, Some(3109), false);
 
         // Empty out all NSG rules.  This should result in config that
         // just has a single default deny.
@@ -2009,7 +2046,7 @@ mod tests {
     #[tokio::test]
     async fn test_with_tenant_nvue_fnn_classic() -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::Fnn;
-        let network_config = netconf(virtualization_type, 32, 24, false, None);
+        let network_config = netconf(virtualization_type, 32, 24, false, None, false);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -2054,6 +2091,7 @@ mod tests {
         network_prefix_length: u8,
         include_network_security_group: bool,
         site_global_vpc_vni: Option<u32>,
+        second_interface_l2: bool,
     ) -> rpc::ManagedHostNetworkConfigResponse {
         // The config we received from API server
         // Admin won't be used
@@ -2149,13 +2187,13 @@ mod tests {
                 svi_ip: get_svi_ip(
                     &Some(svi_ip2),
                     virtualization_type,
-                    false,
+                    second_interface_l2,
                     network_prefix_length,
                 )
                 .unwrap()
                 .map(|ip| ip.to_string()),
                 tenant_vrf_loopback_ip: Some("10.217.5.125".to_string()),
-                is_l2_segment: false,
+                is_l2_segment: second_interface_l2,
                 network_security_group: if !include_network_security_group {
                     None
                 } else {
