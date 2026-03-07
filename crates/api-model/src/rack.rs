@@ -89,57 +89,98 @@ impl<'r> FromRow<'r, PgRow> for Rack {
     }
 }
 
+// ============================================================================
+// RACK STATE - Partition-aware validation state machine
+// ============================================================================
+
+/// Overall state of the rack lifecycle.
+///
+/// The rack progresses through discovery phases, then enters validation where
+/// partitions (groups of nodes) are validated by an external service (Anvil).
+/// The state machine aggregates partition validation status from instance metadata.
+///
+/// ## Simplified State Flow
+///
+/// Most important transitions are shown below.
+///
+/// ```text
+/// Expected -> Discovering -> Discovered
+///                                     |
+///                                     v
+///                ------------- ValidationInProgress
+///                |                    |
+///                v                    v
+///         FailedPartial <--->  ValidationPartial
+///                ^                    ^
+///                |                    |
+///                v                    v
+///           RackFailed          RackValidated -> Ready -> (.. other states ..)
+/// ```
+///
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "state", rename_all = "lowercase")]
-/// Overall state of the rack. When the rack identifier is supplied in ExpectedMachine/Switch/PS,
-/// the rack is expected. Once any one of the devices is found, the rack state moves to discovering
-/// till all expected devices with the given rack id are found. The discovered devices are put into
-/// rack level holding substates while the rack state controller acts on them via rack manager calls.
-/// once the maintenance is completed, they are restored to their prior device specific state.
+#[serde(tag = "state", rename_all = "snake_case")]
 pub enum RackState {
-    // initial state when added via Expected[Machine/Switch/PS]
+    /// Rack is expected - waiting for machines to be discovered.
+    /// Created when ExpectedMachine/Switch/PS references this rack.
     Expected,
 
-    // when any of the trays show up
+    /// Discovery in progress - waiting for all expected devices to appear
+    /// and reach ManagedHostState::Ready.
     Discovering,
 
-    // once devices are discovered, put some/all in maintenance and do firmware upgrades
+    /// All nodes discovered and all machines have reached ManagedHostState::Ready.
+    /// Waiting for external validation service (Anvil) to begin partition validation.
+    ///
+    /// TODO[#416]: The responsibility of gating production instance allocation should
+    /// live in the **node/tray-level state machine**, not the rack SM. Each node
+    /// should have an `AwaitingPartitionValidation` (or similar) state that
+    /// prevents it from transitioning to Ready until rack validation completes.
+    /// The rack SM's job is only to track aggregate validation progress.
+    /// Until that node-level gating is implemented, there's a potential race
+    /// condition where nodes could be allocated before validation completes.
+    Discovered,
+
+    /// At least one partition has started validation, but none have
+    /// completed (neither passed nor failed yet).
+    ValidationInProgress,
+
+    /// At least one partition has passed validation, and no partitions
+    /// have failed. Waiting for remaining partitions to complete.
+    ValidationPartial,
+
+    /// At least one partition has failed validation.
+    /// Can recover to ValidationPartial if failed partitions are re-validated.
+    FailedPartial,
+
+    /// All partitions have passed validation successfully.
+    /// Rack is ready to transition to Ready state.
+    RackValidated,
+
+    /// All partitions have failed validation.
+    /// Requires intervention before rack can be used.
+    RackFailed,
+
+    /// Rack is fully validated and ready for production workloads.
+    Ready,
+
+    /// Rack is undergoing maintenance (firmware upgrade, power sequencing, etc.).
+    /// Maintenance happens after discovery and before validation.
     Maintenance {
         rack_maintenance: RackMaintenanceState,
     },
 
-    // rack is ready
-    Ready {
-        rack_ready: RackReadyState,
-    },
+    /// Rack encountered an unrecoverable error.
+    Error { cause: String },
 
-    // todo: error enum for recovery actions
-    Error {
-        cause: String,
-    },
+    /// Rack is being deleted.
     Deleting,
-    // default state
-    Unknown,
 }
 
-impl Display for RackState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RackReadyState {
-    Partial,
-    Full,
-}
-
-impl Display for RackReadyState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
-    }
-}
-
+/// Sub-states of rack maintenance.
+///
+/// The rack enters maintenance after discovery (all devices found, all machines
+/// ready) and exits into `Discovered` once maintenance is complete, at which
+/// point the validation flow takes over.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RackMaintenanceState {
     FirmwareUpgrade {
@@ -148,15 +189,20 @@ pub enum RackMaintenanceState {
     PowerSequence {
         rack_power: RackPowerState,
     },
-    RackValidation {
-        rack_validation: RackValidationState,
-    },
     Completed,
 }
 
 impl Display for RackMaintenanceState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
+        match self {
+            RackMaintenanceState::FirmwareUpgrade { rack_firmware_upgrade } => {
+                write!(f, "FirmwareUpgrade({})", rack_firmware_upgrade)
+            }
+            RackMaintenanceState::PowerSequence { rack_power } => {
+                write!(f, "PowerSequence({})", rack_power)
+            }
+            RackMaintenanceState::Completed => write!(f, "Completed"),
+        }
     }
 }
 
@@ -170,7 +216,12 @@ pub enum RackFirmwareUpgradeState {
 
 impl Display for RackFirmwareUpgradeState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
+        match self {
+            RackFirmwareUpgradeState::Compute => write!(f, "Compute"),
+            RackFirmwareUpgradeState::Switch => write!(f, "Switch"),
+            RackFirmwareUpgradeState::PowerShelf => write!(f, "PowerShelf"),
+            RackFirmwareUpgradeState::All => write!(f, "All"),
+        }
     }
 }
 
@@ -183,30 +234,51 @@ pub enum RackPowerState {
 
 impl Display for RackPowerState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
+        match self {
+            RackPowerState::PoweringOn => write!(f, "PoweringOn"),
+            RackPowerState::PoweringOff => write!(f, "PoweringOff"),
+            RackPowerState::PowerReset => write!(f, "PowerReset"),
+        }
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RackValidationState {
-    Compute,
-    Switch,
-    Power,
-    Nvlink,
-    Topology,
+impl Default for RackState {
+    fn default() -> Self {
+        RackState::Expected
+    }
 }
 
-impl Display for RackValidationState {
+impl Display for RackState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
+        match self {
+            RackState::Expected => write!(f, "Expected"),
+            RackState::Discovering => write!(f, "Discovering"),
+            RackState::Discovered => write!(f, "Discovered"),
+            RackState::ValidationInProgress => write!(f, "ValidationInProgress"),
+            RackState::ValidationPartial => write!(f, "ValidationPartial"),
+            RackState::FailedPartial => write!(f, "ValidationFailed"),
+            RackState::RackValidated => write!(f, "RackValidated"),
+            RackState::RackFailed => write!(f, "RackFailed"),
+            RackState::Ready => write!(f, "Ready"),
+            RackState::Maintenance { rack_maintenance } => {
+                write!(f, "Maintenance({})", rack_maintenance)
+            }
+            RackState::Error { cause } => write!(f, "Error({})", cause),
+            RackState::Deleting => write!(f, "Deleting"),
+        }
     }
 }
+
+
+// ============================================================================
+// RACK CONFIG & HISTORY
+// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RackStateHistory {
     /// The state that was entered
     pub state: String,
-    // The version number associated with the state change
+    /// The version number associated with the state change
     pub state_version: ConfigVersion,
 }
 
@@ -217,12 +289,16 @@ pub struct RackConfig {
     // pub nvlink_switches: Vec<NvlinkSwitchId>
     pub power_shelves: Vec<PowerShelfId>,
 
-    // store bmc mac address of every tray in the rack
+    /// BMC MAC address of every expected tray in the rack
     pub expected_compute_trays: Vec<MacAddress>,
     // todo: nvlink switches
     // pub expected_nvlink_switches: Vec<MacAddress>,
     pub expected_power_shelves: Vec<MacAddress>,
 }
+
+// ============================================================================
+// SLA & CONVERSIONS
+// ============================================================================
 
 pub fn state_sla(state: &RackState, state_version: &ConfigVersion) -> StateSla {
     let _time_in_state = chrono::Utc::now()
@@ -230,14 +306,20 @@ pub fn state_sla(state: &RackState, state_version: &ConfigVersion) -> StateSla {
         .to_std()
         .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
 
+    // TODO[#416]: Define SLAs for validation and maintenance states
     match state {
         RackState::Expected => StateSla::no_sla(),
         RackState::Discovering => StateSla::no_sla(),
+        RackState::Discovered => StateSla::no_sla(),
+        RackState::ValidationInProgress => StateSla::no_sla(),
+        RackState::ValidationPartial => StateSla::no_sla(),
+        RackState::FailedPartial => StateSla::no_sla(),
+        RackState::RackValidated => StateSla::no_sla(),
+        RackState::RackFailed => StateSla::no_sla(),
+        RackState::Ready => StateSla::no_sla(),
         RackState::Maintenance { .. } => StateSla::no_sla(),
-        RackState::Ready { .. } => StateSla::no_sla(),
         RackState::Error { .. } => StateSla::no_sla(),
         RackState::Deleting => StateSla::no_sla(),
-        RackState::Unknown => StateSla::no_sla(),
     }
 }
 

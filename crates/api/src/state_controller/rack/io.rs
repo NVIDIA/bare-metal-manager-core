@@ -116,11 +116,16 @@ impl StateControllerIO for RackStateControllerIO {
         match state {
             RackState::Expected => ("expected", ""),
             RackState::Discovering => ("discovering", ""),
+            RackState::Discovered => ("discovered", ""),
+            RackState::ValidationInProgress => ("validation_in_progress", ""),
+            RackState::ValidationPartial => ("validation_partial", ""),
+            RackState::FailedPartial => ("validation_failed", ""),
+            RackState::RackValidated => ("rack_validated", ""),
+            RackState::RackFailed => ("rack_failed", ""),
+            RackState::Ready => ("ready", ""),
             RackState::Maintenance { .. } => ("maintenance", ""),
-            RackState::Ready { .. } => ("ready", ""),
             RackState::Error { .. } => ("error", ""),
             RackState::Deleting => ("deleting", ""),
-            RackState::Unknown => ("unknown", ""),
         }
     }
 

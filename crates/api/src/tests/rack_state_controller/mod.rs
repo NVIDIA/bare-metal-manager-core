@@ -22,7 +22,9 @@ use std::time::Duration;
 
 use carbide_uuid::rack::RackId;
 use db::rack as db_rack;
-use model::rack::{Rack, RackMaintenanceState, RackReadyState, RackState, RackValidationState};
+use model::rack::{
+    Rack, RackFirmwareUpgradeState, RackMaintenanceState, RackState,
+};
 use rpc::forge::RackStateHistoryRecord;
 use rpc::forge::forge_server::Forge;
 use tokio_util::sync::CancellationToken;
@@ -71,24 +73,22 @@ impl StateHandler for TestRackStateHandler {
 
         let state = match controller_state {
             RackState::Expected => RackState::Discovering,
-
-            RackState::Discovering => RackState::Ready {
-                rack_ready: RackReadyState::Partial,
-            },
-
-            RackState::Ready {
-                rack_ready: ready_state,
-            } => match ready_state {
-                RackReadyState::Partial => RackState::Ready {
-                    rack_ready: RackReadyState::Full,
-                },
-                RackReadyState::Full => RackState::Maintenance {
-                    rack_maintenance: RackMaintenanceState::RackValidation {
-                        rack_validation: RackValidationState::Topology,
-                    },
+            RackState::Discovering => RackState::Maintenance {
+                rack_maintenance: RackMaintenanceState::FirmwareUpgrade {
+                    rack_firmware_upgrade: RackFirmwareUpgradeState::Compute,
                 },
             },
-
+            RackState::Maintenance { rack_maintenance } => match rack_maintenance {
+                RackMaintenanceState::FirmwareUpgrade { .. } => RackState::Maintenance {
+                    rack_maintenance: RackMaintenanceState::Completed,
+                },
+                RackMaintenanceState::Completed => RackState::Discovered,
+                _ => return Ok(StateHandlerOutcome::do_nothing()),
+            },
+            RackState::Discovered => RackState::ValidationInProgress,
+            RackState::ValidationInProgress => RackState::ValidationPartial,
+            RackState::ValidationPartial => RackState::RackValidated,
+            RackState::RackValidated => RackState::Ready,
             _ => return Ok(StateHandlerOutcome::do_nothing()),
         };
 
@@ -151,11 +151,10 @@ async fn test_can_retrieve_rack_state_history(
         .build_for_manual_iterations(cancel_token.clone())
         .unwrap();
 
-    // iterate a few times to get state history
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
+    // iterate enough times to walk through the full state chain:
+    for _ in 0..10 {
+        controller.run_single_iteration().await;
+    }
 
     // get state history
 
@@ -177,12 +176,14 @@ async fn test_can_retrieve_rack_state_history(
 
     assert!(records.len() > 1);
 
-    // we should have run through a few states, validate that we did.
+    // We should have run through a few states, validate that we did.
+    // States are serialized via serde with #[serde(tag = "state", rename_all = "snake_case")].
     let expected = vec![
         "{\"state\": \"discovering\"}",
-        "{\"state\": \"ready\", \"rack_ready\": \"Partial\"}",
-        "{\"state\": \"ready\", \"rack_ready\": \"Full\"}",
-        "{\"state\": \"maintenance\", \"rack_maintenance\": {\"RackValidation\": {\"rack_validation\": \"Topology\"}}}",
+        "{\"state\": \"maintenance\", \"rack_maintenance\": {\"FirmwareUpgrade\": {\"rack_firmware_upgrade\": \"Compute\"}}}",
+        "{\"state\": \"maintenance\", \"rack_maintenance\": \"Completed\"}",
+        "{\"state\": \"discovered\"}",
+        "{\"state\": \"ready\"}",
     ];
     assert!(validate_state_change_history(&records, &expected));
 
@@ -404,14 +405,20 @@ async fn test_rack_state_transition_validation(
     let states = vec![
         RackState::Discovering,
         RackState::Maintenance {
+            rack_maintenance: RackMaintenanceState::FirmwareUpgrade {
+                rack_firmware_upgrade: RackFirmwareUpgradeState::Compute,
+            },
+        },
+        RackState::Maintenance {
             rack_maintenance: RackMaintenanceState::Completed,
         },
-        RackState::Ready {
-            rack_ready: RackReadyState::Partial,
-        },
-        RackState::Ready {
-            rack_ready: RackReadyState::Full,
-        },
+        RackState::Discovered,
+        RackState::ValidationInProgress,
+        RackState::ValidationPartial,
+        RackState::FailedPartial,
+        RackState::RackValidated,
+        RackState::RackFailed,
+        RackState::Ready,
         RackState::Error {
             cause: "Test error".to_string(),
         },
