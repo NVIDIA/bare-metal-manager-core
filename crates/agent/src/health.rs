@@ -118,6 +118,7 @@ pub async fn health_check(
     min_healthy_links: u32,
     route_servers: &[String],
     hbn_device_names: HBNDeviceNames,
+    include_dhcp_server: bool,
 ) -> health_report::HealthReport {
     let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
 
@@ -147,7 +148,7 @@ pub async fn health_check(
     if !is_up(&hr) {
         return hr;
     }
-    check_dhcp_server(&mut hr, &container_id).await;
+    check_dhcp_server(&mut hr, &container_id, include_dhcp_server).await;
     check_ifreload(&mut hr, &container_id).await;
     let hbn_daemons_file = hbn_root.join(HBN_DAEMONS_FILE);
     bgp::check_daemon_enabled(&mut hr, &hbn_daemons_file.to_string_lossy());
@@ -234,7 +235,11 @@ async fn check_hbn_services_running(
 // Very similar to check_hbn_services_running, except it happens _after_ we start configuring.
 // The other services must be up before we start configuring.
 // Out of relay and dhcp server, only and only one should be up.
-async fn check_dhcp_server(hr: &mut health_report::HealthReport, container_id: &str) {
+async fn check_dhcp_server(
+    hr: &mut health_report::HealthReport,
+    container_id: &str,
+    include_dhcp_server: bool,
+) {
     // `supervisorctl status` has exit code 3 if there are stopped processes (which we expect),
     // so final param is 'false' here.
     // https://github.com/Supervisor/supervisor/issues/1223
@@ -266,12 +271,16 @@ async fn check_dhcp_server(hr: &mut health_report::HealthReport, container_id: &
         }
     };
 
-    let dhcp_server_status = match st.status_of(DHCP_SERVER_SERVICE) {
-        SctlState::Running => {
-            passed(hr, probe_ids::DhcpServer.clone(), None);
-            None
+    let dhcp_server_status = if include_dhcp_server {
+        match st.status_of(DHCP_SERVER_SERVICE) {
+            SctlState::Running => {
+                passed(hr, probe_ids::DhcpServer.clone(), None);
+                None
+            }
+            status => Some(status),
         }
-        status => Some(status),
+    } else {
+        None
     };
 
     if let Some(x) = dhcp_server_status {

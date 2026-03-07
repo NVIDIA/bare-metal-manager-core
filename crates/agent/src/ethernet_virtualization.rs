@@ -157,42 +157,47 @@ pub async fn update_nvue(
 
     let physical_name = hbn_device_names.reps[0].to_string();
     let networks = if nc.use_admin_network {
-        let admin_interface = nc
-            .admin_interface
-            .as_ref()
-            .ok_or_else(|| eyre::eyre!("Missing admin_interface"))?;
-        vec![nvue::PortConfig {
-            interface_name: physical_name,
-            is_phy: true,
-            vlan: admin_interface.vlan_id as u16,
-            vni: if nc.network_virtualization_type() == ::rpc::forge::VpcVirtualizationType::Fnn {
-                Some(admin_interface.vni)
-            } else {
-                None
-            },
-            l3_vni: if nc.network_virtualization_type() == ::rpc::forge::VpcVirtualizationType::Fnn
-            {
-                Some(admin_interface.vpc_vni)
-            } else {
-                None
-            },
-            gateway_cidr: admin_interface.gateway.clone(),
-            vpc_prefixes: admin_interface.vpc_prefixes.clone(),
-            vpc_peer_prefixes: admin_interface.vpc_peer_prefixes.clone(),
-            vpc_peer_vnis: admin_interface.vpc_peer_vnis.clone(),
-            svi_ip: admin_interface.svi_ip.clone(),
-            tenant_vrf_loopback_ip: admin_interface.tenant_vrf_loopback_ip.clone(),
-            network_security_group_id: None, // NSGs are not applied on the admin network.
-            is_l2_segment: if nc.network_virtualization_type()
-                == ::rpc::forge::VpcVirtualizationType::Fnn
-            {
-                admin_interface.is_l2_segment
-            } else {
-                // Why false in legacy case? ¯\_(ツ)_/¯
-                false
-            },
-            disabled: !nc.is_primary_dpu,
-        }]
+        if nc.is_primary_dpu {
+            let admin_interface = nc
+                .admin_interface
+                .as_ref()
+                .ok_or_else(|| eyre::eyre!("Missing admin_interface"))?;
+            vec![nvue::PortConfig {
+                interface_name: physical_name,
+                is_phy: true,
+                vlan: admin_interface.vlan_id as u16,
+                vni: if nc.network_virtualization_type() == ::rpc::forge::VpcVirtualizationType::Fnn
+                {
+                    Some(admin_interface.vni)
+                } else {
+                    None
+                },
+                l3_vni: if nc.network_virtualization_type()
+                    == ::rpc::forge::VpcVirtualizationType::Fnn
+                {
+                    Some(admin_interface.vpc_vni)
+                } else {
+                    None
+                },
+                gateway_cidr: admin_interface.gateway.clone(),
+                vpc_prefixes: admin_interface.vpc_prefixes.clone(),
+                vpc_peer_prefixes: admin_interface.vpc_peer_prefixes.clone(),
+                vpc_peer_vnis: admin_interface.vpc_peer_vnis.clone(),
+                svi_ip: admin_interface.svi_ip.clone(),
+                tenant_vrf_loopback_ip: admin_interface.tenant_vrf_loopback_ip.clone(),
+                network_security_group_id: None, // NSGs are not applied on the admin network.
+                is_l2_segment: if nc.network_virtualization_type()
+                    == ::rpc::forge::VpcVirtualizationType::Fnn
+                {
+                    admin_interface.is_l2_segment
+                } else {
+                    // Why false in legacy case? ¯\_(ツ)_/¯
+                    false
+                },
+            }]
+        } else {
+            vec![]
+        }
     } else {
         let mut ifs = Vec::with_capacity(nc.tenant_interfaces.len());
         for net in &nc.tenant_interfaces {
@@ -224,7 +229,6 @@ pub async fn update_nvue(
                     .as_ref()
                     .map(|n| n.id.clone()),
                 is_l2_segment: net.is_l2_segment,
-                disabled: false,
             });
         }
         ifs
@@ -725,6 +729,7 @@ pub async fn update_dhcp(
     // Delete NVUE relay config in case we used that previously
     let _ = fs::remove_file(path_dhcp_relay_nvue);
 
+    let stop_server = network_config.use_admin_network && !network_config.is_primary_dpu;
     // Start DHCP Server in HBN.
     let post_action = match write_dhcp_v4_server_config(
         &path_dhcp_relay,
@@ -733,6 +738,10 @@ pub async fn update_dhcp(
         service_addrs,
         &hbn_device_names,
     ) {
+        Ok(true) if stop_server => PostAction {
+            path: paths_dhcp_server.server,
+            cmd: dhcp::STOP_DHCP_SERVER,
+        },
         Ok(true) => PostAction {
             path: paths_dhcp_server.server,
             cmd: dhcp::RELOAD_DHCP_SERVER,
@@ -1033,8 +1042,10 @@ fn write_dhcp_v4_server_config(
 
     let mut has_changes = false;
 
-    let next_contents =
-        dhcp::build_server_supervisord_config(dhcp::DhcpServerSupervisordConfig { interfaces })?;
+    let next_contents = dhcp::build_server_supervisord_config(dhcp::DhcpServerSupervisordConfig {
+        interfaces,
+        autostart: (!nc.use_admin_network || nc.is_primary_dpu),
+    })?;
     match write(
         next_contents,
         &dhcp_server_path.server,
@@ -1691,7 +1702,7 @@ mod tests {
 
         // Test without an NSG to make sure there are no changes for pre-FNN users
         // if they don't opt-in to a network security group.
-        let network_config = netconf(virtualization_type, 32, 24, false, None, false);
+        let network_config = netconf(virtualization_type, 32, 24, false, None, true);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -2575,7 +2586,6 @@ mod tests {
             vpc_peer_prefixes: vec![],
             vpc_peer_vnis: vec![],
             is_l2_segment: true,
-            disabled: false,
         }];
         let hostname = super::hostname().wrap_err("gethostname error")?;
         let vpc_vni = 7777;

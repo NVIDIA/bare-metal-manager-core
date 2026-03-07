@@ -206,7 +206,6 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             IPs: vec![network.gateway_cidr.clone()],
             SviIP: network.svi_ip.unwrap_or("".to_string()), // FNN only
             SviMAC: svi_mac,
-            VrfLoopback: network.tenant_vrf_loopback_ip.unwrap_or_default(),
             VrfName: format!("vpc_{}", network.l3_vni.unwrap_or_default()),
             HasVpcPeerPrefixes: !network.vpc_peer_prefixes.is_empty(),
             HasVpcPrefixes: !network.vpc_prefixes.is_empty(),
@@ -236,7 +235,6 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                     })
                 })
                 .transpose()?,
-            Disabled: network.disabled,
         };
 
         vpc_configs
@@ -245,7 +243,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             .or_insert_with(|| TmplVpc {
                 VrfName: port.VrfName.clone(),
                 L3VNI: network.l3_vni.unwrap_or_default(),
-                VrfLoopback: port.VrfLoopback.clone(),
+                VrfLoopback: network.tenant_vrf_loopback_ip.unwrap_or_default(),
                 // TODO: This is wasteful because it should be specific to a VPC.
                 // Otherwise, all VPCs will have a BGP peer config for each
                 // interface, regardless of whether the interface is owned by
@@ -274,17 +272,8 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         port_configs.push(port);
     }
 
-    if port_configs.is_empty() {
-        return Err(eyre::eyre!(
-            "cannot configure VrfLoopback; no address allocations",
-        ));
-    }
-
-    let vrf_loopback = port_configs[0].VrfLoopback.clone();
-    let include_bridge = port_configs
-        .iter()
-        .fold(true, |a, b| a & b.IsL2Segment & !b.Disabled);
-
+    let include_bridge = !port_configs.is_empty() && port_configs.iter().all(|b| b.IsL2Segment);
+    
     let (
         ingress_ipv4_override_rules,
         egress_ipv4_override_rules,
@@ -361,11 +350,6 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
 
     let mut vpcs = vpc_configs.into_values().collect::<Vec<TmplVpc>>();
     vpcs.sort_by(|a, b| a.L3VNI.cmp(&b.L3VNI));
-
-    let port_configs = port_configs
-        .into_iter()
-        .filter(|p| !p.Disabled)
-        .collect::<Vec<_>>();
 
     let params = TmplNvue {
         UseAdminNetwork: conf.use_admin_network,
@@ -457,7 +441,6 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             Vpcs: vpcs,
             VrfName: conf.ct_vrf_name,
             L3VNI: conf.ct_l3_vni.unwrap_or_default().to_string(),
-            VrfLoopback: vrf_loopback,
             PortConfigs: port_configs,
             HasHostASN: conf.tenant_host_asn.is_some(),
             HostASN: conf.tenant_host_asn.unwrap_or_default(),
@@ -1016,7 +999,6 @@ pub struct PortConfig {
     pub is_l2_segment: bool,
     pub is_phy: bool,
     pub network_security_group_id: Option<String>,
-    pub disabled: bool,
 }
 
 //
@@ -1181,13 +1163,6 @@ struct TmplComputeTenant {
     // TODO(chet): Does this need to be a string?
     L3VNI: String,
 
-    /// VrfLoopback is the tenant loopback IP assigned to each DPU.
-    /// It was originally expected to be allocated from an interface-specific
-    /// /30 (as the first IP in the allocation), but it's actually allocated
-    /// from a dedicated resource-pool, handed out as un-related /32s, and
-    /// interfaces in FNN get /31s.
-    VrfLoopback: String, // XXX: This is in the Classic template -- where does the IP come from?
-
     HasHostASN: bool,
     /// An ASN allocated for tenants to use
     /// when they peer with the DPU.
@@ -1312,8 +1287,6 @@ struct TmplConfigPort {
     /// Format: 48bit mac address in standard hex notation, e.g: 00:00:00:00:00:10
     SviMAC: String,
 
-    VrfLoopback: String,
-
     /// The name of the VRF this interface belongs to.
     VrfName: String,
 
@@ -1335,7 +1308,6 @@ struct TmplConfigPort {
 
     HasNetworkSecurityGroup: bool,
     NetworkSecurityGroupIndex: Option<u16>,
-    Disabled: bool,
 }
 
 #[allow(non_snake_case)]

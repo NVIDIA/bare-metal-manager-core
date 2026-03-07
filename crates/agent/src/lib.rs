@@ -173,6 +173,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 2,
                 &[],
                 HBNDeviceNames::hbn_23(),
+                false,
             )
             .await;
             println!("{}", serde_json::to_string_pretty(&health_report)?);

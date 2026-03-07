@@ -713,6 +713,7 @@ impl MainLoop {
                     conf.min_dpu_functioning_links.unwrap_or(2),
                     &conf.route_servers,
                     self.hbn_device_names.clone(),
+                    !conf.use_admin_network || conf.is_primary_dpu,
                 )
                 .await;
                 is_healthy = !health_report.successes.is_empty() && health_report.alerts.is_empty();
