@@ -216,6 +216,8 @@ pub async fn start(
         processor_dispatch_interval = "500ms"
         max_object_handling_time = "180s"
         max_concurrency = 10
+        metric_emission_interval = "1s"
+        metric_hold_time = "2s"
 
         [network_segment_state_controller]
         network_segment_drain_time = "60s"
@@ -225,12 +227,16 @@ pub async fn start(
         processor_dispatch_interval = "500ms"
         max_object_handling_time = "180s"
         max_concurrency = 10
+        metric_emission_interval = "1s"
+        metric_hold_time = "2s"
 
         [ib_partition_state_controller.controller]
         iteration_time = "20s"
         processor_dispatch_interval = "2s"
         max_object_handling_time = "180s"
         max_concurrency = 10
+        metric_emission_interval = "1s"
+        metric_hold_time = "2s"
 
         [host_models]
 
