@@ -5562,7 +5562,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.43.2#a5a79e2a760f91de756bf84aa43f09ab6414f1bd"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.43.3#4d5c14ba784873c4e763c6fa3faf01e2ada665ed"
 dependencies = [
  "async-trait",
  "chrono",
