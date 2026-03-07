@@ -21,8 +21,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use carbide_dpf::repository::{DpuRepository, K8sConfigRepository};
 use carbide_dpf::{
-    DpfError, DpfInitConfig, DpfSdk, DpuDeviceInfo, DpuNodeInfo, KubeRepository, NAMESPACE,
-    ServiceDefinition, dpu_node_name,
+    DpfError, DpfSdk, DpfSdkBuilder, DpuDeviceInfo, DpuNodeInfo, InitDpfResourcesConfig,
+    KubeRepository, NAMESPACE, ServiceDefinition, dpu_node_name,
 };
 use clap::{Parser, Subcommand};
 use libredfish::model::BootProgressTypes;
@@ -383,7 +383,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cli = Cli::parse();
     let repo = KubeRepository::new().await?;
-    let sdk = Arc::new(DpfSdk::new(repo, cli.namespace.clone()));
+    let password_override = match &cli.command {
+        Commands::Provision { bmc_password, .. } => Some(bmc_password.as_str()),
+        _ => None,
+    };
+    let password = resolve_bmc_password(&repo, &cli.namespace, password_override).await?;
+    let sdk = Arc::new(
+        DpfSdkBuilder::new(repo, &cli.namespace, password)
+            .build_without_resources()
+            .await?,
+    );
 
     match cli.command {
         Commands::Provision {
@@ -402,7 +411,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             run_provisioning_flow(
                 sdk,
-                &cli.namespace,
                 &bfb_url,
                 &bmc_password,
                 &host_bmc_ip,
@@ -678,7 +686,6 @@ async fn monitor_until_ready(
 #[allow(clippy::too_many_arguments)]
 async fn run_provisioning_flow(
     sdk: Arc<DpfSdk<KubeRepository>>,
-    namespace: &str,
     bfb_url: &str,
     bmc_password: &str,
     host_bmc_ip: &str,
@@ -694,12 +701,11 @@ async fn run_provisioning_flow(
     tracing::info!(host = %host_bmc_ip, dpu_count = dpus.len(), timeout_secs, "Starting provisioning");
 
     tracing::info!("[1/4] Initializing DPF resources...");
-    let init_config = DpfInitConfig {
-        namespace: namespace.to_string(),
+    let init_config = InitDpfResourcesConfig {
         bfb_url: bfb_url.to_string(),
-        bmc_password: bmc_password.to_string(),
         deployment_name: "carbide-deployment".to_string(),
         services: services.to_vec(),
+        bfcfg_template: None,
     };
     sdk.create_initialization_objects(&init_config).await?;
     tracing::info!("BFB, DPUFlavor, and DPUDeployment created");
@@ -729,15 +735,13 @@ async fn run_provisioning_flow(
     tracing::info!(
         "[4/4] Monitoring DPU provisioning (maintenance -> release hold; reboot -> reboot + clear annotation)..."
     );
-    let repo = KubeRepository::new().await?;
-    let bmc_password = resolve_bmc_password(&repo, namespace, Some(bmc_password)).await?;
     let first_device = dpus
         .first()
         .map(|d| d.device_name.as_str())
         .ok_or("No DPUs registered on node")?;
 
     let elapsed =
-        monitor_until_ready(sdk, host_bmc_ip, &bmc_password, first_device, timeout).await?;
+        monitor_until_ready(sdk, host_bmc_ip, bmc_password, first_device, timeout).await?;
 
     tracing::info!(
         dpu_count = dpus.len(),
@@ -779,7 +783,7 @@ async fn wait_for_dpu_created_after(
     let watch_repo = repo.clone();
     let _watch_handle = tokio::spawn(async move {
         watch_repo
-            .watch(&namespace, move |dpu: Arc<DPU>| {
+            .watch(&namespace, None, move |dpu: Arc<DPU>| {
                 let name = dpu.metadata.name.as_deref().unwrap_or_default();
                 if dpu.spec.dpu_device_name != device_name {
                     tracing::debug!(
@@ -956,7 +960,7 @@ async fn show_status(
 
     // List DPU CRs (operator-created)
     tracing::info!("DPUs:");
-    let dpus = DpuRepository::list(&repo, namespace).await?;
+    let dpus = DpuRepository::list(&repo, namespace, None).await?;
     if dpus.is_empty() {
         tracing::info!("  (none)");
     }

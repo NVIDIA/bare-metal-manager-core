@@ -20,8 +20,8 @@ use kube::core::ObjectMeta;
 
 use crate::crds::dpunodemaintenances_generated::*;
 use crate::error::DpfError;
-use crate::repository::DpuNodeMaintenanceRepository;
-use crate::sdk::{DpfSdk, HOLD_ANNOTATION};
+use crate::repository::{DpuNodeMaintenanceRepository, K8sConfigRepository};
+use crate::sdk::{DpfSdkBuilder, HOLD_ANNOTATION};
 
 const TEST_NS: &str = "sdk-maintenance-ns";
 
@@ -65,10 +65,47 @@ impl DpuNodeMaintenanceRepository for MaintenanceHoldMock {
     }
 }
 
+#[async_trait]
+impl K8sConfigRepository for MaintenanceHoldMock {
+    async fn get_configmap(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> Result<Option<BTreeMap<String, String>>, DpfError> {
+        Ok(None)
+    }
+    async fn apply_configmap(
+        &self,
+        _: &str,
+        _: &str,
+        _: BTreeMap<String, String>,
+    ) -> Result<(), DpfError> {
+        Ok(())
+    }
+    async fn get_secret(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> Result<Option<BTreeMap<String, Vec<u8>>>, DpfError> {
+        Ok(None)
+    }
+    async fn create_secret(
+        &self,
+        _: &str,
+        _: &str,
+        _: BTreeMap<String, Vec<u8>>,
+    ) -> Result<(), DpfError> {
+        Ok(())
+    }
+}
+
 #[tokio::test]
 async fn test_release_maintenance_hold_sets_annotation_false() {
     let mock = MaintenanceHoldMock::default();
-    let sdk = DpfSdk::new(mock.clone(), TEST_NS);
+    let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NS, String::new())
+        .build_without_resources()
+        .await
+        .unwrap();
 
     // Pre-populate a DPUNodeMaintenance with hold annotation set to "true"
     let maint = DPUNodeMaintenance {

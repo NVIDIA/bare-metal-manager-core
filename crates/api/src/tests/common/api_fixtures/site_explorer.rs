@@ -358,7 +358,7 @@ impl<'a> MockExploredHost<'a> {
                                 (
                                     machine_id,
                                     DpuInitState::DpfStates {
-                                        state: DpfState::WaitingForOsInstallToComplete,
+                                        state: DpfState::WaitingForReady { phase_detail: None },
                                     },
                                 )
                             })
@@ -400,65 +400,12 @@ impl<'a> MockExploredHost<'a> {
             discovery_completed(self.test_env, *machine_id).await;
         }
 
-        self.test_env
-            .run_machine_state_controller_iteration_until_state_matches(
-                &host_machine_id,
-                10 + (10 * self.dpu_machine_ids.len() as u32),
-                ManagedHostState::DPUInit {
-                    dpu_states: model::machine::DpuInitStates {
-                        states: self
-                            .dpu_machine_ids
-                            .clone()
-                            .into_values()
-                            .map(|machine_id| {
-                                (
-                                    machine_id,
-                                    DpuInitState::DpfStates {
-                                        state: DpfState::WaitForNetworkConfigAndRemoveAnnotation,
-                                    },
-                                )
-                            })
-                            .collect::<HashMap<MachineId, DpuInitState>>(),
-                    },
-                },
-            )
-            .await;
-
-        network_configured(
-            self.test_env,
-            &self.dpu_machine_ids.values().copied().collect(),
-        )
-        .await;
-
-        self.test_env
-            .run_machine_state_controller_iteration_until_state_matches(
-                &host_machine_id,
-                35,
-                ManagedHostState::DPUInit {
-                    dpu_states: model::machine::DpuInitStates {
-                        states: self
-                            .dpu_machine_ids
-                            .clone()
-                            .into_values()
-                            .map(|machine_id| (machine_id, DpuInitState::WaitingForNetworkConfig))
-                            .collect::<HashMap<MachineId, DpuInitState>>(),
-                    },
-                },
-            )
-            .await;
-
         txn.commit().await.unwrap();
 
-        network_configured(
-            self.test_env,
-            &self.dpu_machine_ids.values().copied().collect(),
-        )
-        .await;
-
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
-                4,
+                10,
                 ManagedHostState::HostInit {
                     machine_state: MachineState::EnableIpmiOverLan,
                 },

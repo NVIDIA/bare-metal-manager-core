@@ -18,6 +18,7 @@
 use std::collections::HashSet;
 use std::net::IpAddr;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use ::rpc::forge::forge_server::Forge;
 use ::rpc::forge::{
@@ -31,7 +32,8 @@ use common::api_fixtures::ib_partition::{DEFAULT_TENANT, create_ib_partition};
 use common::api_fixtures::instance::create_instance_with_ib_config;
 use common::api_fixtures::tpm_attestation::EK_CERT_SERIALIZED;
 use common::api_fixtures::{
-    TestEnv, TestEnvOverrides, create_managed_host, create_managed_host_multi_dpu, create_test_env,
+    TestEnv, TestEnvOverrides, create_managed_host, create_managed_host_multi_dpu,
+    create_managed_host_with_dpf, create_test_env, create_test_env_with_overrides, get_config,
     get_instance_type_fixture_id,
 };
 use model::hardware_info::TpmEkCertificate;
@@ -718,4 +720,78 @@ async fn test_admin_force_delete_with_instance_type(pool: sqlx::PgPool) {
 
     // Delete should succeed now.
     _ = force_delete(&env, &tmp_machine_id);
+}
+
+/// Force delete with DPF: the node_name passed to force_delete_host must
+/// use the host machine ID, not a DPU machine ID.
+#[crate::sqlx_test]
+async fn test_admin_force_delete_with_dpf_uses_host_machine_id(pool: sqlx::PgPool) {
+    let captured_node_names: Arc<std::sync::Mutex<Vec<String>>> =
+        Arc::new(std::sync::Mutex::new(Vec::new()));
+
+    let mut mock = crate::dpf::MockDpfOperations::new();
+
+    mock.expect_register_dpu_device().returning(|_| Ok(()));
+    mock.expect_is_dpu_device_ready().returning(|_| Ok(true));
+    mock.expect_register_dpu_node().returning(|_| Ok(()));
+    mock.expect_release_maintenance_hold().returning(|_| Ok(()));
+    mock.expect_is_reboot_required().returning(|_| Ok(false));
+    mock.expect_get_dpu_phase()
+        .returning(|_, _| Ok(carbide_dpf::DpuPhase::Ready));
+
+    // Force delete path
+    let cap = captured_node_names.clone();
+    mock.expect_force_delete_host()
+        .returning(move |node_name, _| {
+            cap.lock().unwrap().push(node_name.to_string());
+            Ok(())
+        });
+
+    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(mock);
+    let mut config = get_config();
+    config.dpf = crate::cfg::file::DpfConfig {
+        enabled: true,
+        bfb_url: "http://example.com/test.bfb".to_string(),
+        deployment_name: None,
+        services: None,
+    };
+
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config).with_dpf_sdk(dpf_sdk),
+    )
+    .await;
+
+    let mh = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        create_managed_host_with_dpf(&env),
+    )
+    .await
+    .expect("timed out during initial provisioning");
+    let host_id = mh.id;
+    let dpu_ids = mh.dpu_ids.clone();
+
+    tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        force_delete(&env, &host_id),
+    )
+    .await
+    .expect("timed out during force_delete");
+
+    let captured = captured_node_names.lock().unwrap().clone();
+    assert_eq!(
+        captured.len(),
+        1,
+        "force_delete_host should have been called exactly once, got: {captured:?}"
+    );
+
+    let expected_node_name = carbide_dpf::dpu_node_name(&host_id.to_string());
+    assert_eq!(
+        captured[0], expected_node_name,
+        "node_name should use host machine ID, not DPU machine ID.\n\
+         Expected: {expected_node_name}\n\
+         Got: {}\n\
+         DPU IDs: {dpu_ids:?}",
+        captured[0]
+    );
 }

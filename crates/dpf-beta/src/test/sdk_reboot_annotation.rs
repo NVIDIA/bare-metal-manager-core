@@ -20,8 +20,8 @@ use kube::Resource;
 
 use crate::crds::dpunodes_generated::*;
 use crate::error::DpfError;
-use crate::repository::DpuNodeRepository;
-use crate::sdk::{DpfSdk, RESTART_ANNOTATION};
+use crate::repository::{DpuNodeRepository, K8sConfigRepository};
+use crate::sdk::{DpfSdkBuilder, RESTART_ANNOTATION};
 use crate::types::*;
 
 const TEST_NS: &str = "sdk-reboot-ns";
@@ -88,10 +88,47 @@ impl DpuNodeRepository for RebootAnnotationMock {
     }
 }
 
+#[async_trait]
+impl K8sConfigRepository for RebootAnnotationMock {
+    async fn get_configmap(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> Result<Option<BTreeMap<String, String>>, DpfError> {
+        Ok(None)
+    }
+    async fn apply_configmap(
+        &self,
+        _: &str,
+        _: &str,
+        _: BTreeMap<String, String>,
+    ) -> Result<(), DpfError> {
+        Ok(())
+    }
+    async fn get_secret(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> Result<Option<BTreeMap<String, Vec<u8>>>, DpfError> {
+        Ok(None)
+    }
+    async fn create_secret(
+        &self,
+        _: &str,
+        _: &str,
+        _: BTreeMap<String, Vec<u8>>,
+    ) -> Result<(), DpfError> {
+        Ok(())
+    }
+}
+
 #[tokio::test]
 async fn test_reboot_annotation_set_check_clear() {
     let mock = RebootAnnotationMock::default();
-    let sdk = DpfSdk::new(mock.clone(), TEST_NS);
+    let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NS, String::new())
+        .build_without_resources()
+        .await
+        .unwrap();
 
     // Register a DPU node
     let node_info = DpuNodeInfo {

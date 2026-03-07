@@ -29,7 +29,6 @@ use crate::repository::{
     BfbRepository, DpuDeploymentRepository, DpuFlavorRepository, DpuServiceConfigurationRepository,
     DpuServiceTemplateRepository, K8sConfigRepository,
 };
-use crate::sdk::DpfSdk;
 use crate::types::*;
 
 const TEST_NS: &str = "sdk-init-ns";
@@ -220,17 +219,17 @@ impl K8sConfigRepository for InitializationMock {
 #[tokio::test]
 async fn test_create_initialization_objects() {
     let mock = InitializationMock::default();
-    let sdk = DpfSdk::new(mock.clone(), TEST_NS);
 
-    let config = DpfInitConfig {
-        namespace: TEST_NS.to_string(),
+    let config = InitDpfResourcesConfig {
         bfb_url: "http://example.com/test.bfb".to_string(),
-        bmc_password: "test-password".to_string(),
         deployment_name: "carbide-deployment".to_string(),
-        services: vec![],
+        ..Default::default()
     };
 
-    sdk.create_initialization_objects(&config).await.unwrap();
+    let sdk = crate::sdk::DpfSdkBuilder::new(mock.clone(), TEST_NS, "test-password".to_string())
+        .initialize(&config)
+        .await
+        .unwrap();
 
     let bfbs = BfbRepository::list(&mock, TEST_NS).await.unwrap();
     assert_eq!(bfbs.len(), 1);
@@ -249,4 +248,6 @@ async fn test_create_initialization_objects() {
         .await
         .unwrap();
     assert!(secret.is_some());
+
+    drop(sdk);
 }

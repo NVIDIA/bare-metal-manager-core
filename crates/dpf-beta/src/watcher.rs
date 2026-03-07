@@ -94,6 +94,7 @@ pub struct DpuWatcherBuilder<
 > {
     repo: Arc<R>,
     namespace: String,
+    label_selector: Option<String>,
     cbs: Callbacks<DE, RB, RD, MN, ER>,
 }
 
@@ -102,6 +103,7 @@ impl<R: DpuRepository> DpuWatcherBuilder<R> {
         Self {
             repo,
             namespace: namespace.into(),
+            label_selector: None,
             cbs: Callbacks {
                 dpu_event: |_| std::future::ready(Ok(())),
                 reboot: |_| std::future::ready(Ok(())),
@@ -116,6 +118,12 @@ impl<R: DpuRepository> DpuWatcherBuilder<R> {
 /// This is a type state builder pattern. It's extra boilerplate, but we get generic
 /// function types for the callbacks instead of boxing and pinning the closures.
 impl<R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, ER> {
+    /// Restrict the watcher to DPU resources matching the given label selector.
+    pub fn with_label_selector(mut self, selector: impl Into<String>) -> Self {
+        self.label_selector = Some(selector.into());
+        self
+    }
+
     /// Register a callback for DPU events.
     ///
     /// The callback is invoked on every observed update to a DPU, not only
@@ -128,6 +136,7 @@ impl<R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, 
         DpuWatcherBuilder {
             repo: self.repo,
             namespace: self.namespace,
+            label_selector: self.label_selector,
             cbs: Callbacks {
                 dpu_event: callback,
                 reboot: self.cbs.reboot,
@@ -153,6 +162,7 @@ impl<R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, 
         DpuWatcherBuilder {
             repo: self.repo,
             namespace: self.namespace,
+            label_selector: self.label_selector,
             cbs: Callbacks {
                 dpu_event: self.cbs.dpu_event,
                 reboot: callback,
@@ -175,6 +185,7 @@ impl<R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, 
         DpuWatcherBuilder {
             repo: self.repo,
             namespace: self.namespace,
+            label_selector: self.label_selector,
             cbs: Callbacks {
                 dpu_event: self.cbs.dpu_event,
                 reboot: self.cbs.reboot,
@@ -190,7 +201,7 @@ impl<R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, 
     /// Invoked on every update where the DPU is in the NodeEffect phase, not
     /// only on transitions into that phase. The handler must be idempotent.
     ///
-    /// Return `Ok(())` to acknowledge the event. Return `Err` to have the
+    /// Return `Ok(`)` to acknowledge the event. Return `Err` to have the
     /// repository implementation retry after a backoff period.
     pub fn on_maintenance_needed<F, Fut>(
         self,
@@ -203,6 +214,7 @@ impl<R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, 
         DpuWatcherBuilder {
             repo: self.repo,
             namespace: self.namespace,
+            label_selector: self.label_selector,
             cbs: Callbacks {
                 dpu_event: self.cbs.dpu_event,
                 reboot: self.cbs.reboot,
@@ -228,6 +240,7 @@ impl<R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, 
         DpuWatcherBuilder {
             repo: self.repo,
             namespace: self.namespace,
+            label_selector: self.label_selector,
             cbs: Callbacks {
                 dpu_event: self.cbs.dpu_event,
                 reboot: self.cbs.reboot,
@@ -316,7 +329,11 @@ where
         };
 
         DpuWatcher {
-            watcher_task: tokio::spawn(self.repo.watch(&self.namespace, handler)),
+            watcher_task: tokio::spawn(self.repo.watch(
+                &self.namespace,
+                self.label_selector.as_deref(),
+                handler,
+            )),
         }
     }
 }

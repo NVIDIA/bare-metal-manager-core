@@ -14,20 +14,46 @@
 
 use crate::crds::dpus_generated::DpuStatusPhase;
 
-/// Configuration for DPF initialization.
+/// Async provider for BMC passwords used to create and refresh the K8s BMC
+/// secret. Implement this trait to supply credentials dynamically (e.g. from
+/// a vault or credential manager).
+#[async_trait::async_trait]
+pub trait BmcPasswordProvider: Send + Sync {
+    async fn get_bmc_password(&self) -> Result<String, crate::DpfError>;
+}
+
+#[async_trait::async_trait]
+impl BmcPasswordProvider for String {
+    async fn get_bmc_password(&self) -> Result<String, crate::DpfError> {
+        Ok(self.clone())
+    }
+}
+
+/// Configuration for creating DPF operator resources (BFB, DPUFlavor,
+/// DPUDeployment, service templates, etc.) during initialization.
 #[derive(Debug, Clone)]
-pub struct DpfInitConfig {
-    /// Namespace for DPF operator resources.
-    pub namespace: String,
+pub struct InitDpfResourcesConfig {
     /// URL for the BFB (BlueField Bundle) image (use public/upstream BFB).
     pub bfb_url: String,
-    /// BMC password for DPU access.
-    pub bmc_password: String,
     /// Name of the DPUDeployment CR (e.g. "carbide-deployment").
     pub deployment_name: String,
     /// Service templates and configs for M4 DPUDeployment.
     /// When empty, `default_services()` is used automatically.
     pub services: Vec<ServiceDefinition>,
+    /// Rendered bf.cfg template content for the DPU configuration ConfigMap.
+    /// When set, a ConfigMap is created during initialization.
+    pub bfcfg_template: Option<String>,
+}
+
+impl Default for InitDpfResourcesConfig {
+    fn default() -> Self {
+        Self {
+            bfb_url: "http://carbide-pxe.forge/public/blobs/internal/aarch64/forge.bfb".to_string(),
+            deployment_name: "carbide-deployment".to_string(),
+            services: Vec::new(),
+            bfcfg_template: None,
+        }
+    }
 }
 
 /// Service type for configPorts (DPUServiceConfiguration).
@@ -115,18 +141,6 @@ impl ServiceDefinition {
             helm_chart: helm_chart.into(),
             helm_version: helm_version.into(),
             ..Default::default()
-        }
-    }
-}
-
-impl Default for DpfInitConfig {
-    fn default() -> Self {
-        Self {
-            namespace: crate::NAMESPACE.to_string(),
-            bfb_url: "http://carbide-pxe.forge/public/blobs/internal/aarch64/forge.bfb".to_string(),
-            bmc_password: String::new(),
-            deployment_name: "carbide-deployment".to_string(),
-            services: Vec::new(),
         }
     }
 }

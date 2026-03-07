@@ -23,8 +23,10 @@ use crate::crds::dpudevices_generated::DPUDevice;
 use crate::crds::dpunodes_generated::*;
 use crate::crds::dpus_generated::*;
 use crate::error::DpfError;
-use crate::repository::{DpuDeviceRepository, DpuNodeRepository, DpuRepository};
-use crate::sdk::DpfSdk;
+use crate::repository::{
+    DpuDeviceRepository, DpuNodeRepository, DpuRepository, K8sConfigRepository,
+};
+use crate::sdk::DpfSdkBuilder;
 use crate::types::*;
 
 const TEST_NS: &str = "sdk-device-reg-ns";
@@ -111,7 +113,7 @@ impl DpuRepository for DeviceRegistrationMock {
     async fn get(&self, _: &str, _: &str) -> Result<Option<DPU>, DpfError> {
         Ok(None)
     }
-    async fn list(&self, _: &str) -> Result<Vec<DPU>, DpfError> {
+    async fn list(&self, _: &str, _: Option<&str>) -> Result<Vec<DPU>, DpfError> {
         Ok(vec![])
     }
     async fn patch_status(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), DpfError> {
@@ -120,7 +122,12 @@ impl DpuRepository for DeviceRegistrationMock {
     async fn delete(&self, _: &str, _: &str) -> Result<(), DpfError> {
         Ok(())
     }
-    fn watch<F, Fut>(&self, _: &str, _handler: F) -> impl Future<Output = ()> + Send + 'static
+    fn watch<F, Fut>(
+        &self,
+        _: &str,
+        _: Option<&str>,
+        _handler: F,
+    ) -> impl Future<Output = ()> + Send + 'static
     where
         F: Fn(Arc<DPU>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<(), DpfError>> + Send + 'static,
@@ -129,10 +136,47 @@ impl DpuRepository for DeviceRegistrationMock {
     }
 }
 
+#[async_trait]
+impl K8sConfigRepository for DeviceRegistrationMock {
+    async fn get_configmap(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> Result<Option<BTreeMap<String, String>>, DpfError> {
+        Ok(None)
+    }
+    async fn apply_configmap(
+        &self,
+        _: &str,
+        _: &str,
+        _: BTreeMap<String, String>,
+    ) -> Result<(), DpfError> {
+        Ok(())
+    }
+    async fn get_secret(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> Result<Option<BTreeMap<String, Vec<u8>>>, DpfError> {
+        Ok(None)
+    }
+    async fn create_secret(
+        &self,
+        _: &str,
+        _: &str,
+        _: BTreeMap<String, Vec<u8>>,
+    ) -> Result<(), DpfError> {
+        Ok(())
+    }
+}
+
 #[tokio::test]
 async fn test_register_devices_node_and_force_delete() {
     let mock = DeviceRegistrationMock::default();
-    let sdk = DpfSdk::new(mock.clone(), TEST_NS);
+    let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NS, String::new())
+        .build_without_resources()
+        .await
+        .unwrap();
 
     // Register devices
     for i in 1..=2 {

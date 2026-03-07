@@ -486,9 +486,11 @@ pub(crate) async fn admin_force_delete_machine(
                 );
             }
 
-            if machine.dpf.used_for_ingestion {
-                api.kube_client_provider
-                    .force_delete_machine(ip, &response.dpu_machine_ids)
+            if let Some(ref ops) = api.dpf_sdk
+                && !response.dpu_machine_ids.is_empty()
+            {
+                let node_name = carbide_dpf::dpu_node_name(&machine.id.to_string());
+                ops.force_delete_host(&node_name, &response.dpu_machine_ids)
                     .await
                     .map_err(CarbideError::DpfError)?;
             }

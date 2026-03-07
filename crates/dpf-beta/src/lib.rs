@@ -28,35 +28,23 @@
 //! ## Example
 //!
 //! ```rust,ignore
-//! use dpf::{DpfSdk, KubeRepository, DpfInitConfig, DpuWatcherBuilder};
+//! use dpf::{DpfSdkBuilder, KubeRepository, InitDpfResourcesConfig};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Create SDK with Kubernetes backend
 //!     let repo = KubeRepository::new().await?;
-//!     let sdk = DpfSdk::new(repo, "dpf-operator-system");
+//!     let config = InitDpfResourcesConfig::default();
+//!     let sdk = DpfSdkBuilder::new(repo, "dpf-operator-system", "secret".to_string())
+//!         .initialize(&config)
+//!         .await?;
 //!
-//!     // Initialize DPF resources
-//!     let config = DpfInitConfig {
-//!         bfb_url: "http://example.com/forge.bfb".to_string(),
-//!         bmc_password: "secret".to_string(),
-//!         ..Default::default()
-//!     };
-//!     sdk.create_initialization_objects(&config).await?;
-//!
-//!     // Start watching for events (stopped on drop)
-//!     let _watcher = DpuWatcherBuilder::new(sdk.repo(), sdk.namespace())
+//!     let _watcher = sdk.watcher()
 //!         .on_reboot_required(|event| async move {
 //!             println!("Reboot required for: {}", event.host_bmc_ip);
 //!             Ok(())
 //!         })
-//!         .on_dpu_ready(|event| {
-//!             println!("DPU ready: {}", event.dpu_name);
-//!         })
 //!         .start();
 //!
-//!     // ... do work ...
-//!     // watcher is stopped when dropped
 //!     Ok(())
 //! }
 //! ```
@@ -78,12 +66,16 @@ mod test;
 // Re-exports for convenience
 pub use error::DpfError;
 pub use repository::{DpfRepository, KubeRepository};
-pub use sdk::{DpfSdk, NoLabels, ResourceLabeler, dpu_name, dpu_node_name, node_id_from_node_name};
+pub use sdk::{
+    DpfSdk, DpfSdkBuilder, NoLabels, ResourceLabeler, dpu_name, dpu_node_name,
+    node_id_from_node_name,
+};
 pub use services::ServiceRegistryConfig;
 pub use types::{
-    ConfigPortsServiceType, DpfInitConfig, DpuDeviceInfo, DpuErrorEvent, DpuEvent, DpuNodeInfo,
-    DpuPhase, DpuReadyEvent, MaintenanceEvent, RebootRequiredEvent, ServiceChainSwitch,
-    ServiceConfigPort, ServiceConfigPortProtocol, ServiceDefinition, ServiceInterface,
+    BmcPasswordProvider, ConfigPortsServiceType, DpuDeviceInfo, DpuErrorEvent, DpuEvent,
+    DpuNodeInfo, DpuPhase, DpuReadyEvent, InitDpfResourcesConfig, MaintenanceEvent,
+    RebootRequiredEvent, ServiceChainSwitch, ServiceConfigPort, ServiceConfigPortProtocol,
+    ServiceDefinition, ServiceInterface,
 };
 pub use watcher::{DpuWatcher, DpuWatcherBuilder};
 

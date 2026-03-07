@@ -70,6 +70,7 @@ mod credentials;
 mod db_init;
 mod dhcp;
 mod dpa;
+mod dpf;
 mod dynamic_settings;
 mod errors;
 mod ethernet_virtualization;
