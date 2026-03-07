@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use health_report::HealthProbeId;
 use tokio::process::Command as TokioCommand;
@@ -113,11 +113,11 @@ pub fn is_up(health_report: &health_report::HealthReport) -> bool {
 pub async fn health_check(
     hbn_root: &Path,
     host_routes: &[&str],
-    _process_started_at: Instant,
     has_changed_configs: bool,
     min_healthy_links: u32,
     route_servers: &[String],
     hbn_device_names: HBNDeviceNames,
+    include_dhcp_server: bool,
 ) -> health_report::HealthReport {
     let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
 
@@ -147,7 +147,9 @@ pub async fn health_check(
     if !is_up(&hr) {
         return hr;
     }
-    check_dhcp_server(&mut hr, &container_id).await;
+    if include_dhcp_server {
+        check_dhcp_server(&mut hr, &container_id).await;
+    }
     check_ifreload(&mut hr, &container_id).await;
     let hbn_daemons_file = hbn_root.join(HBN_DAEMONS_FILE);
     bgp::check_daemon_enabled(&mut hr, &hbn_daemons_file.to_string_lossy());
