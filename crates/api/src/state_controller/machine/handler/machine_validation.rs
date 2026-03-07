@@ -16,8 +16,8 @@
  */
 use libredfish::SystemPowerControl;
 use model::machine::{
-    FailureCause, MachineState, MachineValidatingState, ManagedHostState, ManagedHostStateSnapshot,
-    ValidationState,
+    FailureCause, FailureDetails, FailureSource, MachineState, MachineValidatingState,
+    ManagedHostState, ManagedHostStateSnapshot, ValidationState,
 };
 use model::machine_validation::{MachineValidationState, MachineValidationStatus};
 
@@ -159,6 +159,49 @@ pub(crate) async fn handle_machine_validation_state(
                         retry_count: 0,
                     }));
                 }
+            }
+            // SLA breach: we would return do_nothing() but the run has exceeded the allowed time.
+            // Execute the same termination workflow as normal completion so the run is marked
+            // complete in the DB, on_demand_machine_validation_request is cleared, and new
+            // on-demand requests can be accepted.
+            let state_sla =
+                model::machine::state_sla(&mh_snapshot.managed_state, &mh_snapshot.host_snapshot.state.version);
+            if state_sla.time_in_state_above_sla {
+                tracing::info!(
+                    "{} machine validation SLA breach, terminating run and transitioning to Failed",
+                    mh_snapshot.host_snapshot.id
+                );
+                let machine_id = mh_snapshot.host_snapshot.id;
+                let mut txn = ctx.services.db_pool.begin().await?;
+                let failure_details = FailureDetails {
+                    cause: FailureCause::MachineValidation {
+                        err: "SLA breach: validation did not complete within allowed time".to_string(),
+                    },
+                    failed_at: chrono::Utc::now(),
+                    source: FailureSource::StateMachine,
+                };
+                db::machine::update_failure_details_by_machine_id(
+                    &machine_id,
+                    &mut txn,
+                    failure_details.clone(),
+                )
+                .await?;
+                db::machine_validation::mark_machine_validation_complete(
+                    txn.as_mut(),
+                    &machine_id,
+                    id,
+                    MachineValidationStatus {
+                        state: MachineValidationState::Failed,
+                        ..MachineValidationStatus::default()
+                    },
+                )
+                .await?;
+                return Ok(StateHandlerOutcome::transition(ManagedHostState::Failed {
+                    details: failure_details,
+                    machine_id,
+                    retry_count: 0,
+                })
+                .with_txn(txn));
             }
             Ok(StateHandlerOutcome::do_nothing())
         }

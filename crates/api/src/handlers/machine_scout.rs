@@ -176,7 +176,18 @@ pub(crate) async fn forge_agent_control(
                     completed,
                     total,
                 );
-                if *is_enabled {
+                let machine_validation =
+                    db::machine_validation::find_by_id(&mut txn, id).await?;
+                // If the run is already complete (end_time set), do not return Action::MachineValidation
+                // or we would cause scout to run all tests again. Return Noop until the state controller
+                // transitions the machine out of Validation (e.g. to HostInit).
+                if machine_validation.end_time.is_some() {
+                    tracing::info!(
+                        %id,
+                        "machine validation run already complete, returning Noop until state controller transitions"
+                    );
+                    (Action::Noop, None, Some(txn))
+                } else if *is_enabled {
                     db::machine_validation::update_status(
                         &mut txn,
                         id,
@@ -186,8 +197,6 @@ pub(crate) async fn forge_agent_control(
                         },
                     )
                     .await?;
-                    let machine_validation =
-                        db::machine_validation::find_by_id(&mut txn, id).await?;
                     (
                         Action::MachineValidation,
                         Some(
