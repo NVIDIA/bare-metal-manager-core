@@ -113,8 +113,16 @@ impl<IO: StateControllerIO> StateController<IO> {
     /// Enqueues state handling tasks for all objects and processes them
     #[cfg(test)]
     pub async fn run_single_iteration_ext(&mut self, allow_requeue: bool) {
-        let enqueuer_result = self.enqueuer.run_single_iteration().await;
+        // Delete stale object metrics - e.g. from predicted hosts
+        // They make assertions on actually still valid metrics more tricky
+        self.processor.object_metrics.clear();
+
+        let _enqueuer_result = self.enqueuer.run_single_iteration().await;
         loop {
+            // Prevent metric emission - we only emit them a single time after the loop
+            // That cuts down the noise in tests
+            self.processor.last_metric_emission_time = std::time::Instant::now();
+
             if let Err(err) = self
                 .processor
                 .run_single_iteration(std::time::Duration::MAX, allow_requeue)
@@ -127,8 +135,7 @@ impl<IO: StateControllerIO> StateController<IO> {
             }
         }
         // Immediately emit the latest set of metrics
-        self.processor
-            .emit_metrics_for_iteration(enqueuer_result.iteration.map(|iteration| iteration.id));
+        self.processor.emit_metrics();
     }
 }
 

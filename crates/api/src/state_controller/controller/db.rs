@@ -17,8 +17,6 @@
 
 //! Database access methods used in the StateController framework
 
-use std::fmt::Write;
-
 use db::work_lock_manager::{AcquireLockError, WorkLockManagerHandle};
 use db::{BIND_LIMIT, DatabaseError};
 use sqlx::{PgConnection, PgPool};
@@ -41,11 +39,13 @@ async fn create_iteration(
 }
 
 /// Loads the given amount iterations, starting by the newest iteration
+#[cfg(test)]
 pub async fn fetch_iterations(
     txn: &mut PgConnection,
     table_id: &str,
     limit: Option<usize>,
 ) -> Result<Vec<ControllerIteration>, DatabaseError> {
+    use std::fmt::Write;
     let mut query = format!("SELECT * FROM {table_id} ORDER BY id DESC");
     if let Some(limit) = limit {
         write!(&mut query, " LIMIT {limit}").unwrap();
