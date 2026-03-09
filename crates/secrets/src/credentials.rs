@@ -17,8 +17,8 @@
 use core::fmt;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::atomic;
 use std::sync::atomic::AtomicU32;
+use std::sync::{Arc, atomic};
 
 use async_trait::async_trait;
 use carbide_uuid::machine::MachineId;
@@ -121,13 +121,26 @@ impl Credentials {
 }
 
 #[async_trait]
-/// Abstract over a credentials provider that functions as a kv map between "key" -> "cred"
-pub trait CredentialProvider: Send + Sync {
+/// Abstract over a credentials reader that functions as a kv map between "key" -> "cred"
+pub trait CredentialReader: Send + Sync {
     async fn get_credentials(
         &self,
         key: &CredentialKey,
     ) -> Result<Option<Credentials>, SecretsError>;
+}
 
+#[async_trait]
+impl<T: CredentialReader + ?Sized> CredentialReader for Arc<T> {
+    async fn get_credentials(
+        &self,
+        key: &CredentialKey,
+    ) -> Result<Option<Credentials>, SecretsError> {
+        (**self).get_credentials(key).await
+    }
+}
+
+#[async_trait]
+pub trait CredentialWriter: Send + Sync {
     async fn set_credentials(
         &self,
         key: &CredentialKey,
@@ -143,15 +156,93 @@ pub trait CredentialProvider: Send + Sync {
     async fn delete_credentials(&self, key: &CredentialKey) -> Result<(), SecretsError>;
 }
 
+#[async_trait]
+impl<T: CredentialWriter + ?Sized> CredentialWriter for Arc<T> {
+    async fn set_credentials(
+        &self,
+        key: &CredentialKey,
+        credentials: &Credentials,
+    ) -> Result<(), SecretsError> {
+        (**self).set_credentials(key, credentials).await
+    }
+
+    async fn create_credentials(
+        &self,
+        key: &CredentialKey,
+        credentials: &Credentials,
+    ) -> Result<(), SecretsError> {
+        (**self).create_credentials(key, credentials).await
+    }
+
+    async fn delete_credentials(&self, key: &CredentialKey) -> Result<(), SecretsError> {
+        (**self).delete_credentials(key).await
+    }
+}
+
+pub trait CredentialManager: CredentialReader + CredentialWriter {}
+
+pub struct CompositeCredentialManager<R, W> {
+    reader: R,
+    writer: W,
+}
+
+impl<R: CredentialReader, W: CredentialWriter> CompositeCredentialManager<R, W> {
+    pub fn new(reader: R, writer: W) -> Self {
+        Self { reader, writer }
+    }
+}
+
+#[async_trait]
+impl<R: CredentialReader, W: CredentialWriter> CredentialReader
+    for CompositeCredentialManager<R, W>
+{
+    async fn get_credentials(
+        &self,
+        key: &CredentialKey,
+    ) -> Result<Option<Credentials>, SecretsError> {
+        self.reader.get_credentials(key).await
+    }
+}
+
+#[async_trait]
+impl<R: CredentialReader, W: CredentialWriter> CredentialWriter
+    for CompositeCredentialManager<R, W>
+{
+    async fn set_credentials(
+        &self,
+        key: &CredentialKey,
+        credentials: &Credentials,
+    ) -> Result<(), SecretsError> {
+        self.writer.set_credentials(key, credentials).await
+    }
+
+    async fn create_credentials(
+        &self,
+        key: &CredentialKey,
+        credentials: &Credentials,
+    ) -> Result<(), SecretsError> {
+        self.writer.create_credentials(key, credentials).await
+    }
+
+    async fn delete_credentials(&self, key: &CredentialKey) -> Result<(), SecretsError> {
+        self.writer.delete_credentials(key).await
+    }
+}
+
+impl<R: CredentialReader, W: CredentialWriter> CredentialManager
+    for CompositeCredentialManager<R, W>
+{
+}
+
 #[derive(Default)]
-pub struct TestCredentialProvider {
+pub struct TestCredentialManager {
     credentials: Mutex<HashMap<String, Credentials>>,
     fallback_credentials: Option<Credentials>,
     pub set_credentials_sleep_time_ms: AtomicU32,
 }
 
-impl TestCredentialProvider {
-    /// Construct a TestCredentialProvider which falls back on a default set of credentials if we
+impl TestCredentialManager {
+    /// Construct a TestCredentialManager which falls back on a default set of credentials if we
     /// can't find matching ones set via set_credentials()
     pub fn new(fallback_credentials: Credentials) -> Self {
         Self {
@@ -163,7 +254,7 @@ impl TestCredentialProvider {
 }
 
 #[async_trait]
-impl CredentialProvider for TestCredentialProvider {
+impl CredentialReader for TestCredentialManager {
     async fn get_credentials(
         &self,
         key: &CredentialKey,
@@ -175,7 +266,10 @@ impl CredentialProvider for TestCredentialProvider {
 
         Ok(cred.cloned())
     }
+}
 
+#[async_trait]
+impl CredentialWriter for TestCredentialManager {
     async fn set_credentials(
         &self,
         key: &CredentialKey,
@@ -223,6 +317,8 @@ impl CredentialProvider for TestCredentialProvider {
     }
 }
 
+impl CredentialManager for TestCredentialManager {}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[allow(clippy::enum_variant_names)]
 pub enum CredentialType {
@@ -241,6 +337,13 @@ pub enum BmcCredentialType {
     BmcForgeAdmin { bmc_mac_address: MacAddress },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum MqttCredentialType {
+    Dpa,
+    DsxExchangeEventBus,
+    DsxExchangeConsumer,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CredentialKey {
     DpuSsh { machine_id: MachineId },
@@ -255,6 +358,7 @@ pub enum CredentialKey {
     NmxM { nmxm_id: String },
     RackFirmware { firmware_id: String },
     SwitchNvosAdmin { bmc_mac_address: MacAddress },
+    MqttAuth { credential_type: MqttCredentialType },
 }
 
 impl CredentialKey {
@@ -334,6 +438,15 @@ impl CredentialKey {
             CredentialKey::SwitchNvosAdmin { bmc_mac_address } => {
                 Cow::from(format!("switch_nvos/{bmc_mac_address}/admin"))
             }
+            CredentialKey::MqttAuth { credential_type } => match credential_type {
+                MqttCredentialType::Dpa => Cow::from("mqtt/dpa/auth"),
+                MqttCredentialType::DsxExchangeEventBus => {
+                    Cow::from("mqtt/dsx-exchange-event-bus/auth")
+                }
+                MqttCredentialType::DsxExchangeConsumer => {
+                    Cow::from("mqtt/dsx-exchange-consumer/auth")
+                }
+            },
         }
     }
 }
@@ -357,5 +470,78 @@ mod tests {
         assert!(password.chars().any(|c| c.is_lowercase()));
         assert!(password.chars().any(|c| c.is_ascii_digit()));
         assert!(password.chars().any(|c| c.is_ascii_punctuation()));
+    }
+
+    #[test]
+    fn test_generated_password_no_special_char() {
+        let password = Credentials::generate_password_no_special_char();
+        assert_eq!(password.len(), PASSWORD_LEN);
+        assert!(password.chars().any(|c| c.is_uppercase()));
+        assert!(password.chars().any(|c| c.is_lowercase()));
+        assert!(password.chars().any(|c| c.is_ascii_digit()));
+        assert!(password.chars().all(|c| c.is_ascii_alphanumeric()));
+    }
+
+    #[tokio::test]
+    async fn composite_manager_delegates_reads_and_writes() {
+        let reader = TestCredentialManager::new(Credentials::UsernamePassword {
+            username: "read-user".to_string(),
+            password: "read-pass".to_string(),
+        });
+        let writer = TestCredentialManager::default();
+        let composite = CompositeCredentialManager::new(reader, writer);
+
+        let key = CredentialKey::UfmAuth {
+            fabric: "test-fabric".to_string(),
+        };
+
+        let read_result = composite.get_credentials(&key).await.expect("read");
+        assert_eq!(
+            read_result,
+            Some(Credentials::UsernamePassword {
+                username: "read-user".to_string(),
+                password: "read-pass".to_string(),
+            })
+        );
+
+        let write_cred = Credentials::UsernamePassword {
+            username: "written".to_string(),
+            password: "written-pass".to_string(),
+        };
+        composite
+            .set_credentials(&key, &write_cred)
+            .await
+            .expect("write");
+
+        // Reads still return the reader's fallback, not the written value
+        let after_write = composite
+            .get_credentials(&key)
+            .await
+            .expect("read after write");
+        assert_eq!(
+            after_write,
+            Some(Credentials::UsernamePassword {
+                username: "read-user".to_string(),
+                password: "read-pass".to_string(),
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn create_credentials_rejects_duplicate() {
+        let mgr = TestCredentialManager::default();
+        let key = CredentialKey::UfmAuth {
+            fabric: "dup-test".to_string(),
+        };
+        let cred = Credentials::UsernamePassword {
+            username: "u".to_string(),
+            password: "p".to_string(),
+        };
+
+        mgr.create_credentials(&key, &cred)
+            .await
+            .expect("first create");
+        let result = mgr.create_credentials(&key, &cred).await;
+        assert!(result.is_err());
     }
 }

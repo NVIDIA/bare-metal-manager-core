@@ -103,7 +103,7 @@ pub(crate) async fn create(
     if let Some(credential) = &req.credential {
         create_extension_service_credential(
             &service_type,
-            &api.credential_provider,
+            &api.credential_manager,
             create_extension_service_credential_key(&service_id, initial_version),
             credential,
         )
@@ -137,7 +137,7 @@ pub(crate) async fn create(
                     create_extension_service_credential_key(&service_id, initial_version);
                 // Best effort deletion - log but don't fail the request if deletion fails
                 if let Err(delete_err) =
-                    delete_extension_service_credential(&api.credential_provider, credential_key)
+                    delete_extension_service_credential(&api.credential_manager, credential_key)
                         .await
                 {
                     tracing::warn!(
@@ -284,7 +284,7 @@ pub(crate) async fn update(
         let latest_credential = if latest_version.has_credential {
             Some(
                 get_extension_service_credential(
-                    &api.credential_provider,
+                    &api.credential_manager,
                     create_extension_service_credential_key(&service_id, latest_version.version),
                 )
                 .await?,
@@ -343,7 +343,7 @@ pub(crate) async fn update(
         let vault_credential_created = if let Some(credential) = &req.credential {
             create_extension_service_credential(
                 &current_service.service_type,
-                &api.credential_provider,
+                &api.credential_manager,
                 create_extension_service_credential_key(&service_id, version_change.new),
                 credential,
             )
@@ -383,11 +383,9 @@ pub(crate) async fn update(
                     // vault credential should have also collided above, and we should have already
                     // failed by this point. So it should be safe to delete the vault credential
                     // now.
-                    if let Err(delete_err) = delete_extension_service_credential(
-                        &api.credential_provider,
-                        credential_key,
-                    )
-                    .await
+                    if let Err(delete_err) =
+                        delete_extension_service_credential(&api.credential_manager, credential_key)
+                            .await
                     {
                         tracing::warn!(
                             "Failed to delete credential for extension service {} after transaction failure: {}",
@@ -520,7 +518,7 @@ pub(crate) async fn delete(
 
             // Best effort deletion - log but don't fail if deletion fails
             if let Err(e) =
-                delete_extension_service_credential(&api.credential_provider, credential_key).await
+                delete_extension_service_credential(&api.credential_manager, credential_key).await
             {
                 tracing::warn!(
                     "Failed to delete credential for extension service {} version {}: {}",
@@ -985,7 +983,7 @@ pub(crate) fn create_extension_service_credential_key(
 /// Create the extension service credential in the vault based on the credential type
 async fn create_extension_service_credential(
     service_type: &ExtensionServiceType,
-    credential_provider: &std::sync::Arc<dyn forge_secrets::credentials::CredentialProvider>,
+    credential_writer: &dyn forge_secrets::credentials::CredentialWriter,
     credential_key: CredentialKey,
     credential: &rpc::DpuExtensionServiceCredential,
 ) -> Result<(), CarbideError> {
@@ -1007,7 +1005,7 @@ async fn create_extension_service_credential(
                         password: up.password.clone(),
                     };
 
-                    credential_provider
+                    credential_writer
                         .create_credentials(&credential_key, &cred)
                         .await
                         .map_err(|e| {
@@ -1026,10 +1024,10 @@ async fn create_extension_service_credential(
 
 /// Delete the extension service credential from the vault using the credential key
 async fn delete_extension_service_credential(
-    credential_provider: &std::sync::Arc<dyn forge_secrets::credentials::CredentialProvider>,
+    credential_writer: &dyn forge_secrets::credentials::CredentialWriter,
     credential_key: CredentialKey,
 ) -> Result<(), eyre::Report> {
-    credential_provider
+    credential_writer
         .delete_credentials(&credential_key)
         .await?;
     Ok(())
@@ -1037,10 +1035,10 @@ async fn delete_extension_service_credential(
 
 /// Get the extension service credential from the vault using the credential key
 pub(crate) async fn get_extension_service_credential(
-    credential_provider: &std::sync::Arc<dyn forge_secrets::credentials::CredentialProvider>,
+    credential_reader: &dyn forge_secrets::credentials::CredentialReader,
     credential_key: CredentialKey,
 ) -> Result<rpc::DpuExtensionServiceCredential, CarbideError> {
-    let credential = credential_provider
+    let credential = credential_reader
         .get_credentials(&credential_key)
         .await
         .map_err(|e| CarbideError::Internal {

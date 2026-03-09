@@ -83,5 +83,9 @@ required-features = ["bench-hooks"]
 name = "collector_pipeline"
 harness = false
 
+[[bench]]
+name = "processor_pipeline"
+harness = false
+
 [lints]
 workspace = true

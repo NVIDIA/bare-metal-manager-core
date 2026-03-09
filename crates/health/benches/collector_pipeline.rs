@@ -25,7 +25,7 @@ use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
 use carbide_health::metrics::MetricsManager;
 use carbide_health::sink::{
     CollectorEvent, CompositeDataSink, DataSink, EventContext, FirmwareInfo, LogRecord,
-    MetricSample, PrometheusSink,
+    PrometheusSink, SensorHealthData,
 };
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use mac_address::MacAddress;
@@ -64,48 +64,59 @@ fn build_sensor_metric_event(idx: usize, unique_keys: usize) -> CollectorEvent {
     let machine_idx = idx % 16;
     let rack_idx = idx % 4;
 
-    CollectorEvent::Metric(MetricSample {
-        key: sensor_key.clone(),
-        name: "hw_sensor".to_string(),
-        metric_type: "temperature".to_string(),
-        unit: "celsius".to_string(),
-        value: 25.0 + ((idx % 40) as f64),
-        labels: vec![
-            (Cow::Borrowed("sensor_name"), sensor_key),
-            (Cow::Borrowed("physical_context"), "cpu".to_string()),
-            (Cow::Borrowed("model"), "x86-test".to_string()),
-            (Cow::Borrowed("machine_slot"), format!("slot-{machine_idx}")),
-            (Cow::Borrowed("rack"), format!("rack-{rack_idx}")),
-        ],
-    })
+    CollectorEvent::Metric(
+        SensorHealthData {
+            key: sensor_key.clone(),
+            name: "hw_sensor".to_string(),
+            metric_type: "temperature".to_string(),
+            unit: "celsius".to_string(),
+            value: 25.0 + ((idx % 40) as f64),
+            labels: vec![
+                (Cow::Borrowed("sensor_name"), sensor_key),
+                (Cow::Borrowed("physical_context"), "cpu".to_string()),
+                (Cow::Borrowed("model"), "x86-test".to_string()),
+                (Cow::Borrowed("machine_slot"), format!("slot-{machine_idx}")),
+                (Cow::Borrowed("rack"), format!("rack-{rack_idx}")),
+            ],
+            context: None,
+        }
+        .into(),
+    )
 }
 
 fn build_nmxt_metric_event(idx: usize) -> CollectorEvent {
-    CollectorEvent::Metric(MetricSample {
-        key: format!("effective_ber:{}", idx % 64),
-        name: "switch_nmxt".to_string(),
-        metric_type: "effective_ber".to_string(),
-        unit: "count".to_string(),
-        value: (idx % 10) as f64,
-        labels: vec![
-            (Cow::Borrowed("switch_id"), "switch-1".to_string()),
-            (Cow::Borrowed("switch_ip"), "10.0.1.1".to_string()),
-            (Cow::Borrowed("node_guid"), format!("0x{:x}", idx)),
-            (Cow::Borrowed("port_num"), (idx % 64).to_string()),
-        ],
-    })
+    CollectorEvent::Metric(
+        SensorHealthData {
+            key: format!("effective_ber:{}", idx % 64),
+            name: "switch_nmxt".to_string(),
+            metric_type: "effective_ber".to_string(),
+            unit: "count".to_string(),
+            value: (idx % 10) as f64,
+            labels: vec![
+                (Cow::Borrowed("switch_id"), "switch-1".to_string()),
+                (Cow::Borrowed("switch_ip"), "10.0.1.1".to_string()),
+                (Cow::Borrowed("node_guid"), format!("0x{:x}", idx)),
+                (Cow::Borrowed("port_num"), (idx % 64).to_string()),
+            ],
+            context: None,
+        }
+        .into(),
+    )
 }
 
 fn build_log_event(idx: usize) -> CollectorEvent {
-    CollectorEvent::Log(LogRecord {
-        body: format!("BMC event line {idx}"),
-        severity: "INFO".to_string(),
-        attributes: vec![
-            (Cow::Borrowed("machine_id"), MACHINE_ID.to_string()),
-            (Cow::Borrowed("entry_id"), idx.to_string()),
-            (Cow::Borrowed("service_id"), "logservice-1".to_string()),
-        ],
-    })
+    CollectorEvent::Log(
+        LogRecord {
+            body: format!("BMC event line {idx}"),
+            severity: "INFO".to_string(),
+            attributes: vec![
+                (Cow::Borrowed("machine_id"), MACHINE_ID.to_string()),
+                (Cow::Borrowed("entry_id"), idx.to_string()),
+                (Cow::Borrowed("service_id"), "logservice-1".to_string()),
+            ],
+        }
+        .into(),
+    )
 }
 
 fn build_firmware_event(idx: usize) -> CollectorEvent {

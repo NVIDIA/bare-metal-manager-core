@@ -30,6 +30,16 @@ pub struct WiwynnGB200Nvl<'a> {
 }
 
 impl WiwynnGB200Nvl<'_> {
+    fn sensor_layout() -> redfish::sensor::Layout {
+        redfish::sensor::Layout {
+            temperature: 40,
+            fan: 10,
+            power: 10,
+            current: 10,
+            leak: 4,
+        }
+    }
+
     pub fn manager_config(&self) -> redfish::manager::Config {
         redfish::manager::Config {
             managers: vec![
@@ -37,11 +47,13 @@ impl WiwynnGB200Nvl<'_> {
                     id: "BMC_0",
                     eth_interfaces: vec![], // TODO: eth0 / eth1 / hmcusb0 / hostusb0
                     firmware_version: "25.06-2_NV_WW_02",
+                    oem: None,
                 },
                 redfish::manager::SingleConfig {
                     id: "HGX_BMC_0",
                     eth_interfaces: vec![], // TODO: usb0
                     firmware_version: "GB200Nvl-25.06-A",
+                    oem: None,
                 },
             ],
         }
@@ -183,7 +195,10 @@ impl WiwynnGB200Nvl<'_> {
                     serial_number: None,
                     network_adapters: None,
                     pcie_devices: None,
-                    sensors: None,
+                    sensors: Some(redfish::sensor::generate_chassis_sensors(
+                        "Chassis_0",
+                        Self::sensor_layout(),
+                    )),
                     assembly: Some(
                         redfish::assembly::builder(&redfish::assembly::chassis_resource(
                             "Chassis_0",
@@ -208,8 +223,29 @@ impl WiwynnGB200Nvl<'_> {
     }
 
     pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
+        let fw_inv_builder = |id: &str| {
+            redfish::software_inventory::builder(
+                &redfish::software_inventory::firmware_inventory_resource(id),
+            )
+        };
         redfish::update_service::UpdateServiceConfig {
-            firmware_inventory: vec![],
+            firmware_inventory: [
+                // Different examples from real H/W:
+                ("FW_BMC_0", "25.06-2_NV_WW_02"),
+                ("FW_BMC_1", "    "),
+                ("FW_CPLD_0", "0x00 0x0b 0x03 0x04"),
+                ("FW_ERoT_AP_CFG_0", "0128"),
+                ("NIC_0", "32.47.1026"),
+                ("TPM_Firmware", "15.23"),
+                ("UEFI", "02.04.12-dde0f655"),
+                ("HGX_FW_BMC_0", "GB200Nvl-25.06-A"),
+                ("HGX_FW_CPLD_0", "0.22"),
+                ("HGX_FW_CPU_0", "00000082"),
+                ("HGX_FW_ERoT_BMC_0", "01.04.0031.0000_n04"),
+            ]
+            .iter()
+            .map(|(id, version)| fw_inv_builder(id).version(version).build())
+            .collect(),
         }
     }
 }

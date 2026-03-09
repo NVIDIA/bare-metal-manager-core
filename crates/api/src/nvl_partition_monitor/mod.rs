@@ -16,6 +16,7 @@
  */
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
@@ -38,6 +39,7 @@ use tracing::Instrument;
 use crate::api::TransactionVending;
 use crate::cfg::file::NvLinkConfig;
 use crate::nvlink::NmxmClientPool;
+use crate::periodic_timer::PeriodicTimer;
 use crate::{CarbideError, CarbideResult};
 
 mod metrics;
@@ -643,25 +645,23 @@ impl NvlPartitionMonitor {
     }
 
     pub async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {
-        let run_interval = self.config.monitor_run_interval;
+        let timer = PeriodicTimer::new(self.config.monitor_run_interval);
         loop {
-            let sleep_interval = match self.run_single_iteration().await {
+            let mut tick = timer.tick();
+            match self.run_single_iteration().await {
                 Ok(num_changes) => {
                     if num_changes > 0 {
                         // Decrease the interval if changes have been made.
-                        tokio::time::Duration::from_millis(1000)
-                    } else {
-                        run_interval
+                        tick.set_interval(Duration::from_millis(1000));
                     }
                 }
                 Err(e) => {
                     tracing::warn!("NvlPartitionMonitor error: {}", e);
-                    run_interval
                 }
-            };
+            }
 
             tokio::select! {
-                _ = tokio::time::sleep(sleep_interval) => {},
+                _ = tick.sleep() => {},
                 _ = &mut stop_receiver => {
                     tracing::info!("NvlPartitionMonitor stop was requested");
                     return;

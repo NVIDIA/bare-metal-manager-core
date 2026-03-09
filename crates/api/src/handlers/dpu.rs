@@ -575,7 +575,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 info.version.version,
             );
             Some(
-                extension_service::get_extension_service_credential(&api.credential_provider, key)
+                extension_service::get_extension_service_credential(&api.credential_manager, key)
                     .await?,
             )
         } else {

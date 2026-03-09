@@ -305,7 +305,7 @@ async fn build_unlock_command(
     let key = crate::dpa::lockdown::build_supernic_lockdown_key(
         &api.database_connection,
         sn.id,
-        &*api.credential_provider,
+        &*api.credential_manager,
     )
     .await
     .map_err(|e| {
@@ -410,7 +410,7 @@ async fn build_lock_command(
     let key = crate::dpa::lockdown::build_supernic_lockdown_key(
         &api.database_connection,
         sn.id,
-        &*api.credential_provider,
+        &*api.credential_manager,
     )
     .await
     .map_err(|e| {

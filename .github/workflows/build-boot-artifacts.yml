@@ -223,7 +223,30 @@ jobs:
 
           echo "Copying files into mkosi.profiles"
           mkdir -p "${PROFILE_DIR}/mkosi.extra/build-output/extras"
-          cp -av pxe/.scout-extras "${PROFILE_DIR}/mkosi.extra/build-output/extras"
+          cp -av pxe/.scout-extras/. "${PROFILE_DIR}/mkosi.extra/build-output/extras"
+
+          echo "Locating Lenovo mnv_cli in extras content"
+          MNV_CLI_SOURCE=""
+          for candidate in \
+            "pxe/.scout-extras/opt/forge/bin/mnv_cli" \
+            "pxe/.scout-extras/opt/forge/mnv_cli"; do
+            if [ -f "${candidate}" ]; then
+              MNV_CLI_SOURCE="${candidate}"
+              break
+            fi
+          done
+
+          if [ -z "${MNV_CLI_SOURCE}" ]; then
+            echo "ERROR: Could not locate mnv_cli in extracted extras content"
+            echo "Checked:"
+            echo "  - pxe/.scout-extras/opt/forge/bin/mnv_cli"
+            echo "  - pxe/.scout-extras/opt/forge/mnv_cli"
+            exit 1
+          fi
+
+          echo "Staging Lenovo mnv_cli directly into scout rootfs overlay from ${MNV_CLI_SOURCE}"
+          mkdir -p "${PROFILE_DIR}/mkosi.extra/opt/forge/bin"
+          cp -av "${MNV_CLI_SOURCE}" "${PROFILE_DIR}/mkosi.extra/opt/forge/bin/mnv_cli"
 
           echo "Copying libnss debs"
           mkdir -p "pxe/debs"
@@ -251,15 +274,16 @@ jobs:
         if: inputs.inject_extras == true && inputs.extras_container != ''
         run: |
           set -euo pipefail
+          PROFILE_DIR="pxe/mkosi.profiles/scout-oss-${{ inputs.arch }}"
 
           REQUIRED_BINARIES=(
-            "pxe/.scout-extras/opt/forge/bin/mnv_cli"
+            "${PROFILE_DIR}/mkosi.extra/opt/forge/bin/mnv_cli"
           )
 
           MISSING=0
           for bin in "${REQUIRED_BINARIES[@]}"; do
             if [ ! -f "${bin}" ]; then
-              echo "ERROR: Required binary missing from extras container: ${bin}"
+              echo "ERROR: Required binary missing after extras staging: ${bin}"
               echo "This binary is needed for Lenovo M.2 NVMe 2-Bay RAID Kit cleanup."
               echo "Ensure the extras container includes all required Lenovo tools."
               MISSING=1
@@ -442,6 +466,25 @@ jobs:
             echo "This is informational only - build continues"
           fi
           echo "============================================"
+
+      - name: Verify mnv_cli exists in built scout image
+        if: inputs.build_type == 'ephemeral' && inputs.inject_extras == true
+        run: |
+          set -euo pipefail
+
+          SCOUT_IMAGE="pxe/static/blobs/internal/${{ inputs.arch }}/scout.cpio.zst"
+          if [ ! -f "${SCOUT_IMAGE}" ]; then
+            echo "ERROR: Missing scout image artifact: ${SCOUT_IMAGE}"
+            exit 1
+          fi
+
+          if zstd -dc "${SCOUT_IMAGE}" | cpio -it --quiet 2>/dev/null | grep -Eq '(^|\\./)opt/forge/bin/mnv_cli$'; then
+            echo "OK: /opt/forge/bin/mnv_cli is present in ${SCOUT_IMAGE}"
+          else
+            echo "ERROR: /opt/forge/bin/mnv_cli missing from ${SCOUT_IMAGE}"
+            echo "Lenovo RAID Kit cleanup will fail without this binary."
+            exit 1
+          fi
 
       - name: Collect artifacts metadata
         id: collect-artifacts

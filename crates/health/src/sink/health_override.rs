@@ -23,11 +23,9 @@ use super::{CollectorEvent, DataSink, EventContext};
 use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
 use crate::config::CarbideApiConnectionConfig;
-use crate::sink::HealthOverride;
-
 struct HealthOverrideJob {
     machine_id: carbide_uuid::machine::MachineId,
-    report: Arc<health_report::HealthReport>,
+    report: health_report::HealthReport,
 }
 
 pub struct HealthOverrideSink {
@@ -55,9 +53,8 @@ impl HealthOverrideSink {
 
         handle.spawn(async move {
             while let Some(job) = receiver.recv().await {
-                let report = Arc::unwrap_or_clone(job.report);
                 if let Err(error) = worker_client
-                    .submit_health_report(&job.machine_id, report)
+                    .submit_health_report(&job.machine_id, job.report)
                     .await
                 {
                     tracing::warn!(?error, "Failed to submit health override report");
@@ -84,17 +81,26 @@ impl HealthOverrideSink {
 }
 
 impl DataSink for HealthOverrideSink {
-    fn handle_event(&self, _context: &EventContext, event: &CollectorEvent) {
-        if let CollectorEvent::HealthOverride(HealthOverride { machine_id, report }) = event {
-            if let Some(machine_id) = machine_id {
-                if let Err(error) = self.sender.send(HealthOverrideJob {
-                    machine_id: *machine_id,
-                    report: report.clone(),
-                }) {
-                    tracing::warn!(?error, "failed to enqueue health override report");
+    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
+        if let CollectorEvent::HealthReport(report) = event {
+            if let Some(machine_id) = context.machine_id() {
+                match report.clone().try_into() {
+                    Ok(report) => {
+                        if let Err(error) =
+                            self.sender.send(HealthOverrideJob { machine_id, report })
+                        {
+                            tracing::warn!(?error, "failed to enqueue health override report");
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(?error, report = ?report, "Failed to convert health report");
+                    }
                 }
             } else {
-                tracing::warn!(report = ?report, "Received HealthOverride event without machine_id");
+                tracing::warn!(
+                    report = ?report,
+                    "Received HealthReport event without machine_id context"
+                );
             }
         }
     }

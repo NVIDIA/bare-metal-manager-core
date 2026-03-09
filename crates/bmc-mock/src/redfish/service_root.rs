@@ -53,6 +53,7 @@ async fn get_service_root(State(state): State<BmcState>) -> Response {
     builder(&resource())
         .redfish_version("1.13.1")
         .vendor(state.bmc_vendor.service_root_value())
+        .maybe_with(ServiceRootBuilder::product, &state.bmc_product)
         .account_service(&redfish::account_service::resource())
         .chassis_collection(&redfish::chassis::collection())
         .system_collection(&redfish::computer_system::collection())
@@ -85,6 +86,10 @@ impl ServiceRootBuilder {
 
     pub fn vendor(self, v: &str) -> Self {
         self.add_str_field("Vendor", v)
+    }
+
+    pub fn product(self, v: &str) -> Self {
+        self.add_str_field("Product", v)
     }
 
     pub fn account_service(self, v: &redfish::Resource<'_>) -> Self {

@@ -107,6 +107,30 @@ impl ManagerBuilder {
         self.apply_patch(resource.nav_property("NetworkProtocol"))
     }
 
+    pub fn oem(self, oem: &Oem) -> Self {
+        match oem {
+            Oem::Dell => self.apply_patch(json!({
+                "Oem": {
+                    "Dell": {
+                        // DelliDRACCard is required by libredfish...
+                        "DelliDRACCard": {
+                            "@odata.context": "/redfish/v1/$metadata#DelliDRACCard.DelliDRACCard",
+                            "@odata.id": "/redfish/v1/Managers/iDRAC.Embedded.1/Oem/Dell/DelliDRACCard/iDRAC.Embedded.1-1_0x23_IDRACinfo",
+                            "@odata.type": "#DelliDRACCard.v1_1_0.DelliDRACCard",
+                            "Description": "An instance of DelliDRACCard will have data specific to the Integrated Dell Remote Access Controller (iDRAC) in the managed system.",
+                            "IPMIVersion": "2.0",
+                            "Id": "iDRAC.Embedded.1-1_0x23_IDRACinfo",
+                            "LastSystemInventoryTime": "2026-02-20T04:38:38+00:00",
+                            "LastUpdateTime": "2026-03-06T04:44:21+00:00",
+                            "Name": "DelliDRACCard",
+                            "URLString": "https://10.217.157.137:443"
+                        }
+                    }
+                }
+            })),
+        }
+    }
+
     // TODO: we can use typed UUID here, but all these fields are
     // really not used it just requirements of libredfish model added
     // "just in case"...
@@ -151,14 +175,27 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
         )
 }
 
+#[derive(Clone, Copy)]
+pub enum Oem {
+    Dell,
+}
+
+impl AsRef<Oem> for Oem {
+    fn as_ref(&self) -> &Self {
+        self
+    }
+}
+
 pub struct Config {
     pub managers: Vec<SingleConfig>,
 }
 
+#[derive(Clone)]
 pub struct SingleConfig {
     pub id: &'static str,
     pub eth_interfaces: Vec<redfish::ethernet_interface::EthernetInterface>,
     pub firmware_version: &'static str,
+    pub oem: Option<Oem>,
 }
 
 pub struct ManagerState {
@@ -183,17 +220,15 @@ impl ManagerState {
 
 pub struct SingleManagerState {
     id: &'static str,
-    eth_interfaces: Vec<redfish::ethernet_interface::EthernetInterface>,
-    firmware_version: String,
     ipmi_enabled: Arc<atomic::AtomicBool>,
+    config: SingleConfig,
 }
 
 impl SingleManagerState {
     pub fn new(config: &SingleConfig) -> Self {
         Self {
             id: config.id,
-            eth_interfaces: config.eth_interfaces.clone(),
-            firmware_version: config.firmware_version.to_string(),
+            config: config.clone(),
             ipmi_enabled: Arc::new(false.into()),
         }
     }
@@ -224,11 +259,12 @@ async fn get_manager(State(state): State<BmcState>, Path(manager_id): Path<Strin
         ))
         .ethernet_interfaces(redfish::ethernet_interface::manager_collection(&manager_id))
         .enable_reset_action()
-        .firmware_version(&this.firmware_version)
+        .firmware_version(this.config.firmware_version)
         .log_services(redfish::log_service::manager_collection(&manager_id))
         .status(redfish::resource::Status::Ok)
         .uuid("3347314f-c0c6-5080-3410-00354c4c4544")
         .date_time(Utc::now())
+        .maybe_with(ManagerBuilder::oem, &this.config.oem)
         .build()
         .into_ok_response()
 }
@@ -242,6 +278,7 @@ async fn get_ethernet_interface_collection(
     };
 
     let members = this
+        .config
         .eth_interfaces
         .iter()
         .map(|eth| redfish::ethernet_interface::manager_resource(&manager_id, &eth.id).entity_ref())
@@ -258,7 +295,8 @@ async fn get_ethernet_interface(
     let Some(this) = state.manager.find(&manager_id) else {
         return http::not_found();
     };
-    this.eth_interfaces
+    this.config
+        .eth_interfaces
         .iter()
         .find(|eth| eth.id == eth_id)
         .map(|eth| eth.to_json().into_ok_response())

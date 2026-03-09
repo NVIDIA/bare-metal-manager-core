@@ -43,6 +43,18 @@ pub struct IterationConfig {
 
     /// Configures how often the state handling processor will emit periodic log messages
     pub processor_log_interval: Duration,
+
+    /// Configures how often the state handling processor will reassess metrics and emit them.
+    /// Calculating aggregate metrics is expensive (all object metrics need to be traversed).
+    /// Therefore this should not happen much more frequently than the observabilty system
+    /// will access them.
+    pub metric_emission_interval: std::time::Duration,
+
+    /// Configures for how long metrics for each object managed by the state controller
+    /// will show up before they get evicted.
+    /// The duration of this needs to be longer than the time between state handler
+    /// invocations for the object
+    pub metric_hold_time: std::time::Duration,
 }
 
 impl Default for IterationConfig {
@@ -57,6 +69,8 @@ impl Default for IterationConfig {
             max_concurrency: 10,
             processor_log_interval: Duration::from_secs(60),
             processor_dispatch_interval: Duration::from_secs(2),
+            metric_emission_interval: Duration::from_secs(60),
+            metric_hold_time: Duration::from_secs(5 * 60),
         }
     }
 }

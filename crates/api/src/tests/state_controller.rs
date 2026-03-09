@@ -912,6 +912,7 @@ async fn test_state_handler_metrics_are_stable(pool: sqlx::PgPool) -> eyre::Resu
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
             processor_dispatch_interval: std::time::Duration::from_millis(10),
+            metric_emission_interval: std::time::Duration::from_millis(10),
             max_concurrency: num_objects,
             ..Default::default()
         })

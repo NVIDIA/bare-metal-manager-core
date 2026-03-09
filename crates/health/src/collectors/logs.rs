@@ -562,15 +562,18 @@ impl<B: Bmc + 'static> LogsCollector<B> {
 
                 records.push(otel_record);
 
-                let log_event = CollectorEvent::Log(LogRecord {
-                    body,
-                    severity: severity_text,
-                    attributes: vec![
-                        (Cow::Borrowed("machine_id"), machine_id.clone()),
-                        (Cow::Borrowed("entry_id"), entry.base.id.clone()),
-                        (Cow::Borrowed("service_id"), service_id.clone()),
-                    ],
-                });
+                let log_event = CollectorEvent::Log(
+                    LogRecord {
+                        body,
+                        severity: severity_text,
+                        attributes: vec![
+                            (Cow::Borrowed("machine_id"), machine_id.clone()),
+                            (Cow::Borrowed("entry_id"), entry.base.id.clone()),
+                            (Cow::Borrowed("service_id"), service_id.clone()),
+                        ],
+                    }
+                    .into(),
+                );
                 if let Some(sink) = &self.data_sink {
                     sink.handle_event(&self.event_context, &log_event);
                 }

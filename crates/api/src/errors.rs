@@ -356,6 +356,7 @@ impl From<CarbideError> for tonic::Status {
             CarbideError::InvalidArgument(msg) => Status::invalid_argument(msg),
             CarbideError::InvalidConfiguration(e) => Status::invalid_argument(e.to_string()),
             CarbideError::RpcDataConversionError(e) => Status::invalid_argument(e.to_string()),
+            e @ CarbideError::DhcpError(_) => Status::resource_exhausted(e.to_string()),
             CarbideError::MissingArgument(msg) => Status::invalid_argument(*msg),
             CarbideError::NetworkSegmentDelete(msg) => Status::invalid_argument(msg),
             CarbideError::NotFoundError { kind, id } => {
@@ -394,4 +395,13 @@ fn test_carbide_result() {
         Err(CarbideError::internal(String::from("can't make u8")))
     }
     assert!(matches!(do_something(), Err(CarbideError::Internal { .. })));
+}
+
+#[test]
+fn test_dhcp_error_maps_to_resource_exhausted_status() {
+    let err = CarbideError::DhcpError(DhcpError::PrefixExhausted(
+        "10.217.5.160".parse().expect("valid IP"),
+    ));
+    let status: tonic::Status = err.into();
+    assert_eq!(status.code(), tonic::Code::ResourceExhausted);
 }

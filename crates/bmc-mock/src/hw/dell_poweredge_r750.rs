@@ -44,6 +44,7 @@ impl DellPowerEdgeR750<'_> {
             fan: 10,
             power: 20,
             current: 10,
+            leak: 0,
         }
     }
 
@@ -60,6 +61,7 @@ impl DellPowerEdgeR750<'_> {
                     .build(),
                 ],
                 firmware_version: "6.00.30.00",
+                oem: Some(redfish::manager::Oem::Dell),
             }],
         }
     }

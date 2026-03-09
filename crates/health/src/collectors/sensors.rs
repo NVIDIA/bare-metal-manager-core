@@ -30,13 +30,9 @@ use nv_redfish::{Resource, ServiceRoot};
 
 use crate::HealthError;
 use crate::collectors::{IterationResult, PeriodicCollector};
-use crate::endpoint::{BmcAddr, BmcEndpoint, EndpointMetadata};
+use crate::endpoint::{BmcAddr, BmcEndpoint};
 use crate::metrics::{MetricLabel, sanitize_unit};
-use crate::sink::{CollectorEvent, DataSink, EventContext, HealthOverride, MetricSample};
-
-mod monitor_health;
-
-use monitor_health::{SensorHealthData, SensorHealthResult};
+use crate::sink::{CollectorEvent, DataSink, EventContext, SensorHealthContext, SensorHealthData};
 
 /// Configuration for sensor collector
 pub struct SensorCollectorConfig {
@@ -123,7 +119,7 @@ trait SensorRecordable<B: Bmc> {
     fn sensor(&self) -> &SensorRef<B>;
     fn base_attributes(&self) -> Vec<MetricLabel>;
     fn entity_specific_attributes(&self) -> Vec<MetricLabel>;
-    fn entity_metrics(&self, attributes: &[MetricLabel]) -> Vec<MetricSample>;
+    fn entity_metrics(&self, attributes: &[MetricLabel]) -> Vec<SensorHealthData>;
 }
 
 impl<B: Bmc> SensorRecordable<B> for MonitoredEntity<B> {
@@ -222,17 +218,18 @@ impl<B: Bmc> SensorRecordable<B> for MonitoredEntity<B> {
         attrs
     }
 
-    fn entity_metrics(&self, attributes: &[MetricLabel]) -> Vec<MetricSample> {
+    fn entity_metrics(&self, attributes: &[MetricLabel]) -> Vec<SensorHealthData> {
         match self {
             MonitoredEntity::Drive { entity, .. } => {
                 if let Some(lifetime) = entity.raw().predicted_media_life_left_percent.flatten() {
-                    vec![MetricSample {
+                    vec![SensorHealthData {
                         key: entity.odata_id().to_string(),
                         name: "hw".to_string(),
                         metric_type: "drive_predicted_media_life_left".to_string(),
                         unit: "percentage".to_string(),
                         value: lifetime,
                         labels: attributes.to_vec(),
+                        context: None,
                     }]
                 } else {
                     Vec::new()
@@ -240,13 +237,14 @@ impl<B: Bmc> SensorRecordable<B> for MonitoredEntity<B> {
             }
             MonitoredEntity::PowerSupply { entity, .. } => {
                 if let Some(capacity) = entity.raw().power_capacity_watts.flatten() {
-                    vec![MetricSample {
+                    vec![SensorHealthData {
                         key: entity.odata_id().to_string(),
                         name: "hw".to_string(),
                         metric_type: "powersupply_capacity".to_string(),
                         unit: "watts".to_string(),
                         value: capacity,
                         labels: attributes.to_vec(),
+                        context: None,
                     }]
                 } else {
                     Vec::new()
@@ -324,31 +322,8 @@ impl<B: Bmc + 'static> SensorCollector<B> {
         }
 
         if let Some(state) = &self.state {
-            let (successes, alerts) = self.fetch_and_update_sensors(state).await?;
-            entity_count = Some(successes.len() + alerts.len());
-
-            let report = health_report::HealthReport {
-                source: "hardware-health".to_string(),
-                triggered_by: None,
-                observed_at: Some(chrono::Utc::now()),
-                successes,
-                alerts,
-            };
-
-            tracing::info!(
-                endpoint = %self.endpoint.addr.mac,
-                success_count = report.successes.len(),
-                alert_count = report.alerts.len(),
-                "Sending hardware health report"
-            );
-
-            self.emit_event(CollectorEvent::HealthOverride(HealthOverride {
-                machine_id: self.endpoint.metadata.as_ref().and_then(|m| match m {
-                    EndpointMetadata::Machine(machine) => Some(machine.machine_id),
-                    EndpointMetadata::Switch(_) => None,
-                }),
-                report: Arc::new(report),
-            }));
+            let processed_sensors = self.fetch_and_update_sensors(state).await?;
+            entity_count = Some(processed_sensors);
         }
 
         Ok(IterationResult {
@@ -629,13 +604,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
     async fn fetch_and_update_sensors(
         &self,
         state: &SensorCollectorState<B>,
-    ) -> Result<
-        (
-            Vec<health_report::HealthProbeSuccess>,
-            Vec<health_report::HealthProbeAlert>,
-        ),
-        HealthError,
-    > {
+    ) -> Result<usize, HealthError> {
         self.emit_event(CollectorEvent::MetricCollectionStart);
         let futures: Vec<_> = state
             .entities
@@ -643,27 +612,16 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             .map(|entity| self.update_sensor(entity))
             .collect();
 
-        let health_data: Vec<_> = stream::iter(futures)
+        let processed: Vec<_> = stream::iter(futures)
             .buffer_unordered(self.sensor_fetch_concurrency)
-            .filter_map(|data| async move { data })
             .collect()
             .await;
-
-        let mut successes = Vec::new();
-        let mut alerts = Vec::new();
-
-        for data in health_data {
-            match data.to_health_result() {
-                SensorHealthResult::Success(s) => successes.push(s),
-                SensorHealthResult::Alert(a) => alerts.push(a),
-            }
-        }
         self.emit_event(CollectorEvent::MetricCollectionEnd);
 
-        Ok((successes, alerts))
+        Ok(processed.into_iter().sum())
     }
 
-    async fn update_sensor(&self, entity: &MonitoredEntity<B>) -> Option<SensorHealthData> {
+    async fn update_sensor(&self, entity: &MonitoredEntity<B>) -> usize {
         let sensor = match entity.sensor().fetch().await {
             Ok(s) => s,
             Err(e) => {
@@ -673,7 +631,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                     error = ?e,
                     "Failed to fetch sensor data"
                 );
-                return None;
+                return 0;
             }
         };
 
@@ -691,7 +649,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                 sensor = ?sensor,
                 "Sensor missing required fields (reading, reading_type, or units)"
             );
-            return None;
+            return 0;
         };
 
         let mut attributes = entity.base_attributes();
@@ -740,20 +698,8 @@ impl<B: Bmc + 'static> SensorCollector<B> {
         attributes.push((Cow::Borrowed("physical_context"), physical_context));
         attributes.extend(entity.entity_specific_attributes());
 
-        let derived_metrics = entity.entity_metrics(&attributes);
         let metric_type = reading_type.to_snake_case().to_string();
-        self.emit_event(CollectorEvent::Metric(MetricSample {
-            key: sensor.odata_id().to_string(),
-            name: "hw_sensor".to_string(),
-            metric_type: metric_type.clone(),
-            unit: sanitize_unit(&unit),
-            value: reading,
-            labels: attributes,
-        }));
-
-        for metric in derived_metrics {
-            self.emit_event(CollectorEvent::Metric(metric));
-        }
+        let unit = sanitize_unit(&unit);
 
         let (upper_critical, lower_critical, upper_caution, lower_caution) =
             if let Some(thresholds) = &sensor.thresholds {
@@ -784,19 +730,35 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             .as_ref()
             .and_then(|s| s.health.and_then(std::convert::identity));
 
-        Some(SensorHealthData {
-            entity_type: entity.metric_prefix().replace("hw_", ""),
-            sensor_id: sensor.base.id.clone(),
-            reading,
-            reading_type: metric_type,
-            unit,
-            upper_critical,
-            lower_critical,
-            upper_caution,
-            lower_caution,
-            range_max: sensor.reading_range_max.flatten(),
-            range_min: sensor.reading_range_min.flatten(),
-            bmc_health,
-        })
+        let derived_metrics = entity.entity_metrics(&attributes);
+
+        self.emit_event(CollectorEvent::Metric(
+            SensorHealthData {
+                key: sensor.odata_id().to_string(),
+                name: "hw_sensor".to_string(),
+                metric_type,
+                unit,
+                value: reading,
+                labels: attributes,
+                context: Some(SensorHealthContext {
+                    entity_type: entity.metric_prefix().replace("hw_", ""),
+                    sensor_id: sensor.base.id.clone(),
+                    upper_critical,
+                    lower_critical,
+                    upper_caution,
+                    lower_caution,
+                    range_max: sensor.reading_range_max.flatten(),
+                    range_min: sensor.reading_range_min.flatten(),
+                    bmc_health,
+                }),
+            }
+            .into(),
+        ));
+
+        for metric in derived_metrics {
+            self.emit_event(CollectorEvent::Metric(metric.into()));
+        }
+
+        1
     }
 }

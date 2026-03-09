@@ -158,6 +158,13 @@ impl HostMachineInfo {
         }
     }
 
+    pub fn bmc_product(&self) -> Option<&'static str> {
+        match self.hw_type {
+            HostHardwareType::DellPowerEdgeR750 => None,
+            HostHardwareType::WiwynnGB200Nvl => Some("GB200 NVL"),
+        }
+    }
+
     pub fn manager_config(&self) -> redfish::manager::Config {
         match self.hw_type {
             HostHardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().manager_config(),
@@ -258,6 +265,13 @@ impl MachineInfo {
         match self {
             MachineInfo::Host(h) => h.bmc_vendor(),
             MachineInfo::Dpu(_) => redfish::oem::BmcVendor::Nvidia,
+        }
+    }
+
+    pub fn bmc_product(&self) -> Option<&'static str> {
+        match self {
+            MachineInfo::Host(h) => h.bmc_product(),
+            MachineInfo::Dpu(_) => None,
         }
     }
 

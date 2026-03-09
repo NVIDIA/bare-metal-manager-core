@@ -27,7 +27,7 @@ use crate::collectors::{IterationResult, PeriodicCollector};
 use crate::config::NmxtCollectorConfig as NmxtCollectorOptions;
 use crate::endpoint::{BmcEndpoint, EndpointMetadata};
 use crate::metrics::CollectorRegistry;
-use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample};
+use crate::sink::{CollectorEvent, DataSink, EventContext, SensorHealthData};
 
 /// default NMX-T port
 const NMXT_PORT: u16 = 9352;
@@ -286,21 +286,25 @@ impl NmxtCollector {
             metric_key.push(':');
             metric_key.push_str(&port_num);
 
-            let event_labels = vec![
+            let labels = vec![
                 (Cow::Borrowed("switch_id"), self.switch_id.clone()),
                 (Cow::Borrowed("switch_ip"), switch_ip.clone()),
                 (Cow::Borrowed("node_guid"), node_guid),
                 (Cow::Borrowed("port_num"), port_num),
             ];
 
-            self.emit_event(CollectorEvent::Metric(MetricSample {
-                key: metric_key,
-                name: "switch_nmxt".to_string(),
-                metric_type: metric_type.to_string(),
-                unit: "count".to_string(),
-                value,
-                labels: event_labels,
-            }));
+            self.emit_event(CollectorEvent::Metric(
+                SensorHealthData {
+                    key: metric_key,
+                    name: "switch_nmxt".to_string(),
+                    metric_type: metric_type.to_string(),
+                    unit: "count".to_string(),
+                    value,
+                    labels,
+                    context: None,
+                }
+                .into(),
+            ));
         }
 
         Ok(())

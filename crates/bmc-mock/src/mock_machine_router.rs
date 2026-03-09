@@ -70,6 +70,7 @@ pub fn machine_router(
     let chassis_config = machine_info.chassis_config();
     let update_service_config = machine_info.update_service_config();
     let bmc_vendor = machine_info.bmc_vendor();
+    let bmc_product = machine_info.bmc_product();
     let oem_state = machine_info.oem_state();
     let router = Router::new()
         // Couple routes for bug injection.
@@ -103,6 +104,7 @@ pub fn machine_router(
     let injected_bugs = Arc::new(InjectedBugs::default());
     let router = router.with_state(BmcState {
         bmc_vendor,
+        bmc_product,
         oem_state,
         manager,
         system_state,

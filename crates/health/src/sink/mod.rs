@@ -23,7 +23,8 @@ mod tracing;
 
 pub use composite::CompositeDataSink;
 pub use events::{
-    CollectorEvent, EventContext, FirmwareInfo, HealthOverride, LogRecord, MetricSample,
+    Classification, CollectorEvent, EventContext, FirmwareInfo, HealthReport, HealthReportAlert,
+    HealthReportSuccess, LogRecord, Probe, ReportSource, SensorHealthContext, SensorHealthData,
 };
 pub use health_override::HealthOverrideSink;
 pub use prometheus::PrometheusSink;
@@ -43,8 +44,8 @@ mod tests {
     use mac_address::MacAddress;
 
     use super::{
-        CollectorEvent, CompositeDataSink, DataSink, EventContext, LogRecord, MetricSample,
-        PrometheusSink,
+        CollectorEvent, CompositeDataSink, DataSink, EventContext, LogRecord, PrometheusSink,
+        SensorHealthData,
     };
     use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
     use crate::metrics::MetricsManager;
@@ -90,14 +91,18 @@ mod tests {
             metadata: None,
         };
 
-        let event = CollectorEvent::Metric(MetricSample {
-            key: "key".to_string(),
-            name: "metric".to_string(),
-            metric_type: "gauge".to_string(),
-            unit: "count".to_string(),
-            value: 1.0,
-            labels: Vec::new(),
-        });
+        let event = CollectorEvent::Metric(
+            SensorHealthData {
+                key: "key".to_string(),
+                name: "metric".to_string(),
+                metric_type: "gauge".to_string(),
+                unit: "count".to_string(),
+                value: 1.0,
+                labels: Vec::new(),
+                context: None,
+            }
+            .into(),
+        );
         composite.handle_event(&context, &event);
 
         assert_eq!(success_counter.load(Ordering::SeqCst), 2);
@@ -125,11 +130,14 @@ mod tests {
             })),
         };
 
-        let log_event = CollectorEvent::Log(LogRecord {
-            body: "ignored by prometheus sink".to_string(),
-            severity: "INFO".to_string(),
-            attributes: Vec::new(),
-        });
+        let log_event = CollectorEvent::Log(
+            LogRecord {
+                body: "ignored by prometheus sink".to_string(),
+                severity: "INFO".to_string(),
+                attributes: Vec::new(),
+            }
+            .into(),
+        );
         sink.handle_event(&context, &log_event);
 
         let export_after_log = metrics_manager
@@ -137,14 +145,19 @@ mod tests {
             .expect("metrics export should work");
         assert!(!export_after_log.contains("test_sink_hw_sensor"));
 
-        let metric_event = CollectorEvent::Metric(MetricSample {
-            key: "metric_key".to_string(),
-            name: "hw_sensor".to_string(),
-            metric_type: "temperature".to_string(),
-            unit: "celsius".to_string(),
-            value: 42.0,
-            labels: vec![(Cow::Borrowed("sensor"), "temp1".to_string())],
-        });
+        let metric_event = CollectorEvent::Metric(
+            SensorHealthData {
+                key: "metric_key".to_string(),
+                name: "hw_sensor".to_string(),
+                metric_type: "temperature".to_string(),
+                unit: "celsius".to_string(),
+                value: 42.0,
+                labels: vec![(Cow::Borrowed("sensor"), "temp1".to_string())],
+                context: None,
+            }
+            .into(),
+        );
+
         sink.handle_event(&context, &metric_event);
 
         let export_after_metric = metrics_manager
@@ -177,14 +190,18 @@ mod tests {
 
         let start_event = CollectorEvent::MetricCollectionStart;
         sink.handle_event(&context, &start_event);
-        let s1_event = CollectorEvent::Metric(MetricSample {
-            key: "s1".to_string(),
-            name: "hw_sensor".to_string(),
-            metric_type: "temperature".to_string(),
-            unit: "celsius".to_string(),
-            value: 10.0,
-            labels: vec![(Cow::Borrowed("sensor"), "temp1".to_string())],
-        });
+        let s1_event = CollectorEvent::Metric(
+            SensorHealthData {
+                key: "s1".to_string(),
+                name: "hw_sensor".to_string(),
+                metric_type: "temperature".to_string(),
+                unit: "celsius".to_string(),
+                value: 10.0,
+                labels: vec![(Cow::Borrowed("sensor"), "temp1".to_string())],
+                context: None,
+            }
+            .into(),
+        );
         sink.handle_event(&context, &s1_event);
         let end_event = CollectorEvent::MetricCollectionEnd;
         sink.handle_event(&context, &end_event);
@@ -196,14 +213,18 @@ mod tests {
 
         let start_event = CollectorEvent::MetricCollectionStart;
         sink.handle_event(&context, &start_event);
-        let s2_event = CollectorEvent::Metric(MetricSample {
-            key: "s2".to_string(),
-            name: "hw_sensor".to_string(),
-            metric_type: "temperature".to_string(),
-            unit: "celsius".to_string(),
-            value: 20.0,
-            labels: vec![(Cow::Borrowed("sensor"), "temp2".to_string())],
-        });
+        let s2_event = CollectorEvent::Metric(
+            SensorHealthData {
+                key: "s2".to_string(),
+                name: "hw_sensor".to_string(),
+                metric_type: "temperature".to_string(),
+                unit: "celsius".to_string(),
+                value: 20.0,
+                labels: vec![(Cow::Borrowed("sensor"), "temp2".to_string())],
+                context: None,
+            }
+            .into(),
+        );
         sink.handle_event(&context, &s2_event);
         let end_event = CollectorEvent::MetricCollectionEnd;
         sink.handle_event(&context, &end_event);

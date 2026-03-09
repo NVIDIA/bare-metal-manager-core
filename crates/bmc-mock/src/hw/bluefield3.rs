@@ -51,6 +51,7 @@ impl Bluefield3<'_> {
             fan: 4,
             power: 3,
             current: 3,
+            leak: 0,
         }
     }
 
@@ -205,6 +206,7 @@ impl Bluefield3<'_> {
                     .build(),
                 ],
                 firmware_version: "BF-23.10-4",
+                oem: None,
             }],
         }
     }

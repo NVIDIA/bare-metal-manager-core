@@ -29,7 +29,6 @@ use tracing::Instrument;
 use super::db;
 use crate::logging::sqlx_query_tracing::{self, SqlxQueryDataAggregation};
 use crate::state_controller::config::IterationConfig;
-use crate::state_controller::controller::ControllerIterationId;
 use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::metrics::{
@@ -60,8 +59,6 @@ pub(super) struct StateProcessor<IO: StateControllerIO> {
     pub(super) metric_holder: Arc<MetricHolder<IO>>,
 
     pub(super) object_metrics: HashMap<IO::ObjectId, CollectedMetrics<IO>>,
-    /// The iteration ID for which metrics have been passed towards `metric_holder`
-    pub(super) published_metrics_iteration_id: Option<ControllerIterationId>,
     pub(super) cancel_token: CancellationToken,
     pub(super) iteration_config: IterationConfig,
     /// IDs of objects where the task handler is currently executed
@@ -74,9 +71,10 @@ pub(super) struct StateProcessor<IO: StateControllerIO> {
     pub(super) requeue_objects: HashSet<IO::ObjectId>,
     pub(super) task_sender: tokio::sync::mpsc::UnboundedSender<ObjectHandlingTaskResult<IO>>,
     pub(super) task_receiver: tokio::sync::mpsc::UnboundedReceiver<ObjectHandlingTaskResult<IO>>,
-    pub(super) data_since_iteration_start: DataSinceStartOfIteration,
     /// The last time a log message had been emitted
     pub(super) last_log_time: std::time::Instant,
+    /// The last time aggregate metrics had been emitted
+    pub(super) last_metric_emission_time: std::time::Instant,
     pub(super) stats_since_last_log: StatsSinceLastLog,
     pub(super) processor_span: tracing::Span,
     /// Globally unique ID that identifies the state controller (and processor) working on objects
@@ -91,21 +89,19 @@ pub(super) struct ObjectHandlingTaskResult<IO: StateControllerIO> {
 
 pub(super) struct CollectedMetrics<IO: StateControllerIO> {
     metrics: ObjectHandlerMetrics<IO>,
-    refreshed_in_current_iteration: bool,
+    collected_at: std::time::Instant,
 }
 
 #[derive(Debug)]
-pub(super) struct DataSinceStartOfIteration {
-    /// The time when the first state state handling task for the iteration was dequeued
+pub(super) struct ProcessorIterationMetrics {
+    /// When the last state processor iteration started
     iteration_started_at: std::time::Instant,
-    iteration_started_at_utc: chrono::DateTime<chrono::Utc>,
 }
 
-impl std::default::Default for DataSinceStartOfIteration {
+impl std::default::Default for ProcessorIterationMetrics {
     fn default() -> Self {
         Self {
             iteration_started_at: std::time::Instant::now(),
-            iteration_started_at_utc: chrono::Utc::now(),
         }
     }
 }
@@ -135,15 +131,6 @@ pub(super) struct StatsSinceLastLog {
     num_requeued_objects: usize,
     /// The aggregated sqlx metrics at the last time logs had been emitted
     db_query_metrics: SqlxQueryDataAggregation,
-}
-
-#[derive(Debug, Default, Clone)]
-struct QueueStats {
-    /// The ID of the latest iteration that had been started
-    #[allow(dead_code)]
-    latest_iteration: Option<ControllerIterationId>,
-    /// The ID of the last iteration (before the most recent one)
-    previous_iteration: Option<ControllerIterationId>,
 }
 
 impl<IO: StateControllerIO> StateProcessor<IO> {
@@ -224,6 +211,8 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         max_completion_wait_time: std::time::Duration,
         allow_requeue: bool,
     ) -> Result<SingleIterationResult, IterationError> {
+        let run_metrics = ProcessorIterationMetrics::default();
+
         let num_dispatched_tasks = self.dequeue_and_dispatch_object_handling_tasks().await?;
         // We are assuming that we dispatch as many tasks that are available and fit into
         // the queue. Therefore its ok to wait until at least one task has been dequeued
@@ -244,10 +233,12 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         // the old entries from the DB first.
         self.requeue_transitioned_objects().await?;
 
-        let queue_stats = self.gather_queue_stats().await?;
-        self.emit_metric_if_iteration_changed(&queue_stats);
-
+        self.emit_metrics_if_necessary();
         self.emit_periodic_log_if_necessary();
+
+        if let Some(emitter) = self.metric_emitter.as_ref() {
+            emitter.emit_run_counters_and_histograms(&run_metrics);
+        }
 
         Ok(SingleIterationResult {
             num_dispatched_tasks,
@@ -255,72 +246,43 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         })
     }
 
-    async fn gather_queue_stats(&self) -> Result<QueueStats, IterationError> {
-        // We don't need a transaction for a pulling stats
-        let mut conn = self.pool.acquire().await?;
-        let iterations =
-            db::fetch_iterations(&mut conn, IO::DB_ITERATION_ID_TABLE_NAME, Some(2)).await?;
-        let latest_iteration = iterations.first().cloned().map(|iteration| iteration.id);
-        let previous_iteration = if iterations.len() >= 2 {
-            Some(iterations[1].id)
-        } else {
-            None
-        };
-
-        Ok(QueueStats {
-            latest_iteration,
-            previous_iteration,
-        })
-    }
-
-    /// Publishes metrics for the previous iteration ID.
-    /// Since we want the metrics to be emitted on time (coordinated across multiple
-    /// state controller instances), we won't wait until all tasks are finished.
-    fn emit_metric_if_iteration_changed(&mut self, stats: &QueueStats) {
-        self.emit_metrics_for_iteration(stats.previous_iteration);
-    }
-
-    /// Publishes metrics for a certain iteration ID, based on all data that is currently
-    /// known within that iteration.
-    /// If the target ID is `None`, an empty set of metrics will be emitted.
-    pub(super) fn emit_metrics_for_iteration(
-        &mut self,
-        finished_iteration_id: Option<ControllerIterationId>,
-    ) {
-        if self.published_metrics_iteration_id == finished_iteration_id {
-            // Metrics are already published
+    /// Periodically calculates aggregate metrics for all objects that have been processed
+    /// and makes them available for the metrics subsystem.
+    fn emit_metrics_if_necessary(&mut self) {
+        // Aggregate metrics are only recalculated in certain periods to reduce load
+        let now = std::time::Instant::now();
+        if now
+            < self
+                .last_metric_emission_time
+                .checked_add(self.iteration_config.metric_emission_interval)
+                .unwrap_or(now)
+        {
             return;
         }
-        self.published_metrics_iteration_id = finished_iteration_id;
+
+        self.emit_metrics();
+    }
+
+    /// Calculates aggregate metrics for all objects that have been processed
+    /// and makes them available for the metrics subsystem.
+    /// Evicts metrics for objects that are older than the desired hold period
+    pub(super) fn emit_metrics(&mut self) {
+        let now = std::time::Instant::now();
+        self.last_metric_emission_time = now;
 
         let mut aggregate = IterationMetrics::<IO>::default();
         for object_metrics in self.object_metrics.values() {
             aggregate.merge_object_handling_metrics(&object_metrics.metrics);
         }
 
-        // Remove metrics that have not been refreshed in the last iteration
-        // Metrics that have gathered in this iteration will carry forward forward
-        // for one more iteration.
-        // This prevents the race condition where handlers for some objects already
-        // finish processing for iteration N+1 before metrics for iteration N are emitted.
-        // In that case the metrics for iteration N+1 would be lost.
+        // Remove metrics that have not been refreshed for the configured time
+        let min_age = now
+            .checked_sub(self.iteration_config.metric_hold_time)
+            .unwrap_or(now);
         self.object_metrics
-            .retain(|_object_id, metrics| metrics.refreshed_in_current_iteration);
-        for object_metrics in self.object_metrics.values_mut() {
-            object_metrics.refreshed_in_current_iteration = false;
-        }
+            .retain(|_object_id, metrics| metrics.collected_at >= min_age);
 
-        emit_iteration_log(
-            finished_iteration_id,
-            self.data_since_iteration_start.iteration_started_at_utc,
-            &aggregate,
-        );
-
-        if let Some(emitter) = self.metric_emitter.as_ref() {
-            emitter.emit_iteration_counters_and_histograms(&self.data_since_iteration_start);
-        }
-
-        self.data_since_iteration_start = DataSinceStartOfIteration::default();
+        emit_object_metrics_as_log(&aggregate);
 
         self.metric_holder
             .last_iteration_specific_metrics
@@ -394,9 +356,10 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         tokio::select! {
             biased;
             num_received = self.task_receiver.recv_many(&mut finished_tasks, finished_tasks_capacity) => {
+                let now = std::time::Instant::now();
                 for _ in 0 .. num_received {
                     let finished_task = finished_tasks.pop().expect("Object handling task finished");
-                    self.process_object_handling_task_result(finished_task, allow_requeue);
+                    self.process_object_handling_task_result(finished_task, allow_requeue, now);
                     total_completions += 1;
                 }
             }
@@ -580,6 +543,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         &mut self,
         task_result: ObjectHandlingTaskResult<IO>,
         allow_requeue: bool,
+        collected_at: std::time::Instant,
     ) {
         // We don't remove objects from the database here but store them first
         // and remove them later in order to not forget about these in case there
@@ -601,7 +565,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             task_result.object_id.clone(),
             CollectedMetrics {
                 metrics: task_result.metrics,
-                refreshed_in_current_iteration: true,
+                collected_at,
             },
         );
     }
@@ -807,7 +771,7 @@ async fn process_object<IO: StateControllerIO>(
 
 #[derive(Debug)]
 pub(super) struct ProcessorMetricsEmitter {
-    controller_iteration_latency: Histogram<f64>,
+    iteration_latency: Histogram<f64>,
     dispatched_tasks_counter: Counter<u64>,
     completed_tasks_counter: Counter<u64>,
     requeued_tasks_counter: Counter<u64>,
@@ -818,10 +782,10 @@ impl ProcessorMetricsEmitter {
     pub(super) fn new(object_type: &str, meter: &Meter) -> Self {
         let db = sqlx_query_tracing::DatabaseMetricEmitters::new(meter);
 
-        let controller_iteration_latency = meter
+        let iteration_latency = meter
             .f64_histogram(format!("{object_type}_iteration_latency"))
             .with_description(format!(
-                "The overall time it took to handle state for all {object_type} in the system"
+                "The elapsed time in the last state processor iteration to handle objects of type {object_type}"
             ))
             .with_unit("ms")
             .build();
@@ -848,7 +812,7 @@ impl ProcessorMetricsEmitter {
             .build();
 
         Self {
-            controller_iteration_latency,
+            iteration_latency,
             db,
             dispatched_tasks_counter,
             completed_tasks_counter,
@@ -867,26 +831,16 @@ impl ProcessorMetricsEmitter {
         self.db.emit(db_metrics, attrs);
     }
 
-    fn emit_iteration_counters_and_histograms(&self, iteration_data: &DataSinceStartOfIteration) {
-        self.controller_iteration_latency.record(
-            1000.0 * iteration_data.iteration_started_at.elapsed().as_secs_f64(),
+    fn emit_run_counters_and_histograms(&self, run_metrics: &ProcessorIterationMetrics) {
+        self.iteration_latency.record(
+            1000.0 * run_metrics.iteration_started_at.elapsed().as_secs_f64(),
             &[],
         );
     }
 }
 
-/// Emits the metrics that had been collected during a state controller iteration
-/// as a single log line.
-fn emit_iteration_log<IO: StateControllerIO>(
-    iteration_id: Option<ControllerIterationId>,
-    iteration_processing_started_at: chrono::DateTime<chrono::Utc>,
-    iteration_metrics: &IterationMetrics<IO>,
-) {
-    let timing_start_time = format!("{:?}", iteration_processing_started_at);
-    let elapsed = chrono::Utc::now().signed_duration_since(iteration_processing_started_at);
-    let timing_elapsed_us = elapsed.num_microseconds().unwrap_or_default().to_string();
-    let iteration_id = iteration_id.map(|id| id.0).unwrap_or_default().to_string();
-
+/// Emits the aggregate metrics that had been collected as a single log line.
+fn emit_object_metrics_as_log<IO: StateControllerIO>(iteration_metrics: &IterationMetrics<IO>) {
     let mut total_objects = 0;
     let mut states: HashMap<String, usize> = HashMap::new();
     let mut states_above_sla: HashMap<String, usize> = HashMap::new();
@@ -919,5 +873,5 @@ fn emit_iteration_log<IO: StateControllerIO>(
         serde_json::to_string(&states_above_sla).unwrap_or_else(|_| "{}".to_string());
     let error_types = serde_json::to_string(&error_types).unwrap_or_else(|_| "{}".to_string());
 
-    tracing::info!(name: "state_controller_iteration", controller = IO::LOG_SPAN_CONTROLLER_NAME, %iteration_id, %total_objects, %states, %states_above_sla, %error_types, %timing_start_time, %timing_elapsed_us);
+    tracing::info!(name: "state_controller_object_metrics", controller = IO::LOG_SPAN_CONTROLLER_NAME, %total_objects, %states, %states_above_sla, %error_types);
 }

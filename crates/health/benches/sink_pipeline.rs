@@ -23,11 +23,10 @@ use std::sync::Arc;
 use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
 use carbide_health::metrics::MetricsManager;
 use carbide_health::sink::{
-    CollectorEvent, CompositeDataSink, DataSink, EventContext, HealthOverride, HealthOverrideSink,
-    MetricSample, PrometheusSink,
+    Classification, CollectorEvent, CompositeDataSink, DataSink, EventContext, HealthOverrideSink,
+    HealthReport, PrometheusSink, SensorHealthData,
 };
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use health_report::{HealthProbeAlert, HealthReport};
 use mac_address::MacAddress;
 
 const MACHINE_ID: &str = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
@@ -65,14 +64,18 @@ fn metric_events(batch_size: usize, unique_keys: usize) -> Vec<CollectorEvent> {
             let sensor_idx = idx % unique_keys;
             let key = format!("sensor-{sensor_idx}");
 
-            CollectorEvent::Metric(MetricSample {
-                key: key.clone(),
-                name: "hw_sensor".to_string(),
-                metric_type: "temperature".to_string(),
-                unit: "celsius".to_string(),
-                value: (idx % 100) as f64,
-                labels: vec![(Cow::Borrowed("sensor"), key)],
-            })
+            CollectorEvent::Metric(
+                SensorHealthData {
+                    key: key.clone(),
+                    name: "hw_sensor".to_string(),
+                    metric_type: "temperature".to_string(),
+                    unit: "celsius".to_string(),
+                    value: (idx % 100) as f64,
+                    labels: vec![(Cow::Borrowed("sensor"), key)],
+                    context: None,
+                }
+                .into(),
+            )
         })
         .collect()
 }
@@ -155,12 +158,19 @@ fn bench_composite_sink(c: &mut Criterion) {
 }
 
 fn health_report_with_alerts(alert_count: usize) -> HealthReport {
-    let mut report = HealthReport::empty("bench-health-override".to_string());
+    let mut report = HealthReport {
+        source: carbide_health::sink::ReportSource::Health,
+        observed_at: Some(chrono::Utc::now()),
+        successes: Vec::new(),
+        alerts: Vec::new(),
+    };
     for idx in 0..alert_count {
-        report.alerts.push(HealthProbeAlert::heartbeat_timeout(
-            format!("target-{idx}"),
-            format!("alert message #{idx}"),
-        ));
+        report.alerts.push(carbide_health::sink::HealthReportAlert {
+            probe_id: carbide_health::sink::Probe::Sensor,
+            target: Some(format!("target-{idx}")),
+            message: format!("alert message #{idx}"),
+            classifications: vec![Classification::SensorCritical],
+        });
     }
     report
 }
@@ -186,16 +196,8 @@ impl HealthOverrideBenchState {
             HealthOverrideSink::new_for_bench().expect("bench sink should initialize")
         };
         let context = event_context();
-        let machine_id = MACHINE_ID.parse().expect("valid machine id");
-
-        let small_event = CollectorEvent::HealthOverride(HealthOverride {
-            machine_id: Some(machine_id),
-            report: Arc::new(health_report_with_alerts(1)),
-        });
-        let large_event = CollectorEvent::HealthOverride(HealthOverride {
-            machine_id: Some(machine_id),
-            report: Arc::new(health_report_with_alerts(64)),
-        });
+        let small_event = CollectorEvent::HealthReport(health_report_with_alerts(1));
+        let large_event = CollectorEvent::HealthReport(health_report_with_alerts(64));
 
         Self {
             _runtime: runtime,

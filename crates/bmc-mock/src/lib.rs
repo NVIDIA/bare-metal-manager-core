@@ -32,6 +32,7 @@ mod machine_info;
 mod middleware_router;
 mod mock_machine_router;
 mod redfish;
+pub mod test_support;
 pub mod tls;
 
 pub use combined_server::{CombinedServer, ListenerOrAddress};

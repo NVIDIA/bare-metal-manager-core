@@ -156,8 +156,8 @@ fn default_host_mock() -> Router {
     let power_control = Arc::new(ChannelPowerControl::new(command_channel));
     bmc_mock::machine_router(
         MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::DellPowerEdgeR750,
-            vec![DpuMachineInfo::default()],
+            HostHardwareType::WiwynnGB200Nvl,
+            vec![DpuMachineInfo::default(), DpuMachineInfo::default()],
         )),
         power_control,
         String::default(),

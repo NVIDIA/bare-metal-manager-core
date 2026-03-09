@@ -26,8 +26,8 @@ use db::{Transaction, work_lock_manager};
 use eyre::WrapErr;
 use figment::Figment;
 use figment::providers::{Env, Format, Toml};
-use forge_secrets::ForgeVaultClient;
-use forge_secrets::credentials::CredentialProvider;
+use forge_secrets::certificates::CertificateProvider;
+use forge_secrets::credentials::{CredentialManager, CredentialReader};
 use futures_util::TryFutureExt;
 use librms::RackManagerClientPool;
 use model::attestation::spdm::VerifierImpl;
@@ -174,7 +174,7 @@ pub fn parse_carbide_config(
 }
 
 pub fn create_ipmi_tool(
-    credential_provider: Arc<dyn CredentialProvider>,
+    credential_reader: Arc<dyn CredentialReader>,
     carbide_config: &CarbideConfig,
 ) -> Arc<dyn IPMITool> {
     if carbide_config
@@ -186,7 +186,7 @@ pub fn create_ipmi_tool(
         Arc::new(IPMIToolTestImpl {})
     } else {
         Arc::new(IPMIToolImpl::new(
-            credential_provider,
+            credential_reader,
             &carbide_config.dpu_ipmi_reboot_attempts,
         ))
     }
@@ -218,17 +218,19 @@ async fn create_and_connect_postgres_pool(config: &CarbideConfig) -> eyre::Resul
         .await?)
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tracing::instrument(skip_all)]
 pub async fn start_api(
     carbide_config: Arc<CarbideConfig>,
     meter: Meter,
     dynamic_settings: DynamicSettings,
     shared_redfish_pool: Arc<dyn RedfishClientPool>,
-    vault_client: Arc<ForgeVaultClient>,
+    credential_manager: Arc<dyn CredentialManager>,
+    certificate_provider: Arc<dyn CertificateProvider>,
     cancel_token: CancellationToken,
     ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
-    let ipmi_tool = create_ipmi_tool(vault_client.clone(), &carbide_config);
+    let ipmi_tool = create_ipmi_tool(credential_manager.clone(), &carbide_config);
 
     let db_pool = create_and_connect_postgres_pool(&carbide_config).await?;
 
@@ -306,7 +308,7 @@ pub async fn start_api(
         db::resource_pool::create_common_pools(db_pool.clone(), ib_fabric_ids).await?;
 
     let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
-        vault_client.clone(),
+        credential_manager.clone(),
         ib::IBFabricManagerConfig {
             endpoints: if ib_config.enabled {
                 carbide_config
@@ -362,7 +364,7 @@ pub async fn start_api(
     let bmc_explorer = Arc::new(BmcEndpointExplorer::new(
         shared_redfish_pool.clone(),
         ipmi_tool.clone(),
-        vault_client.clone(),
+        credential_manager.clone(),
         carbide_config
             .site_explorer
             .rotate_switch_nvos_credentials
@@ -373,14 +375,14 @@ pub async fn start_api(
 
     let nmxm_client_pool =
         libnmxm::NmxmClientPool::builder(nvlink_config.allow_insecure).build()?;
-    let nmxm_pool = NmxmClientPoolImpl::new(vault_client.clone(), nmxm_client_pool);
+    let nmxm_pool = NmxmClientPoolImpl::new(credential_manager.clone(), nmxm_client_pool);
 
     let shared_nmxm_pool: Arc<dyn NmxmClientPool> = Arc::new(nmxm_pool);
 
     let api_service = Arc::new(Api {
-        certificate_provider: vault_client.clone(),
+        certificate_provider,
         common_pools,
-        credential_provider: vault_client,
+        credential_manager,
         database_connection: db_pool.clone(),
         dpu_health_log_limiter: LogLimiter::default(),
         dynamic_settings,
@@ -599,11 +601,31 @@ pub async fn initialize_and_start_controllers(
         if let Some(ref config) = carbide_config.dsx_exchange_event_bus
             && config.enabled
         {
+            let options = {
+                let defaults =
+                    mqttea::client::ClientOptions::default().with_qos(mqttea::QoS::AtMostOnce);
+
+                if let Some(provider) = crate::auth::mqtt_auth::build_credentials_provider(
+                    &config.auth,
+                    forge_secrets::credentials::CredentialKey::MqttAuth {
+                        credential_type:
+                            forge_secrets::credentials::MqttCredentialType::DsxExchangeEventBus,
+                    },
+                    api_service.credential_manager.clone(),
+                )
+                .await?
+                {
+                    defaults.with_credentials_provider(provider)
+                } else {
+                    defaults
+                }
+            };
+
             let client = mqttea::MqtteaClient::new(
                 &config.mqtt_endpoint,
                 config.mqtt_broker_port,
                 "carbide-dsx-exchange-event-bus",
-                Some(mqttea::client::ClientOptions::default().with_qos(mqttea::QoS::AtMostOnce)),
+                Some(options),
             )
             .map_err(|e| eyre::eyre!("Failed to create DSX Exchange Event Bus MQTT client: {e}"))
             .await?;
@@ -658,10 +680,7 @@ pub async fn initialize_and_start_controllers(
         let key = forge_secrets::credentials::CredentialKey::BmcCredentials {
             credential_type: forge_secrets::credentials::BmcCredentialType::SiteWideRoot,
         };
-        let credentials = api_service
-            .credential_provider
-            .get_credentials(&key)
-            .await?;
+        let credentials = api_service.credential_manager.get_credentials(&key).await?;
         let Some(forge_secrets::credentials::Credentials::UsernamePassword {
             username: _,
             password,
@@ -721,7 +740,7 @@ pub async fn initialize_and_start_controllers(
                             .instance_autoreboot_period
                             .clone(),
                     )
-                    .credential_provider(api_service.credential_provider.clone())
+                    .credential_reader(api_service.credential_manager.clone())
                     .power_options_config(carbide_config.power_manager_options.clone().into())
                     .dpf_config(crate::state_controller::machine::handler::DpfConfig::from(
                         carbide_config.dpf.clone(),
@@ -907,7 +926,7 @@ pub async fn initialize_and_start_controllers(
         meter.clone(),
         Some(downloader.clone()),
         Some(upload_limiter),
-        Some(api_service.credential_provider.clone()),
+        Some(api_service.credential_manager.clone()),
         work_lock_manager_handle.clone(),
     );
     let _preingestion_manager_stop_handle = preingestion_manager.start()?;

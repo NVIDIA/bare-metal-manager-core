@@ -240,7 +240,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
         db_pool,
         metrics: _,
         db_url: _,
-        vault_config: _,
+        credential_config: _,
         _vault_handle,
     } = test_env.clone();
 

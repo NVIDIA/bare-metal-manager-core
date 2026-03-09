@@ -126,13 +126,12 @@ pub async fn update_metadata(
 ) -> DatabaseResult<()> {
     let query = r#"UPDATE spdm_machine_devices_attestation
         SET metadata = $3
-        WHERE machine_id = $1 AND device_id = $2
-        RETURNING *"#;
-    let _res: SpdmMachineDeviceAttestation = sqlx::query_as(query)
+        WHERE machine_id = $1 AND device_id = $2"#;
+    sqlx::query(query)
         .bind(machine_id)
         .bind(device_id)
         .bind(sqlx::types::Json(metadata))
-        .fetch_one(txn)
+        .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
@@ -147,13 +146,12 @@ pub async fn update_certificate(
 ) -> DatabaseResult<()> {
     let query = r#"UPDATE spdm_machine_devices_attestation
         SET ca_certificate = $3
-        WHERE machine_id = $1 AND device_id = $2
-        RETURNING *"#;
-    let _res: SpdmMachineDeviceAttestation = sqlx::query_as(query)
+        WHERE machine_id = $1 AND device_id = $2"#;
+    sqlx::query(query)
         .bind(machine_id)
         .bind(device_id)
         .bind(sqlx::types::Json(certificate))
-        .fetch_one(txn)
+        .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
@@ -168,13 +166,12 @@ pub async fn update_evidence(
 ) -> DatabaseResult<()> {
     let query = r#"UPDATE spdm_machine_devices_attestation
         SET evidence = $3
-        WHERE machine_id = $1 AND device_id = $2
-        RETURNING *"#;
-    let _res: SpdmMachineDeviceAttestation = sqlx::query_as(query)
+        WHERE machine_id = $1 AND device_id = $2"#;
+    sqlx::query(query)
         .bind(machine_id)
         .bind(device_id)
         .bind(sqlx::types::Json(evidence))
-        .fetch_one(txn)
+        .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
@@ -418,7 +415,6 @@ pub async fn persist_outcome(
             spdm_machine_attestation
         SET state_outcome = $1
         WHERE machine_id = $2
-        RETURNING *
     "#;
 
     let query_device = r#"
@@ -426,22 +422,21 @@ pub async fn persist_outcome(
             spdm_machine_devices_attestation
         SET state_outcome = $1
         WHERE machine_id = $2 AND device_id = $3
-        RETURNING *
     "#;
 
     if let Some(device_id) = &object_id.1 {
-        let _res: SpdmMachineDeviceAttestation = sqlx::query_as(query_device)
+        sqlx::query(query_device)
             .bind(sqlx::types::Json(outcome))
             .bind(object_id.0)
             .bind(device_id)
-            .fetch_one(txn)
+            .execute(txn)
             .await
             .map_err(|e| DatabaseError::query(query_device, e))?;
     } else {
-        let _res: SpdmMachineAttestation = sqlx::query_as(query_machine)
+        sqlx::query(query_machine)
             .bind(sqlx::types::Json(outcome))
             .bind(object_id.0)
-            .fetch_one(txn)
+            .execute(txn)
             .await
             .map_err(|e| DatabaseError::query(query_machine, e))?;
     }
@@ -463,10 +458,9 @@ pub async fn persist_controller_state(
                 spdm_machine_attestation
             SET state= $1, state_version = $2
             WHERE machine_id = $3 AND state_version=$4
-            RETURNING *
         "#;
 
-        sqlx::query(query)
+        let result = sqlx::query(query)
             .bind(sqlx::types::Json(&new_state.machine_state))
             .bind(new_version)
             .bind(object_id.0)
@@ -475,6 +469,14 @@ pub async fn persist_controller_state(
             .await
             .map_err(|e| DatabaseError::query(query, e))?;
 
+        // Check if the update actually affected any rows (optimistic lock check)
+        // If 0 rows were affected, another device already performed this transition
+        if result.rows_affected() == 0 {
+            // This is not an error - just skip device updates and history recording
+            // The other device that won the race will handle updating devices and history
+            return Ok(());
+        }
+
         // Sync state is achieved, update all devices state .
         if new_state.update_device_version {
             let query = r#"
@@ -482,7 +484,6 @@ pub async fn persist_controller_state(
                     spdm_machine_devices_attestation
                 SET state= $1, state_version=$2
                 WHERE machine_id = $3 AND device_id = $4
-                RETURNING *
             "#;
 
             // Not the initial phase. Devices to be updated.
@@ -509,12 +510,12 @@ pub async fn persist_controller_state(
                         ConfigVersion::initial() // It should never happen.
                     };
 
-                    let _res: SpdmMachineDeviceAttestation = sqlx::query_as(query)
+                    sqlx::query(query)
                         .bind(sqlx::types::Json(state))
                         .bind(new_version)
                         .bind(object_id.0)
                         .bind(device_id)
-                        .fetch_one(&mut *txn)
+                        .execute(&mut *txn)
                         .await
                         .map_err(|e| DatabaseError::query(query, e))?;
                 }
@@ -546,14 +547,13 @@ pub async fn persist_controller_state(
                     spdm_machine_devices_attestation
                 SET state= $1, state_version=$2
                 WHERE machine_id = $3 AND device_id = $4
-                RETURNING *
             "#;
-        let _res: SpdmMachineDeviceAttestation = sqlx::query_as(query)
+        sqlx::query(query)
             .bind(sqlx::types::Json(device_state))
             .bind(new_version)
             .bind(object_id.0)
             .bind(device_id)
-            .fetch_one(&mut *txn)
+            .execute(&mut *txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))?;
     }

@@ -50,9 +50,11 @@ form_urlencoded = { workspace = true }
 itertools = { workspace = true }
 futures = { workspace = true }
 rand = { workspace = true }
-rustls = { workspace = true, features = ["default", "ring"] }
+rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 http-body-util = { workspace = true }
+nv-redfish = { workspace = true, features = ["bmc-http"] }
+url = { workspace = true }
 
 [lints]
 workspace = true

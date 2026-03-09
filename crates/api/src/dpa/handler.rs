@@ -185,11 +185,29 @@ pub async fn start_dpa_handler(api_service: Arc<Api>) -> Result<Arc<MqtteaClient
 
     let default_qos = QoS::AtMostOnce;
 
+    let options = {
+        let defaults = ClientOptions::default().with_qos(default_qos);
+        if let Some(ref dpa_config) = api_service.runtime_config.dpa_config
+            && let Some(provider) = crate::auth::mqtt_auth::build_credentials_provider(
+                &dpa_config.auth,
+                forge_secrets::credentials::CredentialKey::MqttAuth {
+                    credential_type: forge_secrets::credentials::MqttCredentialType::Dpa,
+                },
+                api_service.credential_manager.clone(),
+            )
+            .await?
+        {
+            defaults.with_credentials_provider(provider)
+        } else {
+            defaults
+        }
+    };
+
     let client = MqtteaClient::new(
         &api_service.runtime_config.mqtt_broker_host().unwrap(),
         api_service.runtime_config.mqtt_broker_port().unwrap(),
         &client_id,
-        Some(ClientOptions::default().with_qos(QoS::AtMostOnce)),
+        Some(options),
     )
     .await?;
 

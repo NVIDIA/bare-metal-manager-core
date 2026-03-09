@@ -566,9 +566,11 @@ impl<'a> ForgeTlsClient<'a> {
         }
 
         let base_config_builder = || {
-            ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-                .with_safe_default_protocol_versions()
-                .unwrap()
+            ClientConfig::builder_with_provider(Arc::new(
+                rustls::crypto::aws_lc_rs::default_provider(),
+            ))
+            .with_safe_default_protocol_versions()
+            .unwrap()
         };
 
         let tls = {
@@ -870,7 +872,7 @@ mod tests {
         let connector = tower::ServiceBuilder::new()
             .layer_fn(move |s| {
                 let tls = ClientConfig::builder_with_provider(Arc::new(
-                    rustls::crypto::ring::default_provider(),
+                    rustls::crypto::aws_lc_rs::default_provider(),
                 ))
                 .with_safe_default_protocol_versions()
                 .unwrap()

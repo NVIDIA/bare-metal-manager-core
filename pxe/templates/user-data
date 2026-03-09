@@ -81,8 +81,6 @@ chroot /mnt dpkg -R -i /opt/forge/debs
 
 cat << \EOF > /mnt/var/lib/cloud/seed/nocloud-net/user-data
 #cloud-config
-debug:
-  verbose: true
 timezone: "Etc/UTC"
 fqdn: {{ hostname }}
 manage_etc_hosts: true

@@ -28,9 +28,6 @@ use sqlx::PgConnection;
 
 use crate::CarbideError;
 
-const QCOW_IMAGER_IPXE: &str =
-    "chain ${base-url}/internal/x86_64/qcow-imager.efi loglevel=7 console=tty0 pci=realloc=off ";
-
 pub struct PxeInstructions;
 
 #[derive(serde::Serialize)]
@@ -149,6 +146,7 @@ exit ||
         "#;
 
         let mut console = "ttyS0";
+        let mut qcow_imager_url = "chain ${base-url}/internal/x86_64/qcow-imager.efi loglevel=7 console=tty0 pci=realloc=off ";
         let interface = db::machine_interface::find_one(txn, target.interface_id).await?;
 
         // This custom pxe is different from a customer instance of pxe. It is more for testing one off
@@ -292,6 +290,7 @@ exit ||
 
         if target.arch == rpc::MachineArchitecture::Arm {
             console = "ttyAMA0";
+            qcow_imager_url = "chain ${base-url}/internal/aarch64/qcow-imager.efi loglevel=7 console=tty0 pci=realloc=off ";
         } else if let Some(hardware_info) = machine.hardware_info.as_ref()
             && let Some(dmi_info) = hardware_info.dmi_data.as_ref()
             && (dmi_info.sys_vendor == "Lenovo" || dmi_info.sys_vendor == "Supermicro")
@@ -392,7 +391,7 @@ exit ||
                                 } else {
                                     let mut qcow_imaging_ipxe = format!(
                                         "{} console={},115200 image_url={} image_sha={}",
-                                        QCOW_IMAGER_IPXE,
+                                        qcow_imager_url,
                                         console,
                                         os_image.attributes.source_url,
                                         os_image.attributes.digest

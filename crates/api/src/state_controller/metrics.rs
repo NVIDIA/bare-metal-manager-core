@@ -33,13 +33,6 @@ pub(crate) struct FullState {
     pub(crate) substate: &'static str,
 }
 
-// This attributes defines whether we captured the metrics recently,
-// where recently here means in the last Minute. in the case multiple
-// state controllers run in a 3 control plane cluster, this will help
-// differentiating the metrics from a node which has recently acted on
-// objects from metrics that are more outdated
-const MAX_FRESH_DURATION: Duration = Duration::from_secs(60);
-
 /// The result of the state handler processing the state of a single object
 ///
 /// These metrics are emitted for all types of state controllers
@@ -562,12 +555,18 @@ pub struct MetricHolder<IO: StateControllerIO> {
 }
 
 impl<IO: StateControllerIO> MetricHolder<IO> {
-    pub fn new(meter: Option<Meter>, object_type_for_metrics: &str) -> Self {
+    pub fn new(
+        meter: Option<Meter>,
+        object_type_for_metrics: &str,
+        metric_hold_time: std::time::Duration,
+    ) -> Self {
+        // The metrics need to show up in the observability system for a longer time than the configured refresh time.
+        let fresh_period = metric_hold_time.saturating_add(std::time::Duration::from_secs(60));
         let last_iteration_common_metrics =
-            SharedMetricsHolder::<CommonIterationMetrics>::with_fresh_period(MAX_FRESH_DURATION);
+            SharedMetricsHolder::<CommonIterationMetrics>::with_fresh_period(fresh_period);
         let last_iteration_specific_metrics = SharedMetricsHolder::<
             <IO::MetricsEmitter as MetricsEmitter>::IterationMetrics,
-        >::with_fresh_period(MAX_FRESH_DURATION);
+        >::with_fresh_period(fresh_period);
 
         let emitter = meter.as_ref().map(|meter| {
             Arc::new(StateProcessorMetricEmitter::new(

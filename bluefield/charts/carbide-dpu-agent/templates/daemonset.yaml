@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "carbide-dpu-agent.fullname" . }}
+  labels:
+    {{- include "carbide-dpu-agent.labels" . | nindent 4 }}
+    {{- with .Values.serviceDaemonSet.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- with .Values.serviceDaemonSet.annotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- with .Values.serviceDaemonSet.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "carbide-dpu-agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.serviceDaemonSet.annotations }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "carbide-dpu-agent.selectorLabels" . | nindent 8 }}
+        {{- with .Values.serviceDaemonSet.labels }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- if not (empty .Values.serviceDaemonSet.nodeSelector) }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+              {{- toYaml .Values.serviceDaemonSet.nodeSelector | nindent 12 }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: forge-dpu-agent
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["run", "--enable-metadata-service"]
+          {{- with toYaml .Values.serviceDaemonSet.resources }}
+          resources:
+            limits:
+              {{- . | nindent 14 }}
+            requests:
+              {{- . | nindent 14 }}
+          {{- end }}
+          env:
+            - name: RUST_BACKTRACE
+              value: "full"
+            - name: RUST_LIB_BACKTRACE
+              value: "0"
+            - name: RUST_LOG
+              value: "info"
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

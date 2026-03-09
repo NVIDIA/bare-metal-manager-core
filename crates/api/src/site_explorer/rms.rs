@@ -15,35 +15,15 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
 use librms::RmsApi;
-use librms::protos::rack_manager::{NewNodeInfo, NodeType as RmsNodeType};
-use mac_address::MacAddress;
+use librms::protos::rack_manager::NewNodeInfo;
 
 use crate::CarbideError;
 
-// Helper function to add a node to the Rack Manager
 pub async fn add_node_to_rms(
     rms_client: &dyn RmsApi,
-    rack_id: RackId,
-    node_id: String,
-    ip_address: String,
-    port: i32,
-    mac_address: MacAddress,
-    node_type: RmsNodeType,
+    new_node_info: NewNodeInfo,
 ) -> Result<(), CarbideError> {
-    let new_node_info = NewNodeInfo {
-        rack_id: rack_id.to_string(),
-        node_id,
-        mac_address: mac_address.to_string(),
-        ip_address,
-        port,
-        username: None,
-        password: None,
-        r#type: Some(node_type.into()),
-        vault_path: "".to_string(),
-    };
-
     let request = librms::protos::rack_manager::AddNodeRequest {
         metadata: None,
         node_info: vec![new_node_info],

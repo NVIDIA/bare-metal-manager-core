@@ -40,7 +40,7 @@ use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use librms::RmsApi;
-use librms::protos::rack_manager::NodeType as RmsNodeType;
+use librms::protos::rack_manager::{NewNodeInfo, NodeType as RmsNodeType};
 use mac_address::MacAddress;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::expected_switch::ExpectedSwitch;
@@ -60,6 +60,7 @@ use tracing::Instrument;
 use version_compare::Cmp;
 
 use crate::cfg::file::{FirmwareConfig, SiteExplorerConfig};
+use crate::periodic_timer::PeriodicTimer;
 use crate::{CarbideError, CarbideResult};
 
 mod endpoint_explorer;
@@ -191,7 +192,9 @@ impl SiteExplorer {
     }
 
     async fn run(&mut self, mut stop_receiver: oneshot::Receiver<i32>) {
+        let timer = PeriodicTimer::new(self.config.run_interval);
         loop {
+            let tick = timer.tick();
             match self.run_single_iteration().await {
                 Ok(identified_hosts) => self
                     .boot_order_tracker
@@ -202,7 +205,7 @@ impl SiteExplorer {
             }
 
             tokio::select! {
-                _ = tokio::time::sleep(self.config.run_interval) => {},
+                _ = tick.sleep() => {},
                 _ = &mut stop_receiver => {
                     tracing::info!("SiteExplorer stop was requested");
                     return;
@@ -772,17 +775,20 @@ impl SiteExplorer {
         // Register the power shelf with Rack Manager if RMS client is available
         if let Some(rms_client) = &self.rms_client {
             if let Some(rack_id) = expected_shelf.rack_id {
-                if let Err(e) = rms::add_node_to_rms(
-                    rms_client.as_ref(),
-                    rack_id,
-                    power_shelf_id.to_string(),
-                    explored_endpoint.address.to_string(),
-                    443,
-                    expected_shelf.bmc_mac_address,
-                    RmsNodeType::Powershelf,
-                )
-                .await
-                {
+                let new_node_info = NewNodeInfo {
+                    rack_id: rack_id.to_string(),
+                    node_id: power_shelf_id.to_string(),
+                    mac_address: expected_shelf.bmc_mac_address.to_string(),
+                    ip_address: explored_endpoint.address.to_string(),
+                    port: 443,
+                    username: None,
+                    password: None,
+                    r#type: Some(RmsNodeType::Powershelf.into()),
+                    vault_path: String::new(),
+                    host_ip_addresses: vec![],
+                    host_mac_addresses: vec![],
+                };
+                if let Err(e) = rms::add_node_to_rms(rms_client.as_ref(), new_node_info).await {
                     tracing::warn!(
                         "Failed to add power shelf {} to Rack Manager: {}",
                         power_shelf_id,
@@ -816,6 +822,35 @@ impl SiteExplorer {
             .begin()
             .await
             .map_err(|e| DatabaseError::new("begin load create_switch", e))?;
+
+        let metadata = expected_switch.metadata.clone();
+
+        let Some(mac_address) = metadata.labels.get("host_mac_address") else {
+            return Err(CarbideError::InvalidArgument(format!(
+                "no host NVOS MAC address found for switch {}",
+                explored_endpoint.address
+            )));
+        };
+
+        let host_mac_address = MacAddress::try_from(mac_address.as_str())
+            .map_err(|e| CarbideError::InvalidArgument(format!("Invalid MAC address: {}", e)))?;
+
+        let interface =
+            db::machine_interface::find_by_mac_address(&mut txn, host_mac_address).await?;
+
+        let (host_nvos_mac_addresses, host_nvos_ip_addresses) =
+            if let Some(interface) = interface.first() {
+                (
+                    vec![mac_address.clone()],
+                    interface
+                        .addresses
+                        .iter()
+                        .map(|ip| ip.to_string())
+                        .collect::<Vec<String>>(),
+                )
+            } else {
+                (vec![], vec![])
+            };
 
         // Generate switch_id similar to machine_id using deterministic hashing
         // Extract switch metadata similar to how machine_id extracts hardware info
@@ -895,17 +930,21 @@ impl SiteExplorer {
         // Register the switch with Rack Manager if RMS client is available
         if let Some(rms_client) = &self.rms_client {
             if let Some(rack_id) = expected_switch.rack_id {
-                if let Err(e) = rms::add_node_to_rms(
-                    rms_client.as_ref(),
-                    rack_id,
-                    switch_id.to_string(),
-                    explored_endpoint.address.to_string(),
-                    443,
-                    expected_switch.bmc_mac_address,
-                    RmsNodeType::Switch,
-                )
-                .await
-                {
+                let bmc_mac_address = expected_switch.bmc_mac_address;
+                let new_node_info = NewNodeInfo {
+                    rack_id: rack_id.to_string(),
+                    node_id: switch_id.to_string(),
+                    mac_address: bmc_mac_address.to_string(),
+                    ip_address: explored_endpoint.address.to_string(),
+                    port: 443,
+                    username: None,
+                    password: None,
+                    r#type: Some(RmsNodeType::Switch.into()),
+                    vault_path: format!("switch_nvos/{bmc_mac_address}/admin"),
+                    host_ip_addresses: host_nvos_ip_addresses,
+                    host_mac_addresses: host_nvos_mac_addresses,
+                };
+                if let Err(e) = rms::add_node_to_rms(rms_client.as_ref(), new_node_info).await {
                     tracing::warn!("Failed to add switch {} to Rack Manager: {}", switch_id, e);
                 } else {
                     tracing::info!(

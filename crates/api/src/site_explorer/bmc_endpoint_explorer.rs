@@ -19,7 +19,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use forge_secrets::credentials::{CredentialProvider, Credentials};
+use forge_secrets::credentials::{CredentialManager, Credentials};
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
@@ -57,13 +57,13 @@ impl BmcEndpointExplorer {
     pub fn new(
         redfish_client_pool: Arc<dyn RedfishClientPool>,
         ipmi_tool: Arc<dyn IPMITool>,
-        credential_provider: Arc<dyn CredentialProvider>,
+        credential_manager: Arc<dyn CredentialManager>,
         rotate_switch_nvos_credentials: Arc<AtomicBool>,
     ) -> Self {
         Self {
             redfish_client: RedfishClient::new(redfish_client_pool),
             ipmi_tool,
-            credential_client: CredentialClient::new(credential_provider),
+            credential_client: CredentialClient::new(credential_manager),
             mutex: Arc::new(Mutex::new(())),
             rotate_switch_nvos_credentials,
         }

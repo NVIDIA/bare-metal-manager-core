@@ -25,19 +25,31 @@
 //! ```rust,ignore
 //! use std::sync::Arc;
 //! use std::time::Duration;
-//! use mqttea::auth::{OAuth2Config, OAuth2TokenProvider, TokenCredentialsProvider};
-//! use mqttea::{MqtteaClient, ClientOptions};
+//! use mqttea::auth::{
+//!     OAuth2Config, OAuth2TokenProvider, ClientCredentialsProvider,
+//!     ClientId, ClientSecret, TokenCredentialsProvider,
+//! };
+//! use mqttea::{MqtteaClient, MqtteaClientError, ClientOptions};
 //!
-//! // Configure OAuth2 token provider
+//! struct MyCredentials { /* secrets reader, credential key, etc. */ }
+//!
+//! #[async_trait::async_trait]
+//! impl ClientCredentialsProvider for MyCredentials {
+//!     async fn get_client_credentials(&self) -> Result<(ClientId, ClientSecret), MqtteaClientError> {
+//!         Ok((ClientId::new("my-client-id"), ClientSecret::new("my-client-secret")))
+//!     }
+//! }
+//!
 //! let oauth2_config = OAuth2Config::new(
 //!     "https://auth.example.com/oauth/token",
-//!     "my-client-id",
-//!     "my-client-secret",
 //!     vec!["mqtt:publish".into()],
 //!     Duration::from_secs(30),
 //! );
 //!
-//! let token_provider = OAuth2TokenProvider::new(oauth2_config)?;
+//! let token_provider = OAuth2TokenProvider::new(
+//!     oauth2_config,
+//!     Arc::new(MyCredentials { }),
+//! )?;
 //!
 //! // Combine with MQTT username
 //! let credentials_provider = TokenCredentialsProvider::new(token_provider, "oauth2token");
@@ -51,5 +63,6 @@
 mod oauth2_provider;
 mod traits;
 
-pub use oauth2_provider::{OAuth2Config, OAuth2TokenProvider};
+pub use oauth2::{ClientId, ClientSecret};
+pub use oauth2_provider::{ClientCredentialsProvider, OAuth2Config, OAuth2TokenProvider};
 pub use traits::{CredentialsProvider, StaticCredentials, TokenCredentialsProvider, TokenProvider};

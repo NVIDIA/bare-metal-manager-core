@@ -86,7 +86,7 @@ docker build --file dev/docker/Dockerfile.build-artifacts-container-cross-aarch6
 
 ### Building the DPU BFB
 
-After downloading `HBN-LTS-2-4-3-complete.tar.gz`, perfrom the following steps:
+After downloading `HBN-LTS-2-4-3-complete.tar.gz`, perform the following steps:
 
 ```sh
 tar -zxf HBN-LTS-2-4-3-complete.tar.gz`

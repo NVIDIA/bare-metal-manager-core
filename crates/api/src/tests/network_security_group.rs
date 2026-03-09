@@ -996,17 +996,20 @@ async fn test_network_security_group_delete(
     assert_eq!(forge_network_security_groups.len(), 0);
 
     // Now try to delete it AGAIN
-    // This should be a no-op that returns without error.
-    let _ = env
-        .api
-        .delete_network_security_group(tonic::Request::new(
-            rpc::forge::DeleteNetworkSecurityGroupRequest {
-                id: good_network_security_group_id.to_string(),
-                tenant_organization_id: default_tenant_org.to_string(),
-            },
-        ))
-        .await
-        .unwrap();
+    // This should fail with NOT FOUND.
+    assert_eq!(
+        env.api
+            .delete_network_security_group(tonic::Request::new(
+                rpc::forge::DeleteNetworkSecurityGroupRequest {
+                    id: good_network_security_group_id.to_string(),
+                    tenant_organization_id: default_tenant_org.to_string(),
+                },
+            ))
+            .await
+            .unwrap_err()
+            .code(),
+        Code::NotFound
+    );
 
     // Now try to delete a network security group with a blank ID.
     let _ = env

@@ -28,7 +28,7 @@ use config_version::ConfigVersion;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use libredfish::RedfishError;
-use libredfish::model::oem::nvidia_dpu::NicMode;
+pub use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
 use regex::Regex;
 use serde::{Deserialize, Serialize};

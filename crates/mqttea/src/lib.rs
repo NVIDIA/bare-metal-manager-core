@@ -29,8 +29,8 @@ pub mod traits;
 // Export some things for convenience.
 // Re-export auth types for convenience.
 pub use auth::{
-    CredentialsProvider, OAuth2Config, OAuth2TokenProvider, StaticCredentials,
-    TokenCredentialsProvider, TokenProvider,
+    ClientCredentialsProvider, ClientId, ClientSecret, CredentialsProvider, OAuth2Config,
+    OAuth2TokenProvider, StaticCredentials, TokenCredentialsProvider, TokenProvider,
 };
 pub use client::{MqtteaClient, TopicPatterns};
 pub use errors::MqtteaClientError;

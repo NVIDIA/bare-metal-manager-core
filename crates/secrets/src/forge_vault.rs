@@ -38,7 +38,9 @@ use vaultrs::{kv2, pki};
 
 use crate::SecretsError;
 use crate::certificates::{Certificate, CertificateProvider};
-use crate::credentials::{CredentialKey, CredentialProvider, Credentials};
+use crate::credentials::{
+    CredentialKey, CredentialManager, CredentialReader, CredentialWriter, Credentials,
+};
 
 #[derive(Clone, Debug)]
 enum ForgeVaultAuthenticationType {
@@ -509,7 +511,7 @@ impl VaultTask<()> for DeleteCredentialsHelper<'_, '_> {
 }
 
 #[async_trait]
-impl CredentialProvider for ForgeVaultClient {
+impl CredentialReader for ForgeVaultClient {
     async fn get_credentials(
         &self,
         key: &CredentialKey,
@@ -524,7 +526,10 @@ impl CredentialProvider for ForgeVaultClient {
             .execute(vault_client, &self.vault_metrics)
             .await
     }
+}
 
+#[async_trait]
+impl CredentialWriter for ForgeVaultClient {
     async fn set_credentials(
         &self,
         key: &CredentialKey,
@@ -573,6 +578,8 @@ impl CredentialProvider for ForgeVaultClient {
             .await
     }
 }
+
+impl CredentialManager for ForgeVaultClient {}
 
 struct GetCertificateHelper {
     /// Used to form URI-type SANs for this certificate

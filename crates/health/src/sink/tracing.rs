@@ -34,6 +34,7 @@ impl DataSink for TracingSink {
                     endpoint = %context.endpoint_key(),
                     collector = %context.collector_type,
                     metric = %metric.name,
+                    key = %metric.key,
                     metric_type = %metric.metric_type,
                     unit = %metric.unit,
                     value = metric.value,
@@ -65,14 +66,16 @@ impl DataSink for TracingSink {
                     "Firmware info event"
                 );
             }
-            CollectorEvent::HealthOverride(override_event) => {
+            CollectorEvent::HealthReport(report) => {
                 tracing::info!(
                     endpoint = %context.endpoint_key(),
                     collector = %context.collector_type,
-                    machine_id = ?override_event.machine_id,
-                    success_count = override_event.report.successes.len(),
-                    alert_count = override_event.report.alerts.len(),
-                    "Health override event"
+                    machine_id = ?context.machine_id(),
+                    success_count = report.successes.len(),
+                    alert_count = report.alerts.len(),
+                    alerts = ?report.alerts,
+                    report_source = report.source.as_str(),
+                    "Health report event"
                 );
             }
         }

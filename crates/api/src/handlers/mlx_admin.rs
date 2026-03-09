@@ -1190,7 +1190,7 @@ async fn get_device_lockdown_key(
     let lockdown_key = crate::dpa::lockdown::build_supernic_lockdown_key(
         &api.database_connection,
         dpa_interface.id,
-        &*api.credential_provider,
+        &*api.credential_manager,
     )
     .await
     .map_err(|e| {

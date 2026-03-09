@@ -17,7 +17,7 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use forge_secrets::forge_vault::VaultConfig;
+use forge_secrets::CredentialConfig;
 use tokio::sync::oneshot::Sender;
 use tokio_util::sync::CancellationToken;
 use utils::HostPortPair;
@@ -36,7 +36,7 @@ pub struct StartArgs {
     pub firmware_directory: PathBuf,
     pub cancel_token: CancellationToken,
     pub ready_channel: Sender<()>,
-    pub vault_config: VaultConfig,
+    pub credential_config: CredentialConfig,
 }
 
 pub async fn start(
@@ -50,7 +50,7 @@ pub async fn start(
         firmware_directory,
         cancel_token,
         ready_channel,
-        vault_config,
+        credential_config,
     }: StartArgs,
 ) -> eyre::Result<()> {
     let firmware_directory_str = firmware_directory.to_string_lossy();
@@ -216,6 +216,8 @@ pub async fn start(
         processor_dispatch_interval = "500ms"
         max_object_handling_time = "180s"
         max_concurrency = 10
+        metric_emission_interval = "1s"
+        metric_hold_time = "2s"
 
         [network_segment_state_controller]
         network_segment_drain_time = "60s"
@@ -225,12 +227,16 @@ pub async fn start(
         processor_dispatch_interval = "500ms"
         max_object_handling_time = "180s"
         max_concurrency = 10
+        metric_emission_interval = "1s"
+        metric_hold_time = "2s"
 
         [ib_partition_state_controller.controller]
         iteration_time = "20s"
         processor_dispatch_interval = "2s"
         max_object_handling_time = "180s"
         max_concurrency = 10
+        metric_emission_interval = "1s"
+        metric_hold_time = "2s"
 
         [host_models]
 
@@ -276,7 +282,7 @@ pub async fn start(
         0,
         carbide_config_str,
         None,
-        vault_config,
+        credential_config,
         true,
         cancel_token,
         ready_channel,
