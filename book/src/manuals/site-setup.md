@@ -78,13 +78,13 @@ The following services are installed during the BMM installation process.
 
   - nvmetal-carbide:v2025.07.04-rc2-0-8-g077781771 (primary carbide-api, plus supporting workloads)
 
-- **cloud‑api**: nvcr.io/nvidian/nvforge-devel/cloud-api:v0.2.72 (two replicas)
+- **cloud‑api**: cloud-api:v0.2.72 (two replicas)
 
-- **cloud‑workflow**: nvcr.io/nvidian/nvforge-devel/cloud-workflow:v0.2.30 (cloud‑worker, site‑worker)
+- **cloud‑workflow**: cloud-workflow:v0.2.30 (cloud‑worker, site‑worker)
 
-- **cloud‑cert‑manager (credsmgr)**: nvcr.io/nvidian/nvforge-devel/cloud-cert-manager:v0.1.16
+- **cloud‑cert‑manager (credsmgr)**: cloud-cert-manager:v0.1.16
 
-- **elektra-site-agent**: nvcr.io/nvidian/nvforge-devel/forge-elektra:v2025.06.20-rc1-0
+- **elektra-site-agent**: forge-elektra:v2025.06.20-rc1-0
 
 ## Order of Operations
 
