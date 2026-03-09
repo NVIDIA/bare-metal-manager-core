@@ -512,6 +512,20 @@ impl StateHandler for RackStateHandler {
     ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
         tracing::info!("Rack {} is in state {}", id, controller_state);
 
+        // If the rack has been marked as deleted in the DB (via the DeleteRack
+        // API), transition to Deleting regardless of current state. This
+        // bridges the `deleted` DB column with the state machine — without it,
+        // a deleted rack could keep being processed if it was already enqueued
+        // in the controller's work queue.
+        if state.deleted.is_some() && !matches!(controller_state, RackState::Deleting) {
+            tracing::info!(
+                "Rack {} is marked as deleted, transitioning from {} to Deleting",
+                id,
+                controller_state
+            );
+            return Ok(StateHandlerOutcome::transition(RackState::Deleting));
+        }
+
         match controller_state {
             // DISCOVERY PHASE & STATES
             RackState::Expected => {
