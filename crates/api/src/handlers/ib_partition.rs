@@ -144,15 +144,15 @@ pub(crate) async fn update(
         .into());
     }
 
-    // validate the metadata
-    metadata.validate(true).map_err(CarbideError::from)?;
-
-    if metadata.pkey != partition.metadata.pkey {
+    if config.pkey.is_some() && config.pkey.unwrap() != partition.status.pkey.unwrap() {
         return Err(CarbideError::InvalidArgument(
-            "Partition key should not be updated".to_string(),
+            "Partition key cannot be updated".to_string(),
         )
         .into());
     }
+
+    // validate the metadata
+    metadata.validate(true).map_err(CarbideError::from)?;
     
     // Update the metadata of the partition
     partition.metadata.name = name;
