@@ -70,6 +70,12 @@ impl StateHandler for TestRackStateHandler {
             *guard.entry(rack_id.to_string()).or_default() += 1;
         }
 
+        // Mirror the real handler: if the rack is marked deleted in DB,
+        // transition to Deleting regardless of current state.
+        if state.deleted.is_some() && !matches!(controller_state, RackState::Deleting) {
+            return Ok(StateHandlerOutcome::transition(RackState::Deleting));
+        }
+
         let state = match controller_state {
             RackState::Expected => RackState::Discovering,
             RackState::Discovering => RackState::Maintenance {
