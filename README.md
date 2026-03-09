@@ -10,6 +10,7 @@ of the bare-metal lifecycle to fast-track building next generation AI Cloud offe
 ## Getting Started
 
 - Go to the [NCX Infra Controller overview](https://nvidia.github.io/ncx-infra-controller-core/) to get an overview of NICo architecture and capabilities.
+- Follow the [End-to-End Installation Guide](https://nvidia.github.io/ncx-infra-controller-core/manuals/installation-guide.html) for a complete walkthrough from cluster setup to first provisioned host.
 - Or jump to the [Site Setup guide](https://nvidia.github.io/ncx-infra-controller-core/manuals/site-setup.html) to start setting up your site for NICo.
 - Or jump to the [Building Containers guide](https://nvidia.github.io/ncx-infra-controller-core/manuals/building_nico_containers.html) to see an overview for building the containers.
 - Check out [Local Development with DevSpace](dev/deployment/devspace/README.md) to run NICo locally with mock systems.

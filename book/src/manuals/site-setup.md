@@ -74,17 +74,23 @@ These components are not required for NICo setup, but are recommended site metri
 
 The following services are installed during the NICo installation process.
 
-- **NICo core (forge‑system)**
+- **NICo core (forge-system)**
 
-  - nvmetal-carbide:v2025.07.04-rc2-0-8-g077781771 (primary carbide-api, plus supporting workloads)
+  - `<YOUR_REGISTRY>/nvmetal-carbide:<TAG>` (primary carbide-api, plus supporting workloads).
+    Build from [bare-metal-manager-core](https://github.com/NVIDIA/bare-metal-manager-core).
+    See [Building BMM Containers](building_bmm_containers.md).
 
-- **cloud‑api**: cloud-api:v0.2.72 (two replicas)
+- **cloud-api**: `<YOUR_REGISTRY>/carbide-rest-api:<TAG>` (two replicas).
+  Build from [bare-metal-manager-rest](https://github.com/NVIDIA/bare-metal-manager-rest).
 
-- **cloud‑workflow**: cloud-workflow:v0.2.30 (cloud‑worker, site‑worker)
+- **cloud-workflow**: `<YOUR_REGISTRY>/carbide-rest-workflow:<TAG>` (cloud-worker, site-worker).
+  Build from [bare-metal-manager-rest](https://github.com/NVIDIA/bare-metal-manager-rest).
 
-- **cloud‑cert‑manager (credsmgr)**: cloud-cert-manager:v0.1.16
+- **cloud-cert-manager (credsmgr)**: `<YOUR_REGISTRY>/carbide-rest-cert-manager:<TAG>`.
+  Build from [bare-metal-manager-rest](https://github.com/NVIDIA/bare-metal-manager-rest).
 
-- **elektra-site-agent**: forge-elektra:v2025.06.20-rc1-0
+- **elektra-site-agent**: `<YOUR_REGISTRY>/carbide-rest-site-agent:<TAG>`.
+  Build from [bare-metal-manager-rest](https://github.com/NVIDIA/bare-metal-manager-rest).
 
 ## Order of Operations
 

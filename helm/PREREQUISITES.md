@@ -26,8 +26,52 @@ helm install cert-manager jetstack/cert-manager \
 Required for PKI (certificate signing) and secret storage. Vault serves as the backend for the cert-manager issuer and provides secrets to various Carbide components.
 
 - Vault must be deployed and unsealed.
-- A PKI secrets engine must be configured for certificate signing.
+- A **PKI secrets engine** must be enabled at mount path **`forgeca`**:
+
+```bash
+vault secrets enable -path=forgeca pki
+vault secrets tune -max-lease-ttl=87600h forgeca
+```
+
+- A **PKI role** named **`forge-cluster`** must be created under the `forgeca` mount. This role name is referenced by `carbide-api` via the `VAULT_PKI_ROLE_NAME` environment variable:
+
+```bash
+vault write forgeca/roles/forge-cluster \
+  allowed_domains="forge.local,svc.cluster.local" \
+  allow_subdomains=true \
+  allow_bare_domains=true \
+  max_ttl=8760h
+```
+
+- **Kubernetes auth** must be enabled with a role for the **cert-manager service account**, so the `vault-forge-issuer` ClusterIssuer (Section 5) can authenticate to Vault:
+
+```bash
+vault auth enable kubernetes
+vault write auth/kubernetes/config \
+  kubernetes_host="https://kubernetes.default.svc:443"
+vault write auth/kubernetes/role/cert-manager \
+  bound_service_account_names=cert-manager \
+  bound_service_account_namespaces=cert-manager \
+  policies=forge-pki-policy \
+  ttl=1h
+```
+
+- A **Vault policy** must grant the cert-manager role permission to sign certificates:
+
+```bash
+vault policy write forge-pki-policy - <<EOF
+path "forgeca/sign/forge-cluster" {
+  capabilities = ["create", "update"]
+}
+path "forgeca/issue/forge-cluster" {
+  capabilities = ["create"]
+}
+EOF
+```
+
 - The `VAULT_SERVICE` URL must be provided to the cluster via a ConfigMap (see Section 4).
+
+For additional Vault configuration details, see the [Site Setup guide](book/src/manuals/site-setup.md#vault-pki-and-secrets).
 
 ### External Secrets Operator (Optional)
 
@@ -46,10 +90,52 @@ If you want Prometheus metrics collection, install the [Prometheus Operator](htt
 
 An SSL-enabled PostgreSQL instance is required by `carbide-api` for persistent storage.
 
-- **Recommended:** Use a PostgreSQL operator such as Crunchy PGO or Zalando Postgres Operator to manage the database lifecycle.
-- **Database name:** `carbide` (configurable via values).
-- **Schema creation:** The migration job included in the `carbide-api` subchart handles schema creation and migrations automatically. You do not need to run migrations manually.
+- **Recommended:** Use a PostgreSQL operator such as Crunchy PGO or Zalando Postgres Operator (v1.10.1 with Spilo-15 image 3.0-p1 validated) to manage the database lifecycle.
+- **Database and user:** Create a dedicated database named `carbide` with a dedicated user named `carbide`. Do not use the default `postgres` superuser for Carbide services.
+- **Required extensions:** The following PostgreSQL extensions must be created before the migration job runs:
+
+```bash
+psql "postgres://<POSTGRES_USER>:<POSTGRES_PASSWORD>@<POSTGRES_HOST>:<POSTGRES_PORT>/<POSTGRES_DB>?sslmode=require" \
+  -c 'CREATE EXTENSION IF NOT EXISTS btree_gin;' \
+  -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'
+```
+
+- **Schema creation:** The migration job included in the `carbide-api` subchart handles schema creation and migrations automatically after extensions are in place. You do not need to run migrations manually.
 - **Connection details:** Provided to the chart via a ConfigMap and a Secret (see Sections 3 and 4 below).
+
+For additional PostgreSQL configuration details (TLS, ESO integration, per-namespace credentials), see the [Site Setup guide](book/src/manuals/site-setup.md#postgresql-db).
+
+---
+
+## 2a. Temporal (Required for bare-metal-manager-rest only)
+
+Temporal is **not required** by the Carbide core Helm chart. You can operate Carbide core
+standalone using `admin-cli` with direct gRPC commands.
+
+Temporal **is required** if you deploy the
+[bare-metal-manager-rest](https://github.com/NVIDIA/bare-metal-manager-rest) layer
+(cloud-api, cloud-workflow, site-manager, elektra-site-agent). The REST components use
+Temporal for workflow orchestration between the cloud control plane and site agents.
+
+If you plan to deploy bare-metal-manager-rest:
+
+- **Reference version:** Temporal server v1.22.6, admin tools v1.22.4, UI v2.16.2
+- **Visibility store:** Elasticsearch 7.17.3
+- **Persistence:** PostgreSQL (can share the same cluster as Carbide, with separate
+  databases `temporal` and `temporal_visibility`)
+- **Frontend endpoint:** `temporal-frontend.temporal.svc:7233` (cluster-internal)
+- **Required namespaces:** Register `cloud` and `site` after Temporal is running:
+
+```bash
+tctl --ns cloud namespace register
+tctl --ns site namespace register
+```
+
+- **mTLS:** The REST components expect Temporal client TLS certificates. These are
+  issued by the `vault-issuer` ClusterIssuer created by cloud-cert-manager (credsmgr),
+  which is part of bare-metal-manager-rest. See the
+  [End-to-End Installation Guide](book/src/manuals/installation-guide.md) for the
+  full deployment order.
 
 ---
 

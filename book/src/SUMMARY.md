@@ -25,6 +25,7 @@
 
 # Manuals
 
+- [End-to-End Installation Guide](manuals/installation-guide.md)
 - [Site Setup](manuals/site-setup.md)
     - [Site Reference Architecture](manuals/site-reference-arch.md)
     - [Networking Requirements](manuals/networking_requirements.md)
