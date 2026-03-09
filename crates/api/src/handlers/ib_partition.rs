@@ -14,12 +14,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use config_version::ConfigVersion;
 use ::rpc::forge as rpc;
 use db::ObjectColumnFilter;
 use db::ib_partition::{self, IBPartitionStatus, NewIBPartition};
 use db::resource_pool::ResourcePoolDatabaseError;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
 use model::ib_partition::PartitionKey;
+use model::metadata::Metadata;
 use model::resource_pool;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
@@ -98,8 +100,9 @@ pub(crate) async fn update(
     log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
-    
-    let request = request.into_inner();
+
+    let req = request.into_inner();
+    let id = req.id.ok_or(CarbideError::MissingArgument("id"))?;
     let config = req.config.ok_or(CarbideError::MissingArgument("config"))?;
     let metadata = req.metadata.ok_or(CarbideError::MissingArgument("metadata"))?;
 
@@ -109,7 +112,7 @@ pub(crate) async fn update(
     )
     .await?;
 
-    let partition = match partitions.len() {
+    let mut partition = match partitions.len() {
         1 => partitions.remove(0),
         _ => {
             return Err(CarbideError::NotFoundError {
@@ -125,39 +128,41 @@ pub(crate) async fn update(
             .parse::<ConfigVersion>()
             .map_err(CarbideError::from)?;
 
-        if partition.config_version != target_version {
+        if partition.version != target_version {
             return Err(CarbideError::ConcurrentModificationError(
                 "IBPartition",
                 target_version.to_string(),
             )
             .into());
         }
-    };
+    }
 
-    let name = metadata.name;
-    let description = metadata.description;
-    let labels = metadata.labels;
-    if config.tenant_organization_id != partition.tenant_organization_id.to_string() {
+    if config.tenant_organization_id != partition.config.tenant_organization_id.to_string() {
         return Err(CarbideError::InvalidArgument(
             "Tenant organization ID should not be updated".to_string(),
         )
         .into());
     }
 
-    if config.pkey.is_some() && config.pkey.unwrap() != partition.status.pkey.unwrap() {
-        return Err(CarbideError::InvalidArgument(
-            "Partition key cannot be updated".to_string(),
-        )
-        .into());
+    if config.pkey.is_some() {
+        let req_pkey = config
+            .pkey
+            .as_ref()
+            .and_then(|s| u16::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+            .and_then(|v| PartitionKey::try_from(v).ok());
+        let cur_pkey = partition.status.as_ref().and_then(|s| s.pkey);
+        if req_pkey != cur_pkey {
+            return Err(CarbideError::InvalidArgument(
+                "Partition key cannot be updated".to_string(),
+            )
+            .into());
+        }
     }
 
-    // validate the metadata
-    metadata.validate(true).map_err(CarbideError::from)?;
-    
-    // Update the metadata of the partition
-    partition.metadata.name = name;
-    partition.metadata.description = description;
-    partition.metadata.labels = labels;
+    // Validate the metadata and update the partition
+    let meta = Metadata::try_from(metadata).map_err(CarbideError::from)?;
+    meta.validate(true).map_err(CarbideError::from)?;
+    partition.metadata = meta;
 
     let resp = db::ib_partition::update(&partition, &mut txn).await?;
     txn.commit().await?;
