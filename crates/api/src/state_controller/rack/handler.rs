@@ -63,55 +63,36 @@ pub struct RackPartitionSummary {
     pub failed: usize,
 }
 
-impl RackPartitionSummary {
-    /// Returns true if at least one partition has started validation
-    pub fn any_started(&self) -> bool {
-        self.in_progress > 0 || self.validated > 0 || self.failed > 0
-    }
-
-    /// Returns true if at least one partition has passed validation
-    pub fn any_validated(&self) -> bool {
-        self.validated > 0
-    }
-
-    /// Returns true if at least one partition has failed validation
-    pub fn any_failed(&self) -> bool {
-        self.failed > 0
-    }
-
-    /// Returns true if all partitions have passed validation.
-    /// Vacuously true when there are no partitions — use `!is_empty()`
-    /// at the call site when non-emptiness matters.
-    pub fn all_validated(&self) -> bool {
-        self.validated == self.total_partitions
-    }
-
-    /// Returns true if all partitions have failed validation.
-    /// Vacuously true when there are no partitions — use `!is_empty()`
-    /// at the call site when non-emptiness matters.
-    pub fn all_failed(&self) -> bool {
-        self.failed == self.total_partitions
-    }
-
-    /// Returns true if no partitions have failed
-    pub fn none_failed(&self) -> bool {
-        self.failed == 0
-    }
-
-
-}
-
 //------------------------------------------------------------------------------
 
-/// Label key for the partition ID that groups nodes into validation partitions.
-const RV_LABEL_PART_ID: &str = "rv.part-id";
-/// Label key for the per-node validation status.
-const RV_LABEL_ST: &str = "rv.st";
-// Label key for the validation run correlation ID.
-// Not used yet — will be needed when RVS sets run correlation metadata.
-// const RV_LABEL_RUN_ID: &str = "rv.run-id";
-/// Label key for a failure description (only meaningful when status is `fail`).
-const RV_LABEL_FAIL_DESC: &str = "rv.fail-desc";
+/// Instance metadata labels assigned as a part of instance creation by RVS to
+/// communicate the state of the instance.
+enum InstanceRvLabels {
+    /// Label key for the partition ID that groups nodes into validation
+    /// partitions.
+    PartitionId,
+    // Label key for the validation run correlation ID. Not used yet — will be
+    // needed when RVS sets run correlation metadata.
+    // Not yet used anywhere in the code.
+    // RunId,
+    /// Label key for the per-node validation status.
+    State,
+    /// Label key for a failure description (only meaningful when status is
+    /// `fail`).
+    FailDesc,
+}
+
+impl InstanceRvLabels {
+    fn as_str(&self) -> &'static str {
+        match self {
+            InstanceRvLabels::PartitionId => "rv.part-id",
+            // TBD: use the run-id somewhere
+            // InstanceRvLabels::RunId => "rv.run-id",
+            InstanceRvLabels::State => "rv.st",
+            InstanceRvLabels::FailDesc => "rv.fail-desc",
+        }
+    }
+}
 
 /// Per-instance rack-validation state, derived from instance metadata labels.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -122,10 +103,15 @@ enum InstanceRvState {
     Fail(String),
 }
 
-impl InstanceRvState {
-    fn from_meta(metadata: &Metadata) -> Result<Self, StateHandlerError> {
-        let st = metadata.labels.get(RV_LABEL_ST).ok_or_else(|| {
-            StateHandlerError::InvalidState(format!("missing required label '{}'", RV_LABEL_ST))
+impl TryFrom<Metadata> for InstanceRvState {
+    type Error = StateHandlerError;
+
+    fn try_from(metadata: Metadata) -> Result<Self, Self::Error> {
+        let st_label = InstanceRvLabels::State.as_str();
+        let fail_label = InstanceRvLabels::FailDesc.as_str();
+
+        let st = metadata.labels.get(st_label).ok_or_else(|| {
+            StateHandlerError::InvalidState(format!("missing required label '{}'", st_label))
         })?;
 
         match st.as_str() {
@@ -133,16 +119,12 @@ impl InstanceRvState {
             "inp" => Ok(InstanceRvState::Inp),
             "pass" => Ok(InstanceRvState::Pass),
             "fail" => {
-                let desc = metadata
-                    .labels
-                    .get(RV_LABEL_FAIL_DESC)
-                    .cloned()
-                    .unwrap_or_default();
+                let desc = metadata.labels.get(fail_label).cloned().unwrap_or_default();
                 Ok(InstanceRvState::Fail(desc))
             }
             other => Err(StateHandlerError::InvalidState(format!(
                 "unknown '{}' value: '{}'",
-                RV_LABEL_ST, other
+                st_label, other
             ))),
         }
     }
@@ -158,28 +140,31 @@ struct RvPartitions {
     inner: HashMap<String, Vec<InstanceRvState>>,
 }
 
-impl RvPartitions {
-    /// Build from a slice of instance snapshots (the DB-facing entry point).
-    fn from_instances(instances: &[InstanceSnapshot]) -> Result<Self, StateHandlerError> {
-        Self::from_meta_iter(instances.iter().map(|i| &i.metadata))
-    }
+impl TryFrom<&[InstanceSnapshot]> for RvPartitions {
+    type Error = StateHandlerError;
 
+    /// Build from a slice of instance snapshots (the DB-facing entry point).
+    fn try_from(instances: &[InstanceSnapshot]) -> Result<Self, Self::Error> {
+        Self::from_meta_iter(instances.iter().map(|i| &i.metadata).cloned())
+    }
+}
+
+impl RvPartitions {
     /// Core grouping logic over any iterator of `&Metadata`.
     /// Extracted so unit tests can feed plain metadata without constructing
     /// full `InstanceSnapshot` values.
-    fn from_meta_iter<'a>(
-        iter: impl Iterator<Item = &'a Metadata>,
-    ) -> Result<Self, StateHandlerError> {
+    fn from_meta_iter(iter: impl Iterator<Item = Metadata>) -> Result<Self, StateHandlerError> {
         let mut inner: HashMap<String, Vec<InstanceRvState>> = HashMap::new();
+        let part_label = InstanceRvLabels::PartitionId.as_str();
 
-        for meta in iter {
+        for mut meta in iter {
             // Skip instances that aren't part of rack validation
-            let Some(part_id) = meta.labels.get(RV_LABEL_PART_ID) else {
+            let Some(part_id) = meta.labels.remove(part_label) else {
                 continue;
             };
 
-            let rv_state = InstanceRvState::from_meta(meta)?;
-            inner.entry(part_id.clone()).or_default().push(rv_state);
+            let rv_state = meta.try_into()?;
+            inner.entry(part_id).or_default().push(rv_state);
         }
 
         Ok(RvPartitions { inner })
@@ -260,7 +245,7 @@ async fn load_partition_summary(
         machine_ids.len()
     );
 
-    let partitions = RvPartitions::from_instances(&instances)?;
+    let partitions: RvPartitions = instances.as_slice().try_into()?;
     Ok(partitions.summarize())
 }
 
@@ -408,7 +393,7 @@ fn compute_validation_transition(
     match current {
         RackState::Discovered => {
             // Transition when at least one partition starts validation
-            if summary.any_started() {
+            if summary.in_progress > 0 || summary.validated > 0 || summary.failed > 0 {
                 Some(RackState::ValidationInProgress)
             } else {
                 None
@@ -416,9 +401,9 @@ fn compute_validation_transition(
         }
         RackState::ValidationInProgress => {
             // Check for failures first (higher priority)
-            if summary.any_failed() {
+            if summary.failed > 0 {
                 Some(RackState::FailedPartial)
-            } else if summary.any_validated() {
+            } else if summary.validated > 0 {
                 Some(RackState::ValidationPartial)
             } else {
                 None
@@ -426,22 +411,22 @@ fn compute_validation_transition(
         }
         RackState::ValidationPartial => {
             // Check if all done, or if any failed
-            if summary.all_validated() {
+            if summary.validated == summary.total_partitions {
                 Some(RackState::RackValidated)
-            } else if summary.any_failed() {
+            } else if summary.failed > 0 {
                 Some(RackState::FailedPartial)
             } else {
                 None
             }
         }
         RackState::FailedPartial => {
-            if summary.all_failed() {
+            if summary.failed == summary.total_partitions {
                 Some(RackState::RackFailed)
-            } else if summary.none_failed() {
+            } else if summary.failed == 0 {
                 // Can recover if failures are resolved
-                if summary.any_validated() {
+                if summary.validated > 0 {
                     Some(RackState::ValidationPartial)
-                } else if summary.any_started() {
+                } else if summary.in_progress > 0 || summary.validated > 0 || summary.failed > 0 {
                     Some(RackState::ValidationInProgress)
                 } else {
                     None
@@ -452,7 +437,7 @@ fn compute_validation_transition(
         }
         RackState::RackFailed => {
             // Can recover if at least one partition is no longer failed
-            if !summary.all_failed() {
+            if summary.failed != summary.total_partitions {
                 Some(RackState::FailedPartial)
             } else {
                 None
@@ -467,16 +452,16 @@ fn compute_validation_transition(
             // Stay in Ready if all partitions are validated, or if there are
             // no validation partitions at all (vacuously true — e.g. tenant
             // instances replaced the validation ones).
-            if summary.all_validated() {
+            if summary.validated == summary.total_partitions {
                 None
             }
             // New validation run might have been requested and something failed.
             // This check has a higher prio due to be an error state check.
-            else if summary.any_failed() {
+            else if summary.failed > 0 {
                 Some(RackState::FailedPartial)
             }
             // New validation run might have been requested.
-            else if summary.any_started() {
+            else if summary.in_progress > 0 || summary.validated > 0 || summary.failed > 0 {
                 Some(RackState::ValidationInProgress)
             } else {
                 None
@@ -557,10 +542,7 @@ impl StateHandler for RackStateHandler {
                     // hardcoded to FirmwareUpgrade(Compute). This should become
                     // configurable or determined by rack/site config so that
                     // different maintenance workflows can be selected.
-                    tracing::info!(
-                        "Rack {} has all machines ready, entering maintenance",
-                        id
-                    );
+                    tracing::info!("Rack {} has all machines ready, entering maintenance", id);
                     Ok(StateHandlerOutcome::transition(RackState::Maintenance {
                         rack_maintenance: RackMaintenanceState::FirmwareUpgrade {
                             rack_firmware_upgrade: RackFirmwareUpgradeState::Compute,
@@ -574,7 +556,9 @@ impl StateHandler for RackStateHandler {
 
             RackState::Maintenance { rack_maintenance } => {
                 match rack_maintenance {
-                    RackMaintenanceState::FirmwareUpgrade { rack_firmware_upgrade } => {
+                    RackMaintenanceState::FirmwareUpgrade {
+                        rack_firmware_upgrade,
+                    } => {
                         match rack_firmware_upgrade {
                             RackFirmwareUpgradeState::Compute => {
                                 // TODO[#416]: Implement compute firmware upgrade
@@ -590,10 +574,7 @@ impl StateHandler for RackStateHandler {
                             }
                             RackFirmwareUpgradeState::Switch => {
                                 // TODO[#416]: Implement switch firmware upgrade
-                                tracing::info!(
-                                    "Rack {} firmware upgrade (switch) - stubbed",
-                                    id
-                                );
+                                tracing::info!("Rack {} firmware upgrade (switch) - stubbed", id);
                                 Ok(StateHandlerOutcome::do_nothing())
                             }
                             RackFirmwareUpgradeState::PowerShelf => {
@@ -607,10 +588,7 @@ impl StateHandler for RackStateHandler {
                             RackFirmwareUpgradeState::All => {
                                 // TODO[#416]: Implement full-rack firmware upgrade
                                 // (likely delegated to Rack Manager for the entire rack)
-                                tracing::info!(
-                                    "Rack {} firmware upgrade (all) - stubbed",
-                                    id
-                                );
+                                tracing::info!("Rack {} firmware upgrade (all) - stubbed", id);
                                 Ok(StateHandlerOutcome::do_nothing())
                             }
                         }
@@ -1015,55 +993,46 @@ mod tests {
     fn test_instance_rv_state_from_metadata() {
         // All four valid statuses
         let m = metadata_with_labels(&[("rv.st", "idle"), ("rv.part-id", "p0")]);
-        assert_eq!(
-            InstanceRvState::from_meta(&m).unwrap(),
-            InstanceRvState::Idle
-        );
+        let s: InstanceRvState = m.try_into().unwrap();
+        assert_eq!(s, InstanceRvState::Idle);
 
         let m = metadata_with_labels(&[("rv.st", "inp")]);
-        assert_eq!(
-            InstanceRvState::from_meta(&m).unwrap(),
-            InstanceRvState::Inp
-        );
+        let s: InstanceRvState = m.try_into().unwrap();
+        assert_eq!(s, InstanceRvState::Inp);
 
         let m = metadata_with_labels(&[("rv.st", "pass")]);
-        assert_eq!(
-            InstanceRvState::from_meta(&m).unwrap(),
-            InstanceRvState::Pass
-        );
+        let s: InstanceRvState = m.try_into().unwrap();
+        assert_eq!(s, InstanceRvState::Pass);
 
         // Fail without description
         let m = metadata_with_labels(&[("rv.st", "fail")]);
-        assert_eq!(
-            InstanceRvState::from_meta(&m).unwrap(),
-            InstanceRvState::Fail(String::new())
-        );
+        let s: InstanceRvState = m.try_into().unwrap();
+        assert_eq!(s, InstanceRvState::Fail(String::new()));
 
         // Fail with description
         let m = metadata_with_labels(&[("rv.st", "fail"), ("rv.fail-desc", "nccl-timeout")]);
-        assert_eq!(
-            InstanceRvState::from_meta(&m).unwrap(),
-            InstanceRvState::Fail("nccl-timeout".into())
-        );
+        let s: InstanceRvState = m.try_into().unwrap();
+        assert_eq!(s, InstanceRvState::Fail("nccl-timeout".into()));
 
         // Missing rv.st label
         let m = metadata_with_labels(&[("rv.part-id", "p0")]);
+        let s: Result<InstanceRvState, StateHandlerError> = m.try_into();
         assert!(matches!(
-            InstanceRvState::from_meta(&m),
+            s,
             Err(StateHandlerError::InvalidState(msg)) if msg.contains("missing")
         ));
 
         // Unknown status value
         let m = metadata_with_labels(&[("rv.st", "bogus")]);
+        let s: Result<InstanceRvState, StateHandlerError> = m.try_into();
         assert!(matches!(
-            InstanceRvState::from_meta(&m),
+            s,
             Err(StateHandlerError::InvalidState(msg)) if msg.contains("bogus")
         ));
     }
 
     // -----------------------------------------------------------------
     // RvPartitions tests
-    // -----------------------------------------------------------------
 
     #[test]
     fn test_partitions_from_meta_iter() {
@@ -1075,7 +1044,7 @@ mod tests {
             metadata_with_labels(&[("some-other", "label")]),
         ];
 
-        let parts = RvPartitions::from_meta_iter(metas.iter()).unwrap();
+        let parts = RvPartitions::from_meta_iter(metas.iter().cloned()).unwrap();
 
         assert_eq!(parts.inner.len(), 2);
         assert_eq!(parts.inner["p0"].len(), 2);
@@ -1105,7 +1074,7 @@ mod tests {
             metadata_with_labels(&[("rv.part-id", "p3"), ("rv.st", "idle")]),
         ];
 
-        let parts = RvPartitions::from_meta_iter(metas.iter()).unwrap();
+        let parts = RvPartitions::from_meta_iter(metas.iter().cloned()).unwrap();
         let summary = parts.summarize();
 
         assert_eq!(summary.total_partitions, 4);
