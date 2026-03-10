@@ -423,13 +423,16 @@ fn compute_validation_transition(
             if summary.failed == summary.total_partitions {
                 Some(RackState::RackFailed)
             } else if summary.failed == 0 {
-                // Can recover if failures are resolved
+                // All failures resolved - figure out where to go next
                 if summary.validated > 0 {
                     Some(RackState::ValidationPartial)
-                } else if summary.in_progress > 0 || summary.validated > 0 || summary.failed > 0 {
+                } else if summary.in_progress > 0 {
                     Some(RackState::ValidationInProgress)
                 } else {
-                    None
+                    // All partitions back to idle/pending (e.g. RVS reset
+                    // instances before a re-run). Transition to Discovered so
+                    // the validation cycle can restart cleanly.
+                    Some(RackState::Discovered)
                 }
             } else {
                 None
@@ -883,6 +886,17 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(compute_validation_transition(&state, &summary), None);
+
+        // All partitions reset to idle (RVS cleared labels before re-run)
+        let summary = RackPartitionSummary {
+            total_partitions: 4,
+            pending: 4,
+            ..Default::default()
+        };
+        assert_eq!(
+            compute_validation_transition(&state, &summary),
+            Some(RackState::Discovered)
+        );
     }
 
     #[test]
