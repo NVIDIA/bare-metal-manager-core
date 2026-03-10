@@ -975,6 +975,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "bmc-explorer"
+version = "0.1.0"
+dependencies = [
+ "bmc-mock",
+ "bmc-vendor",
+ "carbide-api-model",
+ "carbide-network",
+ "itertools 0.14.0",
+ "lazy_static",
+ "mac_address",
+ "nv-redfish",
+ "regex",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "bmc-explorer-cli"
+version = "0.1.0"
+dependencies = [
+ "arc-swap",
+ "carbide-api",
+ "carbide-secrets",
+ "clap",
+ "libredfish",
+ "mac_address",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "bmc-mock"
 version = "0.1.0"
 dependencies = [
@@ -1304,6 +1337,7 @@ dependencies = [
  "axum 0.8.6",
  "axum-extra",
  "base64 0.22.1",
+ "bmc-explorer",
  "bmc-vendor",
  "byteorder",
  "bytes",
@@ -1364,6 +1398,7 @@ dependencies = [
  "nras",
  "num-bigint-dig",
  "num_cpus",
+ "nv-redfish",
  "oauth2",
  "oid-registry",
  "once_cell",
@@ -5562,7 +5597,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.43.2#a5a79e2a760f91de756bf84aa43f09ab6414f1bd"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.43.3#4d5c14ba784873c4e763c6fa3faf01e2ada665ed"
 dependencies = [
  "async-trait",
  "chrono",

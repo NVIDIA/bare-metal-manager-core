@@ -29,7 +29,7 @@ use crate::host_port_pair::HostPortParseError::{
 /// It represents invariants that either the host must be set, or the port, or both. It is distinct
 /// from a URI because there cases where (a) we don't want to specify a scheme, and (b) we don't
 /// want to specify anything else like path/etc.
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Hash, Debug, Clone)]
 pub enum HostPortPair {
     HostOnly(String),
     PortOnly(u16),

@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
+use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_uuid::vpc::VpcId;
 use clap::Parser;
-use forge_network::virtualization::VpcVirtualizationType;
 
 #[derive(Parser, Debug)]
 pub struct Args {

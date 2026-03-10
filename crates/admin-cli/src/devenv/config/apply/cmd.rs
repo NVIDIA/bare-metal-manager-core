@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use carbide_network::ip::prefix::Ipv4Network;
 use carbide_uuid::network::NetworkSegmentId;
-use forge_network::ip::prefix::Ipv4Network;
 use rpc::forge::{PrefixMatchType, Vpc, VpcPrefixCreationRequest, VpcPrefixSearchQuery};
 use serde::{Deserialize, Serialize};
 

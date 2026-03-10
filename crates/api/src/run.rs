@@ -28,6 +28,7 @@ use crate::logging::metrics_endpoint::{MetricsEndpointConfig, run_metrics_endpoi
 use crate::logging::setup::{
     Logging, create_metric_for_spancount_reader, create_metrics, setup_logging,
 };
+use crate::nv_redfish::NvRedfishClientPool;
 use crate::redfish::RedfishClientPoolImpl;
 use crate::{CarbideError, dynamic_settings, setup};
 
@@ -188,11 +189,16 @@ pub async fn run(
         Arc::new(redfish_pool)
     };
 
+    let nv_redfish_pool = Arc::new(NvRedfishClientPool::new(
+        carbide_config.site_explorer.bmc_proxy.clone(),
+    ));
+
     setup::start_api(
         carbide_config,
         metrics.meter,
         dynamic_settings,
         redfish_pool,
+        nv_redfish_pool,
         credential_manager,
         certificate_provider,
         cancel_token,

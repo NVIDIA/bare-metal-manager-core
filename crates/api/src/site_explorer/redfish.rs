@@ -15,11 +15,12 @@
  * limitations under the License.
  */
 use std::collections::HashMap;
+use std::error::Error;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use forge_network::deserialize_input_mac_to_address;
+use carbide_network::deserialize_input_mac_to_address;
 use forge_secrets::credentials::Credentials;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
@@ -31,8 +32,10 @@ use model::site_explorer::{
     InternalLockdownStatus, Inventory, LockdownStatus, MachineSetupDiff, MachineSetupStatus,
     Manager, NetworkAdapter, PCIeDevice, SecureBootStatus, Service, UefiDevicePath,
 };
+use nv_redfish::oem::hpe::ilo_service_ext::ManagerType as HpeManagerType;
 use regex::Regex;
 
+use crate::nv_redfish::NvRedfishClientPool;
 use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool, redact_password};
 
 const NOT_FOUND: u16 = 404;
@@ -42,12 +45,17 @@ const NOT_FOUND: u16 = 404;
 // Eventually, this file should only have code related to generating the site exploration report.
 pub struct RedfishClient {
     redfish_client_pool: Arc<dyn RedfishClientPool>,
+    nv_redfish_client_pool: Arc<NvRedfishClientPool>,
 }
 
 impl RedfishClient {
-    pub fn new(redfish_client_pool: Arc<dyn RedfishClientPool>) -> Self {
+    pub fn new(
+        redfish_client_pool: Arc<dyn RedfishClientPool>,
+        nv_redfish_client_pool: Arc<NvRedfishClientPool>,
+    ) -> Self {
         Self {
             redfish_client_pool,
+            nv_redfish_client_pool,
         }
     }
 
@@ -298,6 +306,63 @@ impl RedfishClient {
         })
     }
 
+    pub async fn nv_generate_exploration_report(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+        boot_interface_mac: Option<MacAddress>,
+    ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
+        if let Some(bmc) = self
+            .nv_redfish_client_pool
+            .cached_nv_redfish_bmc(bmc_ip_address, credentials.clone())
+        {
+            bmc_explorer::nv_generate_exploration_report(bmc, boot_interface_mac)
+                .await
+                .map_err(map_nv_redfish_explore_error)
+        } else {
+            let bmc = self
+                .nv_redfish_client_pool
+                .create_nv_redfish_bmc(bmc_ip_address, credentials.clone(), false)
+                .map_err(|err| EndpointExplorationError::Other {
+                    details: format!("Cannot build redfish client: {err}"),
+                })?;
+            let root = bmc_explorer::explore_root(bmc.clone())
+                .await
+                .map_err(map_nv_redfish_explore_error)?;
+            let (root, bmc) = if root.vendor() == Some(nv_redfish::service_root::Vendor::new("HPE"))
+                && let Some(HpeManagerType::Ilo(version)) = root
+                    .oem_hpe_ilo_service_ext()
+                    .ok()
+                    .as_ref()
+                    .and_then(|v| v.as_ref())
+                    .and_then(|v| v.manager_type())
+                && version < 7
+            {
+                // Handle HPE BMC that closing connection right after
+                // response. In this case, we add Connection: Close
+                // HTTP header to prevent trying to reuse this
+                // connection. Otherwise, race condition may happen
+                // when reqwest thinks that connection is alive but it
+                // is about to close by server. Reusing such
+                // connections causes errors.
+                let bmc = self
+                    .nv_redfish_client_pool
+                    .create_nv_redfish_bmc(bmc_ip_address, credentials.clone(), true)
+                    .map_err(|err| EndpointExplorationError::Other {
+                        details: format!("Cannot build redfish client: {err}"),
+                    })?;
+                (root.replace_bmc(bmc.clone()), bmc)
+            } else {
+                (root, bmc)
+            };
+            self.nv_redfish_client_pool
+                .update_cache(bmc_ip_address, credentials, bmc);
+            bmc_explorer::nv_generate_exploration_report_from_root(root, boot_interface_mac)
+                .await
+                .map_err(map_nv_redfish_explore_error)
+        }
+    }
+
     pub async fn reset_bmc(
         &self,
         bmc_ip_address: SocketAddr,
@@ -430,6 +495,7 @@ impl RedfishClient {
                 boot_interface_mac,
                 &HashMap::default(),
                 libredfish::BiosProfileType::Performance,
+                &HashMap::default(),
             )
             .await
             .map_err(map_redfish_error)?;
@@ -1179,6 +1245,87 @@ pub(crate) fn map_redfish_error(error: RedfishError) -> EndpointExplorationError
             details: error.to_string(),
             response_body: None,
             response_code: None,
+        },
+    }
+}
+
+fn map_nv_redfish_explore_error(
+    err: bmc_explorer::Error<crate::nv_redfish::NvRedfishBmc>,
+) -> EndpointExplorationError {
+    type BmcError = nv_redfish::bmc_http::reqwest::BmcError;
+    match err {
+        bmc_explorer::Error::NvRedfish { context, err } => match err {
+            nv_redfish::Error::Bmc(err) => match err {
+                BmcError::ReqwestError(err) => {
+                    let details = format!(
+                        "context: {context}; network error: {err}; source: {:?}",
+                        err.source()
+                    );
+                    if err.is_connect() {
+                        EndpointExplorationError::ConnectionRefused { details }
+                    } else if err.is_timeout() {
+                        EndpointExplorationError::ConnectionTimeout { details }
+                    } else {
+                        EndpointExplorationError::Unreachable {
+                            details: Some(details),
+                        }
+                    }
+                }
+                BmcError::InvalidResponse { url, status, text } => {
+                    match status {
+                        // Disclaimer: this is original libredfish code...
+                        http::StatusCode::FORBIDDEN
+                            if url.to_string().contains("FirmwareInventory") =>
+                        {
+                            EndpointExplorationError::VikingFWInventoryForbiddenError {
+                                details: format!(
+                                    "HTTP {status} at {url} - this is a known, intermittent issue for Vikings."
+                                ),
+                                response_body: Some(text),
+                                response_code: Some(status.as_u16()),
+                            }
+                        }
+                        http::StatusCode::UNAUTHORIZED | http::StatusCode::FORBIDDEN => {
+                            EndpointExplorationError::Unauthorized {
+                                details: format!(
+                                    "HTTP {status} {} at {context} ({url})",
+                                    status.as_str()
+                                ),
+                                response_body: Some(text),
+                                response_code: Some(status.as_u16()),
+                            }
+                        }
+                        _ => EndpointExplorationError::RedfishError {
+                            details: format!("HTTP {status} at {context} ({url})"),
+                            response_body: Some(text),
+                            response_code: Some(status.as_u16()),
+                        },
+                    }
+                }
+                BmcError::JsonError(err) => EndpointExplorationError::RedfishError {
+                    details: format!("context: {context}; json error: {err}"),
+                    response_body: None,
+                    response_code: None,
+                },
+                err => EndpointExplorationError::RedfishError {
+                    details: format!("context: {context}; error: {err}"),
+                    response_body: None,
+                    response_code: None,
+                },
+            },
+            nv_redfish::Error::Json(err) => EndpointExplorationError::RedfishError {
+                details: format!("context: {context}; json error: {err}"),
+                response_body: None,
+                response_code: None,
+            },
+            err => EndpointExplorationError::RedfishError {
+                details: format!("context: {context}; error: {err}"),
+                response_body: None,
+                response_code: None,
+            },
+        },
+        err => EndpointExplorationError::Other {
+            details: err.to_string(),
         },
     }
 }

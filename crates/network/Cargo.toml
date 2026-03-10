@@ -22,9 +22,8 @@ description = "Common networking code for Forge components."
 license.workspace = true
 authors.workspace = true
 
-# TODO: rename to carbide_network in source
 [lib]
-name = "forge_network"
+name = "carbide_network"
 
 [features]
 default = ["ipnetwork"]

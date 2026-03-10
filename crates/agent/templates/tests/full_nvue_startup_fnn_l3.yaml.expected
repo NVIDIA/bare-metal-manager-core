@@ -109,6 +109,9 @@
                 action: permit
                 match:
                   10.1.1.1/32: {}
+              '65535':
+                action:
+                  deny: {}
         route-map:
           dpu_to_evpn:
             rule:

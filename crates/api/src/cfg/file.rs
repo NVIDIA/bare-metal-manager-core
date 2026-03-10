@@ -1400,6 +1400,9 @@ pub struct SiteExplorerConfig {
         serialize_with = "serialize_arc_atomic_bool"
     )]
     pub use_onboard_nic: Arc<AtomicBool>,
+    #[serde(default = "SiteExplorerConfig::default_explore_mode")]
+    /// What type of exploration to be used.
+    pub explore_mode: SiteExplorerExploreMode,
 }
 
 impl Default for SiteExplorerConfig {
@@ -1426,6 +1429,7 @@ impl Default for SiteExplorerConfig {
             switches_created_per_run: Self::default_switches_created_per_run(),
             rotate_switch_nvos_credentials: Self::default_rotate_switch_nvos_credentials(),
             use_onboard_nic: Arc::new(false.into()),
+            explore_mode: Self::default_explore_mode(),
         }
     }
 }
@@ -1499,6 +1503,20 @@ impl SiteExplorerConfig {
     pub fn default_use_onboard_nic() -> Arc<AtomicBool> {
         Arc::new(false.into())
     }
+
+    pub const fn default_explore_mode() -> SiteExplorerExploreMode {
+        SiteExplorerExploreMode::LibRedfish
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub enum SiteExplorerExploreMode {
+    #[serde(rename = "libredfish")]
+    LibRedfish,
+    #[serde(rename = "nv-redfish")]
+    NvRedfish,
+    #[serde(rename = "compare-result")]
+    CompareResult,
 }
 
 impl DpaConfig {
@@ -3091,6 +3109,7 @@ mod tests {
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
                 use_onboard_nic: Arc::new(false.into()),
+                explore_mode: SiteExplorerExploreMode::LibRedfish,
             }
         );
         assert_eq!(
@@ -3263,6 +3282,7 @@ mod tests {
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
                 use_onboard_nic: Arc::new(false.into()),
+                explore_mode: SiteExplorerExploreMode::LibRedfish,
             }
         );
 
@@ -3541,6 +3561,7 @@ mod tests {
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
                 use_onboard_nic: Arc::new(false.into()),
+                explore_mode: SiteExplorerExploreMode::LibRedfish,
             }
         );
 

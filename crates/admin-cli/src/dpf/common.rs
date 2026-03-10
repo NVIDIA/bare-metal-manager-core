@@ -20,6 +20,6 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 pub struct DpfQuery {
-    #[clap(required(true), help = "Host machine id")]
+    #[clap(help = "Host machine id")]
     pub host: Option<MachineId>,
 }

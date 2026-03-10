@@ -16,7 +16,7 @@
  */
 use std::process::Command;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use ::rpc::DiscoveryInfo;
 use ::rpc::forge_tls_client::ForgeClientConfig;
@@ -168,11 +168,11 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             let health_report = health::health_check(
                 &agent.hbn.root_dir,
                 &[],
-                Instant::now(),
                 false,
                 2,
                 &[],
                 HBNDeviceNames::hbn_23(),
+                false,
             )
             .await;
             println!("{}", serde_json::to_string_pretty(&health_report)?);

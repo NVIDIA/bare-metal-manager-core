@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
+use carbide_network::ip::IpAddressFamily;
 use carbide_uuid::network::NetworkSegmentId;
-use forge_network::ip::IpAddressFamily;
 use mac_address::MacAddress;
 use model::dhcp_record::DhcpRecord;
 use sqlx::PgConnection;

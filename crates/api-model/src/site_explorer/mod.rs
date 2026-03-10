@@ -1325,7 +1325,7 @@ pub struct EthernetInterface {
     #[serde(
         rename = "MACAddress",
         alias = "MacAddress",
-        deserialize_with = "forge_network::deserialize_optional_mlx_mac"
+        deserialize_with = "carbide_network::deserialize_optional_mlx_mac"
     )]
     pub mac_address: Option<MacAddress>,
 
