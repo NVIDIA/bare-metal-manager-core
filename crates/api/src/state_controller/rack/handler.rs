@@ -511,6 +511,14 @@ impl StateHandler for RackStateHandler {
 
         match controller_state {
             // DISCOVERY PHASE & STATES
+            RackState::Unknown => {
+                // Default DB column value. The transition to Expected is forced
+                // by db::rack::create(), not by the state machine. If a rack
+                // somehow ends up here, just wait.
+                tracing::debug!("Rack {} is in Unknown state, waiting for create()", id);
+                Ok(StateHandlerOutcome::do_nothing())
+            }
+
             RackState::Expected => {
                 // Wait for all expected devices to be discovered and linked
                 let (all_discovered, pending_txn) =

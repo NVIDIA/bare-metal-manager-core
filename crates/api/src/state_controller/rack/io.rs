@@ -114,6 +114,7 @@ impl StateControllerIO for RackStateControllerIO {
 
     fn metric_state_names(state: &RackState) -> (&'static str, &'static str) {
         match state {
+            RackState::Unknown => ("unknown", ""),
             RackState::Expected => ("expected", ""),
             RackState::Discovering => ("discovering", ""),
             RackState::Discovered => ("discovered", ""),

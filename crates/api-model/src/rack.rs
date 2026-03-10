@@ -120,6 +120,16 @@ impl<'r> FromRow<'r, PgRow> for Rack {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum RackState {
+    /// Default DB column value. The rack SM does not transition out of this
+    /// state on its own — the transition to `Expected` is forced by
+    /// `db::rack::create()`, which explicitly writes `{"state":"expected"}`
+    /// when a rack is first created via the ExpectedMachine/Switch/PS APIs.
+    ///
+    /// This variant exists solely to deserialize rows that were inserted with
+    /// the column default (`{"state":"unknown"}`). Under normal operation no
+    /// rack should remain in this state.
+    Unknown,
+
     /// Rack is expected - waiting for machines to be discovered.
     /// Created when ExpectedMachine/Switch/PS references this rack.
     Expected,
@@ -244,13 +254,14 @@ impl Display for RackPowerState {
 
 impl Default for RackState {
     fn default() -> Self {
-        RackState::Expected
+        RackState::Unknown
     }
 }
 
 impl Display for RackState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            RackState::Unknown => write!(f, "Unknown"),
             RackState::Expected => write!(f, "Expected"),
             RackState::Discovering => write!(f, "Discovering"),
             RackState::Discovered => write!(f, "Discovered"),
@@ -308,6 +319,7 @@ pub fn state_sla(state: &RackState, state_version: &ConfigVersion) -> StateSla {
 
     // TODO[#416]: Define SLAs for validation and maintenance states
     match state {
+        RackState::Unknown => StateSla::no_sla(),
         RackState::Expected => StateSla::no_sla(),
         RackState::Discovering => StateSla::no_sla(),
         RackState::Discovered => StateSla::no_sla(),
