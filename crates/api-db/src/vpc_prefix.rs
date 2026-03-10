@@ -40,7 +40,7 @@ async fn update_stats(
         if let IpNetwork::V4(ipv4_network) = vpc_prefix.config.prefix
             && let Some(used_prefixes) = used_prefixes
         {
-            let ip_net = forge_network::ip::prefix::Ipv4Net::new(
+            let ip_net = carbide_network::ip::prefix::Ipv4Net::new(
                 ipv4_network.network(),
                 ipv4_network.prefix(),
             )
@@ -59,7 +59,7 @@ async fn update_stats(
                         sqlx::Error::Protocol(err.to_string()),
                     )
                 })?
-                .collect::<Vec<forge_network::ip::prefix::Ipv4Net>>();
+                .collect::<Vec<carbide_network::ip::prefix::Ipv4Net>>();
             vpc_prefix.status.total_31_segments = total_31_segments.len() as u32;
             vpc_prefix.status.available_31_segments =
                 vpc_prefix.status.total_31_segments - used_prefixes.len() as u32;

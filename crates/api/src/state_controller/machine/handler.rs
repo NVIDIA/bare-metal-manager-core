@@ -8881,6 +8881,7 @@ async fn call_machine_setup_and_handle_no_dpu_error(
             boot_interface_mac,
             &site_config.bios_profiles,
             site_config.selected_profile,
+            &HashMap::default(),
         )
         .await;
     match (

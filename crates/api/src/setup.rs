@@ -64,6 +64,7 @@ use crate::logging::sqlx_query_tracing::SQLX_STATEMENTS_LOG_LEVEL;
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::measured_boot::metrics_collector::MeasuredBootMetricsCollector;
 use crate::mqtt_state_change_hook::hook::MqttStateChangeHook;
+use crate::nv_redfish::NvRedfishClientPool;
 use crate::nvl_partition_monitor::NvlPartitionMonitor;
 use crate::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
 use crate::preingestion_manager::PreingestionManager;
@@ -225,6 +226,7 @@ pub async fn start_api(
     meter: Meter,
     dynamic_settings: DynamicSettings,
     shared_redfish_pool: Arc<dyn RedfishClientPool>,
+    shared_nv_redfish_pool: Arc<NvRedfishClientPool>,
     credential_manager: Arc<dyn CredentialManager>,
     certificate_provider: Arc<dyn CertificateProvider>,
     cancel_token: CancellationToken,
@@ -363,12 +365,14 @@ pub async fn start_api(
 
     let bmc_explorer = Arc::new(BmcEndpointExplorer::new(
         shared_redfish_pool.clone(),
+        shared_nv_redfish_pool,
         ipmi_tool.clone(),
         credential_manager.clone(),
         carbide_config
             .site_explorer
             .rotate_switch_nvos_credentials
             .clone(),
+        carbide_config.site_explorer.explore_mode,
     ));
 
     let nvlink_config = carbide_config.nvlink_config.clone().unwrap_or_default();

@@ -20,6 +20,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use carbide_network::BaseMac;
 use carbide_uuid::machine::{MachineId, MachineType};
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
 use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
@@ -1221,7 +1222,7 @@ pub struct ComputerSystem {
     pub attributes: ComputerSystemAttributes,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pcie_devices: Vec<PCIeDevice>,
-    pub base_mac: Option<String>,
+    pub base_mac: Option<BaseMac>,
     #[serde(default)]
     pub power_state: PowerState,
     pub sku: Option<String>,
@@ -1325,7 +1326,7 @@ pub struct EthernetInterface {
     #[serde(
         rename = "MACAddress",
         alias = "MacAddress",
-        deserialize_with = "forge_network::deserialize_optional_mlx_mac"
+        deserialize_with = "carbide_network::deserialize_optional_mlx_mac"
     )]
     pub mac_address: Option<MacAddress>,
 
@@ -2056,7 +2057,7 @@ mod tests {
                     is_infinite_boot_enabled: None,
                 },
                 pcie_devices: vec![],
-                base_mac: Some("A088C208804C".to_string()),
+                base_mac: Some("A088C208804C".parse().unwrap()),
                 power_state: PowerState::On,
                 sku: None,
                 boot_order: None,
@@ -2126,7 +2127,7 @@ mod tests {
                     is_infinite_boot_enabled: None,
                 },
                 pcie_devices: vec![],
-                base_mac: Some("A088C208804C".to_string()),
+                base_mac: Some("A088C208804C".parse().unwrap()),
                 power_state: PowerState::On,
                 sku: None,
                 boot_order: None,

@@ -799,6 +799,13 @@ pub mod test_support {
                 >,
             >,
             _profile_type: libredfish::BiosProfileType,
+            _oem_manager_profiles: &HashMap<
+                libredfish::model::service_root::RedfishVendor,
+                HashMap<
+                    String,
+                    HashMap<libredfish::BiosProfileType, HashMap<String, serde_json::Value>>,
+                >,
+            >,
         ) -> Result<(), RedfishError> {
             Ok(())
         }
@@ -1931,10 +1938,6 @@ pub mod test_support {
                 .actions
                 .push(RedfishSimAction::SetUtcTimezone);
             Ok(())
-        }
-
-        async fn disable_psu_hot_spare(&self) -> Result<(), RedfishError> {
-            todo!()
         }
     }
 

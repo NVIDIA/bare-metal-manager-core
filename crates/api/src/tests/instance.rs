@@ -2358,7 +2358,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     let update_vpc = UpdateVpcVirtualization {
         id: vpc.id,
         if_version_match: None,
-        network_virtualization_type: forge_network::virtualization::VpcVirtualizationType::Fnn,
+        network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
     };
     db::vpc::update_virtualization(&update_vpc, &mut txn)
         .await

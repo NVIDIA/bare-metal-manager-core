@@ -24,6 +24,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
+use carbide_network::sanitized_mac;
 use carbide_uuid::machine::MachineType;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
@@ -34,7 +35,6 @@ use db::{
     self, DatabaseError, ObjectFilter, Transaction, machine, network_segment as db_network_segment,
     power_shelf as db_power_shelf, switch as db_switch,
 };
-use forge_network::sanitized_mac;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
@@ -2702,27 +2702,11 @@ fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, Str
     // back to the legacy method via get_sys_image_version.
 
     // Try the explored computer-system base_mac first
-    if let Some(system_mac) = dpu_ep
-        .report
-        .systems
-        .first()
-        .and_then(|s| s.base_mac.clone())
-    {
-        // Once we've got some unsanitized MAC value,
-        // sanitize it (stripping out garbage like spaces, double quotes, etc),
-        // and return a sanitized MA:CA:DD:RE:SS as a MacAddress.
-        match sanitized_mac(&system_mac) {
-            Ok(mac) => return Ok(mac),
-            Err(e) => {
-                tracing::warn!(
-                    "Failed to sanitize ComputerSystem base_mac, falling back to legacy method: {} (source_mac: {})",
-                    e,
-                    system_mac
-                );
-            }
-        }
+    if let Some(system_mac) = dpu_ep.report.systems.first().and_then(|s| s.base_mac) {
+        return Ok(system_mac.to_mac());
     }
 
+    tracing::warn!("ComputerSystem doesn't have base_mac, falling back to legacy method");
     let legacy_mac = get_base_mac_from_sys_image_version(get_sys_image_version(
         dpu_ep.report.service.as_ref(),
     )?)?;

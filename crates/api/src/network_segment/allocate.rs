@@ -16,9 +16,9 @@
  */
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+use carbide_network::ip::IdentifyAddressFamily;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::{VpcId, VpcPrefixId};
-use forge_network::ip::IdentifyAddressFamily;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::network_prefix::NewNetworkPrefix;

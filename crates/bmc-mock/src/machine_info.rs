@@ -249,7 +249,10 @@ impl MachineInfo {
         match self {
             MachineInfo::Host(host) => host.oem_state(),
             MachineInfo::Dpu(dpu) => redfish::oem::State::NvidiaBluefield(
-                redfish::oem::nvidia::bluefield::BluefieldState::new(dpu.nic_mode),
+                redfish::oem::nvidia::bluefield::BluefieldState::new(
+                    dpu.nic_mode,
+                    dpu.host_mac_address,
+                ),
             ),
         }
     }

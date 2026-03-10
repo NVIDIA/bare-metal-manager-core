@@ -22,9 +22,8 @@ description = "Common networking code for Forge components."
 license.workspace = true
 authors.workspace = true
 
-# TODO: rename to carbide_network in source
 [lib]
-name = "forge_network"
+name = "carbide_network"
 
 [features]
 default = ["ipnetwork"]
@@ -51,6 +50,9 @@ sqlx = { workspace = true, features = [
 thiserror = { workspace = true }
 
 carbide-rpc = { path = "../rpc" }
+
+[dev-dependencies]
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

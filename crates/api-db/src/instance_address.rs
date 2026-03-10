@@ -18,9 +18,9 @@ use std::collections::HashSet;
 use std::net::IpAddr;
 use std::ops::DerefMut;
 
+use carbide_network::virtualization::get_host_ip;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
-use forge_network::virtualization::get_host_ip;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::ConfigValidationError;

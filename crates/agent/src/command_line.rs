@@ -17,9 +17,9 @@
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 
+use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_uuid::machine::MachineId;
 use clap::Parser;
-use forge_network::virtualization::VpcVirtualizationType;
 
 use crate::network_monitor::NetworkPingerType;
 
