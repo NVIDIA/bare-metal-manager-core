@@ -24,8 +24,8 @@ use std::str::FromStr;
 use ::rpc::errors::RpcDataConversionError;
 use base64::prelude::*;
 use carbide_host_support::cpu::aggregate_cpus;
+use carbide_network::{MELLANOX_SF_VF_MAC_ADDRESS_IN, MELLANOX_SF_VF_MAC_ADDRESS_OUT};
 use carbide_uuid::nvlink::NvLinkDomainId;
-use forge_network::{MELLANOX_SF_VF_MAC_ADDRESS_IN, MELLANOX_SF_VF_MAC_ADDRESS_OUT};
 use mac_address::{MacAddress, MacParseError};
 use serde::{Deserialize, Serialize};
 use utils::models::arch::CpuArchitecture;
@@ -95,7 +95,7 @@ pub struct HardwareInfo {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NetworkInterface {
-    #[serde(deserialize_with = "forge_network::deserialize_mlx_mac")]
+    #[serde(deserialize_with = "carbide_network::deserialize_mlx_mac")]
     pub mac_address: MacAddress,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pci_properties: Option<PciDeviceProperties>,

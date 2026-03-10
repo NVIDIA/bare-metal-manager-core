@@ -20,6 +20,7 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
 
+use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_uuid::network::NetworkSegmentId;
 use common::network_segment::{
     NetworkSegmentHelper, create_network_segment_with_api, get_segment_state, get_segments,
@@ -28,7 +29,6 @@ use common::network_segment::{
 use db::ObjectColumnFilter;
 use db::network_segment::VpcColumn;
 use db::vpc::IdColumn;
-use forge_network::virtualization::VpcVirtualizationType;
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::network_prefix::NewNetworkPrefix;
@@ -931,7 +931,7 @@ async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let update_request = UpdateVpcVirtualization {
         id: vpc_id,
         if_version_match: None,
-        network_virtualization_type: forge_network::virtualization::VpcVirtualizationType::Fnn,
+        network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
     };
     db::vpc::update_virtualization(&update_request, &mut txn).await?;
     txn.commit().await?;
@@ -1070,7 +1070,7 @@ async fn test_update_svi_ip_post_instance_allocation(
     let update_request = UpdateVpcVirtualization {
         id: segment.vpc_id.unwrap(),
         if_version_match: None,
-        network_virtualization_type: forge_network::virtualization::VpcVirtualizationType::Fnn,
+        network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
     };
     db::vpc::update_virtualization(&update_request, &mut txn).await?;
     txn.commit().await?;

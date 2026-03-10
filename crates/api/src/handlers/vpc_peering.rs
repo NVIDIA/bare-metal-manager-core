@@ -17,8 +17,8 @@
 
 use ::db::{ObjectColumnFilter, vpc, vpc_peering as db};
 use ::rpc::forge as rpc;
+use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_uuid::vpc_peering::VpcPeeringId;
-use forge_network::virtualization::VpcVirtualizationType;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
