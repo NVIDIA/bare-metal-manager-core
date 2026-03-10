@@ -383,6 +383,23 @@ pub async fn start_api(
 
     let shared_nmxm_pool: Arc<dyn NmxmClientPool> = Arc::new(nmxm_pool);
 
+    let component_manager = if let Some(cd_config) = &carbide_config.component_manager {
+        match component_manager::dispatcher::build_component_manager(cd_config).await {
+            Ok(cm) => {
+                tracing::info!("Component dispatch configured (nv_switch={}, power_shelf={})",
+                    cm.nv_switch.name(), cm.power_shelf.name());
+                Some(cm)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to build component managers, dispatch RPCs will be unavailable: {e}");
+                None
+            }
+        }
+    } else {
+        tracing::info!("No [component_manager] config found; dispatch RPCs will be unavailable");
+        None
+    };
+
     let api_service = Arc::new(Api {
         certificate_provider,
         common_pools,
@@ -402,6 +419,7 @@ pub async fn start_api(
         kube_client_provider: Arc::new(carbide_dpf::Production {}),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool),
         metric_emitter: ApiMetricsEmitter::new(&meter),
+        component_manager,
     });
 
     let controllers_handle = if carbide_config.listen_only {

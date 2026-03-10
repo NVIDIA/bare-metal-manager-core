@@ -81,6 +81,7 @@ pub struct Api {
     pub(crate) kube_client_provider: Arc<dyn KubeImpl>,
     pub(crate) machine_state_handler_enqueuer: Enqueuer<MachineStateControllerIO>,
     pub(crate) metric_emitter: ApiMetricsEmitter,
+    pub(crate) component_manager: Option<component_manager::dispatcher::ComponentManager>,
 }
 
 pub(crate) type ScoutStreamType =
@@ -2887,6 +2888,41 @@ impl Forge for Api {
 
         crate::handlers::power_options::allow_ingestion_and_power_on(self, &request.into_inner())
             .await
+    }
+
+    async fn component_power_control(
+        &self,
+        request: Request<rpc::ComponentPowerControlRequest>,
+    ) -> Result<Response<rpc::ComponentPowerControlResponse>, Status> {
+        crate::handlers::component_dispatch::component_power_control(self, request).await
+    }
+
+    async fn get_component_inventory(
+        &self,
+        request: Request<rpc::GetComponentInventoryRequest>,
+    ) -> Result<Response<rpc::GetComponentInventoryResponse>, Status> {
+        crate::handlers::component_dispatch::get_component_inventory(self, request).await
+    }
+
+    async fn update_component_firmware(
+        &self,
+        request: Request<rpc::UpdateComponentFirmwareRequest>,
+    ) -> Result<Response<rpc::UpdateComponentFirmwareResponse>, Status> {
+        crate::handlers::component_dispatch::update_component_firmware(self, request).await
+    }
+
+    async fn get_component_firmware_status(
+        &self,
+        request: Request<rpc::GetComponentFirmwareStatusRequest>,
+    ) -> Result<Response<rpc::GetComponentFirmwareStatusResponse>, Status> {
+        crate::handlers::component_dispatch::get_component_firmware_status(self, request).await
+    }
+
+    async fn list_component_firmware_versions(
+        &self,
+        request: Request<rpc::ListComponentFirmwareVersionsRequest>,
+    ) -> Result<Response<rpc::ListComponentFirmwareVersionsResponse>, Status> {
+        crate::handlers::component_dispatch::list_component_firmware_versions(self, request).await
     }
 }
 
