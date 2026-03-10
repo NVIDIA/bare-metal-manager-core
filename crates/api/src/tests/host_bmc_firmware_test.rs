@@ -1262,6 +1262,8 @@ async fn test_instance_upgrading_actual_part_2(
     mh.network_configured(env).await;
     env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = mh.host().db_machine(&mut txn).await;
