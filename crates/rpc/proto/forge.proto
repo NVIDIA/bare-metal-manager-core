@@ -824,6 +824,13 @@ service Forge {
 
   rpc ModifyDPFState(ModifyDPFStateRequest) returns (google.protobuf.Empty);
   rpc GetDPFState(GetDPFStateRequest) returns (DPFStateResponse);
+
+  // --- Component dispatch (unified switch + power shelf operations) ---
+  rpc ComponentPowerControl(ComponentPowerControlRequest) returns (ComponentPowerControlResponse);
+  rpc GetComponentInventory(GetComponentInventoryRequest) returns (GetComponentInventoryResponse);
+  rpc UpdateComponentFirmware(UpdateComponentFirmwareRequest) returns (UpdateComponentFirmwareResponse);
+  rpc GetComponentFirmwareStatus(GetComponentFirmwareStatusRequest) returns (GetComponentFirmwareStatusResponse);
+  rpc ListComponentFirmwareVersions(ListComponentFirmwareVersionsRequest) returns (ListComponentFirmwareVersionsResponse);
 }
 
 message AttestationIdsRequest {
@@ -4919,17 +4926,11 @@ message MachineValidationOnDemandResponse {
 
 message AdminPowerControlRequest {
   enum SystemPowerControl {
-    // Power on a machine
     On = 0;
-    // Graceful host shutdown
     GracefulShutdown = 1;
-    // Forcefully powers a machine off
     ForceOff = 2;
-    // Graceful restart. Asks the OS to restart via ACPI
     GracefulRestart =3;
-    // Force restart. This is equivalent to pressing the reset button on the front panel.
     ForceRestart = 4;
-    // AC powercycle. This is equivalent to unplugging and reconnecting power cables. Not supported on Vikings.
     ACPowercycle = 5;
   }
   optional BmcEndpointRequest bmc_endpoint_request = 1;
@@ -6858,4 +6859,123 @@ message DPFStateResponse {
 
 message GetDPFStateRequest {
   repeated common.MachineId machine_ids = 1;
+}
+
+// ============================================================================
+// Component dispatch types
+// ============================================================================
+
+enum ComponentDispatchStatusCode {
+  COMPONENT_DISPATCH_STATUS_CODE_SUCCESS = 0;
+  COMPONENT_DISPATCH_STATUS_CODE_INVALID_ARGUMENT = 1;
+  COMPONENT_DISPATCH_STATUS_CODE_INTERNAL_ERROR = 2;
+  COMPONENT_DISPATCH_STATUS_CODE_NOT_FOUND = 3;
+  COMPONENT_DISPATCH_STATUS_CODE_ALREADY_EXISTS = 4;
+  COMPONENT_DISPATCH_STATUS_CODE_UNAVAILABLE = 5;
+}
+
+message ComponentResult {
+  string component_id = 1;
+  ComponentDispatchStatusCode status = 2;
+  string error = 3;
+}
+
+message SwitchIdList {
+  repeated common.SwitchId ids = 1;
+}
+
+message PowerShelfIdList {
+  repeated common.PowerShelfId ids = 1;
+}
+
+// --- Component inventory ---
+
+message GetComponentInventoryRequest {
+  oneof target {
+    common.MachineIdList machine_ids = 1;
+    SwitchIdList switch_ids = 2;
+    PowerShelfIdList power_shelf_ids = 3;
+  }
+}
+
+message ComponentInventoryEntry {
+  ComponentResult result = 1;
+  optional site_explorer.EndpointExplorationReport report = 2;
+}
+
+message GetComponentInventoryResponse {
+  repeated ComponentInventoryEntry entries = 1;
+}
+
+// --- Component power control ---
+
+message ComponentPowerControlRequest {
+  oneof target {
+    common.MachineIdList machine_ids = 1;
+    SwitchIdList switch_ids = 2;
+    PowerShelfIdList power_shelf_ids = 3;
+  }
+  common.SystemPowerControl action = 4;
+}
+
+message ComponentPowerControlResponse {
+  repeated ComponentResult results = 1;
+}
+
+// --- Component firmware ---
+
+enum FirmwareUpdateState {
+  FW_STATE_UNKNOWN = 0;
+  FW_STATE_QUEUED = 1;
+  FW_STATE_IN_PROGRESS = 2;
+  FW_STATE_VERIFYING = 3;
+  FW_STATE_COMPLETED = 4;
+  FW_STATE_FAILED = 5;
+  FW_STATE_CANCELLED = 6;
+}
+
+message FirmwareUpdateStatus {
+  ComponentResult result = 1;
+  FirmwareUpdateState state = 2;
+  string target_version = 3;
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+message UpdateComponentFirmwareRequest {
+  oneof target {
+    common.MachineIdList machine_ids = 1;
+    SwitchIdList switch_ids = 2;
+    PowerShelfIdList power_shelf_ids = 3;
+  }
+  string target_version = 4;
+  repeated string components = 5;
+}
+
+message UpdateComponentFirmwareResponse {
+  repeated ComponentResult results = 1;
+}
+
+message GetComponentFirmwareStatusRequest {
+  oneof target {
+    common.MachineIdList machine_ids = 1;
+    SwitchIdList switch_ids = 2;
+    PowerShelfIdList power_shelf_ids = 3;
+  }
+}
+
+message GetComponentFirmwareStatusResponse {
+  repeated FirmwareUpdateStatus statuses = 1;
+}
+
+message ListComponentFirmwareVersionsRequest {
+  oneof target {
+    common.MachineIdList machine_ids = 1;
+    SwitchIdList switch_ids = 2;
+    PowerShelfIdList power_shelf_ids = 3;
+  }
+}
+
+message ListComponentFirmwareVersionsResponse {
+  ComponentResult result = 1;
+  repeated string versions = 2;
 }
