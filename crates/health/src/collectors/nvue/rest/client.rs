@@ -161,8 +161,8 @@ impl RestClient {
             request = request.query(extra_query);
         }
 
-        if let (Some(user), Some(pass)) = (&self.username, &self.password) {
-            request = request.basic_auth(user, Some(pass));
+        if let Some(user) = &self.username {
+            request = request.basic_auth(user, self.password.as_ref());
         }
 
         request = request.header(ACCEPT, "application/json");
