@@ -347,7 +347,7 @@ async fn test_host_allocatability_blocked_by_rack_override(
 }
 
 #[crate::sqlx_test]
-async fn test_rack_override_applies_even_with_host_replace(
+async fn test_host_replace_overrides_rack_alerts(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env =
@@ -407,21 +407,21 @@ async fn test_rack_override_applies_even_with_host_replace(
                 .contains(&HealthAlertClassification::prevent_allocations())
     });
     assert!(
-        has_leak_alert,
-        "Rack leak alert should appear even when host has Replace override"
+        !has_leak_alert,
+        "Rack alerts should not appear when host has Replace override"
     );
 
     let result = snapshot.is_usable_as_instance(false);
     assert!(
-        result.is_err(),
-        "Host with Replace override should still be blocked by rack PreventAllocations"
+        result.is_ok(),
+        "Host with Replace override should not be blocked by rack alerts"
     );
 
     Ok(())
 }
 
 #[crate::sqlx_test]
-async fn test_rack_replace_normalized_to_merge(
+async fn test_host_replace_takes_full_precedence_over_rack_replace(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env =
@@ -490,8 +490,8 @@ async fn test_rack_replace_normalized_to_merge(
         .iter()
         .any(|a| a.id.as_str() == "BmsLeakDetectRack");
     assert!(
-        has_leak_alert,
-        "Rack Replace override should be merged on top (normalized to merge), not replace host state"
+        !has_leak_alert,
+        "Rack overrides should be skipped when host has Replace override"
     );
 
     Ok(())
