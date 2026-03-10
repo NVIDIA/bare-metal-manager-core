@@ -30,9 +30,9 @@ use ::rpc::forge::{
     self as rpc, FlatInterfaceConfig, ManagedHostNetworkConfigResponse,
     NetworkSecurityGroupRuleAction, NetworkSecurityGroupRuleProtocol,
 };
+use carbide_network::ip::prefix::Ipv4Net;
+use carbide_network::virtualization::VpcVirtualizationType;
 use eyre::WrapErr;
-use forge_network::ip::prefix::Ipv4Net;
-use forge_network::virtualization::VpcVirtualizationType;
 use mac_address::MacAddress;
 use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
@@ -1715,8 +1715,8 @@ mod tests {
     use std::str::FromStr;
 
     use ::rpc::{common as rpc_common, forge as rpc};
+    use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
     use eyre::WrapErr;
-    use forge_network::virtualization::{VpcVirtualizationType, get_svi_ip};
     use ipnetwork::IpNetwork;
     use utils::models::dhcp::{DhcpConfig, HostConfig};
 

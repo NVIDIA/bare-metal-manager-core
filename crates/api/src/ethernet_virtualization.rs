@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 use ::rpc::forge as rpc;
+use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use db::vpc::{self};
 use db::vpc_peering::get_prefixes_by_vpcs;
 use db::{self, ObjectColumnFilter, network_security_group};
-use forge_network::virtualization::{VpcVirtualizationType, get_svi_ip};
 use ipnetwork::{IpNetwork, Ipv4Network};
 use model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
 use model::network_security_group::{

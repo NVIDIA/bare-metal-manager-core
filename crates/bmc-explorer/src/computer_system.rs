@@ -18,7 +18,7 @@
 use std::convert::identity;
 use std::str::FromStr;
 
-use forge_network::{deserialize_input_mac_to_address, sanitized_mac};
+use carbide_network::{deserialize_input_mac_to_address, sanitized_mac};
 use mac_address::MacAddress;
 use model::site_explorer::{
     BootOption as ModelBootOption, BootOrder as ModelBootOrder,

@@ -20,10 +20,10 @@ use std::fs;
 use std::path::Path;
 
 use ::rpc::forge as rpc;
+use carbide_network::ip::prefix::Ipv4Net;
+use carbide_network::sanitized_mac;
+use carbide_network::virtualization::VpcVirtualizationType;
 use eyre::WrapErr;
-use forge_network::ip::prefix::Ipv4Net;
-use forge_network::sanitized_mac;
-use forge_network::virtualization::VpcVirtualizationType;
 use gtmpl_derive::Gtmpl;
 use mac_address::MacAddress;
 use serde::Deserialize;

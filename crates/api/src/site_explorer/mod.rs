@@ -24,6 +24,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
+use carbide_network::sanitized_mac;
 use carbide_uuid::machine::MachineType;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
@@ -34,7 +35,6 @@ use db::{
     self, DatabaseError, ObjectFilter, Transaction, machine, network_segment as db_network_segment,
     power_shelf as db_power_shelf, switch as db_switch,
 };
-use forge_network::sanitized_mac;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;

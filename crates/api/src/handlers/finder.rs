@@ -20,6 +20,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use ::rpc::protos::{common as rpc_common, forge as rpc};
+use carbide_network::ip::IdentifyAddressFamily;
 use carbide_uuid::domain::DomainId;
 use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::instance::InstanceId;
@@ -27,7 +28,6 @@ use carbide_uuid::machine::MachineInterfaceId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use db::{DatabaseError, ObjectColumnFilter, instance, network_segment, vpc};
-use forge_network::ip::IdentifyAddressFamily;
 use model::network_segment::NetworkSegmentSearchConfig;
 use model::resource_pool::ResourcePoolEntryState;
 use model::route_server::RouteServerSourceType;
