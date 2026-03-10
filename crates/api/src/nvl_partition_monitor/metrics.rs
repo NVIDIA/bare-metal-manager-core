@@ -50,6 +50,8 @@ pub struct NvlPartitionMonitorMetrics {
     pub num_stale_partitions_deleted: usize,
     pub applied_changes: HashMap<AppliedChange, usize>,
     pub operation_latencies: HashMap<AppliedChange, Vec<Duration>>,
+    /// Time from nvlink_config_version for instances currently in Pending (time spent in Pending), in milliseconds
+    pub nvlink_config_apply_durations_ms: Vec<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -107,6 +109,7 @@ impl NvlPartitionMonitorMetrics {
             num_stale_partitions_deleted: 0,
             applied_changes: HashMap::new(),
             operation_latencies: HashMap::new(),
+            nvlink_config_apply_durations_ms: Vec::new(),
             nmxm: NmxmMetrics {
                 endpoint: String::new(),
                 connect_error: String::new(),
@@ -146,6 +149,7 @@ pub struct NvlPartitionMonitorInstruments {
     pub iteration_latency: Histogram<f64>,
     pub nmxm_changes_applied: Counter<u64>,
     pub operations_latency: Histogram<f64>,
+    pub nvlink_config_apply_latency: Histogram<f64>,
 }
 
 impl NvlPartitionMonitorInstruments {
@@ -162,6 +166,12 @@ impl NvlPartitionMonitorInstruments {
         let operations_latency = meter
             .f64_histogram("carbide_nvlink_partition_monitor_nmxm_op_latency")
             .with_description("Time consumed for one nmxm operations")
+            .with_unit("ms")
+            .build();
+
+        let nvlink_config_apply_latency = meter
+            .f64_histogram("carbide_nvlink_partition_monitor_nvlink_config_apply_latency")
+            .with_description("Time since nvlink config was requested for this instance")
             .with_unit("ms")
             .build();
 
@@ -294,6 +304,7 @@ impl NvlPartitionMonitorInstruments {
             iteration_latency,
             nmxm_changes_applied,
             operations_latency,
+            nvlink_config_apply_latency,
         }
     }
 
@@ -323,6 +334,10 @@ impl NvlPartitionMonitorInstruments {
                     ],
                 );
             }
+        }
+
+        for &duration_ms in &metrics.nvlink_config_apply_durations_ms {
+            self.nvlink_config_apply_latency.record(duration_ms, &[]);
         }
     }
 
