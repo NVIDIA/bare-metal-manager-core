@@ -654,6 +654,7 @@ struct MachineIbStatusEvaluation {
     missing_guid_pkeys: Vec<(String, String, PartitionKey)>,
     unexpected_guid_pkeys: Vec<(String, String, PartitionKey)>,
     unknown_guid_pkeys: Vec<(String, String, PartitionKey)>,
+    down_port_guids: Vec<String>,
 }
 
 async fn record_machine_infiniband_status_observation(
@@ -719,6 +720,54 @@ async fn record_machine_infiniband_status_observation(
             expected_pkeys.insert(guid.clone(), expected_pkey);
         }
     }
+
+    // SKU defines which ports are intentionally disconnected/inactive by hardware design
+    // Returns None if no SKU or SKU has no IB devices (skip monitoring in those cases)
+    let expected_inactive_devices = get_expected_inactive_devices(
+        db_pool,
+        mh_snapshot.host_snapshot.hw_sku.as_deref(),
+    )
+    .await
+    .unwrap_or_else(|e| {
+        tracing::warn!(
+            machine_id = %machine_id,
+            error = %e,
+            "Failed to load expected inactive devices from SKU, will skip IB port monitoring"
+        );
+        None
+    });
+
+    // Use GUID as secondary key for stable ordering when slots are identical
+    let mut sorted_ib_interfaces = ib_hw_info.to_vec();
+    sorted_ib_interfaces.sort_by_key(|iface| {
+        (
+            iface
+                .pci_properties
+                .as_ref()
+                .and_then(|p| p.slot.clone())
+                .unwrap_or_default(),
+            iface.guid.clone(), // Stable tie-breaker
+        )
+    });
+
+    // Build GUID to index mapping (index matches SKU's inactive_devices indices)
+    let guid_to_index: HashMap<String, u32> = sorted_ib_interfaces
+        .iter()
+        .enumerate()
+        .map(|(idx, iface)| (iface.guid.clone(), idx as u32))
+        .collect();
+
+    // Note: If instance has empty ib_interfaces, we get Some(empty set), which means
+    // no ports will be tracked as down - this is intentional for tenant isolation
+    let instance_guids: Option<HashSet<String>> = mh_snapshot.instance.as_ref().map(|instance| {
+        instance
+            .config
+            .infiniband
+            .ib_interfaces
+            .iter()
+            .filter_map(|iface| iface.guid.as_ref().map(|g| g.to_lowercase()))
+            .collect()
+    });
 
     // The list of GUIDs that are part of this Machine
     let mut guids: Vec<String> = Vec::new();
@@ -840,21 +889,47 @@ async fn record_machine_infiniband_status_observation(
                     }
                 };
 
-                (
-                    fabric_id,
-                    if port_data.state == Some(IBPortState::Active) {
-                        active_ports += 1;
-                        port_data.lid as u16
-                    } else {
-                        0xffff_u16
-                    },
-                    associated_pkeys,
-                    associated_partition_ids,
-                )
+                let (lid, is_down) = if port_data.state == Some(IBPortState::Active) {
+                    active_ports += 1;
+                    (port_data.lid as u16, false)
+                } else {
+                    // Port is not active - check if we should track it as down
+                    let should_track = should_track_port_as_down(
+                        guid,
+                        &guid_to_index,
+                        expected_inactive_devices.as_ref(),
+                        &instance_guids,
+                    );
+                    if should_track {
+                        result.down_port_guids.push(guid.clone());
+                    }
+                    (0xffff_u16, true)
+                };
+
+                if is_down {
+                    tracing::debug!(
+                        machine_id = %machine_id,
+                        guid = %guid,
+                        state = ?port_data.state,
+                        "IB port is not active"
+                    );
+                }
+
+                (fabric_id, lid, associated_pkeys, associated_partition_ids)
             }
             None => {
                 // The port was not found on UFM. In this case we don't even try
                 // to look up associated pkeys
+                // Check if we should track it as down
+                let should_track = should_track_port_as_down(
+                    guid,
+                    &guid_to_index,
+                    expected_inactive_devices.as_ref(),
+                    &instance_guids,
+                );
+                if should_track {
+                    result.down_port_guids.push(guid.clone());
+                }
 
                 // TODO: We should differentiate between "Can not communicate with fabric"
                 // and "UFM definitely did not know about this GUID".
@@ -913,6 +988,28 @@ async fn record_machine_infiniband_status_observation(
             write!(&mut msg, "(guid: {guid}, pkey: {pkey})").unwrap();
         }
         tracing::warn!(machine_id = %machine_id, msg);
+    }
+
+    let has_existing_ib_port_down_alert = mh_snapshot
+        .aggregate_health
+        .alerts
+        .iter()
+        .any(|alert| alert.id.as_str() == "IbPortDown");
+
+    if !result.down_port_guids.is_empty() {
+        tracing::warn!(
+            machine_id = %machine_id,
+            down_ports = ?result.down_port_guids,
+            total_ports = guids.len(),
+            "IB port(s) detected as down - setting PreventAllocations alert"
+        );
+        set_ib_port_down_alert(db_pool, machine_id, &result.down_port_guids, guids.len()).await?;
+    } else if has_existing_ib_port_down_alert {
+        tracing::info!(
+            machine_id = %machine_id,
+            "All IB ports are now active - clearing IbPortDown alert"
+        );
+        clear_ib_port_down_alert(db_pool, machine_id).await?;
     }
 
     let cur = MachineInfinibandStatusObservation {
@@ -999,6 +1096,131 @@ async fn clear_ib_cleanup_alert(
     .map_err(|e| CarbideError::internal(format!("Failed to clear IB cleanup alert: {e}")))?;
 
     Ok(())
+}
+
+const IB_PORT_DOWN_OVERRIDE_SOURCE: &str = "ib-port-down-monitor";
+
+async fn set_ib_port_down_alert(
+    db_pool: &PgPool,
+    machine_id: &MachineId,
+    down_port_guids: &[String],
+    total_ports: usize,
+) -> Result<(), CarbideError> {
+    let mut conn = db_pool
+        .acquire()
+        .await
+        .map_err(|e| DatabaseError::new("acquire connection", e))?;
+
+    let alert =
+        health_report::HealthProbeAlert::ib_port_down(down_port_guids.to_vec(), total_ports);
+    let health_report = health_report::HealthReport {
+        source: IB_PORT_DOWN_OVERRIDE_SOURCE.to_string(),
+        triggered_by: None,
+        observed_at: Some(Utc::now()),
+        successes: vec![],
+        alerts: vec![alert],
+    };
+
+    db::machine::insert_health_report_override(
+        &mut conn,
+        machine_id,
+        OverrideMode::Merge,
+        &health_report,
+        false, // overwrite existing
+    )
+    .await
+    .map_err(|e| CarbideError::internal(format!("Failed to set IB port down alert: {e}")))?;
+
+    Ok(())
+}
+
+async fn clear_ib_port_down_alert(
+    db_pool: &PgPool,
+    machine_id: &MachineId,
+) -> Result<(), CarbideError> {
+    let mut conn = db_pool
+        .acquire()
+        .await
+        .map_err(|e| DatabaseError::new("acquire connection", e))?;
+
+    db::machine::remove_health_report_override(
+        &mut conn,
+        machine_id,
+        OverrideMode::Merge,
+        IB_PORT_DOWN_OVERRIDE_SOURCE,
+    )
+    .await
+    .map_err(|e| CarbideError::internal(format!("Failed to clear IB port down alert: {e}")))?;
+
+    Ok(())
+}
+
+/// Should down port be track alerting?
+/// - If expected_inactive_devices is None: don't track (no SKU or SKU has no IB devices)
+/// - For machines with an instance: only if the port is in the instance's IB config
+/// - For machines without an instance: only if the port is not in the SKU's inactive_devices
+fn should_track_port_as_down(
+    guid: &str,
+    guid_to_index: &HashMap<String, u32>,
+    expected_inactive_devices: Option<&HashSet<u32>>,
+    instance_guids: &Option<HashSet<String>>,
+) -> bool {
+    let Some(expected_inactive) = expected_inactive_devices else {
+        return false;
+    };
+
+    match instance_guids {
+        Some(guids) => guids.contains(&guid.to_lowercase()),
+        None => {
+            let port_index = guid_to_index.get(guid).copied().unwrap_or(u32::MAX);
+            !expected_inactive.contains(&port_index)
+        }
+    }
+}
+
+/// Load expected inactive devices from the machine's SKU (hardware specification).
+///
+/// SKU defines the physical hardware configuration, including which IB ports
+/// are intentionally disconnected or disabled by design (e.g., for specific
+/// rack configurations or hardware variants).
+///
+/// Returns:
+/// - `Ok(None)` if no SKU is assigned, SKU not found, or SKU has no infiniband_devices defined
+///   (in these cases, IB port down monitoring should be skipped)
+/// - `Ok(Some(set))` with the set of port indices expected to be inactive per SKU
+async fn get_expected_inactive_devices(
+    db_pool: &PgPool,
+    hw_sku: Option<&str>,
+) -> Result<Option<HashSet<u32>>, CarbideError> {
+    let Some(sku_id) = hw_sku else {
+        return Ok(None);
+    };
+
+    let mut conn = db_pool
+        .acquire()
+        .await
+        .map_err(|e| DatabaseError::new("acquire connection", e))?;
+
+    let skus = db::sku::find(&mut conn, &[sku_id])
+        .await
+        .map_err(|e| CarbideError::internal(format!("Failed to load SKU: {e}")))?;
+
+    let Some(sku) = skus.into_iter().next() else {
+        return Ok(None);
+    };
+
+    if sku.components.infiniband_devices.is_empty() {
+        return Ok(None);
+    }
+
+    let inactive_devices: HashSet<u32> = sku
+        .components
+        .infiniband_devices
+        .iter()
+        .flat_map(|ib_dev| ib_dev.inactive_devices.iter().copied())
+        .collect();
+
+    Ok(Some(inactive_devices))
 }
 
 /// Parse GUIDs from IbCleanupPending alert message
@@ -1095,6 +1317,55 @@ mod tests {
     }
 
     // ============================================================
+    // Unit Tests for HealthProbeAlert::ib_port_down
+    // ============================================================
+
+    #[test]
+    fn test_ib_port_down_alert_single_port() {
+        let alert =
+            health_report::HealthProbeAlert::ib_port_down(vec!["946dae03006104f8".to_string()], 8);
+
+        assert_eq!(alert.id.as_str(), "IbPortDown");
+        assert!(alert.message.contains("1 of 8"));
+        assert!(alert.message.contains("946dae03006104f8"));
+        assert!(
+            alert
+                .classifications
+                .contains(&health_report::HealthAlertClassification::prevent_allocations())
+        );
+    }
+
+    #[test]
+    fn test_ib_port_down_alert_multiple_ports() {
+        let alert = health_report::HealthProbeAlert::ib_port_down(
+            vec![
+                "946dae03006104f8".to_string(),
+                "abc123def4567890".to_string(),
+            ],
+            8,
+        );
+
+        assert_eq!(alert.id.as_str(), "IbPortDown");
+        assert!(alert.message.contains("2 of 8"));
+        assert!(alert.message.contains("946dae03006104f8"));
+        assert!(alert.message.contains("abc123def4567890"));
+        assert!(
+            alert
+                .classifications
+                .contains(&health_report::HealthAlertClassification::prevent_allocations())
+        );
+    }
+
+    #[test]
+    fn test_ib_port_down_alert_has_tenant_message() {
+        let alert =
+            health_report::HealthProbeAlert::ib_port_down(vec!["946dae03006104f8".to_string()], 8);
+
+        assert!(alert.tenant_message.is_some());
+        assert!(alert.tenant_message.as_ref().unwrap().contains("1 port(s)"));
+    }
+
+    // ============================================================
     // Unit Tests for is_pkey_in_managed_range
     // ============================================================
 
@@ -1183,6 +1454,179 @@ mod tests {
         // No ranges configured, nothing is managed
         let pkey = PartitionKey::try_from(256u16).unwrap();
         assert!(!is_pkey_in_managed_range(pkey, &fabric));
+    }
+
+    // ============================================================
+    // Unit Tests for should_track_port_as_down
+    // ============================================================
+
+    #[test]
+    fn test_should_track_port_no_instance_with_sku_not_in_inactive() {
+        // Machine has SKU but no instance, port is NOT in inactive_devices -> should track
+        let guid_to_index: HashMap<String, u32> =
+            [("guid1".to_string(), 0), ("guid2".to_string(), 1)]
+                .into_iter()
+                .collect();
+        let expected_inactive: HashSet<u32> = [2, 3].into_iter().collect(); // indices 2,3 are inactive
+        let instance_guids: Option<HashSet<String>> = None;
+
+        // guid1 is at index 0, which is NOT in inactive_devices
+        assert!(should_track_port_as_down(
+            "guid1",
+            &guid_to_index,
+            Some(&expected_inactive),
+            &instance_guids,
+        ));
+    }
+
+    #[test]
+    fn test_should_track_port_no_instance_with_sku_in_inactive() {
+        // Machine has SKU but no instance, port IS in inactive_devices -> should NOT track
+        let guid_to_index: HashMap<String, u32> = [
+            ("guid1".to_string(), 0),
+            ("guid2".to_string(), 1),
+            ("guid3".to_string(), 2),
+        ]
+        .into_iter()
+        .collect();
+        let expected_inactive: HashSet<u32> = [2].into_iter().collect(); // index 2 is inactive
+        let instance_guids: Option<HashSet<String>> = None;
+
+        // guid3 is at index 2, which IS in inactive_devices
+        assert!(!should_track_port_as_down(
+            "guid3",
+            &guid_to_index,
+            Some(&expected_inactive),
+            &instance_guids,
+        ));
+    }
+
+    #[test]
+    fn test_should_track_port_no_sku() {
+        // Machine has no SKU -> should NOT track (lenient for initial setup)
+        let guid_to_index: HashMap<String, u32> = [("guid1".to_string(), 0)].into_iter().collect();
+        let instance_guids: Option<HashSet<String>> = None;
+
+        // No SKU (None), so we don't track any ports as down
+        assert!(!should_track_port_as_down(
+            "guid1",
+            &guid_to_index,
+            None, // No SKU or SKU has no IB devices
+            &instance_guids,
+        ));
+    }
+
+    #[test]
+    fn test_should_track_port_sku_no_ib_devices() {
+        // Machine has SKU but SKU has no IB devices -> should NOT track
+        // This is the same as None for expected_inactive_devices
+        let guid_to_index: HashMap<String, u32> = [("guid1".to_string(), 0)].into_iter().collect();
+        let instance_guids: Option<HashSet<String>> = None;
+
+        // SKU exists but has no IB devices (represented as None)
+        assert!(!should_track_port_as_down(
+            "guid1",
+            &guid_to_index,
+            None, // SKU has no IB devices
+            &instance_guids,
+        ));
+    }
+
+    #[test]
+    fn test_should_track_port_with_instance_port_in_config() {
+        // Machine has instance, port IS in instance's IB config -> should track
+        let guid_to_index: HashMap<String, u32> =
+            [("guid1".to_string(), 0), ("guid2".to_string(), 1)]
+                .into_iter()
+                .collect();
+        let expected_inactive: HashSet<u32> = HashSet::new();
+        let instance_guids: Option<HashSet<String>> = Some(
+            ["guid1".to_string(), "guid2".to_string()]
+                .into_iter()
+                .collect(),
+        );
+
+        assert!(should_track_port_as_down(
+            "guid1",
+            &guid_to_index,
+            Some(&expected_inactive),
+            &instance_guids,
+        ));
+    }
+
+    #[test]
+    fn test_should_track_port_with_instance_port_not_in_config() {
+        // Machine has instance, port is NOT in instance's IB config -> should NOT track
+        let guid_to_index: HashMap<String, u32> = [
+            ("guid1".to_string(), 0),
+            ("guid2".to_string(), 1),
+            ("guid3".to_string(), 2),
+        ]
+        .into_iter()
+        .collect();
+        let expected_inactive: HashSet<u32> = HashSet::new();
+        let instance_guids: Option<HashSet<String>> = Some(
+            ["guid1".to_string(), "guid2".to_string()]
+                .into_iter()
+                .collect(),
+        );
+
+        // guid3 is NOT in instance's IB config
+        assert!(!should_track_port_as_down(
+            "guid3",
+            &guid_to_index,
+            Some(&expected_inactive),
+            &instance_guids,
+        ));
+    }
+
+    #[test]
+    fn test_should_track_port_with_empty_instance_config() {
+        // Machine has instance but empty IB config -> should NOT track any ports
+        let guid_to_index: HashMap<String, u32> = [("guid1".to_string(), 0)].into_iter().collect();
+        let expected_inactive: HashSet<u32> = HashSet::new();
+        let instance_guids: Option<HashSet<String>> = Some(HashSet::new()); // Empty config
+
+        // Even though port exists, empty instance config means no ports should be tracked
+        assert!(!should_track_port_as_down(
+            "guid1",
+            &guid_to_index,
+            Some(&expected_inactive),
+            &instance_guids,
+        ));
+    }
+
+    #[test]
+    fn test_should_track_port_guid_case_insensitive() {
+        // GUID comparison should be case-insensitive
+        let guid_to_index: HashMap<String, u32> = [("GUID1".to_string(), 0)].into_iter().collect();
+        let expected_inactive: HashSet<u32> = HashSet::new();
+        let instance_guids: Option<HashSet<String>> =
+            Some(["guid1".to_string()].into_iter().collect()); // lowercase
+
+        // Should match even though casing differs
+        assert!(should_track_port_as_down(
+            "GUID1", // uppercase
+            &guid_to_index,
+            Some(&expected_inactive),
+            &instance_guids,
+        ));
+    }
+
+    #[test]
+    fn test_should_track_port_unknown_guid_with_sku() {
+        // Unknown GUID (not in guid_to_index) with SKU but no instance -> should track (fail-open)
+        let guid_to_index: HashMap<String, u32> = HashMap::new();
+        let expected_inactive: HashSet<u32> = [0, 1, 2].into_iter().collect();
+        let instance_guids: Option<HashSet<String>> = None;
+
+        // Unknown GUID gets u32::MAX which won't be in inactive_devices
+        assert!(should_track_port_as_down(
+            "unknown_guid",
+            &guid_to_index,
+            Some(&expected_inactive),
+            &instance_guids,
+        ));
     }
 
     // ============================================================

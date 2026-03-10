@@ -445,6 +445,27 @@ impl HealthProbeAlert {
             classifications: vec![HealthAlertClassification::prevent_allocations()],
         }
     }
+
+    pub fn ib_port_down(down_ports: Vec<String>, total_ports: usize) -> Self {
+        let message = format!(
+            "IB port(s) down: {} of {} ports are not active. Down GUIDs: {}",
+            down_ports.len(),
+            total_ports,
+            down_ports.join(", ")
+        );
+        Self {
+            id: HealthProbeId::ib_port_down(),
+            target: None,
+            in_alert_since: Some(chrono::Utc::now()),
+            message,
+            tenant_message: Some(format!(
+                "InfiniBand connectivity issue: {} port(s) are currently unavailable",
+                down_ports.len()
+            )),
+            classifications: vec![HealthAlertClassification::prevent_allocations()],
+        }
+    }
+
     /// Merge a HealthProbeAlert with the report from another probe of the same type
     ///
     /// The function does not check whether the Probe ID and target are equivalent.
@@ -548,6 +569,13 @@ impl HealthProbeId {
     /// This is mandatory if tenant wants to turn off the machine.
     pub fn internal_maintenance() -> Self {
         HealthProbeId("Maintenance".to_string())
+    }
+
+    /// The ID used for IB port down alerts
+    ///
+    /// Used by the IB fabric monitor when ports are detected as down.
+    pub fn ib_port_down() -> Self {
+        HealthProbeId("IbPortDown".to_string())
     }
 }
 
@@ -1339,5 +1367,42 @@ mod tests {
         let mut merged2 = r2.clone();
         merged2.merge(&r1);
         assert_eq!(merged2.observed_at, expected.observed_at);
+    }
+
+    #[test]
+    fn test_ib_port_down_probe_id() {
+        let probe_id = HealthProbeId::ib_port_down();
+        assert_eq!(probe_id.as_str(), "IbPortDown");
+    }
+
+    #[test]
+    fn test_ib_port_down_alert_construction() {
+        let down_ports = vec!["guid1".to_string(), "guid2".to_string()];
+        let alert = HealthProbeAlert::ib_port_down(down_ports, 8);
+
+        assert_eq!(alert.id.as_str(), "IbPortDown");
+        assert!(alert.message.contains("2 of 8"));
+        assert!(alert.message.contains("guid1"));
+        assert!(alert.message.contains("guid2"));
+        assert!(alert.tenant_message.is_some());
+        assert!(
+            alert
+                .classifications
+                .contains(&HealthAlertClassification::prevent_allocations())
+        );
+    }
+
+    #[test]
+    fn test_ib_port_down_alert_prevents_allocations() {
+        let alert = HealthProbeAlert::ib_port_down(vec!["guid1".to_string()], 8);
+        let report = HealthReport {
+            source: "test".to_string(),
+            observed_at: None,
+            successes: vec![],
+            alerts: vec![alert],
+            triggered_by: None,
+        };
+
+        assert!(report.has_classification(&HealthAlertClassification::prevent_allocations()));
     }
 }

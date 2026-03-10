@@ -495,6 +495,20 @@ async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool)
     let mh = create_managed_host(&env).await;
     let machine = mh.host().rpc_machine().await;
 
+    // Assign a SKU to the machine (required for IbPortDown alert tracking)
+    // BOM validation is disabled in test config, so manually assign a SKU
+    {
+        let mut txn = env.pool.begin().await.unwrap();
+        let sku = db::sku::generate_sku_from_machine(txn.as_mut(), &mh.id)
+            .await
+            .unwrap();
+        db::sku::create(&mut txn, &sku).await.unwrap();
+        db::machine::assign_sku(txn.as_mut(), &mh.id, &sku.id)
+            .await
+            .unwrap();
+        txn.commit().await.unwrap();
+    }
+
     let discovery_info = machine.discovery_info.as_ref().unwrap();
     // Use only CX7 interfaces in this test
     let device_name = "MT2910 Family [ConnectX-7]".to_string();
@@ -550,12 +564,11 @@ async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool)
     )
     .await;
 
-    let expected_err = format!("UFM detected inactive state for GUID: {}", guids[1]);
-
+    let expected_err = "Host is not available for allocation due to health probe alert";
     assert!(result.is_err());
     let error = result.expect_err("expected allocation to fail").to_string();
     assert!(
-        error.contains(&expected_err),
+        error.contains(expected_err),
         "Error message should contain '{expected_err}', but is '{error}'"
     );
 }
