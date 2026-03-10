@@ -119,7 +119,7 @@ impl StateControllerIO for RackStateControllerIO {
             RackState::Discovered => ("discovered", ""),
             RackState::ValidationInProgress => ("validation_in_progress", ""),
             RackState::ValidationPartial => ("validation_partial", ""),
-            RackState::FailedPartial => ("validation_failed", ""),
+            RackState::FailedPartial => ("failed_partial", ""),
             RackState::RackValidated => ("rack_validated", ""),
             RackState::RackFailed => ("rack_failed", ""),
             RackState::Ready => ("ready", ""),

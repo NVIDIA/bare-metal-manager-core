@@ -7,7 +7,7 @@ This document describes the Finite State Machine (FSM) that governs the lifecycl
 The rack state machine follows a few key architectural principles:
 
 - **BMMC is minimal**: It only tracks rack/partition state — it does not orchestrate tests or define which firmware to apply.
-- **Anvil drives validation**: An external validation service (Anvil) creates instances with metadata labels that BMMC polls to derive validation progress.
+- **RVS (Rack Validation Service) drives validation**: An external validation service creates instances with metadata labels that BMMC polls to derive validation progress.
 - **Partition-aware**: Validation is tracked at the partition level (groups of nodes, e.g. NVLink domains), not individual components.
 - **Maintenance is pluggable**: Firmware upgrades and power sequencing are handled as sub-states with stub transitions, ready for integration with Rack Manager Service.
 
@@ -38,7 +38,7 @@ Discovering --> Maintenance : All machines reached\nManagedHostState::Ready
 
 Maintenance --> Discovered : Maintenance completed
 
-Discovered --> Validation : Anvil starts validation
+Discovered --> Validation : RVS starts validation
 
 Validation --> Ready : Validation complete
 
@@ -71,7 +71,7 @@ end note
 | **Expected** | Initial state. Rack is expected — waiting for machines, switches, and power shelves to be discovered. Created when `ExpectedMachine`/`ExpectedSwitch`/`ExpectedPowerShelf` references this rack ID. |
 | **Discovering** | At least some devices have been linked. Waiting for all expected devices to appear and for all compute trays to reach `ManagedHostState::Ready`. |
 | **Maintenance** | Rack is undergoing maintenance (firmware upgrades, power sequencing). See [Maintenance Phase](#maintenance-phase) for sub-states. |
-| **Discovered** | All nodes discovered, all machines ready, maintenance complete. Waiting for external validation service (Anvil) to begin partition validation. |
+| **Discovered** | All nodes discovered, all machines ready, maintenance complete. Waiting for external validation service (RVS) to begin partition validation. |
 | **ValidationInProgress** | At least one partition has started validation, but none have completed yet. |
 | **ValidationPartial** | At least one partition has passed validation. No partitions have failed. Waiting for remaining partitions to complete. |
 | **FailedPartial** | At least one partition has failed validation. Can recover if failed partitions are re-validated successfully. |
@@ -79,7 +79,7 @@ end note
 | **RackFailed** | All partitions have failed validation. Requires intervention or re-validation. Can recover if at least one partition is retried. |
 | **Ready** | Rack is fully validated and available for production workloads. Monitors for new validation runs. |
 | **Error** | Unrecoverable error. Requires manual intervention. Mechanism TBD. **Not shown on the diagram** |
-| **Deleting** | Rack is being deleted. Terminal state. Transitioning out it TBD. **Not shown on the diagram** |
+| **Deleting** | Rack is being deleted. Terminal state. Transitioning out of it is TBD. **Not shown on the diagram** |
 
 ## Maintenance Phase
 
@@ -156,7 +156,7 @@ end note
 
 ## Validation Phase
 
-Validation is **partition-aware** and **externally driven**. BMMC does not orchestrate tests — it polls instance metadata labels set by the external Anvil service and aggregates partition status to compute state transitions.
+Validation is **partition-aware** and **externally driven**. BMMC does not orchestrate tests — it polls instance metadata labels set by the external RVS and aggregates partition status to compute state transitions.
 
 <div style="width: 100%; background: white; ">
 <!-- Keep the empty line after this or here or the diagram will break -->
@@ -178,7 +178,7 @@ state "Validation" as Validation {
   state "RackFailed" as RF : All partitions failed.
 }
 
-Discovered --> VIP : Anvil starts validation\n(any partition started)
+Discovered --> VIP : RVS starts validation\n(any partition started)
 
 VIP --> VP : At least one\npartition passed\n(none failed)
 VIP --> FP : At least one\npartition failed
@@ -214,7 +214,7 @@ Ready --> FP : New validation run\nwith failure
 
 ### How Validation State is Derived
 
-BMMC derives validation state by reading instance metadata labels on instances allocated to the rack's machines. The labels are set by Anvil.
+BMMC derives validation state by reading instance metadata labels on instances allocated to the rack's machines. The labels are set by RVS.
 
 #### Instance Metadata Labels
 

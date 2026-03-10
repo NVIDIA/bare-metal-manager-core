@@ -96,7 +96,7 @@ impl<'r> FromRow<'r, PgRow> for Rack {
 /// Overall state of the rack lifecycle.
 ///
 /// The rack progresses through discovery phases, then enters validation where
-/// partitions (groups of nodes) are validated by an external service (Anvil).
+/// partitions (groups of nodes) are validated by an external service (RVS).
 /// The state machine aggregates partition validation status from instance metadata.
 ///
 /// ## Simplified State Flow
@@ -129,7 +129,7 @@ pub enum RackState {
     Discovering,
 
     /// All nodes discovered and all machines have reached ManagedHostState::Ready.
-    /// Waiting for external validation service (Anvil) to begin partition validation.
+    /// Waiting for external validation service (RVS) to begin partition validation.
     ///
     /// TODO[#416]: The responsibility of gating production instance allocation should
     /// live in the **node/tray-level state machine**, not the rack SM. Each node
@@ -256,7 +256,7 @@ impl Display for RackState {
             RackState::Discovered => write!(f, "Discovered"),
             RackState::ValidationInProgress => write!(f, "ValidationInProgress"),
             RackState::ValidationPartial => write!(f, "ValidationPartial"),
-            RackState::FailedPartial => write!(f, "ValidationFailed"),
+            RackState::FailedPartial => write!(f, "FailedPartial"),
             RackState::RackValidated => write!(f, "RackValidated"),
             RackState::RackFailed => write!(f, "RackFailed"),
             RackState::Ready => write!(f, "Ready"),

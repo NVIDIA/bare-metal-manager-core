@@ -19,12 +19,12 @@
 //!
 //! This handler manages rack lifecycle through discovery and validation phases.
 //! Validation state is derived by aggregating partition status from instance metadata,
-//! which is set by an external validation service (Anvil).
+//! which is set by an external validation service (RVS).
 //!
 //! ## Key Design Principles
 //!
 //! 1. Carbide core is minimal: It only tracks state, not orchestration
-//! 2. Anvil drives validation: External service sets instance metadata
+//! 2. RVS drives validation: External service sets instance metadata
 //! 3. Partition-aware: Tracks validation at partition (node group) level
 
 use std::cmp::Ordering;
@@ -79,14 +79,18 @@ impl RackPartitionSummary {
         self.failed > 0
     }
 
-    /// Returns true if all partitions have passed validation
+    /// Returns true if all partitions have passed validation.
+    /// Vacuously true when there are no partitions — use `!is_empty()`
+    /// at the call site when non-emptiness matters.
     pub fn all_validated(&self) -> bool {
-        self.total_partitions > 0 && self.validated == self.total_partitions
+        self.validated == self.total_partitions
     }
 
-    /// Returns true if all partitions have failed validation
+    /// Returns true if all partitions have failed validation.
+    /// Vacuously true when there are no partitions — use `!is_empty()`
+    /// at the call site when non-emptiness matters.
     pub fn all_failed(&self) -> bool {
-        self.total_partitions > 0 && self.failed == self.total_partitions
+        self.failed == self.total_partitions
     }
 
     /// Returns true if no partitions have failed
@@ -94,12 +98,7 @@ impl RackPartitionSummary {
         self.failed == 0
     }
 
-    /// Returns true if there are no partitions
-    /// TODO[#416]: Have a discussion about it
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        self.total_partitions == 0
-    }
+
 }
 
 //------------------------------------------------------------------------------
@@ -108,9 +107,9 @@ impl RackPartitionSummary {
 const RV_LABEL_PART_ID: &str = "rv.part-id";
 /// Label key for the per-node validation status.
 const RV_LABEL_ST: &str = "rv.st";
-/// Label key for the validation run correlation ID.
-#[allow(dead_code)]
-const RV_LABEL_RUN_ID: &str = "rv.run-id";
+// Label key for the validation run correlation ID.
+// Not used yet — will be needed when RVS sets run correlation metadata.
+// const RV_LABEL_RUN_ID: &str = "rv.run-id";
 /// Label key for a failure description (only meaningful when status is `fail`).
 const RV_LABEL_FAIL_DESC: &str = "rv.fail-desc";
 
@@ -155,7 +154,6 @@ impl InstanceRvState {
 ///
 /// Only instances that carry the `rv.part-id` label are considered
 /// validation instances. Instances without it are silently skipped.
-#[allow(dead_code)]
 struct RvPartitions {
     inner: HashMap<String, Vec<InstanceRvState>>,
 }
@@ -190,9 +188,9 @@ impl RvPartitions {
     /// Aggregate per-node states into a [`RackPartitionSummary`].
     ///
     /// For each partition, the aggregate status is:
-    /// - Failed      if any node is `Fail`
+    /// - Validated   if all nodes are `Pass`
+    /// - Failed      else if any node is `Fail`
     /// - InProgress  else if any node is `Inp`
-    /// - Validated   else if all nodes are `Pass`
     /// - Pending     otherwise (all `Idle`, or a mix of `Idle`/`Pass`)
     fn summarize(&self) -> RackPartitionSummary {
         let mut summary = RackPartitionSummary {
@@ -232,7 +230,7 @@ impl RvPartitions {
 ///
 /// TBD0: potential race condition where partitions aren't fully manifested yet,
 /// but the rack validation is already started on some of them. Maybe in such
-/// case, Anvil should restrain from advertising paritions right during the
+/// case, RVS should restrain from advertising partitions right during the
 /// instance creation (respective API call can carry the metadata), and instead,
 /// it should update the metadata _after_ all instances are in place.
 /// TBD1: if above is true - we may want to capture a state of ongoing instance
@@ -353,7 +351,7 @@ async fn all_expected_devices_discovered(
 ///
 /// This is a prerequisite for entering the validation phase.
 ///
-/// TODO[#416]: eventually, the check must migrate from queriying ::Ready state to
+/// TODO[#416]: eventually, the check must migrate from querying ::Ready state to
 /// something like ::WaitingForPartitionValidation or something similar.
 async fn all_machines_ready(
     rack_id: &RackId,
@@ -466,10 +464,10 @@ fn compute_validation_transition(
             Some(RackState::Ready)
         }
         RackState::Ready => {
-            // Either all validation instances may have been replaced with
-            // tenant instances (that's why is_empty() is the case) or all nodes
-            // were validated and no tenant provisioning happened yet.
-            if summary.is_empty() || summary.all_validated() {
+            // Stay in Ready if all partitions are validated, or if there are
+            // no validation partitions at all (vacuously true — e.g. tenant
+            // instances replaced the validation ones).
+            if summary.all_validated() {
                 None
             }
             // New validation run might have been requested and something failed.
@@ -733,7 +731,7 @@ impl StateHandler for RackStateHandler {
 
             RackState::Deleting => {
                 // Rack is being deleted - no action needed for now
-                // TODO[#416]: add espace condition in case rack is recreated
+                // TODO[#416]: add escape condition in case rack is recreated
                 Ok(StateHandlerOutcome::do_nothing())
             }
         }
