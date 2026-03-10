@@ -52,9 +52,8 @@ impl RestClient {
         paths: NvueRestPaths,
     ) -> Result<Self, HealthError> {
         let raw_url = format!("https://{host}");
-        let base_url = Url::parse(&raw_url).map_err(|e| {
-            HealthError::HttpError(format!("{raw_url}: invalid base URL: {e}"))
-        })?;
+        let base_url = Url::parse(&raw_url)
+            .map_err(|e| HealthError::HttpError(format!("{raw_url}: invalid base URL: {e}")))?;
 
         let mut builder = Client::builder().timeout(request_timeout);
 
@@ -197,39 +196,39 @@ impl RestClient {
 // NVUE REST response types
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct SystemHealthResponse {
     pub status: Option<String>,
+    #[cfg(test)]
     #[serde(rename = "status-led")]
     pub status_led: Option<String>,
+    #[cfg(test)]
     pub issues: Option<HashMap<String, IssueInfo>>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg(test)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct IssueInfo {
     pub issue: Option<String>,
 }
 
 pub type ClusterAppsResponse = HashMap<String, ClusterApp>;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ClusterApp {
     pub status: Option<String>,
+    #[cfg(test)]
     pub reason: Option<String>,
-    #[serde(rename = "addition-info")]
-    pub addition_info: Option<String>,
-    #[serde(rename = "app-id")]
-    pub app_id: Option<String>,
-    #[serde(rename = "app-ver")]
-    pub app_ver: Option<String>,
-    pub capabilities: Option<String>,
-    #[serde(rename = "components-ver")]
-    pub components_ver: Option<String>,
+    // addition_info: Option<String>,   -- "addition-info" in JSON
+    // app_id: Option<String>,          -- "app-id" in JSON
+    // app_ver: Option<String>,         -- "app-ver" in JSON
+    // capabilities: Option<String>,
+    // components_ver: Option<String>,  -- "components-ver" in JSON
 }
 
 pub type SdnPartitionsResponse = HashMap<String, SdnPartition>;
 
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct SdnPartition {
     pub name: Option<String>,
     pub health: Option<String>,
@@ -239,23 +238,25 @@ pub struct SdnPartition {
 
 pub type InterfacesResponse = HashMap<String, InterfaceData>;
 
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct InterfaceData {
+    #[cfg(test)]
     #[serde(rename = "type")]
     pub iface_type: Option<String>,
     #[serde(default)]
     pub link: InterfaceLink,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct InterfaceLink {
+    #[cfg(test)]
     pub speed: Option<String>,
-    pub state: Option<HashMap<String, serde_json::Value>>,
+    // state: Option<HashMap<String, serde_json::Value>>,
     #[serde(default)]
     pub diagnostics: HashMap<String, DiagnosticStatus>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct DiagnosticStatus {
     pub status: String,
 }
