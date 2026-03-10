@@ -42,6 +42,11 @@ impl Metadata {
     }
 }
 
+/// default_metadata_for_deserializer returns empty Metadata for serde deserialization of expected device models.
+pub fn default_metadata_for_deserializer() -> Metadata {
+    Metadata::default()
+}
+
 impl From<Metadata> for rpc::Metadata {
     fn from(metadata: Metadata) -> Self {
         rpc::Metadata {

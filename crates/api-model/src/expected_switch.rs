@@ -24,15 +24,7 @@ use serde::Deserialize;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 
-use crate::metadata::Metadata;
-
-fn default_metadata_for_deserializer() -> Metadata {
-    Metadata {
-        name: "".to_string(),
-        description: "".to_string(),
-        labels: HashMap::default(),
-    }
-}
+use crate::metadata::{Metadata, default_metadata_for_deserializer};
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ExpectedSwitch {

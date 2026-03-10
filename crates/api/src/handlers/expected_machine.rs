@@ -123,24 +123,9 @@ pub(crate) async fn add(
     db::expected_machine::create(&mut txn, parsed_mac, db_data).await?;
 
     if let Some(rack_id) = request_rack_id {
-        match db_rack::get(&mut txn, rack_id).await {
-            Ok(rack) => {
-                let mut config = rack.config.clone();
-                if !config.expected_compute_trays.contains(&parsed_mac) {
-                    config.expected_compute_trays.push(parsed_mac);
-                    db_rack::update(&mut txn, rack_id, &config)
-                        .await
-                        .map_err(CarbideError::from)?;
-                }
-            }
-            Err(_) => {
-                let expected_compute_trays = vec![parsed_mac];
-                let _rack =
-                    db_rack::create(&mut txn, rack_id, expected_compute_trays, vec![], vec![])
-                        .await
-                        .map_err(CarbideError::from)?;
-            }
-        }
+        db_rack::register_expected_machine(&mut txn, rack_id, parsed_mac)
+            .await
+            .map_err(CarbideError::from)?;
     }
 
     txn.commit().await?;
@@ -220,24 +205,9 @@ pub(crate) async fn update(
         // the bmc_mac_address in both cases, which would then let this
         // work for both cases.
         if let Some(rack_id) = request_rack_id {
-            match db_rack::get(&mut txn, rack_id).await {
-                Ok(rack) => {
-                    let mut config = rack.config.clone();
-                    if !config.expected_compute_trays.contains(&parsed_mac) {
-                        config.expected_compute_trays.push(parsed_mac);
-                        db_rack::update(&mut txn, rack_id, &config)
-                            .await
-                            .map_err(CarbideError::from)?;
-                    }
-                }
-                Err(_) => {
-                    let expected_compute_trays = vec![parsed_mac];
-                    let _rack =
-                        db_rack::create(&mut txn, rack_id, expected_compute_trays, vec![], vec![])
-                            .await
-                            .map_err(CarbideError::from)?;
-                }
-            }
+            db_rack::register_expected_machine(&mut txn, rack_id, parsed_mac)
+                .await
+                .map_err(CarbideError::from)?;
         }
     }
 
@@ -355,30 +325,15 @@ fn sanitize_expected_machine_and_get_ids(
     Ok((id, parsed_mac))
 }
 
-/// Helper function to process rack association
+/// process_rack_association registers an expected machine MAC with a rack, creating the rack if needed.
 async fn process_rack_association(
     txn: &mut sqlx::PgConnection,
     rack_id: RackId,
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
-    match db_rack::get(&mut *txn, rack_id).await {
-        Ok(rack) => {
-            let mut config = rack.config.clone();
-            if !config.expected_compute_trays.contains(&parsed_mac) {
-                config.expected_compute_trays.push(parsed_mac);
-                db_rack::update(txn, rack_id, &config)
-                    .await
-                    .map_err(CarbideError::from)?;
-            }
-        }
-        Err(_) => {
-            let expected_compute_trays = vec![parsed_mac];
-            let _rack = db_rack::create(txn, rack_id, expected_compute_trays, vec![], vec![])
-                .await
-                .map_err(CarbideError::from)?;
-        }
-    }
-    Ok(())
+    db_rack::register_expected_machine(txn, rack_id, parsed_mac)
+        .await
+        .map_err(CarbideError::from)
 }
 
 /// Helper function to create a single expected machine within a transaction
