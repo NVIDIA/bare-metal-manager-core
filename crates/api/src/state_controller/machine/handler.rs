@@ -9229,7 +9229,8 @@ async fn handle_instance_host_platform_config(
                         redfish_client.as_ref(),
                         &mh_snapshot.host_snapshot,
                         SystemPowerControl::ForceRestart,
-                        ctx,
+                        ctx.services.ipmi_tool.clone(),
+                        txn,
                     )
                     .await
                     .map_err(|e| {
