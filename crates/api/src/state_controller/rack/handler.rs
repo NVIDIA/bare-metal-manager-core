@@ -276,17 +276,17 @@ async fn all_expected_devices_discovered(
             // Still waiting for some machines to be linked
             let mut txn = ctx.services.db_pool.begin().await?;
             for macaddr in config.expected_compute_trays.clone().as_slice() {
-                match db_expected_machine::find_one_linked(&mut txn, *macaddr).await {
-                    Ok(machine) => {
-                        if let Some(machine_id) = machine.machine_id
-                            && !config.compute_trays.contains(&machine_id)
-                        {
-                            config.compute_trays.push(machine_id);
-                            db_rack::update(&mut txn, *rack_id, &config).await?;
-                        }
-                    }
-                    Err(_) => {
-                        // BMC not yet explored, continue waiting
+                // A `None` result simply means the BMC has not been explored
+                // yet. Any other, enclosing, error condition related to the db
+                // query will be propagated outwards.
+                if let Some(machine) =
+                    db_expected_machine::find_one_linked(&mut txn, *macaddr).await?
+                {
+                    if let Some(machine_id) = machine.machine_id
+                        && !config.compute_trays.contains(&machine_id)
+                    {
+                        config.compute_trays.push(machine_id);
+                        db_rack::update(&mut txn, *rack_id, &config).await?;
                     }
                 }
             }
