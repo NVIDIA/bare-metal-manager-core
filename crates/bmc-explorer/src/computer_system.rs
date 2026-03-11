@@ -327,13 +327,11 @@ impl<B: Bmc> ExploredComputerSystem<B> {
             // interface from boot options as workaround.
             if let Some(oob_iface) = self.oob_interface_from_boot_options()? {
                 result.push(oob_iface);
-                Ok(result)
             } else {
-                Err(Error::BmcNotProvided("oob interface for dpu"))
+                tracing::warn!("Error getting OOB interface for the DPU");
             }
-        } else {
-            Ok(result)
         }
+        Ok(result)
     }
 
     fn oob_interface_from_boot_options(&self) -> Result<Option<ModelEthernetInterface>, Error<B>> {

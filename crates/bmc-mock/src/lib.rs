@@ -36,7 +36,9 @@ pub mod test_support;
 pub mod tls;
 
 pub use combined_server::{CombinedServer, ListenerOrAddress};
-pub use machine_info::{DpuFirmwareVersions, DpuMachineInfo, HostMachineInfo, MachineInfo};
+pub use machine_info::{
+    DpuFirmwareVersions, DpuMachineInfo, DpuSettings, HostMachineInfo, MachineInfo,
+};
 pub use mock_machine_router::{
     BmcCommand, SetSystemPowerError, SetSystemPowerResult, machine_router,
 };

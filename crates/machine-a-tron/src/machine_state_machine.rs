@@ -729,7 +729,7 @@ impl MachineStateMachine {
                     host_mac_address: self.machine_info.host_mac_address(),
                     tpm_ek_certificate,
                     dpu_nic_version: if let MachineInfo::Dpu(d) = &self.machine_info {
-                        d.firmware_versions.nic.clone()
+                        d.settings.firmware_versions.nic.clone()
                     } else {
                         None
                     },

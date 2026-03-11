@@ -51,8 +51,8 @@ pub struct DpuMachineInfo {
     pub host_mac_address: MacAddress,
     pub oob_mac_address: MacAddress,
     pub serial: String,
-    pub nic_mode: bool,
-    pub firmware_versions: DpuFirmwareVersions,
+    #[serde(flatten)]
+    pub settings: DpuSettings,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -63,22 +63,36 @@ pub struct DpuFirmwareVersions {
     pub nic: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DpuSettings {
+    pub nic_mode: bool,
+    pub firmware_versions: DpuFirmwareVersions,
+    #[serde(default = "default_true")]
+    pub exposes_oob_eth: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for DpuSettings {
+    fn default() -> Self {
+        Self {
+            nic_mode: false,
+            firmware_versions: Default::default(),
+            exposes_oob_eth: true,
+        }
+    }
+}
+
 impl Default for DpuMachineInfo {
     fn default() -> Self {
-        Self::new(
-            HostHardwareType::DellPowerEdgeR750,
-            false,
-            Default::default(),
-        )
+        Self::new(HostHardwareType::DellPowerEdgeR750, DpuSettings::default())
     }
 }
 
 impl DpuMachineInfo {
-    pub fn new(
-        hw_type: HostHardwareType,
-        nic_mode: bool,
-        firmware_versions: DpuFirmwareVersions,
-    ) -> Self {
+    pub fn new(hw_type: HostHardwareType, settings: DpuSettings) -> Self {
         let bmc_mac_address = next_mac();
         let host_mac_address = next_mac();
         let oob_mac_address = next_mac();
@@ -87,8 +101,7 @@ impl DpuMachineInfo {
             bmc_mac_address,
             host_mac_address,
             oob_mac_address,
-            nic_mode,
-            firmware_versions,
+            settings,
             serial: format!("MT{}", oob_mac_address.to_string().replace(':', "")),
         }
     }
@@ -96,21 +109,22 @@ impl DpuMachineInfo {
     fn bluefield3(&self) -> hw::bluefield3::Bluefield3<'_> {
         let mode = match self.hw_type {
             HostHardwareType::DellPowerEdgeR750 => hw::bluefield3::Mode::SuperNIC {
-                nic_mode: self.nic_mode,
+                nic_mode: self.settings.nic_mode,
             },
             HostHardwareType::WiwynnGB200Nvl => hw::bluefield3::Mode::B3240ColdAisle,
         };
+        let settings = &self.settings;
         hw::bluefield3::Bluefield3 {
             host_mac_address: self.host_mac_address,
             bmc_mac_address: self.bmc_mac_address,
-            oob_mac_address: Some(self.oob_mac_address),
+            oob_mac_address: settings.exposes_oob_eth.then_some(self.oob_mac_address),
             mode,
             product_serial_number: Cow::Borrowed(&self.serial),
             firmware_versions: hw::bluefield3::FirmwareVersions {
-                bmc: self.firmware_versions.bmc.clone().unwrap_or_default(),
-                uefi: self.firmware_versions.uefi.clone().unwrap_or_default(),
-                erot: self.firmware_versions.cec.clone().unwrap_or_default(),
-                dpu_nic: self.firmware_versions.nic.clone().unwrap_or_default(),
+                bmc: settings.firmware_versions.bmc.clone().unwrap_or_default(),
+                uefi: settings.firmware_versions.uefi.clone().unwrap_or_default(),
+                erot: settings.firmware_versions.cec.clone().unwrap_or_default(),
+                dpu_nic: settings.firmware_versions.nic.clone().unwrap_or_default(),
             },
         }
     }
@@ -250,7 +264,7 @@ impl MachineInfo {
             MachineInfo::Host(host) => host.oem_state(),
             MachineInfo::Dpu(dpu) => redfish::oem::State::NvidiaBluefield(
                 redfish::oem::nvidia::bluefield::BluefieldState::new(
-                    dpu.nic_mode,
+                    dpu.settings.nic_mode,
                     dpu.host_mac_address,
                 ),
             ),
