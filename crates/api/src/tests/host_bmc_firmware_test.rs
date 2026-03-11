@@ -1259,6 +1259,8 @@ async fn test_instance_upgrading_actual_part_2(
     env.run_machine_state_controller_iteration().await;
     mh.network_configured(env).await;
     env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
     mh.network_configured(env).await;
     env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;

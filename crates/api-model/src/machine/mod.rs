@@ -1895,14 +1895,26 @@ pub enum HostPlatformConfigurationState {
     PowerCycle {
         power_on: bool,
     },
+    UnlockHost {
+        #[serde(default)]
+        unlock_host_state: UnlockHostState,
+    },
     CheckHostConfig,
-    UnlockHost,
     ConfigureBios,
     PollingBiosSetup,
     SetBootOrder {
         set_boot_order_info: SetBootOrderInfo,
     },
     LockHost,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum UnlockHostState {
+    #[default]
+    DisableLockdown,
+    RebootHost,
+    WaitForUefiBoot,
 }
 
 /// Struct to store information if Reprovision is requested.

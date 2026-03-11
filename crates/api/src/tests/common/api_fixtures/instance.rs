@@ -424,7 +424,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestMa
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
-        5,
+        7,
         ManagedHostState::Assigned {
             instance_state: model::machine::InstanceState::HostPlatformConfiguration {
                 platform_config_state:
@@ -438,7 +438,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestMa
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
-        1,
+        2,
         ManagedHostState::Assigned {
             instance_state: model::machine::InstanceState::WaitingForDpusToUp,
         },

@@ -687,6 +687,7 @@ pub async fn initialize_and_start_controllers(
                         .machine_state_controller
                         .scout_reporting_timeout,
                 )
+                .uefi_boot_wait(carbide_config.machine_state_controller.uefi_boot_wait)
                 .hardware_models(carbide_config.get_firmware_config())
                 .firmware_downloader(&downloader)
                 .attestation_enabled(carbide_config.attestation_enabled)

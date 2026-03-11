@@ -72,7 +72,7 @@ use model::machine::{
     ManagedHostStateSnapshot, MeasuringState, NetworkConfigUpdateState, NextStateBFBSupport,
     PerformPowerOperation, PowerDrainState, ReprovisionState, RetryInfo, SecureEraseBossContext,
     SecureEraseBossState, SetBootOrderInfo, SetBootOrderState, SetSecureBootState,
-    StateMachineArea, UefiSetupInfo, UefiSetupState, ValidationState,
+    StateMachineArea, UefiSetupInfo, UefiSetupState, UnlockHostState, ValidationState,
     dpf_based_dpu_provisioning_possible, get_display_ids,
 };
 use model::power_manager::PowerHandlingOutcome;
@@ -131,6 +131,7 @@ pub struct ReachabilityParams {
     pub power_down_wait: chrono::Duration,
     pub failure_retry_time: chrono::Duration,
     pub scout_reporting_timeout: chrono::Duration,
+    pub uefi_boot_wait: chrono::Duration,
 }
 
 /// Parameters used by the HostStateMachineHandler.
@@ -228,6 +229,7 @@ impl MachineStateHandlerBuilder {
                 power_down_wait: chrono::Duration::zero(),
                 failure_retry_time: chrono::Duration::zero(),
                 scout_reporting_timeout: chrono::Duration::zero(),
+                uefi_boot_wait: chrono::Duration::zero(),
             },
             firmware_downloader: None,
             no_firmware_update_reset_retries: false,
@@ -316,6 +318,11 @@ impl MachineStateHandlerBuilder {
 
     pub fn scout_reporting_timeout(mut self, scout_reporting_timeout: chrono::Duration) -> Self {
         self.reachability_params.scout_reporting_timeout = scout_reporting_timeout;
+        self
+    }
+
+    pub fn uefi_boot_wait(mut self, uefi_boot_wait: chrono::Duration) -> Self {
+        self.reachability_params.uefi_boot_wait = uefi_boot_wait;
         self
     }
 
@@ -5698,7 +5705,9 @@ impl InstanceStateHandler {
                             ManagedHostState::Assigned {
                                 instance_state: InstanceState::HostPlatformConfiguration {
                                     platform_config_state:
-                                        HostPlatformConfigurationState::CheckHostConfig,
+                                        HostPlatformConfigurationState::UnlockHost {
+                                            unlock_host_state: UnlockHostState::DisableLockdown,
+                                        },
                                 },
                             }
                         };
@@ -9146,11 +9155,13 @@ async fn handle_instance_host_platform_config(
             }
 
             if power_state == PowerState::On {
-                // Host is already on, proceed to check config
+                // Host is on, unlock BMC before checking config so Redfish reflects reality
                 return Ok(StateHandlerOutcome::transition(
                     ManagedHostState::Assigned {
                         instance_state: InstanceState::HostPlatformConfiguration {
-                            platform_config_state: HostPlatformConfigurationState::CheckHostConfig,
+                            platform_config_state: HostPlatformConfigurationState::UnlockHost {
+                                unlock_host_state: UnlockHostState::DisableLockdown,
+                            },
                         },
                     },
                 ));
@@ -9174,10 +9185,88 @@ async fn handle_instance_host_platform_config(
                 mh_snapshot.host_snapshot.id, power_state
             )));
         }
+        HostPlatformConfigurationState::UnlockHost { unlock_host_state } => {
+            match unlock_host_state {
+                UnlockHostState::DisableLockdown => {
+                    redfish_client
+                        .lockdown_bmc(EnabledDisabled::Disabled)
+                        .await
+                        .map_err(|e| StateHandlerError::RedfishError {
+                            operation: "lockdown_bmc",
+                            error: e,
+                        })?;
+
+                    let vendor = mh_snapshot.host_snapshot.bmc_vendor();
+
+                    // Supermicro BMCs in lockdown mode sometimes report stale boot order
+                    // via Redfish (https://github.com/NVIDIA/bare-metal-manager-core/issues/505).
+                    // A reboot with lockdown disabled forces the BMC to re-read the actual UEFI
+                    // boot configuration.
+                    if vendor.is_supermicro() {
+                        tracing::info!(
+                            machine_id = %mh_snapshot.host_snapshot.id,
+                            %vendor,
+                            "BMC lockdown disabled; rebooting host so Redfish reflects actual boot order"
+                        );
+                        InstanceState::HostPlatformConfiguration {
+                            platform_config_state: HostPlatformConfigurationState::UnlockHost {
+                                unlock_host_state: UnlockHostState::RebootHost,
+                            },
+                        }
+                    } else {
+                        tracing::info!(
+                            machine_id = %mh_snapshot.host_snapshot.id,
+                            %vendor,
+                            "BMC lockdown disabled; skipping post-unlock reboot (not required for this vendor)"
+                        );
+                        InstanceState::HostPlatformConfiguration {
+                            platform_config_state: HostPlatformConfigurationState::CheckHostConfig,
+                        }
+                    }
+                }
+                UnlockHostState::RebootHost => {
+                    host_power_control(
+                        redfish_client.as_ref(),
+                        &mh_snapshot.host_snapshot,
+                        SystemPowerControl::ForceRestart,
+                        ctx,
+                    )
+                    .await
+                    .map_err(|e| {
+                        StateHandlerError::GenericError(eyre!(
+                            "failed to ForceRestart host after disabling BMC lockdown: {}",
+                            e
+                        ))
+                    })?;
+
+                    InstanceState::HostPlatformConfiguration {
+                        platform_config_state: HostPlatformConfigurationState::UnlockHost {
+                            unlock_host_state: UnlockHostState::WaitForUefiBoot,
+                        },
+                    }
+                }
+                UnlockHostState::WaitForUefiBoot => {
+                    let entered_at = mh_snapshot.host_snapshot.state.version.timestamp();
+                    if wait(&entered_at, reachability_params.uefi_boot_wait) {
+                        return Ok(StateHandlerOutcome::wait(format!(
+                            "Waiting for UEFI boot to complete on {} after post-unlock reboot; \
+                             wait duration: {}, will proceed after {}",
+                            mh_snapshot.host_snapshot.id,
+                            reachability_params.uefi_boot_wait,
+                            entered_at + reachability_params.uefi_boot_wait,
+                        )));
+                    }
+
+                    InstanceState::HostPlatformConfiguration {
+                        platform_config_state: HostPlatformConfigurationState::CheckHostConfig,
+                    }
+                }
+            }
+        }
         HostPlatformConfigurationState::CheckHostConfig => {
             let configure_host_boot_order = if !mh_snapshot.dpu_snapshots.is_empty() {
                 // Given that we are checking the boot order of a server immediately after a power cycle, we
-                // shoudl do some waiting to ensure that the host is not reporting stale redfish information from
+                // should do some waiting to ensure that the host is not reporting stale redfish information from
                 // before Carbide powered it off.
                 // This check guarantees that the host has finished loading the BIOS after the DPUs have come up.
                 // If Carbide is still reading an incorrect boot order at this point, something is wrong, and
@@ -9241,23 +9330,14 @@ async fn handle_instance_host_platform_config(
 
             if configure_host_boot_order {
                 InstanceState::HostPlatformConfiguration {
-                    platform_config_state: HostPlatformConfigurationState::UnlockHost,
+                    platform_config_state: HostPlatformConfigurationState::ConfigureBios,
                 }
             } else {
-                InstanceState::WaitingForDpusToUp
-            }
-        }
-        HostPlatformConfigurationState::UnlockHost => {
-            redfish_client
-                .lockdown_bmc(EnabledDisabled::Disabled)
-                .await
-                .map_err(|e| StateHandlerError::RedfishError {
-                    operation: "lockdown_bmc",
-                    error: e,
-                })?;
-
-            InstanceState::HostPlatformConfiguration {
-                platform_config_state: HostPlatformConfigurationState::ConfigureBios,
+                // Boot order is already correct (or no DPUs); skip to LockHost to
+                // re-enable BMC lockdown before proceeding.
+                InstanceState::HostPlatformConfiguration {
+                    platform_config_state: HostPlatformConfigurationState::LockHost,
+                }
             }
         }
         HostPlatformConfigurationState::ConfigureBios => {
