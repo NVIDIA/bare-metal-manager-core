@@ -746,6 +746,7 @@ impl MainLoop {
                     &conf.route_servers,
                     self.hbn_device_names.clone(),
                     !conf.use_admin_network || conf.is_primary_dpu,
+                    false,
                 )
                 .await;
                 is_healthy = !health_report.successes.is_empty() && health_report.alerts.is_empty();

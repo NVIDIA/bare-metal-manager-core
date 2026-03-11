@@ -118,6 +118,7 @@ pub async fn health_check(
     route_servers: &[String],
     hbn_device_names: HBNDeviceNames,
     include_dhcp_server: bool,
+    run_restricted_mode_check: bool,
 ) -> health_report::HealthReport {
     let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
 
@@ -140,8 +141,10 @@ pub async fn health_check(
     passed(&mut hr, probe_ids::ContainerExists.clone(), None);
     check_hbn_services_running(&mut hr, &container_id, &EXPECTED_SERVICES).await;
 
-    // We want these checks whether HBN is up or not
-    check_restricted_mode(&mut hr).await;
+    if run_restricted_mode_check {
+        // We want these checks whether HBN is up or not
+        check_restricted_mode(&mut hr).await;
+    }
 
     // We only want these checks if HBN is up
     if !is_up(&hr) {
