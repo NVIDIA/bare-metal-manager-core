@@ -174,7 +174,7 @@ impl From<DpuConfig> for EndpointExplorationReport {
                     }
                     .into(),
                 ],
-                base_mac: Some(value.host_mac_address.to_string().replace(':', "")),
+                base_mac: Some(value.host_mac_address.into()),
                 power_state: PowerState::On,
                 sku: None,
                 boot_order: None,

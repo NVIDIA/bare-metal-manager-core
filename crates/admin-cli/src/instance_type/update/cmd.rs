@@ -39,6 +39,8 @@ pub async fn update(
     let itype = api_client
         .0
         .find_instance_types_by_ids(FindInstanceTypesByIdsRequest {
+            tenant_organization_id: None,
+            include_allocation_stats: false,
             instance_type_ids: vec![id.clone()],
         })
         .await?

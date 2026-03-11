@@ -2358,7 +2358,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     let update_vpc = UpdateVpcVirtualization {
         id: vpc.id,
         if_version_match: None,
-        network_virtualization_type: forge_network::virtualization::VpcVirtualizationType::Fnn,
+        network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
     };
     db::vpc::update_virtualization(&update_vpc, &mut txn)
         .await
@@ -2791,6 +2791,8 @@ async fn test_allocate_with_instance_type_id(
         .find_instance_types_by_ids(tonic::Request::new(
             rpc::forge::FindInstanceTypesByIdsRequest {
                 instance_type_ids: existing_instance_type_ids,
+                include_allocation_stats: false,
+                tenant_organization_id: None,
             },
         ))
         .await

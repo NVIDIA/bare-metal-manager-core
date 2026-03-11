@@ -30,9 +30,9 @@ use ::rpc::forge::{
     self as rpc, FlatInterfaceConfig, ManagedHostNetworkConfigResponse,
     NetworkSecurityGroupRuleAction, NetworkSecurityGroupRuleProtocol,
 };
+use carbide_network::ip::prefix::Ipv4Net;
+use carbide_network::virtualization::VpcVirtualizationType;
 use eyre::WrapErr;
-use forge_network::ip::prefix::Ipv4Net;
-use forge_network::virtualization::VpcVirtualizationType;
 use mac_address::MacAddress;
 use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
@@ -54,13 +54,6 @@ const NVUED_BLOCK_RULE: &str = r"
 -A INPUT -p tcp --dport 8765 -j DROP
 ";
 
-struct EthernetVirtualizerPaths {
-    interfaces: FPath,
-    frr: FPath,
-    daemons: FPath,
-    acl_rules: FPath,
-}
-
 #[derive(PartialEq, Debug, Clone)]
 pub enum InterfaceState {
     Up,
@@ -79,51 +72,61 @@ impl FromStr for InterfaceState {
 }
 
 impl InterfaceState {
-    pub fn command(&self, hbn_device_names: &HBNDeviceNames) -> String {
+    const HOST_INTERFACE_NAME: &str = "pf0hpf";
+    pub fn command(&self) -> tokio::process::Command {
+        let mut cmd = tokio::process::Command::new("ip");
+        cmd.arg("link")
+            .arg("set")
+            .arg(InterfaceState::HOST_INTERFACE_NAME);
         if InterfaceState::Up == *self {
-            format!("ifup {}", hbn_device_names.reps[0])
+            cmd.arg("up");
         } else {
-            format!("ifdown {}", hbn_device_names.reps[0])
+            cmd.arg("down");
         }
+        cmd
     }
 
-    pub async fn update_state(
-        needed_state: &Self,
-        hbn_device_names: &HBNDeviceNames,
-        current_state: &Option<InterfaceState>,
-    ) -> eyre::Result<Option<InterfaceState>> {
-        let current_state = if let Some(current_state) = current_state {
-            current_state
-        } else {
-            // Let's try to find out.
-            &get_interface_state(hbn_device_names).await?
-        };
+    pub async fn update_state(needed_state: &Self) -> eyre::Result<()> {
+        let current_state = get_interface_state(InterfaceState::HOST_INTERFACE_NAME).await?;
 
-        if current_state != needed_state {
+        if current_state != *needed_state {
             // Execute command only if interface state is changed.
-            let cmd = needed_state.command(hbn_device_names);
+            let mut cmd = needed_state.command();
             tracing::info!(
-                "Updating interface state from {:?} to {:?} with command: {}",
+                "Updating interface state from {:?} to {:?} with command: {:?}",
                 current_state,
                 needed_state,
                 cmd
             );
-            hbn::run_in_container_shell(&cmd).await?;
+            let result = cmd.output().await?;
+            if !result.status.success() {
+                return Err(eyre::eyre!(
+                    "Failed to update interface state: {}",
+                    result.status
+                ));
+            }
 
             // Let's check if interface state is updated or not.
-            let new_state = get_interface_state(hbn_device_names).await?;
+            let new_state = get_interface_state(InterfaceState::HOST_INTERFACE_NAME).await?;
             if &new_state != needed_state {
                 return Err(eyre::eyre!(
                     r#"State is not updated after command execution. Will try in next iteration. 
                 Needed {needed_state:?}, After updating {new_state:?}, Interface: {}"#,
-                    hbn_device_names.reps[0]
+                    InterfaceState::HOST_INTERFACE_NAME
                 ));
             }
         }
 
         // Return new state.
-        Ok(Some(needed_state.clone()))
+        Ok(())
     }
+}
+
+struct EthernetVirtualizerPaths {
+    interfaces: FPath,
+    frr: FPath,
+    daemons: FPath,
+    acl_rules: FPath,
 }
 
 impl EthernetVirtualizerPaths {
@@ -223,41 +226,47 @@ pub async fn update_nvue(
 
     let physical_name = hbn_device_names.reps[0].to_string();
     let networks = if nc.use_admin_network {
-        let admin_interface = nc
-            .admin_interface
-            .as_ref()
-            .ok_or_else(|| eyre::eyre!("Missing admin_interface"))?;
-        vec![nvue::PortConfig {
-            interface_name: physical_name,
-            is_phy: true,
-            vlan: admin_interface.vlan_id as u16,
-            vni: if nc.network_virtualization_type() == ::rpc::forge::VpcVirtualizationType::Fnn {
-                Some(admin_interface.vni)
-            } else {
-                None
-            },
-            l3_vni: if nc.network_virtualization_type() == ::rpc::forge::VpcVirtualizationType::Fnn
-            {
-                Some(admin_interface.vpc_vni)
-            } else {
-                None
-            },
-            gateway_cidr: admin_interface.gateway.clone(),
-            vpc_prefixes: admin_interface.vpc_prefixes.clone(),
-            vpc_peer_prefixes: admin_interface.vpc_peer_prefixes.clone(),
-            vpc_peer_vnis: admin_interface.vpc_peer_vnis.clone(),
-            svi_ip: admin_interface.svi_ip.clone(),
-            tenant_vrf_loopback_ip: admin_interface.tenant_vrf_loopback_ip.clone(),
-            network_security_group_id: None, // NSGs are not applied on the admin network.
-            is_l2_segment: if nc.network_virtualization_type()
-                == ::rpc::forge::VpcVirtualizationType::Fnn
-            {
-                admin_interface.is_l2_segment
-            } else {
-                // Why false in legacy case? ¯\_(ツ)_/¯
-                false
-            },
-        }]
+        if nc.is_primary_dpu {
+            let admin_interface = nc
+                .admin_interface
+                .as_ref()
+                .ok_or_else(|| eyre::eyre!("Missing admin_interface"))?;
+            vec![nvue::PortConfig {
+                interface_name: physical_name,
+                is_phy: true,
+                vlan: admin_interface.vlan_id as u16,
+                vni: if nc.network_virtualization_type() == ::rpc::forge::VpcVirtualizationType::Fnn
+                {
+                    Some(admin_interface.vni)
+                } else {
+                    None
+                },
+                l3_vni: if nc.network_virtualization_type()
+                    == ::rpc::forge::VpcVirtualizationType::Fnn
+                {
+                    Some(admin_interface.vpc_vni)
+                } else {
+                    None
+                },
+                gateway_cidr: admin_interface.gateway.clone(),
+                vpc_prefixes: admin_interface.vpc_prefixes.clone(),
+                vpc_peer_prefixes: admin_interface.vpc_peer_prefixes.clone(),
+                vpc_peer_vnis: admin_interface.vpc_peer_vnis.clone(),
+                svi_ip: admin_interface.svi_ip.clone(),
+                tenant_vrf_loopback_ip: admin_interface.tenant_vrf_loopback_ip.clone(),
+                network_security_group_id: None, // NSGs are not applied on the admin network.
+                is_l2_segment: if nc.network_virtualization_type()
+                    == ::rpc::forge::VpcVirtualizationType::Fnn
+                {
+                    admin_interface.is_l2_segment
+                } else {
+                    // Why false in legacy case? ¯\_(ツ)_/¯
+                    false
+                },
+            }]
+        } else {
+            vec![]
+        }
     } else {
         let mut ifs = Vec::with_capacity(nc.tenant_interfaces.len());
         for net in &nc.tenant_interfaces {
@@ -768,15 +777,19 @@ async fn do_post(
     Ok(has_changes)
 }
 
-async fn get_interface_state(hbn_device_names: &HBNDeviceNames) -> eyre::Result<InterfaceState> {
-    let cmd = format!("ip link show {}", hbn_device_names.reps[0]);
-    let output = hbn::run_in_container(
-        &hbn::get_hbn_container_id().await?,
-        &["bash", "-c", &cmd],
-        true,
-    )
-    .await?;
+async fn get_interface_state(interface_name: &str) -> eyre::Result<InterfaceState> {
+    let mut cmd = tokio::process::Command::new("ip");
+    cmd.arg("link").arg("show").arg(interface_name);
+    let output = cmd.output().await?;
 
+    if !output.status.success() {
+        return Err(eyre::eyre!(
+            "Failed to get interface state: {}",
+            output.status
+        ));
+    }
+
+    let output = String::from_utf8_lossy(&output.stdout);
     InterfaceState::from_str(&output)
 }
 
@@ -795,19 +808,10 @@ fn needed_interface_state(is_primary_dpu: bool, use_admin_network: bool) -> Inte
     InterfaceState::Down
 }
 
-pub async fn update_interface_state(
-    nc: &ManagedHostNetworkConfigResponse,
-    skip_reload: bool,
-    hbn_device_names: &HBNDeviceNames,
-    current_state: &Option<InterfaceState>,
-) -> eyre::Result<Option<InterfaceState>> {
-    if skip_reload {
-        return Ok(current_state.clone());
-    }
-
+pub async fn update_interface_state(nc: &ManagedHostNetworkConfigResponse) -> eyre::Result<()> {
     let needed_state = needed_interface_state(nc.is_primary_dpu, nc.use_admin_network);
 
-    InterfaceState::update_state(&needed_state, hbn_device_names, current_state).await
+    InterfaceState::update_state(&needed_state).await
 }
 
 pub async fn update_dhcp(
@@ -831,6 +835,7 @@ pub async fn update_dhcp(
     // Delete NVUE relay config in case we used that previously
     let _ = fs::remove_file(path_dhcp_relay_nvue);
 
+    let stop_server = network_config.use_admin_network && !network_config.is_primary_dpu;
     // Start DHCP Server in HBN.
     let post_action = match write_dhcp_v4_server_config(
         &path_dhcp_relay,
@@ -839,6 +844,10 @@ pub async fn update_dhcp(
         service_addrs,
         &hbn_device_names,
     ) {
+        Ok(true) if stop_server => PostAction {
+            path: paths_dhcp_server.server,
+            cmd: dhcp::STOP_DHCP_SERVER,
+        },
         Ok(true) => PostAction {
             path: paths_dhcp_server.server,
             cmd: dhcp::RELOAD_DHCP_SERVER,
@@ -1139,8 +1148,10 @@ fn write_dhcp_v4_server_config(
 
     let mut has_changes = false;
 
-    let next_contents =
-        dhcp::build_server_supervisord_config(dhcp::DhcpServerSupervisordConfig { interfaces })?;
+    let next_contents = dhcp::build_server_supervisord_config(dhcp::DhcpServerSupervisordConfig {
+        interfaces,
+        autostart: (!nc.use_admin_network || nc.is_primary_dpu),
+    })?;
     match write(
         next_contents,
         &dhcp_server_path.server,
@@ -1704,8 +1715,8 @@ mod tests {
     use std::str::FromStr;
 
     use ::rpc::{common as rpc_common, forge as rpc};
+    use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
     use eyre::WrapErr;
-    use forge_network::virtualization::{VpcVirtualizationType, get_svi_ip};
     use ipnetwork::IpNetwork;
     use utils::models::dhcp::{DhcpConfig, HostConfig};
 
@@ -1741,6 +1752,7 @@ mod tests {
             24,
             true,
             None,
+            false,
         );
 
         let f = tempfile::NamedTempFile::new()?;
@@ -1798,7 +1810,7 @@ mod tests {
 
         // Test without an NSG to make sure there are no changes for pre-FNN users
         // if they don't opt-in to a network security group.
-        let network_config = netconf(virtualization_type, 32, 24, false, None);
+        let network_config = netconf(virtualization_type, 32, 24, false, None, true);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -1830,11 +1842,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_with_tenant_nvue_with_bridge() -> Result<(), Box<dyn std::error::Error>> {
+        let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
+
+        // Both interfaces are L2 segments, so IncludeBridge is true and the bridge block is emitted.
+        let network_config = netconf(virtualization_type, 32, 24, false, None, true);
+
+        let td = tempfile::tempdir()?;
+        let hbn_root = td.path();
+        fs::create_dir_all(hbn_root.join("var/support"))?;
+        fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
+
+        let has_changes = super::update_nvue(
+            virtualization_type,
+            hbn_root,
+            &network_config,
+            true,
+            HBNDeviceNames::hbn_23(),
+        )
+        .await?;
+        assert!(
+            has_changes,
+            "update_nvue should have written the file, there should be changes"
+        );
+
+        // check ACLs
+        let expected = include_str!("../templates/tests/70-forge_nvue.rules.expected");
+        compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
+
+        // check startup.yaml (includes bridge block)
+        let expected = include_str!("../templates/tests/nvue_startup_with_bridge.yaml.expected");
+        compare_diffed(hbn_root.join(nvue::PATH), expected)?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_with_tenant_nvue_quarantined() -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
 
         let network_config = {
-            let mut cfg = netconf(virtualization_type, 32, 24, true, None);
+            let mut cfg = netconf(virtualization_type, 32, 24, true, None, false);
             match cfg.managed_host_config.as_mut() {
                 Some(c) => {
                     c.quarantine_state = Some(rpc::ManagedHostQuarantineState {
@@ -1881,7 +1929,7 @@ mod tests {
         let virtualization_type = VpcVirtualizationType::Fnn;
 
         let network_config = {
-            let mut cfg = netconf(virtualization_type, 32, 24, true, None);
+            let mut cfg = netconf(virtualization_type, 32, 24, true, None, false);
             match cfg.managed_host_config.as_mut() {
                 Some(c) => {
                     c.quarantine_state = Some(rpc::ManagedHostQuarantineState {
@@ -1929,7 +1977,7 @@ mod tests {
         // Test WITH an NSG
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
 
-        let network_config = netconf(virtualization_type, 32, 24, true, None);
+        let network_config = netconf(virtualization_type, 32, 24, true, None, false);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -1964,7 +2012,7 @@ mod tests {
     async fn test_with_tenant_nvue_with_empty_nsg_default_deny()
     -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
-        let mut network_config = netconf(virtualization_type, 32, 24, true, None);
+        let mut network_config = netconf(virtualization_type, 32, 24, true, None, false);
 
         // Empty out all NSG rules.  This should result in config that
         // just has a single default deny.
@@ -2018,7 +2066,7 @@ mod tests {
     async fn test_with_tenant_nvue_fnn_classic_with_nsg() -> Result<(), Box<dyn std::error::Error>>
     {
         let virtualization_type = VpcVirtualizationType::Fnn;
-        let network_config = netconf(virtualization_type, 32, 24, true, None);
+        let network_config = netconf(virtualization_type, 32, 24, true, None, false);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -2064,7 +2112,7 @@ mod tests {
     async fn test_with_tenant_nvue_fnn_classic_with_empty_nsg_default_deny()
     -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::Fnn;
-        let mut network_config = netconf(virtualization_type, 32, 24, true, Some(3109));
+        let mut network_config = netconf(virtualization_type, 32, 24, true, Some(3109), false);
 
         // Empty out all NSG rules.  This should result in config that
         // just has a single default deny.
@@ -2117,7 +2165,7 @@ mod tests {
     #[tokio::test]
     async fn test_with_tenant_nvue_fnn_classic() -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::Fnn;
-        let network_config = netconf(virtualization_type, 32, 24, false, None);
+        let network_config = netconf(virtualization_type, 32, 24, false, None, false);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -2162,6 +2210,7 @@ mod tests {
         network_prefix_length: u8,
         include_network_security_group: bool,
         site_global_vpc_vni: Option<u32>,
+        second_interface_l2: bool,
     ) -> rpc::ManagedHostNetworkConfigResponse {
         // The config we received from API server
         // Admin won't be used
@@ -2257,13 +2306,13 @@ mod tests {
                 svi_ip: get_svi_ip(
                     &Some(svi_ip2),
                     virtualization_type,
-                    false,
+                    second_interface_l2,
                     network_prefix_length,
                 )
                 .unwrap()
                 .map(|ip| ip.to_string()),
                 tenant_vrf_loopback_ip: Some("10.217.5.125".to_string()),
-                is_l2_segment: false,
+                is_l2_segment: second_interface_l2,
                 network_security_group: if !include_network_security_group {
                     None
                 } else {

@@ -22,6 +22,7 @@ use ::rpc::forge as rpc;
 use carbide_uuid::extension_service::ExtensionServiceId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
 use carbide_uuid::vpc::VpcId;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
@@ -220,6 +221,28 @@ pub async fn find_by_extension_service(
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(builder.sql(), e))
+}
+
+/// Returns true if any non-deleted instance has this logical partition ID in
+/// config.nvlink.gpu_configs[].logical_partition_id.
+pub async fn any_instance_referencing_nvlink_logical_partition(
+    txn: impl DbReader<'_>,
+    logical_partition_id: &NvLinkLogicalPartitionId,
+) -> Result<bool, DatabaseError> {
+    let query = r#"SELECT EXISTS (
+        SELECT 1 FROM instances
+        WHERE deleted IS NULL
+          AND nvlink_config->'gpu_configs' IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM jsonb_array_elements(nvlink_config->'gpu_configs') AS gpu(g)
+            WHERE g->>'logical_partition_id' = $1::text
+          )
+    )"#;
+    sqlx::query_scalar(query)
+        .bind(logical_partition_id.to_string())
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 pub async fn use_custom_ipxe_on_next_boot(

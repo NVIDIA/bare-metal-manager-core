@@ -81,6 +81,7 @@ fn shortcodes(q: &str) -> Option<&'static str> {
         "mi" => Some("/admin/interface"),
         "ib" => Some("/admin/ib-partition"),
         "vp" => Some("/admin/vpc"),
+        "ca" => Some("/admin/compute-allocation"),
         "ee" => Some("/admin/explored-endpoint"),
         _ => None,
     }
@@ -129,6 +130,9 @@ async fn find_by_uuid(state: Arc<Api>, u: uuid::Uuid) -> Response {
             Redirect::to("/admin/domain").into_response()
         }
         DpaInterfaceId => Redirect::to(&format!("/admin/dpa/{u}")).into_response(),
+        ComputeAllocationId => {
+            Redirect::to(&format!("/admin/compute-allocation/{u}")).into_response()
+        }
     }
 }
 

@@ -53,6 +53,7 @@ use crate::cfg::file::CarbideConfig;
 
 mod attestation;
 mod auth;
+mod compute_allocation;
 mod domain;
 mod dpa;
 mod dpu_versions;
@@ -313,6 +314,20 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/instance", get(instance::show_html))
             .route("/instance.json", get(instance::show_all_json))
             .route("/instance/{instance_id}", get(instance::detail))
+            .route("/compute-allocation", get(compute_allocation::show))
+            .route("/compute-allocation", post(compute_allocation::create))
+            .route(
+                "/compute-allocation/{compute_allocation_id}",
+                get(compute_allocation::show_detail),
+            )
+            .route(
+                "/compute-allocation/{compute_allocation_id}",
+                post(compute_allocation::update),
+            )
+            .route(
+                "/compute-allocation/{compute_allocation_id}/delete",
+                post(compute_allocation::delete),
+            )
             .route("/instance-type", get(instance_type::show))
             .route(
                 "/instance-type/{instance_type_id}",

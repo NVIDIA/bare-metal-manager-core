@@ -18,6 +18,7 @@
 use std::collections::{HashMap, HashSet};
 
 use ::rpc::errors::RpcDataConversionError;
+use ::rpc::forge as rpc;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
@@ -25,7 +26,8 @@ use carbide_uuid::machine::MachineId;
 use carbide_uuid::vpc::VpcPrefixId;
 use config_version::ConfigVersion;
 use db::{
-    self, ObjectColumnFilter, ObjectFilter, extension_service, ib_partition, network_security_group,
+    self, ObjectColumnFilter, ObjectFilter, compute_allocation, extension_service, ib_partition,
+    network_security_group,
 };
 use itertools::Itertools;
 use model::ConfigValidationError;
@@ -47,6 +49,7 @@ use model::vpc_prefix::VpcPrefix;
 use sqlx::PgConnection;
 
 use crate::api::Api;
+use crate::cfg::file::ComputeAllocationEnforcement;
 use crate::network_segment::allocate::PrefixAllocator;
 use crate::{CarbideError, CarbideResult};
 
@@ -387,9 +390,100 @@ pub async fn batch_allocate_instances(
     // Start a single transaction for all allocations
     let mut txn = api.txn_begin().await?;
 
-    // ==== Phase 2: Batch query machines (FOR UPDATE) ====
+    // ==== Phase 2: Check against allocations for tenants in requests ====
+
+    // To support batching, we'll need to create a unique set of (tenant, instance_type_id)
+    let allocation_validations: HashMap<(&TenantOrganizationId, &InstanceTypeId), usize> = requests
+        .iter()
+        .filter_map(|request| {
+            let Some(instance_type_id) = request.instance_type_id.as_ref() else {
+                // # enforce_if_present:  Instance type required in creation request.
+                // # always:              Instance type required in creation request.
+                // # warn_only (default): Instance type not required in creation request.
+                return match &api.runtime_config.compute_allocation_enforcement {
+                    ComputeAllocationEnforcement::Always
+                    | ComputeAllocationEnforcement::EnforceIfPresent => {
+                        Some(Err(CarbideError::MissingArgument("instance_type_id")))
+                    }
+                    ComputeAllocationEnforcement::WarnOnly => None, // Do nothing.  We'll warn later.
+                };
+            };
+
+            Some(Ok((
+                &request.config.tenant.tenant_organization_id,
+                instance_type_id,
+            )))
+        })
+        .collect::<Result<Vec<_>, CarbideError>>()?
+        .into_iter()
+        .counts();
+
+    for ((tenant_organization_id, instance_type_id), req_count) in
+        allocation_validations.into_iter()
+    {
+        // Check that a new instance would not exceed the total allocation count given to this tenant.
+        // To do that, we'll need to grab the count of all instances for the tenant,
+        // the sum of allocations, and then check that instances.len()+<req_count> is <= allocations_sum.
+
+        // Grab the sum of existing ComputeAllocations for the tenant.
+        // We're getting row-level locks on the instance-type and allocations
+        // with this.
+        let (has_allocations, compute_allocation_total) = {
+            let allocs = compute_allocation::sum_allocations(
+                &mut txn,
+                std::slice::from_ref(instance_type_id),
+                Some(tenant_organization_id),
+                true,
+            )
+            .await?
+            .get(instance_type_id)
+            .copied();
+
+            (allocs.is_some(), allocs.unwrap_or_default())
+        };
+
+        // Now we need to grab the count of instances for the tenant for this instance type.
+        // We will need to compare the count+1 against new allocation total to make sure a
+        // new instance won't exceed it.
+        let filter = rpc::InstanceSearchFilter {
+            label: None,
+            tenant_org_id: Some(tenant_organization_id.to_string()),
+            vpc_id: None,
+            instance_type_id: Some(instance_type_id.to_string()),
+        };
+
+        let new_total_instance_count =
+            req_count + db::instance::find_ids(&mut txn, filter).await?.len();
+
+        if new_total_instance_count > compute_allocation_total as usize {
+            // # enforce_if_present:  Instance type required in creation request.  If allocations are found for instance type ID, enforce it; otherwise, it's like no limits.
+            // # always:              Instance type required in creation request. "default deny".  Enforce allocations.  If none are found, its a constraint value of 0 (i.e., you get nothing).
+            // # warn_only (default): Instance type not required in creation request.  If sent in and allocations are found, don't enforce, but log what would have happened if they were enforced.
+            match (
+                has_allocations,
+                &api.runtime_config.compute_allocation_enforcement,
+            ) {
+                (_, ComputeAllocationEnforcement::Always)
+                | (true, ComputeAllocationEnforcement::EnforceIfPresent) => {
+                    return Err(CarbideError::FailedPrecondition(
+                        "request to allocate instance would exceed current tenant allocation limit"
+                            .to_string(),
+                    ));
+                }
+                (false, ComputeAllocationEnforcement::EnforceIfPresent) => {
+                    tracing::debug!(%tenant_organization_id, %instance_type_id, "EnforceIfPresent set but no allocations seen");
+                }
+                (_, ComputeAllocationEnforcement::WarnOnly) => {
+                    tracing::warn!(%tenant_organization_id, %instance_type_id, "request to allocate instance would exceed current tenant allocation limits if enforcement were enabled");
+                }
+            }
+        }
+    }
+
+    // ==== Phase 3: Batch query machines (FOR UPDATE) ====
     let machine_ids: Vec<_> = requests.iter().map(|r| r.machine_id).collect();
 
+    // Grab a row-level locks on the requested machines
     let machines = db::machine::find(
         &mut txn,
         ObjectFilter::List(&machine_ids),
@@ -414,7 +508,7 @@ pub async fn batch_allocate_instances(
         }
     }
 
-    // ==== Phase 3: Batch load managed host snapshots ====
+    // ==== Phase 4: Batch load managed host snapshots ====
     let mut snapshot_map = db::managed_host::load_by_machine_ids(
         &mut txn,
         &machine_ids,
@@ -452,7 +546,7 @@ pub async fn batch_allocate_instances(
         }
     }
 
-    // ==== Phase 4: Validate shared resources ====
+    // ==== Phase 5: Validate shared resources ====
 
     // Collect all unique NSG IDs with their tenant org IDs for validation
     let nsg_validations: HashSet<_> = requests

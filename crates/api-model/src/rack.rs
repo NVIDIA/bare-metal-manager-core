@@ -29,6 +29,7 @@ use sqlx::{FromRow, Row};
 
 use crate::StateSla;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
+use crate::machine::health_override::HealthReportOverrides;
 
 #[derive(Debug, Clone)]
 pub struct Rack {
@@ -36,6 +37,7 @@ pub struct Rack {
     pub config: RackConfig,
     pub controller_state: Versioned<RackState>,
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+    pub health_report_overrides: HealthReportOverrides,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub deleted: Option<DateTime<Utc>>,
@@ -43,6 +45,17 @@ pub struct Rack {
 
 impl From<Rack> for rpc::forge::Rack {
     fn from(value: Rack) -> Self {
+        let health = derive_rack_aggregate_health(&value.health_report_overrides);
+        let health_overrides = value
+            .health_report_overrides
+            .clone()
+            .into_iter()
+            .map(|(hr, m)| rpc::forge::HealthOverrideOrigin {
+                mode: m as i32,
+                source: hr.source,
+            })
+            .collect();
+
         rpc::forge::Rack {
             id: Some(value.id),
             rack_state: value.controller_state.value.to_string(),
@@ -64,8 +77,22 @@ impl From<Rack> for rpc::forge::Rack {
             created: Some(Timestamp::from(value.created)),
             updated: Some(Timestamp::from(value.updated)),
             deleted: value.deleted.map(Timestamp::from),
+            health: Some(health.into()),
+            health_overrides,
         }
     }
+}
+
+fn derive_rack_aggregate_health(overrides: &HealthReportOverrides) -> health_report::HealthReport {
+    if let Some(replace) = &overrides.replace {
+        return replace.clone();
+    }
+    let mut output = health_report::HealthReport::empty("rack-aggregate-health".to_string());
+    for report in overrides.merges.values() {
+        output.merge(report);
+    }
+    output.observed_at = Some(chrono::Utc::now());
+    output
 }
 
 impl<'r> FromRow<'r, PgRow> for Rack {
@@ -74,6 +101,10 @@ impl<'r> FromRow<'r, PgRow> for Rack {
         let controller_state: sqlx::types::Json<RackState> = row.try_get("controller_state")?;
         let controller_state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
             row.try_get("controller_state_outcome").ok();
+        let health_report_overrides: HealthReportOverrides = row
+            .try_get::<sqlx::types::Json<HealthReportOverrides>, _>("health_report_overrides")
+            .map(|j| j.0)
+            .unwrap_or_default();
         Ok(Rack {
             id: row.try_get("id")?,
             config: config.0,
@@ -82,6 +113,7 @@ impl<'r> FromRow<'r, PgRow> for Rack {
                 version: row.try_get("controller_state_version")?,
             },
             controller_state_outcome: controller_state_outcome.map(|o| o.0),
+            health_report_overrides,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deleted: row.try_get("deleted")?,

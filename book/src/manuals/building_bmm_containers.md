@@ -31,7 +31,6 @@ assume an `apt`-based distribution such as Ubuntu 24.04.
 18. `sudo usermod -aG docker <username>`
 19. `reboot`
 
-**NOTE**: To download the required HBN container, you must have access to [PID Library](https://apps.nvidia.com/pid/contentlibraries/detail?id=1138607). The PID Library contains the attachment `HBN-LTS-2-4-3-complete.tar.gz`, which you will need to download into your home directory.
 
 ## Building X86_64 Containers
 
@@ -84,16 +83,57 @@ docker build --build-arg "CONTAINER_RUNTIME_X86_64=bmm-runtime-container-x86_64"
 docker build --file dev/docker/Dockerfile.build-artifacts-container-cross-aarch64 -t build-artifacts-container-cross-aarch64 .
 ```
 
-### Building the DPU BFB
+## Building the admin-cli
+The `admin-cli` build does not produce a container. It produces a binary:
 
-After downloading `HBN-LTS-2-4-3-complete.tar.gz`, perform the following steps:
+`$REPO_ROOT/target/release/carbide-admin-cli`
+
+```
+BUILD_CONTAINER_X86_URL="bmm-buildcontainer-x86_64" cargo make build-cli
+```
+
+### Building the DPU BFB
+## Download and Extracting the HBN container
+```
+docker pull --platform=linux/arm64 nvcr.io/nvidia/doca/doca_hbn:3.2.0-doca3.2.0
+docker save --output=/tmp/doca_hbn.tar nvcr.io/nvidia/doca/doca_hbn:3.2.0-doca3.2.0
+```
+
+## Downloading HBN configuration files and scripts
+```sh
+#!/usr/bin/env bash
+HBN_VERSION="3.2.0"
+set -e
+mkdir -p temp
+cd temp || exit 1
+files=$(curl -s "https://api.ngc.nvidia.com/v2/resources/org/nvidia/team/doca/doca_hbn/${HBN_VERSION}/files")
+printf '%s\n' "$files" |
+  jq -c '
+    .urls as $u
+  | .filepath as $p
+  | .sha256_base64 as $s
+  | range(0; $u | length) as $i
+  | {url: $u[$i], filepath: $p[$i], sha256_base64: $s[$i]}
+  ' |
+  while IFS= read -r obj; do
+    url=$(printf '%s\n' "$obj" | jq -r '.url')
+    path=$(printf '%s\n' "$obj" | jq -r '.filepath')
+    sha=$(printf '%s\n' "$obj" | jq -r '.sha256_base64' | base64 -d | od -An -vtx1 | tr -d ' \n')
+    mkdir -p "$(dirname "$path")"
+    curl -sSL "$url" -o "$path"
+    printf '%s  %s\n' "$sha" "$path" | sha256sum -c --status || exit 1
+  done
+cd ..
+mkdir -p doca_container_configs
+mv temp/scripts/${HBN_VERSION}/ doca_container_configs/scripts
+mv temp/configs/${HBN_VERSION}/ doca_container_configs/configs
+cd doca_container_configs
+zip -r ../doca_container_configs.zip .
+```
+
+After running the script above:
 
 ```sh
-tar -zxf HBN-LTS-2-4-3-complete.tar.gz`
-cd HBN-LTS-2-4-3
-cp hbn-lts-2-4-3.tar /tmp/doca_hbn.tar
-cd doca_container_configs_v2.10.81
-zip -r ../doca_container_configs.zip .
 cp doca_container_configs.zip /tmp
 ```
 

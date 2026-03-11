@@ -170,7 +170,11 @@ impl<IO: StateControllerIO> Builder<IO> {
 
         // This defines the shared storage location for metrics between the state handler
         // and the OTEL framework
-        let metric_holder = Arc::new(MetricHolder::new(meter.clone(), &controller_name));
+        let metric_holder = Arc::new(MetricHolder::new(
+            meter.clone(),
+            &controller_name,
+            self.iteration_config.metric_hold_time,
+        ));
 
         let work_lock_manager_handle = self.work_lock_manager_handle.take().ok_or(
             StateControllerBuildError::MissingArgument("work_lock_manager_handle"),
@@ -212,16 +216,15 @@ impl<IO: StateControllerIO> Builder<IO> {
             metric_emitter: processor_metric_emitter,
             metric_holder,
             state_change_emitter: self.state_change_emitter,
-            published_metrics_iteration_id: None,
             in_flight: HashSet::new(),
             completed_objects: HashSet::new(),
             requeue_objects: HashSet::new(),
             task_sender,
             task_receiver,
-            data_since_iteration_start: Default::default(),
             object_metrics: Default::default(),
             last_log_time: std::time::Instant::now(),
             stats_since_last_log: Default::default(),
+            last_metric_emission_time: std::time::Instant::now(),
             processor_span,
             processor_id,
         };

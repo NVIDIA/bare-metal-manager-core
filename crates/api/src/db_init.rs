@@ -17,10 +17,10 @@
 
 use std::collections::HashMap;
 
+use carbide_network::virtualization::VpcVirtualizationType;
 use db::dns::domain;
 use db::vpc::{self};
 use db::{ObjectColumnFilter, Transaction, dpu_agent_upgrade_policy, network_segment};
-use forge_network::virtualization::VpcVirtualizationType;
 use itertools::Itertools;
 use model::dns::NewDomain;
 use model::firmware::AgentUpgradePolicyChoice;
@@ -169,7 +169,7 @@ pub async fn store_initial_dpu_agent_upgrade_policy(
 ) -> Result<(), CarbideError> {
     let mut txn = Transaction::begin(db_pool).await?;
     let initial_policy: AgentUpgradePolicy = initial_dpu_agent_upgrade_policy
-        .unwrap_or(AgentUpgradePolicyChoice::UpOnly)
+        .unwrap_or(AgentUpgradePolicyChoice::UpDown)
         .into();
     let current_policy = dpu_agent_upgrade_policy::get(&mut txn).await?;
     // Only set if the very first time, it's the initial policy
@@ -231,7 +231,7 @@ pub(crate) async fn create_admin_vpc(
         // FNN config.
         routing_profile_type: Some(model::tenant::RoutingProfileType::Admin),
         network_security_group_id: None,
-        network_virtualization_type: forge_network::virtualization::VpcVirtualizationType::Fnn,
+        network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
         metadata: Metadata {
             name: "admin".to_string(),
             labels: HashMap::from([("kind".to_string(), "admin".to_string())]),

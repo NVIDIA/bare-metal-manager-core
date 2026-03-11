@@ -17,6 +17,7 @@
 
 use carbide_uuid::rack::RackId;
 use config_version::ConfigVersion;
+use health_report::{HealthReport, OverrideMode};
 use mac_address::MacAddress;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::rack::{Rack, RackConfig, RackState};
@@ -63,9 +64,13 @@ pub async fn get(txn: impl DbReader<'_>, rack_id: RackId) -> DatabaseResult<Rack
     let query = "SELECT * from racks l WHERE l.id=$1".to_string();
     sqlx::query_as(&query)
         .bind(rack_id)
-        .fetch_one(txn)
+        .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::new("racks get", e))
+        .map_err(|e| DatabaseError::new("racks get", e))?
+        .ok_or_else(|| DatabaseError::NotFoundError {
+            kind: "rack",
+            id: rack_id.to_string(),
+        })
 }
 
 pub async fn create(
@@ -173,6 +178,62 @@ pub async fn final_delete(txn: &mut PgConnection, rack_id: RackId) -> DatabaseRe
         .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(())
+}
+
+pub async fn insert_health_report_override(
+    txn: &mut PgConnection,
+    rack_id: &RackId,
+    mode: OverrideMode,
+    health_report: &HealthReport,
+) -> Result<(), DatabaseError> {
+    let column_name = "health_report_overrides";
+    let path = match mode {
+        OverrideMode::Merge => format!("merges,\"{}\"", health_report.source),
+        OverrideMode::Replace => "replace".to_string(),
+    };
+
+    let query = format!(
+        "UPDATE racks SET {column_name} = jsonb_set(
+            coalesce({column_name}, '{{\"merges\": {{}}}}'::jsonb),
+            '{{{path}}}',
+            $1::jsonb
+        ) WHERE id = $2
+        RETURNING id"
+    );
+
+    let _id: (RackId,) = sqlx::query_as(&query)
+        .bind(sqlx::types::Json(health_report))
+        .bind(rack_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new("insert rack health report override", e))?;
+
+    Ok(())
+}
+
+pub async fn remove_health_report_override(
+    txn: &mut PgConnection,
+    rack_id: &RackId,
+    mode: OverrideMode,
+    source: &str,
+) -> Result<(), DatabaseError> {
+    let column_name = "health_report_overrides";
+    let path = match mode {
+        OverrideMode::Merge => format!("merges,{source}"),
+        OverrideMode::Replace => "replace".to_string(),
+    };
+    let query = format!(
+        "UPDATE racks SET {column_name} = ({column_name} #- '{{{path}}}') WHERE id = $1
+            RETURNING id"
+    );
+
+    let _id: (RackId,) = sqlx::query_as(&query)
+        .bind(rack_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new("remove rack health report override", e))?;
 
     Ok(())
 }

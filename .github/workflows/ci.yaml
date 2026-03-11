@@ -712,10 +712,10 @@ jobs:
           fetch-depth: 0  # Full history for secret scanning
 
       - name: Run TruffleHog Scan
-        uses: NVIDIA/dsx-github-actions/.github/actions/trufflehog-scan@55d1e0af17fb4431edaca19fbd5c78fecd29d18a
+        uses: NVIDIA/dsx-github-actions/.github/actions/trufflehog-scan@9a9ce3a7770a8b53d2726afa920be3276bc3ddd7
         with:
           extra-args: '--results=verified,unknown --only-verified'
-          post-pr-comment: 'false'
+          post-pr-comment: 'true'
           fail-on-findings: 'true'
 
   security-codeql-scan:
@@ -759,7 +759,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Trivy Scan
-        uses: NVIDIA/dsx-github-actions/.github/actions/trivy-scan@55d1e0af17fb4431edaca19fbd5c78fecd29d18a
+        uses: NVIDIA/dsx-github-actions/.github/actions/trivy-scan@495fc76167e3d265f817c1fdc00b7b9275436418
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -768,8 +768,8 @@ jobs:
           severity: 'HIGH,CRITICAL'
           skip-dirs: 'crates/bmc-mock'
           ignore-unfixed: 'true'
-          upload-sarif: 'false'  # Disable upload until GHAS is enabled, such as the repo be public
-          post-pr-comment: 'false'
+          upload-sarif: 'true'
+          post-pr-comment: 'true'
           fail-on-findings: 'false' # FIXME: Disabled until all issues are fixed
 
   # ============================================================================

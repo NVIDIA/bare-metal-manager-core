@@ -39,6 +39,11 @@ pub async fn show(
             api_client
                 .0
                 .find_instance_types_by_ids(FindInstanceTypesByIdsRequest {
+                    // Admin CLI doesn't need to filter on tenant org.
+                    // When the time comes, the API will automatically
+                    // filter if the caller is not a provider.
+                    tenant_organization_id: None,
+                    include_allocation_stats: args.show_stats.unwrap_or_default(),
                     instance_type_ids: vec![id],
                 })
                 .await?

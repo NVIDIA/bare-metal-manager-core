@@ -89,3 +89,7 @@ message NVLinkLogicalPartitionId {
 message NVLinkDomainId {
   string value = 1;
 }
+
+message ComputeAllocationId {
+  string value = 1;
+}

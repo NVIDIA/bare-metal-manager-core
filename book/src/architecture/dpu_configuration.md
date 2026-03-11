@@ -41,6 +41,7 @@ sequenceDiagram
         Agent->>BMM: GetManagedHostNetworkConfig()<br>Returns desired configs and versions
         Agent->>Nvue: Apply requested configuration
         Agent->>Dhcp: Reconfigure DHCP Server
+        Agent->>Agent: Health checks
         Agent->>BMM: RecordDpuNetworkStatus()<br>Report applied config versions<br>Report DPU health
     end
 ```
@@ -83,6 +84,7 @@ sequenceDiagram
         Agent->>BMM: GetManagedHostNetworkConfig()<br>Returns desired configs and versions
         Agent->>Nvue: Apply requested configuration
         Agent->>Dhcp: Reconfigure DHCP Server
+        Agent->>Agent: Health checks
         Agent->>BMM: RecordDpuNetworkStatus()<br>Report applied config versions<br>Report DPU health
         Note right of BMM: Transition Host between required states
         BMM ->> User: Report the Instance is Ready for usage
@@ -93,6 +95,7 @@ sequenceDiagram
         Agent->>BMM: GetManagedHostNetworkConfig()<br>Returns desired configs and versions
         Agent->>Nvue: Apply requested configuration
         Agent->>Dhcp: Reconfigure DHCP Server
+        Agent->>Agent: Health checks
         Agent->>BMM: RecordDpuNetworkStatus()<br>Report applied config versions<br>Report DPU health
         BMM->>BMM: Observe that expected ManagedHost network config is applied<br>Transition Host to cleanup states
         Note right of BMM: Additional Host cleanup

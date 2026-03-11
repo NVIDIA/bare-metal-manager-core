@@ -88,7 +88,6 @@ pub struct MachineSnapshotPgJson {
     pub instance_type_id: Option<InstanceTypeId>,
     pub interfaces: Vec<MachineInterfaceSnapshot>,
     pub topology: Vec<MachineTopology>,
-    pub log_parser_health_report: Option<HealthReport>,
     pub labels: HashMap<String, String>,
     pub name: String,
     pub description: String,
@@ -203,7 +202,6 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             asn: value.asn,
             metadata,
             instance_type_id: value.instance_type_id,
-            log_parser_health_report: value.log_parser_health_report,
             version,
             // Columns for these exist, but are unused in rust code
             // deployed: value.deployed,

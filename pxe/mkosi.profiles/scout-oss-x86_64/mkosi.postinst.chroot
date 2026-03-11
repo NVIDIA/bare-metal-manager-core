@@ -50,6 +50,11 @@ cp /build-output/check-scout-updates.timer /etc/systemd/system
 ln -s /etc/systemd/system/check-scout-updates.service /etc/systemd/system/multi-user.target.wants/check-scout-updates.service
 ln -s /etc/systemd/system/check-scout-updates.timer /etc/systemd/system/timers.target.wants/check-scout-updates.timer
 
+# ============================================================================
+# MODULE LOADER
+# ============================================================================
+cp /build-output/load_modules.sh /opt/forge/
+
 # Ensure key commands are present
 for bin in /opt/forge/forge-scout \
            /usr/bin/dcgmi \

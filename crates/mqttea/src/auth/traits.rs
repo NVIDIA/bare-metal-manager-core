@@ -129,13 +129,11 @@ impl CredentialsProvider for StaticCredentials {
 ///
 /// let oauth2_config = OAuth2Config::new(
 ///     "https://auth.example.com/token",
-///     "client-id",
-///     "client-secret",
 ///     vec!["mqtt:publish".into()],
 ///     Duration::from_secs(30),
 /// );
 ///
-/// let token_provider = Arc::new(OAuth2TokenProvider::new(oauth2_config)?);
+/// let token_provider = Arc::new(OAuth2TokenProvider::new(oauth2_config, client_credentials)?);
 /// let credentials_provider = TokenCredentialsProvider::new("oauth2token", token_provider);
 /// ```
 #[derive(Debug)]

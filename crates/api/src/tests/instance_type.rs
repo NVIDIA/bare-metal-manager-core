@@ -126,6 +126,8 @@ async fn test_instance_type_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .find_instance_types_by_ids(tonic::Request::new(
             rpc::forge::FindInstanceTypesByIdsRequest {
                 instance_type_ids: vec![id.to_string()],
+                tenant_organization_id: None,
+                include_allocation_stats: false,
             },
         ))
         .await
@@ -170,6 +172,8 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .find_instance_types_by_ids(tonic::Request::new(
             rpc::forge::FindInstanceTypesByIdsRequest {
                 instance_type_ids: existing_instance_type_ids,
+                tenant_organization_id: None,
+                include_allocation_stats: false,
             },
         ))
         .await
@@ -357,6 +361,8 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .find_instance_types_by_ids(tonic::Request::new(
             rpc::forge::FindInstanceTypesByIdsRequest {
                 instance_type_ids: vec![forge_instance_type.id.to_string()],
+                tenant_organization_id: None,
+                include_allocation_stats: false,
             },
         ))
         .await
@@ -418,6 +424,8 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .find_instance_types_by_ids(tonic::Request::new(
             rpc::forge::FindInstanceTypesByIdsRequest {
                 instance_type_ids: existing_instance_type_ids,
+                tenant_organization_id: None,
+                include_allocation_stats: false,
             },
         ))
         .await
@@ -525,6 +533,8 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .find_instance_types_by_ids(tonic::Request::new(
             rpc::forge::FindInstanceTypesByIdsRequest {
                 instance_type_ids: vec![id.to_string()],
+                tenant_organization_id: None,
+                include_allocation_stats: false,
             },
         ))
         .await
@@ -592,6 +602,8 @@ async fn test_instance_type_associate(
         .find_instance_types_by_ids(tonic::Request::new(
             rpc::forge::FindInstanceTypesByIdsRequest {
                 instance_type_ids: existing_instance_type_ids,
+                tenant_organization_id: None,
+                include_allocation_stats: false,
             },
         ))
         .await

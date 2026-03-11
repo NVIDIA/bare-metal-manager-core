@@ -18,7 +18,7 @@
 //!
 //! # MQTT OAuth2 Convention
 //!
-//! Many MQTT brokers that support OAuth2 use this convention:
+//! Some MQTT brokers that support OAuth2 use this convention:
 //! - Username: A fixed string like "oauth2token" or the client_id
 //! - Password: The OAuth2 access token
 //!
@@ -27,18 +27,28 @@
 //! ```rust,ignore
 //! use std::sync::Arc;
 //! use std::time::Duration;
-//! use mqttea::auth::{OAuth2TokenProvider, OAuth2Config, TokenCredentialsProvider};
-//! use mqttea::{MqtteaClient, ClientOptions};
+//! use mqttea::auth::{
+//!     OAuth2TokenProvider, OAuth2Config, ClientCredentialsProvider,
+//!     TokenCredentialsProvider,
+//! };
+//! use mqttea::{MqtteaClient, MqtteaClientError, ClientOptions};
+//!
+//! struct MyCredentials { /* secrets reader, credential key, etc. */ }
+//!
+//! #[async_trait::async_trait]
+//! impl ClientCredentialsProvider for MyCredentials {
+//!     async fn get_client_credentials(&self) -> Result<(ClientId, ClientSecret), MqtteaClientError> {
+//!         Ok((ClientId::new("my-client-id"), ClientSecret::new("my-client-secret")))
+//!     }
+//! }
 //!
 //! let config = OAuth2Config::new(
 //!     "https://auth.example.com/oauth/token",
-//!     "my-mqtt-client",
-//!     "client-secret",
 //!     vec!["mqtt:publish".into(), "mqtt:subscribe".into()],
 //!     Duration::from_secs(30),
 //! );
 //!
-//! let token_provider = OAuth2TokenProvider::new(config)?;
+//! let token_provider = OAuth2TokenProvider::new(config, Arc::new(MyCredentials { }))?;
 //! let credentials_provider = TokenCredentialsProvider::new(token_provider, "oauth2token");
 //!
 //! let options = ClientOptions::default()
@@ -64,20 +74,25 @@ use tracing::{debug, error, info};
 use super::traits::TokenProvider;
 use crate::errors::MqtteaClientError;
 
+/// Trait for dynamically providing OAuth2 client credentials.
+///
+/// Implement this to supply [`ClientId`] and [`ClientSecret`] from a secrets
+/// backend. Credentials are fetched each time a new access token is needed,
+/// so rotated secrets are picked up automatically.
+#[async_trait]
+pub trait ClientCredentialsProvider: Send + Sync {
+    async fn get_client_credentials(&self) -> Result<(ClientId, ClientSecret), MqtteaClientError>;
+}
+
 /// Configuration for OAuth2 token acquisition.
 ///
-/// This struct contains only the parameters needed to obtain an access token
-/// from an OAuth2 authorization server using the client credentials flow.
-#[derive(Clone)]
+/// Contains the endpoint and scope parameters for the client credentials flow.
+/// The actual client_id and client_secret are supplied dynamically via
+/// [`ClientCredentialsProvider`].
+#[derive(Clone, Debug)]
 pub struct OAuth2Config {
     /// The token endpoint URL (e.g., "https://auth.example.com/oauth/token").
     pub token_url: String,
-
-    /// The OAuth2 client ID.
-    pub client_id: String,
-
-    /// The OAuth2 client secret.
-    pub client_secret: String,
 
     /// Scopes to request (optional, depends on the auth server).
     pub scopes: Vec<String>,
@@ -86,39 +101,17 @@ pub struct OAuth2Config {
     pub http_timeout: Duration,
 }
 
-impl std::fmt::Debug for OAuth2Config {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("OAuth2Config")
-            .field("token_url", &self.token_url)
-            .field("client_id", &self.client_id)
-            .field("client_secret", &"[REDACTED]")
-            .field("scopes", &self.scopes)
-            .field("http_timeout", &self.http_timeout)
-            .finish()
-    }
-}
-
 impl OAuth2Config {
-    /// Create a new OAuth2Config with all required fields.
+    /// Create a new OAuth2Config.
     ///
     /// # Arguments
     ///
     /// * `token_url` - The OAuth2 token endpoint URL
-    /// * `client_id` - The OAuth2 client ID
-    /// * `client_secret` - The OAuth2 client secret
     /// * `scopes` - Scopes to request (can be empty if the server doesn't require them)
     /// * `http_timeout` - HTTP timeout for token requests
-    pub fn new(
-        token_url: impl Into<String>,
-        client_id: impl Into<String>,
-        client_secret: impl Into<String>,
-        scopes: Vec<String>,
-        http_timeout: Duration,
-    ) -> Self {
+    pub fn new(token_url: impl Into<String>, scopes: Vec<String>, http_timeout: Duration) -> Self {
         Self {
             token_url: token_url.into(),
-            client_id: client_id.into(),
-            client_secret: client_secret.into(),
             scopes,
             http_timeout,
         }
@@ -129,6 +122,7 @@ impl OAuth2Config {
 ///
 /// This provider handles:
 /// - Token acquisition via OAuth2 client credentials flow
+/// - Dynamic client credential retrieval via [`ClientCredentialsProvider`]
 /// - Token caching with automatic refresh at 90% of expiry time
 /// - Thread-safe concurrent access
 ///
@@ -137,8 +131,7 @@ pub struct OAuth2TokenProvider {
     http_client: reqwest::Client,
     token_cache: Arc<RwLock<Option<CachedToken>>>,
     token_url: TokenUrl,
-    client_id: ClientId,
-    client_secret: ClientSecret,
+    client_credentials: Arc<dyn ClientCredentialsProvider>,
     scopes: Vec<Scope>,
 }
 
@@ -146,9 +139,8 @@ impl std::fmt::Debug for OAuth2TokenProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OAuth2TokenProvider")
             .field("token_url", &self.token_url.url().as_str())
-            .field("client_id", &self.client_id.as_str())
             .field("scopes", &self.scopes)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -166,11 +158,16 @@ impl CachedToken {
 }
 
 impl OAuth2TokenProvider {
-    /// Create a new OAuth2TokenProvider with the given configuration.
+    /// Create a new OAuth2TokenProvider.
     ///
+    /// Client credentials are fetched dynamically from the provided
+    /// [`ClientCredentialsProvider`] source each time a new token is needed.
     /// This does NOT immediately fetch a token. The first call to `get_token()`
     /// will trigger the initial token fetch.
-    pub fn new(config: OAuth2Config) -> Result<Self, MqtteaClientError> {
+    pub fn new(
+        config: OAuth2Config,
+        client_credentials: Arc<dyn ClientCredentialsProvider>,
+    ) -> Result<Self, MqtteaClientError> {
         let token_url = TokenUrl::new(config.token_url.clone())
             .map_err(|e| MqtteaClientError::CredentialsError(format!("Invalid token URL: {e}")))?;
 
@@ -187,22 +184,23 @@ impl OAuth2TokenProvider {
             http_client,
             token_cache: Arc::new(RwLock::new(None)),
             token_url,
-            client_id: ClientId::new(config.client_id),
-            client_secret: ClientSecret::new(config.client_secret),
+            client_credentials,
             scopes,
         })
     }
 
     /// Fetch a fresh token from the OAuth2 server.
     async fn fetch_token(&self) -> Result<CachedToken, MqtteaClientError> {
+        let (client_id, client_secret) = self.client_credentials.get_client_credentials().await?;
+
         info!(
             token_url = %self.token_url.url(),
-            client_id = %self.client_id.as_str(),
+            client_id = %client_id.as_str(),
             "Fetching OAuth2 access token"
         );
 
-        let client = BasicClient::new(self.client_id.clone())
-            .set_client_secret(self.client_secret.clone())
+        let client = BasicClient::new(client_id)
+            .set_client_secret(client_secret)
             .set_token_uri(self.token_url.clone());
 
         let mut request = client.exchange_client_credentials();

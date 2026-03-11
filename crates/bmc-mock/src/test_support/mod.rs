@@ -20,11 +20,11 @@ use std::sync::Arc;
 use nv_redfish::bmc_http::{BmcCredentials, CacheSettings, HttpBmc};
 use url::Url;
 
+use crate::machine_info::DpuSettings;
 use crate::{
-    DpuFirmwareVersions, DpuMachineInfo, HostHardwareType, HostMachineInfo, MachineInfo,
-    MockPowerState, PowerControl, SetSystemPowerError, SystemPowerControl, machine_router,
+    DpuMachineInfo, HostHardwareType, HostMachineInfo, MachineInfo, MockPowerState, PowerControl,
+    SetSystemPowerError, SystemPowerControl, machine_router,
 };
-
 pub mod axum_http_client;
 
 use axum_http_client::AxumRouterHttpClient;
@@ -49,16 +49,8 @@ pub type TestBmc = HttpBmc<AxumRouterHttpClient>;
 
 pub fn wiwynn_gb200_router() -> axum::Router {
     let dpus = vec![
-        DpuMachineInfo::new(
-            HostHardwareType::WiwynnGB200Nvl,
-            false,
-            DpuFirmwareVersions::default(),
-        ),
-        DpuMachineInfo::new(
-            HostHardwareType::WiwynnGB200Nvl,
-            false,
-            DpuFirmwareVersions::default(),
-        ),
+        DpuMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, DpuSettings::default()),
+        DpuMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, DpuSettings::default()),
     ];
     let machine_info =
         MachineInfo::Host(HostMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, dpus));
@@ -91,6 +83,27 @@ pub fn dell_poweredge_r750_bmc() -> Arc<TestBmc> {
         machine_info,
         Arc::new(NoopPowerControl),
         "test-host-id".to_string(),
+    );
+    let client = AxumRouterHttpClient::new(router);
+    let endpoint = Url::parse("https://bmc-mock.local").expect("valid URL");
+    let credentials = BmcCredentials::new("root".to_string(), "password".to_string());
+    Arc::new(HttpBmc::new(
+        client,
+        endpoint,
+        credentials,
+        CacheSettings::with_capacity(32),
+    ))
+}
+
+pub fn dell_poweredge_r750_bluefield3_bmc(settings: DpuSettings) -> Arc<TestBmc> {
+    let machine_info = MachineInfo::Dpu(DpuMachineInfo::new(
+        HostHardwareType::DellPowerEdgeR750,
+        settings,
+    ));
+    let router = machine_router(
+        machine_info,
+        Arc::new(NoopPowerControl),
+        "test-dpu-id".to_string(),
     );
     let client = AxumRouterHttpClient::new(router);
     let endpoint = Url::parse("https://bmc-mock.local").expect("valid URL");

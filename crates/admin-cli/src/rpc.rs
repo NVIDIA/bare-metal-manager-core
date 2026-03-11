@@ -1723,6 +1723,8 @@ impl ApiClient {
                 .0
                 .find_instance_types_by_ids(FindInstanceTypesByIdsRequest {
                     instance_type_ids: ids.to_vec(),
+                    tenant_organization_id: None,
+                    include_allocation_stats: false, // For showing all instance types in the CLI, we can skip allocation stats calculation.
                 })
                 .await?
                 .instance_types;

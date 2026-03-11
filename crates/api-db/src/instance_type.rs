@@ -15,13 +15,49 @@
  * limitations under the License.
  */
 
+use std::collections::HashMap;
+
 use carbide_uuid::instance_type::InstanceTypeId;
 use config_version::ConfigVersion;
-use model::instance_type::{InstanceType, InstanceTypeMachineCapabilityFilter};
+use model::instance_type::{
+    InstanceType, InstanceTypeAssociationDetails, InstanceTypeMachineCapabilityFilter,
+};
 use model::metadata::Metadata;
 use sqlx::{PgConnection, Postgres};
 
 use crate::DatabaseError;
+
+pub async fn get_association_details(
+    txn: &mut PgConnection,
+    instance_type_ids: &[InstanceTypeId],
+) -> Result<HashMap<InstanceTypeId, InstanceTypeAssociationDetails>, DatabaseError> {
+    let mut builder =
+        sqlx::QueryBuilder::new("
+                            SELECT
+                                m.instance_type_id,
+                                count(m.id)::integer as total_machines,
+                                json_agg(m.id) as machine_ids,
+                                sum((i.id is not null)::integer)::integer as total_instances,
+                                COALESCE(json_agg(i.id) FILTER (WHERE i.id IS NOT  NULL), '[]') as instance_ids
+                            FROM machines m
+                            LEFT OUTER JOIN instances i ON i.machine_id=m.id /* ommitting i.deleted IS NULL because it's an interim state and an instance is hard-deleted once truly deleted.*/
+                            WHERE m.instance_type_id = ANY(");
+    builder.push_bind(instance_type_ids);
+    builder.push(") ");
+
+    builder.push("GROUP BY m.instance_type_id");
+
+    let details: Vec<InstanceTypeAssociationDetails> = builder
+        .build_query_as()
+        .fetch_all(&mut *txn)
+        .await
+        .map_err(|err: sqlx::Error| DatabaseError::query(builder.sql(), err))?;
+
+    Ok(details
+        .into_iter()
+        .map(|d| (d.instance_type_id.clone(), d))
+        .collect())
+}
 
 /// Creates a new InstanceType DB record.  It enforces a unique `name` by
 /// only creating if there is no active record found with the same name.

@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use bmc_mock::{DpuMachineInfo, HostHardwareType, HostMachineInfo};
+use bmc_mock::{DpuMachineInfo, DpuSettings, HostHardwareType, HostMachineInfo};
 use carbide_uuid::machine::MachineId;
 use clap::Parser;
 use duration_str::deserialize_duration;
@@ -336,12 +336,12 @@ pub struct PersistedDpuMachine {
     pub host_mac_address: MacAddress,
     pub oob_mac_address: MacAddress,
     pub serial: String,
-    pub nic_mode: bool,
-    pub firmware_versions: bmc_mock::DpuFirmwareVersions,
     pub installed_os: OsImage,
     pub dpu_index: u8,
     pub machine_dhcp_id: Uuid,
     pub bmc_dhcp_id: Uuid,
+    #[serde(flatten)]
+    pub settings: DpuSettings,
 }
 
 impl From<PersistedDpuMachine> for DpuMachineInfo {
@@ -352,8 +352,7 @@ impl From<PersistedDpuMachine> for DpuMachineInfo {
             host_mac_address: value.host_mac_address,
             oob_mac_address: value.oob_mac_address,
             serial: value.serial,
-            nic_mode: value.nic_mode,
-            firmware_versions: value.firmware_versions,
+            settings: value.settings,
         }
     }
 }

@@ -36,6 +36,7 @@ use serde::{Deserialize, Serialize};
 pub mod address_selection_strategy;
 pub mod attestation;
 pub mod bmc_info;
+pub mod compute_allocation;
 pub mod controller_outcome;
 pub mod dhcp_entry;
 pub mod dhcp_record;

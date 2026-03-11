@@ -38,6 +38,8 @@ pub enum RpcDataConversionError {
     InvalidNetworkSecurityGroupId(String),
     #[error("Instance Type ID {0} is not valid")]
     InvalidInstanceTypeId(String),
+    #[error("Compute Allocation ID {0} is not valid")]
+    InvalidComputeAllocationId(String),
     #[error("Timestamp {0} is not valid")]
     InvalidTimestamp(String),
     #[error("Tenant Org {0} is not valid")]

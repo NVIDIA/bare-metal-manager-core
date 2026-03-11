@@ -918,25 +918,6 @@ pub async fn update_hardware_health_report(
     update_health_report(txn, machine_id, "hardware_health_report", health_report).await
 }
 
-pub async fn update_log_parser_health_report(
-    txn: &mut PgConnection,
-    machine_id: &MachineId,
-    health_report: &HealthReport,
-) -> Result<(), DatabaseError> {
-    let query = String::from(
-        "UPDATE machines SET log_parser_health_report = $1::json WHERE id = $2
-            RETURNING id",
-    );
-    let _id: (MachineId,) = sqlx::query_as(&query)
-        .bind(sqlx::types::Json(&health_report))
-        .bind(machine_id)
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::new("update health report", e))?;
-
-    Ok(())
-}
-
 pub async fn update_machine_validation_health_report(
     txn: &mut PgConnection,
     machine_id: &MachineId,

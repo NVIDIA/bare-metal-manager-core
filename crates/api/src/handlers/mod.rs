@@ -20,6 +20,7 @@ pub mod attestation;
 pub mod bmc_endpoint_explorer;
 pub mod bmc_metadata;
 pub mod boot_override;
+pub mod compute_allocation;
 pub mod credential;
 pub mod db;
 pub mod dns;

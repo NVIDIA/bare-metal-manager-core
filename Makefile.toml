@@ -28,6 +28,10 @@ CARBIDE_ENVIRONMENT = { value = "local", condition = { env_not_set = [
 FORGE_CA = { value = "nonprod", condition = { env_not_set = ["FORGE_CA"] } }
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem" }
 
+BUILD_CONTAINER_X86_URL = { value = "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest", condition = { env_not_set = ["BUILD_CONTAINER_X86_URL"] } }
+
+BUILD_CONTAINER_AARCH64_URL = { value = "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:latest", condition = { env_not_set = ["BUILD_CONTAINER_AARCH64_URL"] } }
+
 # Nightly is *ONLY* used for check-format-nightly, which enables a
 # more-opinionated rustfmt that sorts imports for us. rust-toolchain.toml is
 # respected for everything else.
@@ -89,7 +93,7 @@ docker run \
 	--workdir /code \
 	--volume $CARGO_HOME:/cargo \
 	--env CARGO_HOME=/cargo \
-	urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
+	"${BUILD_CONTAINER_X86_URL}" \
 	cargo build -p carbide-admin-cli --release
 '''
 dependencies = ["check-cargo-home-set"]
@@ -106,7 +110,7 @@ docker run \
 	--workdir /code \
 	--volume $CARGO_HOME:/cargo \
 	--env CARGO_HOME=/cargo \
-	urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
+	"${BUILD_CONTAINER_X86_URL}" \
 	cargo build -p carbide-health
 '''
 dependencies = ["check-cargo-home-set"]
@@ -123,7 +127,7 @@ docker run \
 	--workdir /code \
 	--volume $CARGO_HOME:/cargo \
 	--env CARGO_HOME=/cargo \
-	urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
+	"${BUILD_CONTAINER_X86_URL} \
 	cargo build -p carbide-log-parser
 '''
 dependencies = ["check-cargo-home-set"]
@@ -188,7 +192,7 @@ command = "docker"
 args = [
   "build",
   "-t",
-  "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest",
+  "${BUILD_CONTAINER_X86_URL}",
   "-f",
   "${REPO_ROOT}/dev/docker/Dockerfile.build-container-x86_64",
   ".",
@@ -210,7 +214,7 @@ command = "docker"
 args = [
   "build",
   "-t",
-  "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:latest",
+  "${BUILD_CONTAINER_AARCH64_URL}",
   "-f",
   "${REPO_ROOT}/dev/docker/Dockerfile.build-container-arm",
   ".",

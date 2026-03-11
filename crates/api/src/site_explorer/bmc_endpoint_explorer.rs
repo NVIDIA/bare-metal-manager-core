@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -36,7 +37,9 @@ use tokio::time::{Duration, sleep};
 use super::credentials::{CredentialClient, get_bmc_root_credential_key};
 use super::metrics::SiteExplorationMetrics;
 use super::redfish::RedfishClient;
+use crate::cfg::file::SiteExplorerExploreMode;
 use crate::ipmitool::IPMITool;
+use crate::nv_redfish::NvRedfishClientPool;
 use crate::redfish::RedfishClientPool;
 use crate::site_explorer::EndpointExplorer;
 
@@ -51,21 +54,25 @@ pub struct BmcEndpointExplorer {
     credential_client: CredentialClient,
     mutex: Arc<Mutex<()>>,
     rotate_switch_nvos_credentials: Arc<AtomicBool>,
+    mode: SiteExplorerExploreMode,
 }
 
 impl BmcEndpointExplorer {
     pub fn new(
         redfish_client_pool: Arc<dyn RedfishClientPool>,
+        nv_redfish_client_pool: Arc<NvRedfishClientPool>,
         ipmi_tool: Arc<dyn IPMITool>,
         credential_manager: Arc<dyn CredentialManager>,
         rotate_switch_nvos_credentials: Arc<AtomicBool>,
+        mode: SiteExplorerExploreMode,
     ) -> Self {
         Self {
-            redfish_client: RedfishClient::new(redfish_client_pool),
+            redfish_client: RedfishClient::new(redfish_client_pool, nv_redfish_client_pool),
             ipmi_tool,
             credential_client: CredentialClient::new(credential_manager),
             mutex: Arc::new(Mutex::new(())),
             rotate_switch_nvos_credentials,
+            mode,
         }
     }
 
@@ -159,9 +166,51 @@ impl BmcEndpointExplorer {
         credentials: Credentials,
         boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
-        self.redfish_client
-            .generate_exploration_report(bmc_ip_address, credentials, boot_interface_mac)
-            .await
+        match self.mode {
+            SiteExplorerExploreMode::LibRedfish => {
+                self.redfish_client
+                    .generate_exploration_report(
+                        bmc_ip_address,
+                        credentials.clone(),
+                        boot_interface_mac,
+                    )
+                    .await
+            }
+            SiteExplorerExploreMode::NvRedfish => {
+                self.redfish_client
+                    .nv_generate_exploration_report(bmc_ip_address, credentials, boot_interface_mac)
+                    .await
+            }
+            SiteExplorerExploreMode::CompareResult => {
+                let libredfish = self
+                    .redfish_client
+                    .generate_exploration_report(
+                        bmc_ip_address,
+                        credentials.clone(),
+                        boot_interface_mac,
+                    )
+                    .await;
+                let nvredfish = self
+                    .redfish_client
+                    .nv_generate_exploration_report(bmc_ip_address, credentials, boot_interface_mac)
+                    .await;
+                match (&libredfish, &nvredfish) {
+                    (Ok(report), Ok(nv_report)) => warn_report_diff(report, nv_report),
+                    (Ok(_), Err(_)) => {
+                        tracing::warn!(
+                            "libredfish returned success when nv-redfish error: {nvredfish:?}"
+                        );
+                    }
+                    (Err(_), Ok(_)) => {
+                        tracing::warn!(
+                            "libredfish returned error: {libredfish:?}, when nv-redfish success"
+                        );
+                    }
+                    (Err(_), Err(_)) => (),
+                }
+                libredfish
+            }
+        }
     }
 
     // Handle machines that still have their bmc root password set to the factory default.
@@ -1130,5 +1179,332 @@ impl EndpointExplorer for BmcEndpointExplorer {
                 Err(e)
             }
         }
+    }
+}
+
+// This report is temporary. For transition period when we check that
+// nv-redfish produces the same reports as libredfish.
+fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplorationReport) {
+    if report1.endpoint_type != report2.endpoint_type {
+        tracing::warn!(
+            "endpoint_type are not equal: {:?} != {:?}",
+            report1.endpoint_type,
+            report2.endpoint_type
+        );
+    }
+
+    if report1.vendor != report2.vendor {
+        tracing::warn!(
+            "vendors are not equal: {:?} != {:?}",
+            report1.vendor,
+            report2.vendor
+        );
+    }
+
+    if report1.managers != report2.managers {
+        tracing::warn!(
+            "managers are not equal: {:?} != {:?}",
+            report1.managers,
+            report2.managers
+        );
+    }
+
+    if report1.systems.len() != report2.systems.len() {
+        tracing::warn!(
+            "reported different number of systems: {:?} != {:?}",
+            report1.systems.len(),
+            report2.systems.len(),
+        );
+    }
+
+    for (s1, s2) in report1.systems.iter().zip(report2.systems.iter()) {
+        if s1.id != s2.id {
+            tracing::warn!("systems.id are not equal: {:?} != {:?}", s1.id, s2.id);
+        } else {
+            if s1.ethernet_interfaces != s2.ethernet_interfaces {
+                tracing::warn!(
+                    "systems[{:?}].ethernet_interfaces are not equal: {:?} != {:?}",
+                    s1.id,
+                    s1.ethernet_interfaces,
+                    s2.ethernet_interfaces
+                );
+            }
+
+            if s1.manufacturer != s2.manufacturer {
+                tracing::warn!(
+                    "systems[{:?}].manufacturer are not equal: {:?} != {:?}",
+                    s1.id,
+                    s1.manufacturer,
+                    s2.manufacturer
+                );
+            }
+
+            if s1.model != s2.model {
+                tracing::warn!(
+                    "systems[{:?}].model are not equal: {:?} != {:?}",
+                    s1.id,
+                    s1.model,
+                    s2.model
+                );
+            }
+
+            if s1.serial_number != s2.serial_number {
+                tracing::warn!(
+                    "systems[{:?}].serial_number are not equal: {:?} != {:?}",
+                    s1.id,
+                    s1.serial_number,
+                    s2.serial_number
+                );
+            }
+
+            if s1.attributes != s2.attributes {
+                tracing::warn!(
+                    "systems[{:?}].attributes are not equal: {:?} != {:?}",
+                    s1.id,
+                    s1.attributes,
+                    s2.attributes
+                );
+            }
+
+            if s1.pcie_devices != s2.pcie_devices {
+                if s1.pcie_devices.len() != s2.pcie_devices.len() {
+                    tracing::warn!(
+                        "systems[{:?}].pcie_devices.len() are not equal: ids1: {:?}, ids2: {:?}",
+                        s1.id,
+                        s1.pcie_devices
+                            .iter()
+                            .map(|v| v.id.as_ref())
+                            .collect::<Vec<_>>(),
+                        s2.pcie_devices
+                            .iter()
+                            .map(|v| v.id.as_ref())
+                            .collect::<Vec<_>>(),
+                    );
+                } else {
+                    let s2devices = s2
+                        .pcie_devices
+                        .iter()
+                        .map(|v| (&v.id, v))
+                        .collect::<HashMap<_, _>>();
+                    for s1dev in &s1.pcie_devices {
+                        if let Some(s2dev) = s2devices.get(&s1dev.id) {
+                            if s1dev != *s2dev {
+                                tracing::warn!(
+                                    "systems[{:?}].pcie_devices[{:?}] devices not equal: {:?} != {:?}",
+                                    s1.id,
+                                    s1dev.id,
+                                    s1dev,
+                                    s2dev,
+                                );
+                            }
+                        } else {
+                            tracing::warn!(
+                                "systems[{:?}].pcie_devices.len() device {:?} is not found in second report",
+                                s1.id,
+                                s1dev.id
+                            );
+                        }
+                    }
+                }
+            }
+
+            if s1.base_mac != s2.base_mac {
+                tracing::warn!(
+                    "systems[{:?}].base_mac are not equal: {:?} != {:?}",
+                    s1.id,
+                    s1.base_mac,
+                    s2.base_mac
+                );
+            }
+
+            if s1.power_state != s2.power_state {
+                tracing::warn!(
+                    "systems[{:?}].power_state are not equal: {:?} != {:?}",
+                    s1.id,
+                    s1.power_state,
+                    s2.power_state
+                );
+            }
+
+            if s1.sku != s2.sku {
+                tracing::warn!(
+                    "systems[{:?}].sku are not equal: {:?} != {:?}",
+                    s1.id,
+                    s1.sku,
+                    s2.sku
+                );
+            }
+
+            if s1.boot_order != s2.boot_order {
+                tracing::warn!(
+                    "systems[{:?}].boot_order are not equal: {:?} != {:?}",
+                    s1.id,
+                    s1.boot_order,
+                    s2.boot_order
+                );
+            }
+        }
+    }
+
+    if report1.chassis.len() != report2.chassis.len() {
+        tracing::warn!(
+            "reported different number of chassis: {:?} != {:?}",
+            report1.chassis.len(),
+            report2.chassis.len(),
+        );
+    }
+
+    for (c1, c2) in report1.chassis.iter().zip(report2.chassis.iter()) {
+        if c1.id != c2.id {
+            tracing::warn!("chassis.id are not equal: {:?} != {:?}", c1.id, c2.id);
+        } else if c1 != c2 {
+            tracing::warn!("chassis[{:?}] are not equal: {:?} != {:?}", c1.id, c1, c2);
+        }
+    }
+
+    if report1.service.len() != report2.service.len() {
+        tracing::warn!(
+            "reported different number of service: {:?} != {:?}",
+            report1.service.len(),
+            report2.service.len(),
+        );
+    }
+
+    for (s1, s2) in report1.service.iter().zip(report2.service.iter()) {
+        if s1.id != s2.id {
+            tracing::warn!("service.id are not equal: {:?} != {:?}", s1.id, s2.id);
+        } else {
+            if s1.inventories.len() != s2.inventories.len() {
+                tracing::warn!("service[{:?}] are not equal: {:?} != {:?}", s1.id, s1, s2);
+            }
+            // Stable ordering of FW by id. Dell PowerEdge R770 doesn't
+            // provide stable order of FW versions.
+            let mut report1_idx = (0..s1.inventories.len()).collect::<Vec<_>>();
+            report1_idx.sort_by_key(|i| &s1.inventories[*i].id);
+            let mut report2_idx = (0..s2.inventories.len()).collect::<Vec<_>>();
+            report2_idx.sort_by_key(|i| &s2.inventories[*i].id);
+
+            for (i1, i2) in report1_idx.into_iter().zip(report2_idx.into_iter()) {
+                let i1 = &s1.inventories[i1];
+                let i2 = &s2.inventories[i2];
+                if i1.id != i2.id
+                    || i1.description != i2.description
+                    || i1.version != i2.version
+                    || i1
+                        .release_date
+                        .as_ref()
+                        .and_then(|v| if v == "00:00:00Z" { None } else { Some(v) })
+                        != i2
+                            .release_date
+                            .as_ref()
+                            .and_then(|v| if v == "00:00:00Z" { None } else { Some(v) })
+                {
+                    tracing::warn!(
+                        "service[{:?}].inventories are not equal: {:?} != {:?}",
+                        s1.id,
+                        i1,
+                        i2
+                    );
+                }
+            }
+        }
+    }
+
+    if report1.machine_setup_status.is_some() != report2.machine_setup_status.is_some() {
+        tracing::warn!(
+            "forge_setup_status(es) are not equal: {:?} != {:?}",
+            report1.machine_setup_status,
+            report2.machine_setup_status,
+        );
+    } else if let Some(r1) = &report1.machine_setup_status
+        && let Some(r2) = &report2.machine_setup_status
+    {
+        if r1.is_done != r2.is_done {
+            tracing::warn!("forge_setup_status(es) are not equal: {r1:?} != {r2:?}",);
+        }
+
+        let mut sst1_idx = (0..r1.diffs.len()).collect::<Vec<_>>();
+        sst1_idx.sort_by_key(|i| &r1.diffs[*i].key);
+        let mut sst2_idx = (0..r2.diffs.len()).collect::<Vec<_>>();
+        sst2_idx.sort_by_key(|i| &r2.diffs[*i].key);
+        if sst1_idx.len() != sst2_idx.len() {
+            tracing::warn!(
+                "machine_setup_status diffs are not equal: {:?} != {:?}",
+                r1.diffs,
+                r2.diffs
+            );
+        } else {
+            for (i1, i2) in sst1_idx.into_iter().zip(sst2_idx.into_iter()) {
+                let d1 = &r1.diffs[i1];
+                let d2 = &r2.diffs[i2];
+                if d1 != d2 {
+                    tracing::warn!("machine_setup_status diffs are not equal: {d1:?} != {d2:?}");
+                }
+            }
+        }
+    }
+
+    if report1.secure_boot_status != report2.secure_boot_status {
+        tracing::warn!(
+            "secure_boot_status(es) are not equal: {:?} != {:?}",
+            report1.secure_boot_status,
+            report2.secure_boot_status,
+        );
+    }
+
+    if report1.lockdown_status != report2.lockdown_status {
+        tracing::warn!(
+            "lockdown_status(es) are not equal: {:?} != {:?}",
+            report1.lockdown_status,
+            report2.lockdown_status,
+        );
+    }
+
+    if report1.power_shelf_id != report2.power_shelf_id {
+        tracing::warn!(
+            "power_shelf_id are not equal: {:?} != {:?}",
+            report1.power_shelf_id,
+            report2.power_shelf_id
+        )
+    }
+
+    if report1.switch_id != report2.switch_id {
+        tracing::warn!(
+            "switch_id are not equal: {:?} != {:?}",
+            report1.switch_id,
+            report2.switch_id
+        )
+    }
+
+    if report1.physical_slot_number != report2.physical_slot_number {
+        tracing::warn!(
+            "physical_slot_number are not equal: {:?} != {:?}",
+            report1.physical_slot_number,
+            report2.physical_slot_number
+        )
+    }
+
+    if report1.compute_tray_index != report2.compute_tray_index {
+        tracing::warn!(
+            "compute_tray_index are not equal: {:?} != {:?}",
+            report1.compute_tray_index,
+            report2.compute_tray_index
+        )
+    }
+
+    if report1.topology_id != report2.topology_id {
+        tracing::warn!(
+            "topology_id are not equal: {:?} != {:?}",
+            report1.topology_id,
+            report2.topology_id
+        )
+    }
+
+    if report1.revision_id != report2.revision_id {
+        tracing::warn!(
+            "revision_id are not equal: {:?} != {:?}",
+            report1.revision_id,
+            report2.revision_id
+        )
     }
 }

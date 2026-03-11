@@ -360,8 +360,11 @@ pub async fn fetch_instance_type_names(
         return Ok(HashMap::new());
     }
 
-    let request =
-        tonic::Request::new(rpc::forge::FindInstanceTypesByIdsRequest { instance_type_ids });
+    let request = tonic::Request::new(rpc::forge::FindInstanceTypesByIdsRequest {
+        instance_type_ids,
+        tenant_organization_id: None,
+        include_allocation_stats: false,
+    });
 
     let instance_types = api
         .find_instance_types_by_ids(request)

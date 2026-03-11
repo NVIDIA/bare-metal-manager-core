@@ -440,8 +440,7 @@ pub(crate) async fn delete(
     let nsg = network_security_group::find_by_ids(
         &mut txn,
         std::slice::from_ref(&id),
-        // We return without error if something wasn't found because it was already soft-deleted,
-        // so we'll check tenant ownership separately from the query here so we don't hide a
+        // We'll check tenant ownership separately from the query here so we don't hide a
         // 404 due to a mismatched tenant.
         None,
         true,
@@ -451,42 +450,45 @@ pub(crate) async fn delete(
 
     // Since we needed to query for the record anyway,
     // we can save ourselves some extra work if it didn't exist.
-    if let Some(nsg) = nsg
-        && nsg.deleted.is_none()
-    {
-        if nsg.tenant_organization_id != tenant_organization_id {
-            return Err(CarbideError::InvalidArgument(format!(
-                "NetworkSecurityGroup `{}` is not owned by Tenant `{}`",
-                nsg.id.clone(),
-                tenant_organization_id.clone()
-            ))
-            .into());
+    let Some(nsg) = nsg else {
+        return Err(CarbideError::NotFoundError {
+            kind: "NetworkSecurityGroup",
+            id: id.to_string(),
         }
+        .into());
+    };
 
-        // Look for any related objects that have this NSG attached.
-        // If an NSG is in use, it must not be deleted.
-        let existing_associated_objects = network_security_group::find_objects_with_attachments(
-            &mut txn,
-            Some(std::slice::from_ref(&id)),
-            Some(&tenant_organization_id),
-        )
-        .await?
-        .pop();
-
-        if existing_associated_objects
-            .map(|a| a.has_attachments())
-            .unwrap_or_default()
-        {
-            return Err(CarbideError::FailedPrecondition(format!(
-                "NetworkSecurityGroup {id} is associated with active objects"
-            ))
-            .into());
-        }
-
-        // Make our DB query to soft delete the NetworkSecurityGroup
-        let _id =
-            network_security_group::soft_delete(&mut txn, &id, &tenant_organization_id).await?;
+    if nsg.tenant_organization_id != tenant_organization_id {
+        return Err(CarbideError::InvalidArgument(format!(
+            "NetworkSecurityGroup `{}` is not owned by Tenant `{}`",
+            nsg.id.clone(),
+            tenant_organization_id.clone()
+        ))
+        .into());
     }
+
+    // Look for any related objects that have this NSG attached.
+    // If an NSG is in use, it must not be deleted.
+    let existing_associated_objects = network_security_group::find_objects_with_attachments(
+        &mut txn,
+        Some(std::slice::from_ref(&id)),
+        Some(&tenant_organization_id),
+    )
+    .await?
+    .pop();
+
+    if existing_associated_objects
+        .map(|a| a.has_attachments())
+        .unwrap_or_default()
+    {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "NetworkSecurityGroup {id} is associated with active objects"
+        ))
+        .into());
+    }
+
+    // Make our DB query to soft delete the NetworkSecurityGroup
+    let _id = network_security_group::soft_delete(&mut txn, &id, &tenant_organization_id).await?;
 
     // Prepare the response message
     let rpc_out = rpc::DeleteNetworkSecurityGroupResponse {};

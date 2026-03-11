@@ -669,7 +669,14 @@ async fn main() -> Result<(), anyhow::Error> {
                 }
             }
             for log in &config.logs {
-                match send_health_alerts(&mut forge_client, &log.events, &config.pipeline).await {
+                match send_health_alerts(
+                    &mut forge_client,
+                    &log.events,
+                    &config.pipeline,
+                    &log.file_path,
+                )
+                .await
+                {
                     Ok(_) => {}
                     Err(e) => {
                         eprintln!("{e}");

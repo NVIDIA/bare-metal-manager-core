@@ -8,7 +8,7 @@
 endpoint = "mqtt.forge"
 port = 1884
 client_id = "carbide-dsx-exchange-consumer"
-topic_prefix = "cronus/v1"
+topic_prefix = "BMS/v1"
 # Maximum number of messages to buffer before dropping (default: 1024)
 queue_capacity = 1024
 

@@ -77,16 +77,7 @@ pub async fn get_hardware_health_report(
 
     txn.commit().await?;
 
-    let report = if let Some(mut hardware_health_report) =
-        host_machine.hardware_health_report.as_ref().cloned()
-    {
-        if let Some(log_parser_health_report) = host_machine.log_parser_health_report.as_ref() {
-            hardware_health_report.merge(log_parser_health_report);
-        }
-        Some(hardware_health_report)
-    } else {
-        None
-    };
+    let report = host_machine.hardware_health_report.clone();
     Ok(Response::new(::rpc::forge::OptionalHealthReport {
         report: report.map(|hr| hr.into()),
     }))
@@ -120,27 +111,6 @@ pub async fn list_health_report_overrides(
             })
             .collect(),
     }))
-}
-
-pub async fn record_log_parser_health_report(
-    api: &Api,
-    request: Request<rpc::HardwareHealthReport>,
-) -> Result<Response<()>, Status> {
-    let mut txn = api.txn_begin().await?;
-
-    let rpc::HardwareHealthReport { machine_id, report } = request.into_inner();
-    let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
-    let Some(report) = report else {
-        return Err(CarbideError::MissingArgument("report").into());
-    };
-
-    let report = health_report::HealthReport::try_from(report.clone())
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
-    db::machine::update_log_parser_health_report(&mut txn, &machine_id, &report).await?;
-
-    txn.commit().await?;
-
-    Ok(Response::new(()))
 }
 
 async fn remove_by_source(

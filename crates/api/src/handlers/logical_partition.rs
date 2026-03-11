@@ -17,7 +17,7 @@
 use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
 use db::nvl_logical_partition::{self, NewLogicalPartition};
-use db::{self, ObjectColumnFilter, WithTransaction, nvl_partition};
+use db::{self, ObjectColumnFilter, WithTransaction, instance};
 use futures_util::FutureExt;
 use tonic::{Request, Response, Status};
 
@@ -133,18 +133,13 @@ pub(crate) async fn delete(
         }
     };
 
-    // check if there any physical partitions already part of this logical partition
-    let db_nvl_partitions = db::nvl_partition::find_by(
-        &api.database_connection,
-        ObjectColumnFilter::<nvl_partition::IdColumn>::All,
-    )
-    .await?;
-    if db_nvl_partitions
-        .iter()
-        .any(|p| p.logical_partition_id == Some(id))
+    // check if any instance's nvlink config  has this logical partition
+    if instance::any_instance_referencing_nvlink_logical_partition(&api.database_connection, &id)
+        .await
+        .map_err(CarbideError::from)?
     {
         return Err(CarbideError::InvalidArgument(
-            "logical partition still has physical partition(s) attached to it".to_string(),
+            "logical partition is still referenced by instance(s)".to_string(),
         )
         .into());
     }

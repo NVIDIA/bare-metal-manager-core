@@ -12,7 +12,7 @@
 
 //! DSX Exchange Consumer microservice for BMS leak detection events.
 //!
-//! This service consumes leak detection events from the Cronus MQTT event bus
+//! This service consumes leak detection events from the BMS MQTT event bus
 //! and updates rack-level health overrides in the Carbide API.
 
 use std::sync::Arc;
@@ -43,6 +43,9 @@ pub enum DsxConsumerError {
 
     #[error("Metrics setup failed: {0}")]
     Metrics(String),
+
+    #[error("Secrets error: {0}")]
+    Secrets(String),
 }
 
 pub async fn run_service(config: Config) -> Result<(), DsxConsumerError> {
@@ -68,8 +71,20 @@ pub async fn run_service(config: Config) -> Result<(), DsxConsumerError> {
     // Create consumer metrics
     let consumer_metrics = ConsumerMetrics::new(&meter);
 
+    let credential_manager = forge_secrets::create_credential_manager(
+        &forge_secrets::CredentialConfig::default(),
+        meter.clone(),
+    )
+    .await
+    .map_err(|e| DsxConsumerError::Secrets(e.to_string()))?;
+
     // Connect to MQTT and get message receiver
-    let rx = mqtt_consumer::connect(&config.mqtt, consumer_metrics.clone()).await?;
+    let rx = mqtt_consumer::connect(
+        &config.mqtt,
+        consumer_metrics.clone(),
+        credential_manager.clone(),
+    )
+    .await?;
 
     // Set up API client and create health updater
     let join_updater = if let Some(api_config) = config.carbide_api {

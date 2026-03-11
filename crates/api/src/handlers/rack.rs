@@ -16,14 +16,16 @@
  */
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
+use ::rpc::forge::{self as rpc, HealthReportOverride};
 use carbide_uuid::rack::RackId;
 use db::{WithTransaction, rack as db_rack};
 use futures_util::FutureExt;
+use health_report::OverrideMode;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::Api;
+use crate::auth::AuthContext;
 
 pub async fn get_rack(
     api: &Api,
@@ -35,12 +37,12 @@ pub async fn get_rack(
             .map_err(|e| Status::invalid_argument(format!("Invalid rack ID: {}", e)))?;
         let r = db_rack::get(&api.database_connection, rack_id)
             .await
-            .map_err(|e| Status::internal(format!("Getting rack {}", e)))?;
+            .map_err(CarbideError::from)?;
         vec![r.into()]
     } else {
         db_rack::list(&api.database_connection)
             .await
-            .map_err(|e| Status::internal(format!("Listing racks {}", e)))?
+            .map_err(CarbideError::from)?
             .into_iter()
             .map(|x| x.into())
             .collect()
@@ -111,66 +113,126 @@ pub async fn delete_rack(
     Ok(Response::new(()))
 }
 
-/// List health report overrides for a rack.
-///
-/// This is a stub - actual implementation TBD.
-/// Similar to list_health_report_overrides but for racks table.
-#[allow(clippy::unused_async)] // Will need async when implemented
 pub async fn list_rack_health_report_overrides(
-    _api: &Api,
+    api: &Api,
     request: Request<rpc::ListRackHealthReportOverridesRequest>,
 ) -> Result<Response<rpc::ListHealthReportOverrideResponse>, Status> {
     let req = request.into_inner();
-    tracing::info!(
-        rack_id = ?req.rack_id,
-        "list_rack_health_report_overrides called (stub)"
-    );
+    let rack_id = req
+        .rack_id
+        .ok_or_else(|| CarbideError::MissingArgument("rack_id"))?;
 
-    // TODO: Implement rack health override listing
-    Err(Status::unimplemented(
-        "ListRackHealthReportOverrides is not yet implemented",
-    ))
+    let rack = db_rack::get(&api.database_connection, rack_id)
+        .await
+        .map_err(CarbideError::from)?;
+
+    Ok(Response::new(rpc::ListHealthReportOverrideResponse {
+        overrides: rack
+            .health_report_overrides
+            .into_iter()
+            .map(|o| HealthReportOverride {
+                report: Some(o.0.into()),
+                mode: o.1 as i32,
+            })
+            .collect(),
+    }))
 }
 
-/// Insert a health report override for a rack.
-///
-/// This is a stub - actual implementation TBD.
-/// Similar to insert_health_report_override but for racks table.
-#[allow(clippy::unused_async)] // Will need async when implemented
 pub async fn insert_rack_health_report_override(
-    _api: &Api,
+    api: &Api,
     request: Request<rpc::InsertRackHealthReportOverrideRequest>,
 ) -> Result<Response<()>, Status> {
-    let req = request.into_inner();
-    tracing::info!(
-        rack_id = ?req.rack_id,
-        "insert_rack_health_report_override called (stub)"
-    );
+    let triggered_by = request
+        .extensions()
+        .get::<AuthContext>()
+        .and_then(|ctx| ctx.get_external_user_name())
+        .map(String::from);
 
-    // TODO: Implement rack health override insertion
-    Err(Status::unimplemented(
-        "InsertRackHealthReportOverride is not yet implemented",
-    ))
+    let rpc::InsertRackHealthReportOverrideRequest {
+        rack_id,
+        r#override: Some(rpc::HealthReportOverride { report, mode }),
+    } = request.into_inner()
+    else {
+        return Err(CarbideError::MissingArgument("override").into());
+    };
+    let rack_id = rack_id.ok_or_else(|| CarbideError::MissingArgument("rack_id"))?;
+
+    let Some(report) = report else {
+        return Err(CarbideError::MissingArgument("report").into());
+    };
+    let Ok(mode) = rpc::OverrideMode::try_from(mode) else {
+        return Err(CarbideError::InvalidArgument("mode".to_string()).into());
+    };
+    let mode: OverrideMode = mode.into();
+
+    let mut txn = api.txn_begin().await?;
+
+    let rack = db_rack::get(&mut txn, rack_id)
+        .await
+        .map_err(CarbideError::from)?;
+
+    let mut report = health_report::HealthReport::try_from(report.clone())
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+    if report.observed_at.is_none() {
+        report.observed_at = Some(chrono::Utc::now());
+    }
+    report.triggered_by = triggered_by;
+    report.update_in_alert_since(None);
+
+    match remove_rack_override_by_source(&rack, &mut txn, report.source.clone()).await {
+        Ok(_) | Err(CarbideError::NotFoundError { .. }) => {}
+        Err(e) => return Err(e.into()),
+    }
+
+    db_rack::insert_health_report_override(&mut txn, &rack.id, mode, &report).await?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(()))
 }
 
-/// Remove a health report override for a rack.
-///
-/// This is a stub - actual implementation TBD.
-/// Similar to remove_health_report_override but for racks table.
-#[allow(clippy::unused_async)] // Will need async when implemented
 pub async fn remove_rack_health_report_override(
-    _api: &Api,
+    api: &Api,
     request: Request<rpc::RemoveRackHealthReportOverrideRequest>,
 ) -> Result<Response<()>, Status> {
-    let req = request.into_inner();
-    tracing::info!(
-        rack_id = ?req.rack_id,
-        source = %req.source,
-        "remove_rack_health_report_override called (stub)"
-    );
+    let rpc::RemoveRackHealthReportOverrideRequest { rack_id, source } = request.into_inner();
+    let rack_id = rack_id.ok_or_else(|| CarbideError::MissingArgument("rack_id"))?;
 
-    // TODO: Implement rack health override removal
-    Err(Status::unimplemented(
-        "RemoveRackHealthReportOverride is not yet implemented",
-    ))
+    let mut txn = api.txn_begin().await?;
+
+    let rack = db_rack::get(&mut txn, rack_id)
+        .await
+        .map_err(CarbideError::from)?;
+
+    remove_rack_override_by_source(&rack, &mut txn, source).await?;
+    txn.commit().await?;
+
+    Ok(Response::new(()))
+}
+
+async fn remove_rack_override_by_source(
+    rack: &model::rack::Rack,
+    txn: &mut db::Transaction<'_>,
+    source: String,
+) -> Result<(), CarbideError> {
+    let mode = if rack
+        .health_report_overrides
+        .replace
+        .as_ref()
+        .map(|o| &o.source)
+        == Some(&source)
+    {
+        OverrideMode::Replace
+    } else if rack.health_report_overrides.merges.contains_key(&source) {
+        OverrideMode::Merge
+    } else {
+        return Err(CarbideError::NotFoundError {
+            kind: "rack override with source",
+            id: source,
+        });
+    };
+
+    db_rack::remove_health_report_override(&mut *txn, &rack.id, mode, &source).await?;
+
+    Ok(())
 }

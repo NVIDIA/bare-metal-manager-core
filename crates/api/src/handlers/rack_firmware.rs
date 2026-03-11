@@ -416,6 +416,35 @@ pub async fn delete(
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new("commit delete", e)))?;
 
+    // cleanup of downloaded firmware files
+    let firmware_cache_dir = PathBuf::from("/forge-boot-artifacts/blobs/internal/fw")
+        .join("rack_firmware")
+        .join(&req.id);
+    if let Err(e) = tokio::fs::remove_dir_all(&firmware_cache_dir).await {
+        tracing::warn!(
+            firmware_id = %req.id,
+            "Failed to delete firmware cache directory {}: {}",
+            firmware_cache_dir.display(),
+            e
+        );
+    }
+
+    // cleanup of credentials from Vault
+    let credential_key = CredentialKey::RackFirmware {
+        firmware_id: req.id.clone(),
+    };
+    if let Err(e) = api
+        .credential_manager
+        .delete_credentials(&credential_key)
+        .await
+    {
+        tracing::warn!(
+            firmware_id = %req.id,
+            "Failed to delete credentials from Vault: {}",
+            e
+        );
+    }
+
     Ok(Response::new(()))
 }
 

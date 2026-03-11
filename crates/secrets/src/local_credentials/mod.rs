@@ -20,7 +20,9 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::SecretsError;
-use crate::credentials::{CredentialKey, CredentialReader, CredentialType, Credentials};
+use crate::credentials::{
+    CredentialKey, CredentialReader, CredentialType, Credentials, MqttCredentialType,
+};
 
 mod env;
 mod file;
@@ -68,6 +70,7 @@ pub struct CredentialSnapshot {
     pub dpu_uefi_site_default: Option<UsernamePassword>,
     pub host_uefi_site_default: Option<UsernamePassword>,
     pub nmxm_auth_by_id: HashMap<String, UsernamePassword>,
+    pub mqtt_auth_by_credential_type: HashMap<MqttCredentialType, UsernamePassword>,
 }
 
 impl CredentialSnapshot {
@@ -109,6 +112,11 @@ impl CredentialSnapshot {
             CredentialKey::NmxM { nmxm_id } => {
                 self.nmxm_auth_by_id.get(nmxm_id).cloned().map(Into::into)
             }
+            CredentialKey::MqttAuth { credential_type } => self
+                .mqtt_auth_by_credential_type
+                .get(credential_type)
+                .cloned()
+                .map(Into::into),
             _ => None,
         }
     }
@@ -163,6 +171,10 @@ mod tests {
             dpu_uefi_site_default: Some(up("dus-u", "dus-p")),
             host_uefi_site_default: Some(up("hus-u", "hus-p")),
             nmxm_auth_by_id: nmxm,
+            mqtt_auth_by_credential_type: HashMap::from([(
+                MqttCredentialType::Dpa,
+                up("mqtt-u", "mqtt-p"),
+            )]),
         }
     }
 
@@ -262,6 +274,24 @@ mod tests {
             nmxm_id: "nmxm-1".to_string(),
         };
         assert_eq!(snap.get_credentials(&key), Some(cred("nmxm-u", "nmxm-p")));
+    }
+
+    #[test]
+    fn snapshot_mqtt_auth() {
+        let snap = populated_snapshot();
+        let key = CredentialKey::MqttAuth {
+            credential_type: MqttCredentialType::Dpa,
+        };
+        assert_eq!(snap.get_credentials(&key), Some(cred("mqtt-u", "mqtt-p")));
+    }
+
+    #[test]
+    fn snapshot_mqtt_auth_unknown_credential_type_returns_none() {
+        let snap = populated_snapshot();
+        let key = CredentialKey::MqttAuth {
+            credential_type: MqttCredentialType::DsxExchangeConsumer,
+        };
+        assert_eq!(snap.get_credentials(&key), None);
     }
 
     #[test]
