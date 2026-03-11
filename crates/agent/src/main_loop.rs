@@ -747,7 +747,7 @@ impl MainLoop {
                     route_servers: &conf.route_servers,
                     hbn_device_names: self.hbn_device_names.clone(),
                     include_dhcp_server: !conf.use_admin_network || conf.is_primary_dpu,
-                    run_restricted_mode_check: true,
+                    run_restricted_mode_check: false,
                 })
                 .await;
                 is_healthy = !health_report.successes.is_empty() && health_report.alerts.is_empty();
