@@ -23,7 +23,7 @@ use db::rack::IdColumn;
 use db::{DatabaseError, ObjectColumnFilter, rack as db_rack};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::rack::{Rack, RackState, state_sla};
+use model::rack::{Rack, RackState, RackValidationState, state_sla};
 use sqlx::PgConnection;
 
 use crate::state_controller::io::StateControllerIO;
@@ -117,12 +117,14 @@ impl StateControllerIO for RackStateControllerIO {
             RackState::Unknown => ("unknown", ""),
             RackState::Expected => ("expected", ""),
             RackState::Discovering => ("discovering", ""),
-            RackState::Discovered => ("discovered", ""),
-            RackState::ValidationInProgress => ("validation_in_progress", ""),
-            RackState::ValidationPartial => ("validation_partial", ""),
-            RackState::FailedPartial => ("failed_partial", ""),
-            RackState::RackValidated => ("rack_validated", ""),
-            RackState::RackFailed => ("rack_failed", ""),
+            RackState::Validation { rack_validation } => match rack_validation {
+                RackValidationState::Pending => ("validation", "pending"),
+                RackValidationState::InProgress => ("validation", "in_progress"),
+                RackValidationState::Partial => ("validation", "partial"),
+                RackValidationState::FailedPartial => ("validation", "failed_partial"),
+                RackValidationState::Validated => ("validation", "validated"),
+                RackValidationState::Failed => ("validation", "failed"),
+            },
             RackState::Ready => ("ready", ""),
             RackState::Maintenance { .. } => ("maintenance", ""),
             RackState::Error { .. } => ("error", ""),

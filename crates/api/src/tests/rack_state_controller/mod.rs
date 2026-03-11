@@ -23,7 +23,7 @@ use std::time::Duration;
 use carbide_uuid::rack::RackId;
 use db::rack as db_rack;
 use model::rack::{
-    Rack, RackFirmwareUpgradeState, RackMaintenanceState, RackState,
+    Rack, RackFirmwareUpgradeState, RackMaintenanceState, RackState, RackValidationState,
 };
 use rpc::forge::RackStateHistoryRecord;
 use rpc::forge::forge_server::Forge;
@@ -87,13 +87,24 @@ impl StateHandler for TestRackStateHandler {
                 RackMaintenanceState::FirmwareUpgrade { .. } => RackState::Maintenance {
                     rack_maintenance: RackMaintenanceState::Completed,
                 },
-                RackMaintenanceState::Completed => RackState::Discovered,
+                RackMaintenanceState::Completed => RackState::Validation {
+                    rack_validation: RackValidationState::Pending,
+                },
                 _ => return Ok(StateHandlerOutcome::do_nothing()),
             },
-            RackState::Discovered => RackState::ValidationInProgress,
-            RackState::ValidationInProgress => RackState::ValidationPartial,
-            RackState::ValidationPartial => RackState::RackValidated,
-            RackState::RackValidated => RackState::Ready,
+            RackState::Validation { rack_validation } => match rack_validation {
+                RackValidationState::Pending => RackState::Validation {
+                    rack_validation: RackValidationState::InProgress,
+                },
+                RackValidationState::InProgress => RackState::Validation {
+                    rack_validation: RackValidationState::Partial,
+                },
+                RackValidationState::Partial => RackState::Validation {
+                    rack_validation: RackValidationState::Validated,
+                },
+                RackValidationState::Validated => RackState::Ready,
+                _ => return Ok(StateHandlerOutcome::do_nothing()),
+            },
             _ => return Ok(StateHandlerOutcome::do_nothing()),
         };
 
@@ -413,12 +424,24 @@ async fn test_rack_state_transition_validation(
         RackState::Maintenance {
             rack_maintenance: RackMaintenanceState::Completed,
         },
-        RackState::Discovered,
-        RackState::ValidationInProgress,
-        RackState::ValidationPartial,
-        RackState::FailedPartial,
-        RackState::RackValidated,
-        RackState::RackFailed,
+        RackState::Validation {
+            rack_validation: RackValidationState::Pending,
+        },
+        RackState::Validation {
+            rack_validation: RackValidationState::InProgress,
+        },
+        RackState::Validation {
+            rack_validation: RackValidationState::Partial,
+        },
+        RackState::Validation {
+            rack_validation: RackValidationState::FailedPartial,
+        },
+        RackState::Validation {
+            rack_validation: RackValidationState::Validated,
+        },
+        RackState::Validation {
+            rack_validation: RackValidationState::Failed,
+        },
         RackState::Ready,
         RackState::Error {
             cause: "Test error".to_string(),

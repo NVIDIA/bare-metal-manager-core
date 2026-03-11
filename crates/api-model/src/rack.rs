@@ -104,24 +104,20 @@ impl<'r> FromRow<'r, PgRow> for Rack {
 /// Most important transitions are shown below.
 ///
 /// ```text
-/// Expected -> Discovering -> Discovered
-///                                     |
-///                                     v
-///                ------------- ValidationInProgress
-///                |                    |
-///                v                    v
-///         FailedPartial <--->  ValidationPartial
-///                ^                    ^
-///                |                    |
-///                v                    v
-///           RackFailed          RackValidated -> Ready -> (.. other states ..)
+/// Expected -> Discovering -> Maintenance -> Validation
+///                                                |
+///                                                v
+///                           Validation(Failed) <---> Validation(Validated)
+///                                                         |
+///                                                         v
+///                                                       Ready
 /// ```
 ///
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum RackState {
     /// Default DB column value. The rack SM does not transition out of this
-    /// state on its own — the transition to `Expected` is forced by
+    /// state on its own -- the transition to `Expected` is forced by
     /// `db::rack::create()`, which explicitly writes `{"state":"expected"}`
     /// when a rack is first created via the ExpectedMachine/Switch/PS APIs.
     ///
@@ -138,37 +134,11 @@ pub enum RackState {
     /// and reach ManagedHostState::Ready.
     Discovering,
 
-    /// All nodes discovered and all machines have reached ManagedHostState::Ready.
-    /// Waiting for external validation service (RVS) to begin partition validation.
-    ///
-    /// TODO[#416]: The responsibility of gating production instance allocation should
-    /// live in the **node/tray-level state machine**, not the rack SM. Each node
-    /// should have an `AwaitingPartitionValidation` (or similar) state that
-    /// prevents it from transitioning to Ready until rack validation completes.
-    /// The rack SM's job is only to track aggregate validation progress.
-    /// Until that node-level gating is implemented, there's a potential race
-    /// condition where nodes could be allocated before validation completes.
-    Discovered,
-
-    /// At least one partition has started validation, but none have
-    /// completed (neither passed nor failed yet).
-    ValidationInProgress,
-
-    /// At least one partition has passed validation, and no partitions
-    /// have failed. Waiting for remaining partitions to complete.
-    ValidationPartial,
-
-    /// At least one partition has failed validation.
-    /// Can recover to ValidationPartial if failed partitions are re-validated.
-    FailedPartial,
-
-    /// All partitions have passed validation successfully.
-    /// Rack is ready to transition to Ready state.
-    RackValidated,
-
-    /// All partitions have failed validation.
-    /// Requires intervention before rack can be used.
-    RackFailed,
+    /// Rack is in the validation phase. The sub-state tracks progress from
+    /// waiting for RVS through partition-level pass/fail to a final verdict.
+    Validation {
+        rack_validation: RackValidationState,
+    },
 
     /// Rack is fully validated and ready for production workloads.
     Ready,
@@ -186,11 +156,66 @@ pub enum RackState {
     Deleting,
 }
 
+/// Sub-states of rack validation.
+///
+/// The rack enters validation after maintenance completes (starting in
+/// `Pending`). RVS drives transitions by writing instance metadata labels
+/// that BMMC polls and aggregates into partition-level summaries.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RackValidationState {
+    /// All nodes discovered and all machines have reached
+    /// ManagedHostState::Ready. Waiting for RVS to begin partition
+    /// validation.
+    ///
+    /// TODO[#416]: The responsibility of gating production instance allocation
+    /// should live in the node/tray-level state machine, not the rack SM.
+    /// Each node should have an AwaitingPartitionValidation (or similar)
+    /// state that prevents it from transitioning to Ready until rack
+    /// validation completes. The rack SM's job is only to track aggregate
+    /// validation progress. Until that node-level gating is implemented,
+    /// there is a potential race condition where nodes could be allocated
+    /// before validation completes.
+    Pending,
+
+    /// At least one partition has started validation, but none have
+    /// completed (neither passed nor failed yet).
+    InProgress,
+
+    /// At least one partition has passed validation, and no partitions
+    /// have failed. Waiting for remaining partitions to complete.
+    Partial,
+
+    /// At least one partition has failed validation.
+    /// Can recover to Partial if failed partitions are re-validated.
+    FailedPartial,
+
+    /// All partitions have passed validation successfully.
+    /// Rack is ready to transition to the Ready state.
+    Validated,
+
+    /// All partitions have failed validation.
+    /// Requires intervention before the rack can be used.
+    Failed,
+}
+
+impl Display for RackValidationState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RackValidationState::Pending => write!(f, "Pending"),
+            RackValidationState::InProgress => write!(f, "InProgress"),
+            RackValidationState::Partial => write!(f, "Partial"),
+            RackValidationState::FailedPartial => write!(f, "FailedPartial"),
+            RackValidationState::Validated => write!(f, "Validated"),
+            RackValidationState::Failed => write!(f, "Failed"),
+        }
+    }
+}
+
 /// Sub-states of rack maintenance.
 ///
 /// The rack enters maintenance after discovery (all devices found, all machines
-/// ready) and exits into `Discovered` once maintenance is complete, at which
-/// point the validation flow takes over.
+/// ready) and exits into `Validation(Pending)` once maintenance is complete,
+/// at which point the validation flow takes over.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RackMaintenanceState {
     FirmwareUpgrade {
@@ -264,12 +289,9 @@ impl Display for RackState {
             RackState::Unknown => write!(f, "Unknown"),
             RackState::Expected => write!(f, "Expected"),
             RackState::Discovering => write!(f, "Discovering"),
-            RackState::Discovered => write!(f, "Discovered"),
-            RackState::ValidationInProgress => write!(f, "ValidationInProgress"),
-            RackState::ValidationPartial => write!(f, "ValidationPartial"),
-            RackState::FailedPartial => write!(f, "FailedPartial"),
-            RackState::RackValidated => write!(f, "RackValidated"),
-            RackState::RackFailed => write!(f, "RackFailed"),
+            RackState::Validation { rack_validation } => {
+                write!(f, "Validation({})", rack_validation)
+            }
             RackState::Ready => write!(f, "Ready"),
             RackState::Maintenance { rack_maintenance } => {
                 write!(f, "Maintenance({})", rack_maintenance)
@@ -322,12 +344,7 @@ pub fn state_sla(state: &RackState, state_version: &ConfigVersion) -> StateSla {
         RackState::Unknown => StateSla::no_sla(),
         RackState::Expected => StateSla::no_sla(),
         RackState::Discovering => StateSla::no_sla(),
-        RackState::Discovered => StateSla::no_sla(),
-        RackState::ValidationInProgress => StateSla::no_sla(),
-        RackState::ValidationPartial => StateSla::no_sla(),
-        RackState::FailedPartial => StateSla::no_sla(),
-        RackState::RackValidated => StateSla::no_sla(),
-        RackState::RackFailed => StateSla::no_sla(),
+        RackState::Validation { .. } => StateSla::no_sla(),
         RackState::Ready => StateSla::no_sla(),
         RackState::Maintenance { .. } => StateSla::no_sla(),
         RackState::Error { .. } => StateSla::no_sla(),

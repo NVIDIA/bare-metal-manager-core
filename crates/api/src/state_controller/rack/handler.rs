@@ -38,6 +38,7 @@ use model::machine::{LoadSnapshotOptions, ManagedHostState};
 use model::metadata::Metadata;
 use model::rack::{
     Rack, RackFirmwareUpgradeState, RackMaintenanceState, RackPowerState, RackState,
+    RackValidationState,
 };
 use sqlx::PgTransaction;
 
@@ -71,7 +72,7 @@ enum InstanceRvLabels {
     /// Label key for the partition ID that groups nodes into validation
     /// partitions.
     PartitionId,
-    // Label key for the validation run correlation ID. Not used yet — will be
+    // Label key for the validation run correlation ID. Not used yet -- will be
     // needed when RVS sets run correlation metadata.
     // Not yet used anywhere in the code.
     // RunId,
@@ -382,96 +383,81 @@ async fn all_machines_ready(
 
 // VALIDATION STATE TRANSITIONS
 
-/// Computes the next validation state based on current state and partition summary.
+/// Computes the next validation sub-state based on current sub-state and
+/// partition summary.
 ///
-/// This is a pure function that encodes the validation state machine transitions.
+/// This is a pure function that encodes the validation state machine
+/// transitions. It operates purely on `RackValidationState` -- the caller
+/// is responsible for wrapping the result back into
+/// `RackState::Validation { .. }` (or handling the Validated -> Ready
+/// promotion).
+///
 /// Returns `None` if no transition should occur.
 fn compute_validation_transition(
-    current: &RackState,
+    current: &RackValidationState,
     summary: &RackPartitionSummary,
-) -> Option<RackState> {
+) -> Option<RackValidationState> {
     match current {
-        RackState::Discovered => {
+        RackValidationState::Pending => {
             // Transition when at least one partition starts validation
             if summary.in_progress > 0 || summary.validated > 0 || summary.failed > 0 {
-                Some(RackState::ValidationInProgress)
+                Some(RackValidationState::InProgress)
             } else {
                 None
             }
         }
-        RackState::ValidationInProgress => {
+        RackValidationState::InProgress => {
             // Check for failures first (higher priority)
             if summary.failed > 0 {
-                Some(RackState::FailedPartial)
+                Some(RackValidationState::FailedPartial)
             } else if summary.validated > 0 {
-                Some(RackState::ValidationPartial)
+                Some(RackValidationState::Partial)
             } else {
                 None
             }
         }
-        RackState::ValidationPartial => {
+        RackValidationState::Partial => {
             // Check if all done, or if any failed
             if summary.validated == summary.total_partitions {
-                Some(RackState::RackValidated)
+                Some(RackValidationState::Validated)
             } else if summary.failed > 0 {
-                Some(RackState::FailedPartial)
+                Some(RackValidationState::FailedPartial)
             } else {
                 None
             }
         }
-        RackState::FailedPartial => {
+        RackValidationState::FailedPartial => {
             if summary.failed == summary.total_partitions {
-                Some(RackState::RackFailed)
+                Some(RackValidationState::Failed)
             } else if summary.failed == 0 {
-                // All failures resolved - figure out where to go next
+                // All failures resolved -- figure out where to go next
                 if summary.validated > 0 {
-                    Some(RackState::ValidationPartial)
+                    Some(RackValidationState::Partial)
                 } else if summary.in_progress > 0 {
-                    Some(RackState::ValidationInProgress)
+                    Some(RackValidationState::InProgress)
                 } else {
                     // All partitions back to idle/pending (e.g. RVS reset
-                    // instances before a re-run). Transition to Discovered so
+                    // instances before a re-run). Transition to Pending so
                     // the validation cycle can restart cleanly.
-                    Some(RackState::Discovered)
+                    Some(RackValidationState::Pending)
                 }
             } else {
                 None
             }
         }
-        RackState::RackFailed => {
+        RackValidationState::Failed => {
             // Can recover if at least one partition is no longer failed
             if summary.failed != summary.total_partitions {
-                Some(RackState::FailedPartial)
+                Some(RackValidationState::FailedPartial)
             } else {
                 None
             }
         }
-        RackState::RackValidated => {
-            // Terminal success state - transition to Ready
-            // TODO[#416]: any additional checks?
-            Some(RackState::Ready)
+        RackValidationState::Validated => {
+            // Terminal success sub-state. The handler promotes this to
+            // RackState::Ready; no further validation transition needed.
+            None
         }
-        RackState::Ready => {
-            // Stay in Ready if all partitions are validated, or if there are
-            // no validation partitions at all (vacuously true — e.g. tenant
-            // instances replaced the validation ones).
-            if summary.validated == summary.total_partitions {
-                None
-            }
-            // New validation run might have been requested and something failed.
-            // This check has a higher prio due to be an error state check.
-            else if summary.failed > 0 {
-                Some(RackState::FailedPartial)
-            }
-            // New validation run might have been requested.
-            else if summary.in_progress > 0 || summary.validated > 0 || summary.failed > 0 {
-                Some(RackState::ValidationInProgress)
-            } else {
-                None
-            }
-        }
-        RackState::Error { .. } => None,
-        _ => None,
     }
 }
 
@@ -500,7 +486,7 @@ impl StateHandler for RackStateHandler {
 
         // If the rack has been marked as deleted in the DB (via the DeleteRack
         // API), transition to Deleting regardless of current state. This
-        // bridges the `deleted` DB column with the state machine — without it,
+        // bridges the `deleted` DB column with the state machine -- without it,
         // a deleted rack could keep being processed if it was already enqueued
         // in the controller's work queue.
         if state.deleted.is_some() && !matches!(controller_state, RackState::Deleting) {
@@ -624,23 +610,24 @@ impl StateHandler for RackStateHandler {
                         }
                     }
                     RackMaintenanceState::Completed => {
-                        // Maintenance is done — transition to Discovered so the
-                        // validation flow can take over.
+                        // Maintenance is done -- enter the validation phase.
                         tracing::info!(
-                            "Rack {} maintenance completed, entering Discovered state",
+                            "Rack {} maintenance completed, entering validation phase",
                             id
                         );
-                        Ok(StateHandlerOutcome::transition(RackState::Discovered))
+                        Ok(StateHandlerOutcome::transition(RackState::Validation {
+                            rack_validation: RackValidationState::Pending,
+                        }))
                     }
                 }
             }
 
-            // VALIDATION PHASE - State derived from partition metadata
-            RackState::Discovered
-            | RackState::ValidationInProgress
-            | RackState::ValidationPartial
-            | RackState::FailedPartial => {
-                // Load current partition summary from instance metadata
+            // VALIDATION PHASE -- state derived from partition metadata.
+            // All validation sub-states are handled uniformly: load the
+            // partition summary, compute the next sub-state, and wrap it
+            // back into RackState::Validation. The special case is
+            // Validated, which promotes to RackState::Ready.
+            RackState::Validation { rack_validation } => {
                 let summary = load_partition_summary(id, state, ctx).await?;
 
                 tracing::debug!(
@@ -653,59 +640,69 @@ impl StateHandler for RackStateHandler {
                     summary.failed
                 );
 
-                // Compute state transition based on summary
-                if let Some(next_state) = compute_validation_transition(controller_state, &summary)
-                {
+                if let Some(next_vs) = compute_validation_transition(rack_validation, &summary) {
                     tracing::info!(
-                        "Rack {} transitioning from {} to {}",
+                        "Rack {} validation transitioning from {} to {}",
                         id,
-                        controller_state,
-                        next_state
+                        rack_validation,
+                        next_vs
                     );
-                    Ok(StateHandlerOutcome::transition(next_state))
-                } else {
+                    Ok(StateHandlerOutcome::transition(RackState::Validation {
+                        rack_validation: next_vs,
+                    }))
+                } else if matches!(rack_validation, RackValidationState::Validated) {
+                    // Validated is the terminal validation sub-state --
+                    // promote to the top-level Ready state.
+                    tracing::info!("Rack {} fully validated, transitioning to Ready", id);
+                    Ok(StateHandlerOutcome::transition(RackState::Ready))
+                } else if matches!(rack_validation, RackValidationState::Failed) {
+                    // All partitions failed -- stay here and wait for
+                    // recovery or manual intervention.
+                    tracing::warn!(
+                        "Rack {} is in Validation(Failed) state, requires intervention",
+                        id
+                    );
                     Ok(StateHandlerOutcome::do_nothing())
-                }
-            }
-
-            // TERMINAL STATES
-            RackState::RackValidated => {
-                // All partitions validated - transition to Ready
-                tracing::info!("Rack {} fully validated, transitioning to Ready", id);
-                Ok(StateHandlerOutcome::transition(RackState::Ready))
-            }
-
-            RackState::RackFailed => {
-                // All partitions failed - check for recovery
-                let summary = load_partition_summary(id, state, ctx).await?;
-
-                if let Some(next_state) = compute_validation_transition(controller_state, &summary)
-                {
-                    tracing::info!("Rack {} recovering from RackFailed to {}", id, next_state);
-                    Ok(StateHandlerOutcome::transition(next_state))
                 } else {
-                    // Still fully failed - needs manual intervention
-                    tracing::warn!("Rack {} is in RackFailed state, requires intervention", id);
                     Ok(StateHandlerOutcome::do_nothing())
                 }
             }
 
             RackState::Ready => {
-                // Rack is ready for production workloads, but check if this is
-                // still the case.
+                // Rack is ready for production workloads, but check if
+                // a new validation run has been kicked off.
                 // TODO[#416]: Ready should also be able to transition into
-                // Maintenance (e.g. firmware upgrade triggered on a live rack).
-                // The mechanism for that is TBD — it may come from an external
-                // API call or a config change rather than being polled here.
+                // Maintenance (e.g. firmware upgrade triggered on a live
+                // rack). The mechanism for that is TBD -- it may come from
+                // an external API call or a config change rather than being
+                // polled here.
                 let summary = load_partition_summary(id, state, ctx).await?;
-                if let Some(next_state) = compute_validation_transition(controller_state, &summary)
-                {
+
+                // Stay in Ready when all partitions are still validated, or
+                // when there are no validation partitions at all (vacuously
+                // true -- e.g. tenant instances replaced the validation ones).
+                if summary.validated == summary.total_partitions {
+                    Ok(StateHandlerOutcome::do_nothing())
+                }
+                // A new validation run has failures -- re-enter validation.
+                else if summary.failed > 0 {
                     tracing::info!(
-                        "Rack {} is transitioning from the ready state into {}",
-                        id,
-                        next_state
+                        "Rack {} re-entering validation from Ready (failures detected)",
+                        id
                     );
-                    Ok(StateHandlerOutcome::transition(next_state))
+                    Ok(StateHandlerOutcome::transition(RackState::Validation {
+                        rack_validation: RackValidationState::FailedPartial,
+                    }))
+                }
+                // A new validation run is underway -- re-enter validation.
+                else if summary.in_progress > 0 || summary.validated > 0 || summary.failed > 0 {
+                    tracing::info!(
+                        "Rack {} re-entering validation from Ready",
+                        id
+                    );
+                    Ok(StateHandlerOutcome::transition(RackState::Validation {
+                        rack_validation: RackValidationState::InProgress,
+                    }))
                 } else {
                     Ok(StateHandlerOutcome::do_nothing())
                 }
@@ -738,8 +735,8 @@ mod tests {
     // State transitions test
 
     #[test]
-    fn test_compute_validation_transition_from_discovered() {
-        let state = RackState::Discovered;
+    fn test_compute_validation_transition_from_pending() {
+        let state = RackValidationState::Pending;
 
         // No partitions started yet
         let summary = RackPartitionSummary {
@@ -758,13 +755,13 @@ mod tests {
         };
         assert_eq!(
             compute_validation_transition(&state, &summary),
-            Some(RackState::ValidationInProgress)
+            Some(RackValidationState::InProgress)
         );
     }
 
     #[test]
     fn test_compute_validation_transition_from_in_progress() {
-        let state = RackState::ValidationInProgress;
+        let state = RackValidationState::InProgress;
 
         // Still in progress
         let summary = RackPartitionSummary {
@@ -785,7 +782,7 @@ mod tests {
         };
         assert_eq!(
             compute_validation_transition(&state, &summary),
-            Some(RackState::ValidationPartial)
+            Some(RackValidationState::Partial)
         );
 
         // One failed (higher priority than validated)
@@ -798,13 +795,13 @@ mod tests {
         };
         assert_eq!(
             compute_validation_transition(&state, &summary),
-            Some(RackState::FailedPartial)
+            Some(RackValidationState::FailedPartial)
         );
     }
 
     #[test]
     fn test_compute_validation_transition_from_partial() {
-        let state = RackState::ValidationPartial;
+        let state = RackValidationState::Partial;
 
         // More in progress
         let summary = RackPartitionSummary {
@@ -823,7 +820,7 @@ mod tests {
         };
         assert_eq!(
             compute_validation_transition(&state, &summary),
-            Some(RackState::RackValidated)
+            Some(RackValidationState::Validated)
         );
 
         // One failed
@@ -835,15 +832,15 @@ mod tests {
         };
         assert_eq!(
             compute_validation_transition(&state, &summary),
-            Some(RackState::FailedPartial)
+            Some(RackValidationState::FailedPartial)
         );
     }
 
     #[test]
-    fn test_compute_validation_transition_from_failed() {
-        let state = RackState::FailedPartial;
+    fn test_compute_validation_transition_from_failed_partial() {
+        let state = RackValidationState::FailedPartial;
 
-        // All failed -> RackFailed
+        // All failed -> Failed
         let summary = RackPartitionSummary {
             total_partitions: 4,
             failed: 4,
@@ -851,7 +848,7 @@ mod tests {
         };
         assert_eq!(
             compute_validation_transition(&state, &summary),
-            Some(RackState::RackFailed)
+            Some(RackValidationState::Failed)
         );
 
         // Recovery: no failures, some validated
@@ -863,7 +860,7 @@ mod tests {
         };
         assert_eq!(
             compute_validation_transition(&state, &summary),
-            Some(RackState::ValidationPartial)
+            Some(RackValidationState::Partial)
         );
 
         // Recovery: no failures, none validated yet
@@ -875,7 +872,7 @@ mod tests {
         };
         assert_eq!(
             compute_validation_transition(&state, &summary),
-            Some(RackState::ValidationInProgress)
+            Some(RackValidationState::InProgress)
         );
 
         // Still some failed, some validated
@@ -895,13 +892,13 @@ mod tests {
         };
         assert_eq!(
             compute_validation_transition(&state, &summary),
-            Some(RackState::Discovered)
+            Some(RackValidationState::Pending)
         );
     }
 
     #[test]
-    fn test_compute_validation_transition_from_rack_failed() {
-        let state = RackState::RackFailed;
+    fn test_compute_validation_transition_from_failed() {
+        let state = RackValidationState::Failed;
 
         // Still all failed
         let summary = RackPartitionSummary {
@@ -920,80 +917,22 @@ mod tests {
         };
         assert_eq!(
             compute_validation_transition(&state, &summary),
-            Some(RackState::FailedPartial)
-        );
-    }
-
-    #[test]
-    fn test_compute_validation_transition_from_ready() {
-        let state = RackState::Ready;
-
-        // All validation instances gone (tenant took over) -> stay Ready
-        let summary = RackPartitionSummary {
-            total_partitions: 0,
-            ..Default::default()
-        };
-        assert_eq!(compute_validation_transition(&state, &summary), None);
-
-        // All partitions still validated -> stay Ready
-        let summary = RackPartitionSummary {
-            total_partitions: 4,
-            validated: 4,
-            ..Default::default()
-        };
-        assert_eq!(compute_validation_transition(&state, &summary), None);
-
-        // New validation run requested, some in progress
-        let summary = RackPartitionSummary {
-            total_partitions: 4,
-            pending: 2,
-            in_progress: 2,
-            ..Default::default()
-        };
-        assert_eq!(
-            compute_validation_transition(&state, &summary),
-            Some(RackState::ValidationInProgress)
-        );
-
-        // New validation run with a failure -> FailedPartial (higher prio than in_progress)
-        let summary = RackPartitionSummary {
-            total_partitions: 4,
-            in_progress: 2,
-            validated: 1,
-            failed: 1,
-            ..Default::default()
-        };
-        assert_eq!(
-            compute_validation_transition(&state, &summary),
-            Some(RackState::FailedPartial)
-        );
-
-        // All failed in a new run
-        let summary = RackPartitionSummary {
-            total_partitions: 4,
-            failed: 4,
-            ..Default::default()
-        };
-        assert_eq!(
-            compute_validation_transition(&state, &summary),
-            Some(RackState::FailedPartial)
+            Some(RackValidationState::FailedPartial)
         );
     }
 
     #[test]
     fn test_compute_validation_transition_from_validated() {
-        let state = RackState::RackValidated;
+        let state = RackValidationState::Validated;
 
-        // Always transitions to Ready
+        // Terminal sub-state -- always returns None.
+        // The handler is responsible for promoting to RackState::Ready.
         let summary = RackPartitionSummary {
             total_partitions: 4,
             validated: 4,
             ..Default::default()
         };
-        assert_eq!(
-            compute_validation_transition(&state, &summary),
-            Some(RackState::Ready)
-        );
+        assert_eq!(compute_validation_transition(&state, &summary), None);
     }
 
     // -------------------------------------------------------------------------
