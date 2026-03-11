@@ -4725,10 +4725,10 @@ async fn test_instance_release_auto_repair_enabled(_: PgPoolOptions, options: Pg
     );
 
     // CRITICAL VERIFICATIONS for auto-repair enabled scenario:
-    // 1. Should have TWO health overrides (TenantReportedIssue + RequestRepair)
+    // 1. Should have THREE health overrides (TenantReportedIssue + RequestRepair + Default HardwareHealth)
     assert_eq!(
         host_machine.health_report_overrides.merges.len(),
-        2,
+        3,
         "Auto-repair enabled should apply both TenantReportedIssue and RequestRepair overrides"
     );
 
