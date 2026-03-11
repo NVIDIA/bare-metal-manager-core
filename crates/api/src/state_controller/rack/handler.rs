@@ -526,12 +526,13 @@ impl StateHandler for RackStateHandler {
                 // Wait for all machines to reach ManagedHostState::Ready
                 // TODO[#416]: The responsibility of gating production
                 // instance allocation should live in the node/tray-level state
-                // machine, not here. Each node should have an
-                // `AwaitingPartitionValidation` (or similar) state (instead of
-                // Ready) that prevents it from transitioning to Ready until
-                // rack validation completes. Until that is implemented, there's
-                // a potential race condition where nodes could be allocated
-                // before validation.
+                // machine, not here.
+                // The proposed mechanism is to force health overrides for each
+                // node that transitioning into READY state, essentially make
+                // nodes "unhealthy". This way no instance can be allocated
+                // for the tenant. RVS, however, will be able to force the
+                // instance via supplying "allow_unhealthy" flag while creating
+                // instances.
                 let (all_ready, txn) = all_machines_ready(id, state, ctx).await?;
 
                 if all_ready {

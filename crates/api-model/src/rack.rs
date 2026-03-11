@@ -169,12 +169,12 @@ pub enum RackValidationState {
     ///
     /// TODO[#416]: The responsibility of gating production instance allocation
     /// should live in the node/tray-level state machine, not the rack SM.
-    /// Each node should have an AwaitingPartitionValidation (or similar)
-    /// state that prevents it from transitioning to Ready until rack
-    /// validation completes. The rack SM's job is only to track aggregate
-    /// validation progress. Until that node-level gating is implemented,
-    /// there is a potential race condition where nodes could be allocated
-    /// before validation completes.
+    /// The proposed mechanism is to force health overrides for each
+    /// node that transitioning into READY state, essentially make
+    /// nodes "unhealthy". This way no instance can be allocated
+    /// for the tenant. RVS, however, will be able to force the
+    /// instance via supplying "allow_unhealthy" flag while creating
+    /// instances.
     Pending,
 
     /// At least one partition has started validation, but none have
