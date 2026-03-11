@@ -6685,11 +6685,16 @@ message RackFirmwareJobStatusResponse {
 }
 
 message RackFirmwareHistoryRequest {
-  string firmware_id = 1; // Optional: filter by firmware ID. Empty string returns all.
+  string firmware_id = 1;      // Optional: filter by firmware ID. Empty string means no filter.
+  repeated string rack_ids = 2; // Optional: filter by rack IDs. Empty list returns all racks.
 }
 
 message RackFirmwareHistoryResponse {
-  repeated RackFirmwareHistoryRecord entries = 1;
+  map<string, RackFirmwareHistoryRecords> histories = 1; // Keyed by rack ID
+}
+
+message RackFirmwareHistoryRecords {
+  repeated RackFirmwareHistoryRecord records = 1;
 }
 
 message RackFirmwareHistoryRecord {

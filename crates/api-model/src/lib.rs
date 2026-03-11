@@ -74,6 +74,7 @@ pub mod power_shelf;
 pub mod predicted_machine_interface;
 pub mod pxe;
 pub mod rack;
+pub mod rack_firmware;
 pub mod rack_state_history;
 pub mod redfish;
 pub mod resource_pool;

@@ -25,95 +25,107 @@ use sqlx::{FromRow, PgConnection, Row};
 use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
-// -- RackFirmwareApplyHistory --
+use model::rack_firmware::RackFirmwareApplyHistoryRecord;
+
+#[derive(Debug, Clone, FromRow)]
+struct DbRackFirmwareApplyHistory {
+    #[allow(dead_code)]
+    id: i64,
+    firmware_id: String,
+    rack_id: String,
+    firmware_type: String,
+    applied_at: DateTime<Utc>,
+}
 
 #[derive(Debug, Clone)]
-pub struct RackFirmwareApplyHistory {
-    pub id: i64,
-    pub firmware_id: String,
-    pub rack_id: String,
-    pub firmware_type: String,
-    pub applied_at: DateTime<Utc>,
-}
-
-impl<'r> FromRow<'r, PgRow> for RackFirmwareApplyHistory {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        Ok(RackFirmwareApplyHistory {
-            id: row.try_get("id")?,
-            firmware_id: row.try_get("firmware_id")?,
-            rack_id: row.try_get("rack_id")?,
-            firmware_type: row.try_get("firmware_type")?,
-            applied_at: row.try_get("applied_at")?,
-        })
-    }
-}
-
-impl RackFirmwareApplyHistory {
-    /// Record a firmware apply event
-    pub async fn record(
-        txn: &mut PgConnection,
-        firmware_id: &str,
-        rack_id: &str,
-        firmware_type: &str,
-    ) -> DatabaseResult<Self> {
-        let query = "INSERT INTO rack_firmware_apply_history \
-            (firmware_id, rack_id, firmware_type) \
-            VALUES ($1, $2, $3) RETURNING *";
-
-        sqlx::query_as(query)
-            .bind(firmware_id)
-            .bind(rack_id)
-            .bind(firmware_type)
-            .fetch_one(txn)
-            .await
-            .map_err(|e| DatabaseError::new(query, e))
-    }
-
-    /// List apply history, optionally filtered by firmware_id.
-    /// Joins against rack_firmware to report whether each firmware_id is still available.
-    pub async fn list(
-        txn: &mut PgConnection,
-        firmware_id: Option<&str>,
-    ) -> DatabaseResult<Vec<(Self, bool)>> {
-        let mut query = "SELECT h.*, COALESCE(rf.available, false) AS firmware_available \
-            FROM rack_firmware_apply_history h \
-            LEFT JOIN rack_firmware rf ON rf.id = h.firmware_id"
-            .to_string();
-
-        if firmware_id.is_some() {
-            query.push_str(" WHERE h.firmware_id = $1");
-        }
-        query.push_str(" ORDER BY h.applied_at DESC");
-
-        let mut q = sqlx::query_as(&query);
-        if let Some(fid) = firmware_id {
-            q = q.bind(fid);
-        }
-
-        let rows: Vec<RackFirmwareApplyHistoryWithAvailability> = q
-            .fetch_all(txn)
-            .await
-            .map_err(|e| DatabaseError::query(&query, e))?;
-        Ok(rows
-            .into_iter()
-            .map(|r| (r.history, r.firmware_available))
-            .collect())
-    }
-}
-
-/// Internal helper for the joined query result
-struct RackFirmwareApplyHistoryWithAvailability {
-    history: RackFirmwareApplyHistory,
+struct DbRackFirmwareApplyHistoryWithAvailability {
+    history: DbRackFirmwareApplyHistory,
     firmware_available: bool,
 }
 
-impl<'r> FromRow<'r, PgRow> for RackFirmwareApplyHistoryWithAvailability {
+impl<'r> FromRow<'r, PgRow> for DbRackFirmwareApplyHistoryWithAvailability {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        Ok(RackFirmwareApplyHistoryWithAvailability {
-            history: RackFirmwareApplyHistory::from_row(row)?,
+        Ok(DbRackFirmwareApplyHistoryWithAvailability {
+            history: DbRackFirmwareApplyHistory::from_row(row)?,
             firmware_available: row.try_get("firmware_available")?,
         })
     }
+}
+
+impl From<DbRackFirmwareApplyHistoryWithAvailability> for RackFirmwareApplyHistoryRecord {
+    fn from(row: DbRackFirmwareApplyHistoryWithAvailability) -> Self {
+        RackFirmwareApplyHistoryRecord {
+            firmware_id: row.history.firmware_id,
+            rack_id: row.history.rack_id,
+            firmware_type: row.history.firmware_type,
+            applied_at: row.history.applied_at,
+            firmware_available: row.firmware_available,
+        }
+    }
+}
+
+/// Record a firmware apply event
+pub async fn record_apply_history(
+    txn: &mut PgConnection,
+    firmware_id: &str,
+    rack_id: &str,
+    firmware_type: &str,
+) -> DatabaseResult<()> {
+    let query = "INSERT INTO rack_firmware_apply_history \
+        (firmware_id, rack_id, firmware_type) \
+        VALUES ($1, $2, $3)";
+
+    sqlx::query(query)
+        .bind(firmware_id)
+        .bind(rack_id)
+        .bind(firmware_type)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::new(query, e))?;
+    Ok(())
+}
+
+/// List apply history, optionally filtered by firmware_id and/or rack_ids.
+/// Joins against rack_firmware to report whether each firmware_id is still available.
+pub async fn list_apply_history(
+    txn: &mut PgConnection,
+    firmware_id: Option<&str>,
+    rack_ids: &[String],
+) -> DatabaseResult<Vec<RackFirmwareApplyHistoryRecord>> {
+    let mut query = "SELECT h.*, COALESCE(rf.available, false) AS firmware_available \
+        FROM rack_firmware_apply_history h \
+        LEFT JOIN rack_firmware rf ON rf.id = h.firmware_id"
+        .to_string();
+
+    let mut param_idx = 1;
+    let mut conditions = Vec::new();
+
+    if firmware_id.is_some() {
+        conditions.push(format!("h.firmware_id = ${param_idx}"));
+        param_idx += 1;
+    }
+    if !rack_ids.is_empty() {
+        conditions.push(format!("h.rack_id = ANY(${param_idx})"));
+    }
+    if !conditions.is_empty() {
+        query.push_str(" WHERE ");
+        query.push_str(&conditions.join(" AND "));
+    }
+    query.push_str(" ORDER BY h.applied_at DESC");
+
+    let mut q = sqlx::query_as(&query);
+    if let Some(fid) = firmware_id {
+        q = q.bind(fid);
+    }
+    if !rack_ids.is_empty() {
+        q = q.bind(rack_ids);
+    }
+
+    let rows: Vec<DbRackFirmwareApplyHistoryWithAvailability> = q
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(&query, e))?;
+    Ok(rows.into_iter().map(Into::into).collect())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -272,41 +284,47 @@ mod tests {
             .unwrap();
 
         // Record two apply events for the same firmware
-        let record1 = RackFirmwareApplyHistory::record(&mut txn, "fw-001", "rack-a", "prod")
+        record_apply_history(&mut txn, "fw-001", "rack-a", "prod")
             .await
             .unwrap();
-        assert_eq!(record1.firmware_id, "fw-001");
-        assert_eq!(record1.rack_id, "rack-a");
-        assert_eq!(record1.firmware_type, "prod");
-
-        let record2 = RackFirmwareApplyHistory::record(&mut txn, "fw-001", "rack-b", "dev")
+        record_apply_history(&mut txn, "fw-001", "rack-b", "dev")
             .await
             .unwrap();
-        assert_eq!(record2.rack_id, "rack-b");
-        assert_eq!(record2.firmware_type, "dev");
 
         // List all history — should return both, newest first
-        let all = RackFirmwareApplyHistory::list(&mut txn, None)
-            .await
-            .unwrap();
+        let all = list_apply_history(&mut txn, None, &[]).await.unwrap();
         assert_eq!(all.len(), 2);
-        assert_eq!(all[0].0.rack_id, "rack-b");
-        assert_eq!(all[1].0.rack_id, "rack-a");
-        // firmware is available
-        assert!(all[0].1);
-        assert!(all[1].1);
+        assert_eq!(all[0].rack_id, "rack-b");
+        assert_eq!(all[1].rack_id, "rack-a");
+        assert!(all[0].firmware_available);
+        assert!(all[1].firmware_available);
 
         // List filtered by firmware_id
-        let filtered = RackFirmwareApplyHistory::list(&mut txn, Some("fw-001"))
+        let filtered = list_apply_history(&mut txn, Some("fw-001"), &[])
             .await
             .unwrap();
         assert_eq!(filtered.len(), 2);
 
         // Filter by a non-existent firmware_id
-        let empty = RackFirmwareApplyHistory::list(&mut txn, Some("fw-999"))
+        let empty = list_apply_history(&mut txn, Some("fw-999"), &[])
             .await
             .unwrap();
         assert!(empty.is_empty());
+
+        // Filter by rack_id
+        let by_rack = list_apply_history(&mut txn, None, &["rack-a".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(by_rack.len(), 1);
+        assert_eq!(by_rack[0].rack_id, "rack-a");
+
+        // Filter by both firmware_id and rack_ids
+        let combined =
+            list_apply_history(&mut txn, Some("fw-001"), &["rack-b".to_string()])
+                .await
+                .unwrap();
+        assert_eq!(combined.len(), 1);
+        assert_eq!(combined[0].rack_id, "rack-b");
     }
 
     #[crate::sqlx_test]
@@ -322,26 +340,26 @@ mod tests {
             .unwrap();
 
         // Record an apply
-        RackFirmwareApplyHistory::record(&mut txn, "fw-002", "rack-a", "prod")
+        record_apply_history(&mut txn, "fw-002", "rack-a", "prod")
             .await
             .unwrap();
 
         // Verify available = true
-        let before = RackFirmwareApplyHistory::list(&mut txn, Some("fw-002"))
+        let before = list_apply_history(&mut txn, Some("fw-002"), &[])
             .await
             .unwrap();
         assert_eq!(before.len(), 1);
-        assert!(before[0].1);
+        assert!(before[0].firmware_available);
 
         // Delete the firmware
         RackFirmware::delete(&mut txn, "fw-002").await.unwrap();
 
         // History entry still exists but firmware_available is now false
-        let after = RackFirmwareApplyHistory::list(&mut txn, Some("fw-002"))
+        let after = list_apply_history(&mut txn, Some("fw-002"), &[])
             .await
             .unwrap();
         assert_eq!(after.len(), 1);
-        assert!(!after[0].1);
+        assert!(!after[0].firmware_available);
     }
 
     #[crate::sqlx_test]
@@ -349,16 +367,13 @@ mod tests {
         let mut txn = pool.begin().await.unwrap();
 
         // Record history for a firmware_id that was never created
-        RackFirmwareApplyHistory::record(&mut txn, "fw-ghost", "rack-a", "prod")
+        record_apply_history(&mut txn, "fw-ghost", "rack-a", "prod")
             .await
             .unwrap();
 
-        let history = RackFirmwareApplyHistory::list(&mut txn, None)
-            .await
-            .unwrap();
+        let history = list_apply_history(&mut txn, None, &[]).await.unwrap();
         assert_eq!(history.len(), 1);
-        assert_eq!(history[0].0.firmware_id, "fw-ghost");
-        // No matching rack_firmware row — firmware_available should be false
-        assert!(!history[0].1);
+        assert_eq!(history[0].firmware_id, "fw-ghost");
+        assert!(!history[0].firmware_available);
     }
 }

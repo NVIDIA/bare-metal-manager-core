@@ -19,12 +19,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use db::DatabaseError;
-use db::rack_firmware::{RackFirmware as DbRackFirmware, RackFirmwareApplyHistory};
+use db::rack_firmware::RackFirmware as DbRackFirmware;
 use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 use rpc::forge::{
     DeviceUpdateResult, NodeJobInfo, RackFirmware, RackFirmwareApplyRequest,
     RackFirmwareApplyResponse, RackFirmwareCreateRequest, RackFirmwareDeleteRequest,
-    RackFirmwareGetRequest, RackFirmwareHistoryRecord, RackFirmwareHistoryRequest,
+    RackFirmwareGetRequest, RackFirmwareHistoryRecords, RackFirmwareHistoryRequest,
     RackFirmwareHistoryResponse, RackFirmwareJobStatusRequest, RackFirmwareJobStatusResponse,
     RackFirmwareList, RackFirmwareListRequest,
 };
@@ -1198,7 +1198,7 @@ pub async fn apply(
         .acquire()
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new("acquire for apply history", e)))?;
-    RackFirmwareApplyHistory::record(
+    db::rack_firmware::record_apply_history(
         &mut conn,
         &req.firmware_id,
         &rack_id_str,
@@ -1370,20 +1370,26 @@ pub async fn get_history(
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new("acquire for history", e)))?;
 
-    let history = RackFirmwareApplyHistory::list(&mut conn, firmware_id_filter)
-        .await
-        .map_err(CarbideError::from)?;
+    let records =
+        db::rack_firmware::list_apply_history(&mut conn, firmware_id_filter, &req.rack_ids)
+            .await
+            .map_err(CarbideError::from)?;
 
-    let entries = history
+    // Group results by rack_id
+    let mut histories: std::collections::HashMap<String, Vec<_>> =
+        std::collections::HashMap::new();
+    for record in records {
+        let rack_id = record.rack_id.clone();
+        histories
+            .entry(rack_id)
+            .or_default()
+            .push(record.into());
+    }
+
+    let histories = histories
         .into_iter()
-        .map(|(entry, firmware_available)| RackFirmwareHistoryRecord {
-            firmware_id: entry.firmware_id,
-            rack_id: entry.rack_id,
-            firmware_type: entry.firmware_type,
-            applied_at: entry.applied_at.format("%Y-%m-%d %H:%M:%S").to_string(),
-            firmware_available,
-        })
+        .map(|(rack_id, records)| (rack_id, RackFirmwareHistoryRecords { records }))
         .collect();
 
-    Ok(Response::new(RackFirmwareHistoryResponse { entries }))
+    Ok(Response::new(RackFirmwareHistoryResponse { histories }))
 }
