@@ -1181,6 +1181,7 @@ pub fn get_config() -> CarbideConfig {
         x86_pxe_boot_url_override: None,
         arm_pxe_boot_url_override: None,
         supernic_firmware_profiles: HashMap::default(),
+        component_manager: None,
     }
 }
 
@@ -1456,6 +1457,7 @@ pub async fn create_test_env_with_overrides(
         work_lock_manager_handle: work_lock_manager_handle.clone(),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool.clone()),
         metric_emitter: ApiMetricsEmitter::new(&test_meter.meter()),
+        component_manager: None,
     });
 
     let attestation_enabled = config.attestation_enabled;

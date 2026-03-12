@@ -387,7 +387,7 @@ pub async fn start_api(
         match component_manager::component_manager::build_component_manager(cd_config).await {
             Ok(cm) => {
                 tracing::info!(
-                    "Component dispatch configured (nv_switch={}, power_shelf={})",
+                    "Component manager configured (nv_switch={}, power_shelf={})",
                     cm.nv_switch.name(),
                     cm.power_shelf.name()
                 );
@@ -395,13 +395,15 @@ pub async fn start_api(
             }
             Err(e) => {
                 tracing::warn!(
-                    "Failed to build component managers, dispatch RPCs will be unavailable: {e}"
+                    "Failed to build component managers, component manager RPCs will be unavailable: {e}"
                 );
                 None
             }
         }
     } else {
-        tracing::info!("No [component_manager] config found; dispatch RPCs will be unavailable");
+        tracing::info!(
+            "No [component_manager] config found; component manager RPCs will be unavailable"
+        );
         None
     };
 

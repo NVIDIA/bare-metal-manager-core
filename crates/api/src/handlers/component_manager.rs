@@ -34,7 +34,7 @@ fn require_component_manager(api: &Api) -> Result<&ComponentManager, Status> {
         .ok_or_else(|| Status::unimplemented("component manager is not configured"))
 }
 
-fn dispatch_error_to_status(err: ComponentManagerError) -> Status {
+fn component_manager_error_to_status(err: ComponentManagerError) -> Status {
     match err {
         ComponentManagerError::Unavailable(msg) => Status::unavailable(msg),
         ComponentManagerError::NotFound(msg) => Status::not_found(msg),
@@ -47,7 +47,7 @@ fn dispatch_error_to_status(err: ComponentManagerError) -> Status {
 
 fn make_result(
     id: &str,
-    status: rpc::ComponentDispatchStatusCode,
+    status: rpc::ComponentManagerStatusCode,
     error: Option<String>,
 ) -> rpc::ComponentResult {
     rpc::ComponentResult {
@@ -58,13 +58,13 @@ fn make_result(
 }
 
 fn success_result(id: &str) -> rpc::ComponentResult {
-    make_result(id, rpc::ComponentDispatchStatusCode::Success, None)
+    make_result(id, rpc::ComponentManagerStatusCode::Success, None)
 }
 
 fn not_found_result(id: &str) -> rpc::ComponentResult {
     make_result(
         id,
-        rpc::ComponentDispatchStatusCode::NotFound,
+        rpc::ComponentManagerStatusCode::NotFound,
         Some(format!("no explored endpoint found for {id}")),
     )
 }
@@ -72,7 +72,7 @@ fn not_found_result(id: &str) -> rpc::ComponentResult {
 fn error_result(id: &str, error: String) -> rpc::ComponentResult {
     make_result(
         id,
-        rpc::ComponentDispatchStatusCode::InternalError,
+        rpc::ComponentManagerStatusCode::InternalError,
         Some(error),
     )
 }
@@ -138,7 +138,7 @@ pub(crate) async fn component_power_control(
                 .nv_switch
                 .power_control(&list.ids, action)
                 .await
-                .map_err(dispatch_error_to_status)?;
+                .map_err(component_manager_error_to_status)?;
             backend_results
                 .into_iter()
                 .map(|r| {
@@ -162,7 +162,7 @@ pub(crate) async fn component_power_control(
                 .power_shelf
                 .power_control(&list.ids, action)
                 .await
-                .map_err(dispatch_error_to_status)?;
+                .map_err(component_manager_error_to_status)?;
             backend_results
                 .into_iter()
                 .map(|r| {
@@ -326,7 +326,7 @@ pub(crate) async fn update_component_firmware(
                 .nv_switch
                 .queue_firmware_updates(&list.ids, &req.target_version, &req.components)
                 .await
-                .map_err(dispatch_error_to_status)?;
+                .map_err(component_manager_error_to_status)?;
             backend_results
                 .into_iter()
                 .map(|r| {
@@ -344,7 +344,7 @@ pub(crate) async fn update_component_firmware(
                 .power_shelf
                 .update_firmware(&list.ids, &req.target_version, &req.components)
                 .await
-                .map_err(dispatch_error_to_status)?;
+                .map_err(component_manager_error_to_status)?;
             backend_results
                 .into_iter()
                 .map(|r| {
@@ -389,7 +389,7 @@ pub(crate) async fn get_component_firmware_status(
                 .nv_switch
                 .get_firmware_status(&list.ids)
                 .await
-                .map_err(dispatch_error_to_status)?;
+                .map_err(component_manager_error_to_status)?;
             backend_statuses
                 .into_iter()
                 .map(|s| {
@@ -431,7 +431,7 @@ pub(crate) async fn get_component_firmware_status(
                 .power_shelf
                 .get_firmware_status(&list.ids)
                 .await
-                .map_err(dispatch_error_to_status)?;
+                .map_err(component_manager_error_to_status)?;
             backend_statuses
                 .into_iter()
                 .map(|s| {
@@ -500,7 +500,7 @@ pub(crate) async fn list_component_firmware_versions(
                 .nv_switch
                 .list_firmware_bundles()
                 .await
-                .map_err(dispatch_error_to_status)?;
+                .map_err(component_manager_error_to_status)?;
             Ok(Response::new(rpc::ListComponentFirmwareVersionsResponse {
                 result: Some(success_result("switches")),
                 versions,
@@ -511,7 +511,7 @@ pub(crate) async fn list_component_firmware_versions(
                 .power_shelf
                 .list_firmware(&list.ids)
                 .await
-                .map_err(dispatch_error_to_status)?;
+                .map_err(component_manager_error_to_status)?;
             Ok(Response::new(rpc::ListComponentFirmwareVersionsResponse {
                 result: Some(success_result("power_shelves")),
                 versions,
