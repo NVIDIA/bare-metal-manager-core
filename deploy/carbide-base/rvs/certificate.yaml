@@ -14,24 +14,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-
-generatorOptions:
-  disableNameSuffixHash: true
-
-labels:
-  - pairs:
-      app.kubernetes.io/managed-by: kustomize
-      app.kubernetes.io/part-of: site-controller
-
-resources:
-  - api
-  - dhcp
-  - dns
-  - dsx-exchange-consumer
-  - hardware-health
-  - pxe
-  - ssh-console-rs
-  - ntp
-  - rvs
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: carbide-rvs-certificate
+  namespace: default
+spec:
+  duration: 720h0m0s
+  renewBefore: 360h0m0s
+  dnsNames:
+    - carbide-rvs.default.svc.cluster.local
+  uris:
+    - spiffe://forge.local/default/sa/carbide-rvs
+  privateKey:
+    algorithm: ECDSA
+    size: 384
+  issuerRef:
+    kind: ClusterIssuer
+    name: vault-forge-issuer
+    group: cert-manager.io
+  secretName: carbide-rvs-certificate
