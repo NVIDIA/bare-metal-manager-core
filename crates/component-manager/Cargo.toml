@@ -23,9 +23,11 @@ authors.workspace = true
 
 [dependencies]
 async-trait = { workspace = true }
+carbide-uuid = { path = "../uuid" }
 prost = { workspace = true }
 prost-types = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

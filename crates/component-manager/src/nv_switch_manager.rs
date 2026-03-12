@@ -3,18 +3,21 @@
 
 use std::fmt::Debug;
 
-use crate::error::DispatchError;
+use carbide_uuid::switch::SwitchId;
+
+use crate::error::ComponentManagerError;
+use crate::types::PowerAction;
 
 #[derive(Debug, Clone)]
 pub struct SwitchComponentResult {
-    pub switch_id: String,
+    pub switch_id: SwitchId,
     pub success: bool,
     pub error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct SwitchFirmwareUpdateStatus {
-    pub switch_id: String,
+    pub switch_id: SwitchId,
     pub state: FirmwareState,
     pub target_version: String,
     pub error: Option<String>,
@@ -41,17 +44,23 @@ pub enum FirmwareState {
 pub trait NvSwitchManager: Send + Sync + Debug + 'static {
     fn name(&self) -> &str;
 
+    async fn power_control(
+        &self,
+        ids: &[SwitchId],
+        action: PowerAction,
+    ) -> Result<Vec<SwitchComponentResult>, ComponentManagerError>;
+
     async fn queue_firmware_updates(
         &self,
-        ids: &[String],
+        ids: &[SwitchId],
         bundle_version: &str,
         components: &[String],
-    ) -> Result<Vec<SwitchComponentResult>, DispatchError>;
+    ) -> Result<Vec<SwitchComponentResult>, ComponentManagerError>;
 
     async fn get_firmware_status(
         &self,
-        ids: &[String],
-    ) -> Result<Vec<SwitchFirmwareUpdateStatus>, DispatchError>;
+        ids: &[SwitchId],
+    ) -> Result<Vec<SwitchFirmwareUpdateStatus>, ComponentManagerError>;
 
-    async fn list_firmware_bundles(&self) -> Result<Vec<String>, DispatchError>;
+    async fn list_firmware_bundles(&self) -> Result<Vec<String>, ComponentManagerError>;
 }

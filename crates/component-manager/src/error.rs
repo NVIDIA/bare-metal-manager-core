@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #[derive(Debug, thiserror::Error)]
-pub enum DispatchError {
+pub enum ComponentManagerError {
     #[error("backend unavailable: {0}")]
     Unavailable(String),
 

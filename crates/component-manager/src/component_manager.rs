@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use crate::config::ComponentManagerConfig;
-use crate::error::DispatchError;
+use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::NvSwitchManager;
 use crate::power_shelf_manager::PowerShelfManager;
 
@@ -34,25 +34,25 @@ impl ComponentManager {
 /// return an error.
 pub async fn build_component_manager(
     config: &ComponentManagerConfig,
-) -> Result<ComponentManager, DispatchError> {
+) -> Result<ComponentManager, ComponentManagerError> {
     let nv_switch: Arc<dyn NvSwitchManager> = match config.nv_switch_backend.as_str() {
         "nsm" => {
             let endpoint = config
                 .nsm
                 .as_ref()
                 .ok_or_else(|| {
-                    DispatchError::InvalidArgument(
+                    ComponentManagerError::InvalidArgument(
                         "nv_switch_backend is 'nsm' but [component_manager.nsm] config is missing"
                             .into(),
                     )
                 })?;
             Arc::new(
-                crate::nsm::NsmSwitchBackend::connect(&endpoint.url).await?,
+                crate::nsm::NsmSwitchBackend::connect(&endpoint.url, endpoint.tls.as_ref()).await?,
             )
         }
         "mock" => Arc::new(crate::mock::MockNvSwitchManager::default()),
         other => {
-            return Err(DispatchError::InvalidArgument(format!(
+            return Err(ComponentManagerError::InvalidArgument(format!(
                 "unknown nv_switch_backend: {other}"
             )));
         }
@@ -64,18 +64,18 @@ pub async fn build_component_manager(
                 .psm
                 .as_ref()
                 .ok_or_else(|| {
-                    DispatchError::InvalidArgument(
+                    ComponentManagerError::InvalidArgument(
                         "power_shelf_backend is 'psm' but [component_manager.psm] config is missing"
                             .into(),
                     )
                 })?;
             Arc::new(
-                crate::psm::PsmPowerShelfBackend::connect(&endpoint.url).await?,
+                crate::psm::PsmPowerShelfBackend::connect(&endpoint.url, endpoint.tls.as_ref()).await?,
             )
         }
         "mock" => Arc::new(crate::mock::MockPowerShelfManager::default()),
         other => {
-            return Err(DispatchError::InvalidArgument(format!(
+            return Err(ComponentManagerError::InvalidArgument(format!(
                 "unknown power_shelf_backend: {other}"
             )));
         }

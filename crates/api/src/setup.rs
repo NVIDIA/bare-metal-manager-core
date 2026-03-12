@@ -384,7 +384,7 @@ pub async fn start_api(
     let shared_nmxm_pool: Arc<dyn NmxmClientPool> = Arc::new(nmxm_pool);
 
     let component_manager = if let Some(cd_config) = &carbide_config.component_manager {
-        match component_manager::dispatcher::build_component_manager(cd_config).await {
+        match component_manager::component_manager::build_component_manager(cd_config).await {
             Ok(cm) => {
                 tracing::info!("Component dispatch configured (nv_switch={}, power_shelf={})",
                     cm.nv_switch.name(), cm.power_shelf.name());

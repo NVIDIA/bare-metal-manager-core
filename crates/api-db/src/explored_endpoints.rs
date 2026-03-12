@@ -146,6 +146,51 @@ pub async fn find_by_ips(
         .map_err(|e| DatabaseError::new("explored_endpoints::find_by_ips", e))
 }
 
+pub async fn find_by_machine_ids(
+    db: impl DbReader<'_>,
+    ids: &[String],
+) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
+    let query =
+        "SELECT * FROM explored_endpoints WHERE exploration_report->>'MachineId' = ANY($1)";
+
+    sqlx::query_as::<_, DbExploredEndpoint>(query)
+        .bind(ids)
+        .fetch_all(db)
+        .await
+        .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
+        .map_err(|e| DatabaseError::new("explored_endpoints::find_by_machine_ids", e))
+}
+
+pub async fn find_by_switch_ids(
+    db: impl DbReader<'_>,
+    ids: &[String],
+) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
+    let query =
+        "SELECT * FROM explored_endpoints WHERE exploration_report->>'SwitchId' = ANY($1)";
+
+    sqlx::query_as::<_, DbExploredEndpoint>(query)
+        .bind(ids)
+        .fetch_all(db)
+        .await
+        .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
+        .map_err(|e| DatabaseError::new("explored_endpoints::find_by_switch_ids", e))
+}
+
+pub async fn find_by_power_shelf_ids(
+    db: impl DbReader<'_>,
+    ids: &[String],
+) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
+    let query =
+        "SELECT * FROM explored_endpoints WHERE exploration_report->>'PowerShelfId' = ANY($1)";
+
+    sqlx::query_as::<_, DbExploredEndpoint>(query)
+        .bind(ids)
+        .fetch_all(db)
+        .await
+        .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
+        .map_err(|e| DatabaseError::new("explored_endpoints::find_by_power_shelf_ids", e))
+}
+
 /// find_all returns all explored endpoints that site explorer has been able to probe
 pub async fn find_all(txn: &mut PgConnection) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
     let query = "SELECT * FROM explored_endpoints";

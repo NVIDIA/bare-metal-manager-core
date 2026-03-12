@@ -274,3 +274,31 @@ pub async fn list_switch_bmc_info(txn: &mut PgConnection) -> DatabaseResult<Vec<
         .await
         .map_err(|err| DatabaseError::new("list_switch_bmc_info", err))
 }
+
+/// Resolve SwitchIds to BMC IPs via the canonical path:
+///   switches.id -> switches.config->>'name' (serial)
+///   -> expected_switches.serial_number -> bmc_mac_address
+///   -> machine_interfaces -> machine_interface_addresses (underlay) -> IP
+pub async fn find_bmc_ips_by_switch_ids(
+    db: impl crate::db_read::DbReader<'_>,
+    switch_ids: &[SwitchId],
+) -> DatabaseResult<Vec<(SwitchId, IpAddr)>> {
+    let sql = r#"
+        SELECT
+            s.id,
+            mia.address
+        FROM switches s
+        JOIN expected_switches es ON es.serial_number = s.config->>'name'
+        JOIN machine_interfaces mi ON mi.mac_address = es.bmc_mac_address
+        JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
+        JOIN network_segments ns ON ns.id = mi.segment_id
+        WHERE s.id = ANY($1)
+          AND ns.network_segment_type = 'underlay'
+    "#;
+
+    sqlx::query_as(sql)
+        .bind(switch_ids)
+        .fetch_all(db)
+        .await
+        .map_err(|err| DatabaseError::new("switch::find_bmc_ips_by_switch_ids", err))
+}

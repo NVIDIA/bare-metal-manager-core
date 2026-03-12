@@ -2807,10 +2807,12 @@ name = "component-manager"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "carbide-uuid",
  "prost 0.14.1",
  "prost-types 0.14.1",
  "serde",
  "thiserror 2.0.17",
+ "tokio",
  "tonic 0.14.2",
  "tonic-prost",
  "tonic-prost-build",

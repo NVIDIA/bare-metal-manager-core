@@ -250,3 +250,29 @@ pub async fn update(
 
     Ok(power_shelf.clone())
 }
+
+use std::net::IpAddr;
+
+/// Resolve PowerShelfIds to BMC/PMC IPs via the canonical path:
+///   power_shelves.id -> power_shelves.config->>'name' (serial)
+///   -> expected_power_shelves.serial_number -> ip_address
+pub async fn find_bmc_ips_by_power_shelf_ids(
+    db: impl crate::db_read::DbReader<'_>,
+    power_shelf_ids: &[PowerShelfId],
+) -> DatabaseResult<Vec<(PowerShelfId, IpAddr)>> {
+    let sql = r#"
+        SELECT
+            ps.id,
+            eps.ip_address
+        FROM power_shelves ps
+        JOIN expected_power_shelves eps ON eps.serial_number = ps.config->>'name'
+        WHERE ps.id = ANY($1)
+          AND eps.ip_address IS NOT NULL
+    "#;
+
+    sqlx::query_as(sql)
+        .bind(power_shelf_ids)
+        .fetch_all(db)
+        .await
+        .map_err(|err| DatabaseError::new("power_shelf::find_bmc_ips_by_power_shelf_ids", err))
+}

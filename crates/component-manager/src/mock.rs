@@ -1,7 +1,10 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::error::DispatchError;
+use carbide_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::switch::SwitchId;
+
+use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     FirmwareState as SwFwState, NvSwitchManager, SwitchComponentResult,
     SwitchFirmwareUpdateStatus,
@@ -10,6 +13,7 @@ use crate::power_shelf_manager::{
     FirmwareState as PsFwState, PowerShelfComponentResult, PowerShelfFirmwareUpdateStatus,
     PowerShelfManager,
 };
+use crate::types::PowerAction;
 
 #[derive(Debug, Default)]
 pub struct MockNvSwitchManager;
@@ -20,16 +24,31 @@ impl NvSwitchManager for MockNvSwitchManager {
         "mock-nsm"
     }
 
-    async fn queue_firmware_updates(
+    async fn power_control(
         &self,
-        ids: &[String],
-        _bundle_version: &str,
-        _components: &[String],
-    ) -> Result<Vec<SwitchComponentResult>, DispatchError> {
+        ids: &[SwitchId],
+        _action: PowerAction,
+    ) -> Result<Vec<SwitchComponentResult>, ComponentManagerError> {
         Ok(ids
             .iter()
             .map(|id| SwitchComponentResult {
-                switch_id: id.clone(),
+                switch_id: *id,
+                success: true,
+                error: None,
+            })
+            .collect())
+    }
+
+    async fn queue_firmware_updates(
+        &self,
+        ids: &[SwitchId],
+        _bundle_version: &str,
+        _components: &[String],
+    ) -> Result<Vec<SwitchComponentResult>, ComponentManagerError> {
+        Ok(ids
+            .iter()
+            .map(|id| SwitchComponentResult {
+                switch_id: *id,
                 success: true,
                 error: None,
             })
@@ -38,12 +57,12 @@ impl NvSwitchManager for MockNvSwitchManager {
 
     async fn get_firmware_status(
         &self,
-        ids: &[String],
-    ) -> Result<Vec<SwitchFirmwareUpdateStatus>, DispatchError> {
+        ids: &[SwitchId],
+    ) -> Result<Vec<SwitchFirmwareUpdateStatus>, ComponentManagerError> {
         Ok(ids
             .iter()
             .map(|id| SwitchFirmwareUpdateStatus {
-                switch_id: id.clone(),
+                switch_id: *id,
                 state: SwFwState::Completed,
                 target_version: "mock-1.0.0".into(),
                 error: None,
@@ -51,7 +70,7 @@ impl NvSwitchManager for MockNvSwitchManager {
             .collect())
     }
 
-    async fn list_firmware_bundles(&self) -> Result<Vec<String>, DispatchError> {
+    async fn list_firmware_bundles(&self) -> Result<Vec<String>, ComponentManagerError> {
         Ok(vec!["mock-1.0.0".into(), "mock-2.0.0".into()])
     }
 }
@@ -65,16 +84,31 @@ impl PowerShelfManager for MockPowerShelfManager {
         "mock-psm"
     }
 
-    async fn update_firmware(
+    async fn power_control(
         &self,
-        ids: &[String],
-        _target_version: &str,
-        _components: &[String],
-    ) -> Result<Vec<PowerShelfComponentResult>, DispatchError> {
+        ids: &[PowerShelfId],
+        _action: PowerAction,
+    ) -> Result<Vec<PowerShelfComponentResult>, ComponentManagerError> {
         Ok(ids
             .iter()
             .map(|id| PowerShelfComponentResult {
-                power_shelf_id: id.clone(),
+                power_shelf_id: *id,
+                success: true,
+                error: None,
+            })
+            .collect())
+    }
+
+    async fn update_firmware(
+        &self,
+        ids: &[PowerShelfId],
+        _target_version: &str,
+        _components: &[String],
+    ) -> Result<Vec<PowerShelfComponentResult>, ComponentManagerError> {
+        Ok(ids
+            .iter()
+            .map(|id| PowerShelfComponentResult {
+                power_shelf_id: *id,
                 success: true,
                 error: None,
             })
@@ -83,12 +117,12 @@ impl PowerShelfManager for MockPowerShelfManager {
 
     async fn get_firmware_status(
         &self,
-        ids: &[String],
-    ) -> Result<Vec<PowerShelfFirmwareUpdateStatus>, DispatchError> {
+        ids: &[PowerShelfId],
+    ) -> Result<Vec<PowerShelfFirmwareUpdateStatus>, ComponentManagerError> {
         Ok(ids
             .iter()
             .map(|id| PowerShelfFirmwareUpdateStatus {
-                power_shelf_id: id.clone(),
+                power_shelf_id: *id,
                 state: PsFwState::Completed,
                 target_version: "mock-1.0.0".into(),
                 error: None,
@@ -96,7 +130,10 @@ impl PowerShelfManager for MockPowerShelfManager {
             .collect())
     }
 
-    async fn list_firmware(&self) -> Result<Vec<String>, DispatchError> {
+    async fn list_firmware(
+        &self,
+        _ids: &[PowerShelfId],
+    ) -> Result<Vec<String>, ComponentManagerError> {
         Ok(vec!["mock-1.0.0".into(), "mock-2.0.0".into()])
     }
 }

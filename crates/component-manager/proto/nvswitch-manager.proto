@@ -3,7 +3,7 @@ syntax = "proto3";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 
-package nsm.v1;
+package v1;
 option go_package = "github.com/nvidia/bare-metal-manager-rest/rla/internal/nsmapi/gen";
 
 // NVSwitchManager exposes registration, inventory, firmware management, and power control RPCs for NVLink Switch trays.

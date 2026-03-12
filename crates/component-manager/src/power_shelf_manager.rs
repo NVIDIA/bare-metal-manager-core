@@ -3,18 +3,21 @@
 
 use std::fmt::Debug;
 
-use crate::error::DispatchError;
+use carbide_uuid::power_shelf::PowerShelfId;
+
+use crate::error::ComponentManagerError;
+use crate::types::PowerAction;
 
 #[derive(Debug, Clone)]
 pub struct PowerShelfComponentResult {
-    pub power_shelf_id: String,
+    pub power_shelf_id: PowerShelfId,
     pub success: bool,
     pub error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct PowerShelfFirmwareUpdateStatus {
-    pub power_shelf_id: String,
+    pub power_shelf_id: PowerShelfId,
     pub state: FirmwareState,
     pub target_version: String,
     pub error: Option<String>,
@@ -41,17 +44,26 @@ pub enum FirmwareState {
 pub trait PowerShelfManager: Send + Sync + Debug + 'static {
     fn name(&self) -> &str;
 
+    async fn power_control(
+        &self,
+        ids: &[PowerShelfId],
+        action: PowerAction,
+    ) -> Result<Vec<PowerShelfComponentResult>, ComponentManagerError>;
+
     async fn update_firmware(
         &self,
-        ids: &[String],
+        ids: &[PowerShelfId],
         target_version: &str,
         components: &[String],
-    ) -> Result<Vec<PowerShelfComponentResult>, DispatchError>;
+    ) -> Result<Vec<PowerShelfComponentResult>, ComponentManagerError>;
 
     async fn get_firmware_status(
         &self,
-        ids: &[String],
-    ) -> Result<Vec<PowerShelfFirmwareUpdateStatus>, DispatchError>;
+        ids: &[PowerShelfId],
+    ) -> Result<Vec<PowerShelfFirmwareUpdateStatus>, ComponentManagerError>;
 
-    async fn list_firmware(&self) -> Result<Vec<String>, DispatchError>;
+    async fn list_firmware(
+        &self,
+        ids: &[PowerShelfId],
+    ) -> Result<Vec<String>, ComponentManagerError>;
 }
