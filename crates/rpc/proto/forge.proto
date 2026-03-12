@@ -4794,11 +4794,17 @@ message MachineValidationOnDemandResponse {
 
 message AdminPowerControlRequest {
   enum SystemPowerControl {
+    // Power on a machine
     On = 0;
+    // Graceful host shutdown
     GracefulShutdown = 1;
+    // Forcefully powers a machine off
     ForceOff = 2;
+    // Graceful restart. Asks the OS to restart via ACPI
     GracefulRestart =3;
+    // Force restart. This is equivalent to pressing the reset button on the front panel.
     ForceRestart = 4;
+    // AC powercycle. This is equivalent to unplugging and reconnecting power cables. Not supported on Vikings.
     ACPowercycle = 5;
   }
   optional BmcEndpointRequest bmc_endpoint_request = 1;

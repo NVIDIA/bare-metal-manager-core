@@ -95,10 +95,16 @@ message ComputeAllocationId {
 }
 
 enum SystemPowerControl {
+  // Power on a machine
   SYSTEM_POWER_CONTROL_ON = 0;
+  // Graceful host shutdown
   SYSTEM_POWER_CONTROL_GRACEFUL_SHUTDOWN = 1;
+  // Forcefully powers a machine off
   SYSTEM_POWER_CONTROL_FORCE_OFF = 2;
+  // Graceful restart. Asks the OS to restart via ACPI
   SYSTEM_POWER_CONTROL_GRACEFUL_RESTART = 3;
+  // Force restart. This is equivalent to pressing the reset button on the front panel.
   SYSTEM_POWER_CONTROL_FORCE_RESTART = 4;
+  // AC powercycle. This is equivalent to unplugging and reconnecting power cables. Not supported on Vikings.
   SYSTEM_POWER_CONTROL_AC_POWERCYCLE = 5;
 }
