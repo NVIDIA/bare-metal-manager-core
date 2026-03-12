@@ -48,6 +48,7 @@ use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::duppet::{SummaryFormat, SyncOptions};
 use crate::ethernet_virtualization::ServiceAddresses;
+use crate::health::HealthCheckParams;
 use crate::instance_metadata_endpoint::InstanceMetadataRouterStateImpl;
 use crate::instrumentation::{create_metrics, get_dpu_agent_meter};
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
@@ -713,15 +714,16 @@ impl MainLoop {
                 current_instance_config_version = status_out.instance_config_version.clone();
                 current_instance_id = status_out.instance_id.as_ref().map(|id| id.to_string());
 
-                let health_report = health::health_check(
-                    &self.agent_config.hbn.root_dir,
-                    &tenant_peers,
+                let health_report = health::health_check(HealthCheckParams {
+                    hbn_root: &self.agent_config.hbn.root_dir,
+                    host_routes: &tenant_peers,
                     has_changed_configs,
-                    conf.min_dpu_functioning_links.unwrap_or(2),
-                    &conf.route_servers,
-                    self.hbn_device_names.clone(),
-                    !conf.use_admin_network || conf.is_primary_dpu,
-                )
+                    min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(2),
+                    route_servers: &conf.route_servers,
+                    hbn_device_names: self.hbn_device_names.clone(),
+                    include_dhcp_server: !conf.use_admin_network || conf.is_primary_dpu,
+                    run_restricted_mode_check: false,
+                })
                 .await;
                 is_healthy = !health_report.successes.is_empty() && health_report.alerts.is_empty();
                 self.is_hbn_up = health::is_up(&health_report);

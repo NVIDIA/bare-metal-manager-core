@@ -34,6 +34,7 @@ use version_compare::{Part, Version};
 
 use crate::duppet::{SummaryFormat, SyncOptions};
 use crate::frr::FrrVlanConfig;
+use crate::health::HealthCheckParams;
 
 pub mod dpu;
 
@@ -165,15 +166,16 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // it may fail when the real one would succeed for single-port setups.
         // This also only works with the newest HBN as the ifc suffix is hard coded to the new version
         Some(AgentCommand::Health) => {
-            let health_report = health::health_check(
-                &agent.hbn.root_dir,
-                &[],
-                false,
-                2,
-                &[],
-                HBNDeviceNames::hbn_23(),
-                false,
-            )
+            let health_report = health::health_check(HealthCheckParams {
+                hbn_root: &agent.hbn.root_dir,
+                host_routes: &[],
+                has_changed_configs: false,
+                min_healthy_links: 2,
+                route_servers: &[],
+                hbn_device_names: HBNDeviceNames::hbn_23(),
+                include_dhcp_server: false,
+                run_restricted_mode_check: true,
+            })
             .await;
             println!("{}", serde_json::to_string_pretty(&health_report)?);
         }
