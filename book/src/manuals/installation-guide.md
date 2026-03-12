@@ -37,9 +37,9 @@ registry paths after building from source.
 
 ### BMM Core
 
-Follow the [Building BMM Containers](building_bmm_containers.md) guide. It covers
-prerequisites, build steps for x86_64 and aarch64, tagging, pushing to a private
-registry, and a summary table of all images produced.
+Follow the [Building BMM Containers](building_bmm_containers.md) guide for build steps,
+then [Tagging and Pushing Containers](pushing_containers.md) to push images to your
+private registry.
 
 ### BMM REST
 

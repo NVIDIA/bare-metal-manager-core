@@ -28,6 +28,7 @@ accessible by your Kubernetes cluster.
 Before you begin, ensure you have the following prerequisites:
 
 * An Ubuntu 24.04 Host or VM with 150GB+ of disk space (MacOS is not supported)
+* For BMM REST containers: Go 1.25.4 or later, Docker 20.10+ with BuildKit enabled
 
 Use the following steps to install the prerequisite software on the Ubuntu Host or VM. These instructions
 assume an `apt`-based distribution such as Ubuntu 24.04.
@@ -173,65 +174,15 @@ docker build --build-arg "CONTAINER_RUNTIME_AARCH64=alpine:latest" -t boot-artif
 
 **NOTE**: The `CONTAINER_RUNTIME_AARCH64=alpine:latest` build argument must be included. The aarch64 binaries are bundled into an x86 container.
 
-## Tagging and Pushing to a Private Registry
-
-After building all images, tag them for your private registry and push. Set your
-registry URL and version tag as environment variables:
-
-```sh
-REGISTRY=<your-registry.example.com/carbide>
-TAG=<your-version-tag>
-```
-
-### Authenticate with your registry (if not already done)
-
-```sh
-docker login <your-registry.example.com>
-```
-
-### Tag the deployable images
-
-```sh
-docker tag bmm $REGISTRY/nvmetal-carbide:$TAG
-docker tag boot-artifacts-x86_64 $REGISTRY/boot-artifacts-x86_64:$TAG
-docker tag boot-artifacts-aarch64 $REGISTRY/boot-artifacts-aarch64:$TAG
-docker tag machine-validation-config $REGISTRY/machine-validation-config:$TAG
-```
-
-### Push to your registry
-
-```sh
-docker push $REGISTRY/nvmetal-carbide:$TAG
-docker push $REGISTRY/boot-artifacts-x86_64:$TAG
-docker push $REGISTRY/boot-artifacts-aarch64:$TAG
-docker push $REGISTRY/machine-validation-config:$TAG
-```
-
 ## Building BMM REST Containers
 
 The BMM REST components (cloud-api, cloud-workflow, site-manager, site-agent,
 db migrations, cert-manager) are built from the
 [bare-metal-manager-rest](https://github.com/NVIDIA/bare-metal-manager-rest) repository.
 
-### Prerequisites
-
-* Go 1.25.4 or later
-* Docker 20.10+ with BuildKit enabled
-
-### Build all REST images
-
 ```sh
 cd bare-metal-manager-rest
-make docker-build IMAGE_REGISTRY=$REGISTRY IMAGE_TAG=$TAG
-```
-
-### Push REST images
-
-```sh
-for image in carbide-rest-api carbide-rest-workflow carbide-rest-site-manager \
-             carbide-rest-site-agent carbide-rest-db carbide-rest-cert-manager; do
-    docker push "$REGISTRY/$image:$TAG"
-done
+make docker-build IMAGE_REGISTRY=<your-registry.example.com/carbide> IMAGE_TAG=<your-version-tag>
 ```
 
 ### REST Image Summary
@@ -244,3 +195,8 @@ done
 | `carbide-rest-site-agent` | On-site agent (elektra) |
 | `carbide-rest-db` | Database migration job (runs once per upgrade) |
 | `carbide-rest-cert-manager` | Native PKI certificate manager (credsmgr) |
+
+## Next Steps
+
+After building all images, tag and push them to your private registry.
+See [Tagging and Pushing Containers](pushing_containers.md).
