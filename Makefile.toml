@@ -140,6 +140,36 @@ if [ -z "$CARGO_HOME" ]; then
 fi
 '''
 
+[tasks.build-cargo-docker-image]
+category = "Build"
+description = "Build the Linux build container image for running Cargo via Docker (e.g. on macOS). Use with cargo-docker task."
+workspace = false
+script = '''
+set -e
+if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
+docker build -f ${REPO_ROOT}/dev/docker/Dockerfile.build-container-x86_64 -t carbide-build-x86_64 ${REPO_ROOT}/dev/docker
+echo "Image carbide-build-x86_64 built. Run: cargo make cargo-docker -- \"build -p carbide-admin-cli --release\""
+'''
+
+[tasks.cargo-docker]
+category = "Build"
+description = "Run Cargo inside the carbide-build-x86_64 Docker container. Example: cargo make cargo-docker -- \"build -p carbide-admin-cli --release\" or \"test -p carbide-api ib_partition\""
+workspace = false
+dependencies = ["check-cargo-home-set"]
+script = '''
+set -e
+if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
+CARGO_ARGS="${CARGO_MAKE_TASK_ARGS:-build -p carbide-admin-cli --release}"
+docker run --rm \
+  -v "${REPO_ROOT}":/code \
+  -v "${CARGO_HOME}":/cargo \
+  -w /code \
+  -u $(id -u):$(id -g) \
+  -e CARGO_HOME=/cargo \
+  carbide-build-x86_64 \
+  cargo ${CARGO_ARGS}
+'''
+
 [tasks.build-cli-cross-aarch64]
 category = "Build"
 description = "Cross compile forge-scout and carbide-admin-cli for aarch64, intended only for local artifact builds."
