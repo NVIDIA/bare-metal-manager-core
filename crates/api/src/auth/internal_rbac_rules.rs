@@ -733,6 +733,11 @@ impl InternalRBACRules {
         );
         x.perm("UpdateComputeAllocation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteComputeAllocation", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("ComponentPowerControl", vec![ForgeAdminCLI, Rla]);
+        x.perm("GetComponentInventory", vec![ForgeAdminCLI, Rla]);
+        x.perm("UpdateComponentFirmware", vec![ForgeAdminCLI, Rla]);
+        x.perm("GetComponentFirmwareStatus", vec![ForgeAdminCLI, Rla]);
+        x.perm("ListComponentFirmwareVersions", vec![ForgeAdminCLI, Rla]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {

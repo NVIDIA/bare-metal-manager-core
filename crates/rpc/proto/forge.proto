@@ -825,7 +825,7 @@ service Forge {
   rpc ModifyDPFState(ModifyDPFStateRequest) returns (google.protobuf.Empty);
   rpc GetDPFState(GetDPFStateRequest) returns (DPFStateResponse);
 
-  // --- Component dispatch (unified switch + power shelf operations) ---
+  // --- Component management (unified switch + power shelf operations) ---
   rpc ComponentPowerControl(ComponentPowerControlRequest) returns (ComponentPowerControlResponse);
   rpc GetComponentInventory(GetComponentInventoryRequest) returns (GetComponentInventoryResponse);
   rpc UpdateComponentFirmware(UpdateComponentFirmwareRequest) returns (UpdateComponentFirmwareResponse);
@@ -6865,18 +6865,18 @@ message GetDPFStateRequest {
 // Component dispatch types
 // ============================================================================
 
-enum ComponentDispatchStatusCode {
-  COMPONENT_DISPATCH_STATUS_CODE_SUCCESS = 0;
-  COMPONENT_DISPATCH_STATUS_CODE_INVALID_ARGUMENT = 1;
-  COMPONENT_DISPATCH_STATUS_CODE_INTERNAL_ERROR = 2;
-  COMPONENT_DISPATCH_STATUS_CODE_NOT_FOUND = 3;
-  COMPONENT_DISPATCH_STATUS_CODE_ALREADY_EXISTS = 4;
-  COMPONENT_DISPATCH_STATUS_CODE_UNAVAILABLE = 5;
+enum ComponentManagerStatusCode {
+  COMPONENT_MANAGER_STATUS_CODE_SUCCESS = 0;
+  COMPONENT_MANAGER_STATUS_CODE_INVALID_ARGUMENT = 1;
+  COMPONENT_MANAGER_STATUS_CODE_INTERNAL_ERROR = 2;
+  COMPONENT_MANAGER_STATUS_CODE_NOT_FOUND = 3;
+  COMPONENT_MANAGER_STATUS_CODE_ALREADY_EXISTS = 4;
+  COMPONENT_MANAGER_STATUS_CODE_UNAVAILABLE = 5;
 }
 
 message ComponentResult {
   string component_id = 1;
-  ComponentDispatchStatusCode status = 2;
+  ComponentManagerStatusCode status = 2;
   string error = 3;
 }
 
