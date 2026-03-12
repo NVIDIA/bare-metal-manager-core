@@ -752,9 +752,9 @@ async fn record_machine_infiniband_status_observation(
 
     // Build GUID to index mapping (index matches SKU's inactive_devices indices)
     let guid_to_index: HashMap<String, u32> = sorted_ib_interfaces
-        .iter()
+        .into_iter()
         .enumerate()
-        .map(|(idx, iface)| (iface.guid.clone(), idx as u32))
+        .map(|(idx, iface)| (iface.guid, idx as u32))
         .collect();
 
     // Note: If instance has empty ib_interfaces, we get Some(empty set), which means
