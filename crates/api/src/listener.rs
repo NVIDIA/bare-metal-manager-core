@@ -279,7 +279,7 @@ pub async fn start(
         .layer(cert_description_layer)
         .option_layer(internal_rbac_layer)
         .option_layer(casbin_layer)
-        .service(router.clone());
+        .service(router);
 
     let connection_total_counter = meter
         .u64_counter("carbide-api.tls.connection_attempted")
