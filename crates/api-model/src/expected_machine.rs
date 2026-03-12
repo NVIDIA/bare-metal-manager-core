@@ -66,8 +66,7 @@ pub struct ExpectedMachineData {
     pub host_nics: Vec<ExpectedHostNic>,
     pub rack_id: Option<RackId>,
     pub default_pause_ingestion_and_poweron: Option<bool>,
-    #[serde(default)]
-    pub dpf_enabled: bool,
+    pub dpf_enabled: Option<bool>,
 }
 // Important : new fields for expected machine (and data) should be optional _and_ serde(default),
 // unless you want to go update all the files in each production deployment that autoload
@@ -154,7 +153,10 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
             default_pause_ingestion_and_poweron: expected_machine
                 .data
                 .default_pause_ingestion_and_poweron,
-            dpf_enabled: expected_machine.data.dpf_enabled,
+            // This should be removed after few releases.
+            #[allow(deprecated)]
+            dpf_enabled: expected_machine.data.dpf_enabled.unwrap_or_default(),
+            is_dpf_enabled: expected_machine.data.dpf_enabled,
         }
     }
 }
@@ -199,7 +201,7 @@ impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
             host_nics: em.host_nics.into_iter().map(|nic| nic.into()).collect(),
             rack_id: em.rack_id,
             default_pause_ingestion_and_poweron: em.default_pause_ingestion_and_poweron,
-            dpf_enabled: em.dpf_enabled,
+            dpf_enabled: em.is_dpf_enabled,
         })
     }
 }

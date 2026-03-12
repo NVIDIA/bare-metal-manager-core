@@ -1403,7 +1403,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             default_pause_ingestion_and_poweron: None,
             host_nics: vec![],
             rack_id: None,
-            dpf_enabled: true,
+            dpf_enabled: Some(true),
         },
     )
     .await?;
@@ -1452,7 +1452,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
             default_pause_ingestion_and_poweron: None,
             host_nics: vec![],
             rack_id: None,
-            dpf_enabled: true,
+            dpf_enabled: Some(true),
         },
     )
     .await?;
@@ -2408,7 +2408,7 @@ async fn test_machine_creation_with_sku(
             default_pause_ingestion_and_poweron: None,
             host_nics: vec![],
             rack_id: None,
-            dpf_enabled: true,
+            dpf_enabled: Some(true),
         },
     )
     .await?;
@@ -2537,7 +2537,7 @@ async fn test_expected_machine_device_type_metrics(
             default_pause_ingestion_and_poweron: None,
             host_nics: vec![],
             rack_id: None,
-            dpf_enabled: true,
+            dpf_enabled: Some(true),
         },
     )
     .await?;
@@ -2556,7 +2556,7 @@ async fn test_expected_machine_device_type_metrics(
             default_pause_ingestion_and_poweron: None,
             host_nics: vec![],
             rack_id: None,
-            dpf_enabled: true,
+            dpf_enabled: Some(true),
         },
     )
     .await?;
@@ -2575,7 +2575,7 @@ async fn test_expected_machine_device_type_metrics(
             default_pause_ingestion_and_poweron: None,
             host_nics: vec![],
             rack_id: None,
-            dpf_enabled: true,
+            dpf_enabled: Some(true),
         },
     )
     .await?;

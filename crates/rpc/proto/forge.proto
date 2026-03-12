@@ -4588,7 +4588,9 @@ message ExpectedMachine {
   repeated ExpectedHostNic host_nics = 9;
   optional common.RackId rack_id = 10;
   optional bool default_pause_ingestion_and_poweron = 11;
-  bool dpf_enabled = 12;
+  // deprecated
+  bool dpf_enabled = 12 [deprecated = true];
+  optional bool is_dpf_enabled = 13;
 }
 
 message ExpectedMachineRequest {

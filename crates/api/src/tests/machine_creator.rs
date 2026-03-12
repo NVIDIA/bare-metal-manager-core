@@ -1204,7 +1204,7 @@ async fn test_site_explorer_creates_managed_host_with_dpf_disable(
         id: Some(uuid::Uuid::new_v4()),
         bmc_mac_address: mock_host.bmc_mac_address,
         data: model::expected_machine::ExpectedMachineData {
-            dpf_enabled: false,
+            dpf_enabled: None,
             ..Default::default()
         },
     };
@@ -1345,7 +1345,7 @@ async fn test_site_explorer_creates_managed_host_with_dpf_enabled(
         id: Some(uuid::Uuid::new_v4()),
         bmc_mac_address: mock_host.bmc_mac_address,
         data: model::expected_machine::ExpectedMachineData {
-            dpf_enabled: true,
+            dpf_enabled: Some(true),
             ..Default::default()
         },
     };

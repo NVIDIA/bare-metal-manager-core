@@ -132,9 +132,8 @@ pub struct Args {
         action = clap::ArgAction::Set,
         value_name = "DPF_ENABLED",
         help = "DPF enable/disable for this machine. Default is updated as true.",
-        default_value_t = true
     )]
-    pub dpf_enabled: bool,
+    pub dpf_enabled: Option<bool>,
 }
 
 impl Args {

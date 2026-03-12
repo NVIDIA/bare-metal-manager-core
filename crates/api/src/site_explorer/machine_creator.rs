@@ -115,7 +115,7 @@ impl MachineCreator {
             Some(m) => (
                 Some(&m.data.metadata),
                 m.data.sku_id.as_ref(),
-                m.data.dpf_enabled,
+                m.data.dpf_enabled.unwrap_or_default(),
             ),
             None => (None, None, true),
         };

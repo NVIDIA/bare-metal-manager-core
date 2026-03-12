@@ -212,7 +212,7 @@ pub async fn create(
             .bind(sqlx::types::Json(data.host_nics))
             .bind(data.rack_id)
             .bind(data.default_pause_ingestion_and_poweron.unwrap_or(false))
-            .bind(data.dpf_enabled)
+            .bind(data.dpf_enabled.unwrap_or_default())
             .fetch_one(txn)
             .await
             .map_err(|err: sqlx::Error| match err {
@@ -235,7 +235,7 @@ pub async fn create(
             .bind(sqlx::types::Json(data.host_nics))
             .bind(data.rack_id)
             .bind(data.default_pause_ingestion_and_poweron.unwrap_or(false))
-            .bind(data.dpf_enabled)
+            .bind(data.dpf_enabled.unwrap_or_default())
             .fetch_one(txn)
             .await
             .map_err(|err: sqlx::Error| match err {
@@ -300,7 +300,7 @@ pub async fn update<'a>(
     txn: &mut PgConnection,
     data: ExpectedMachineData,
 ) -> DatabaseResult<&'a mut ExpectedMachine> {
-    let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2, serial_number=$3, fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7, sku_id=$8, host_nics=$9::jsonb, rack_id=$10, default_pause_ingestion_and_poweron=COALESCE($11, default_pause_ingestion_and_poweron), dpf_enabled=$12 WHERE bmc_mac_address=$13 RETURNING bmc_mac_address";
+    let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2, serial_number=$3, fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7, sku_id=$8, host_nics=$9::jsonb, rack_id=$10, default_pause_ingestion_and_poweron=COALESCE($11, default_pause_ingestion_and_poweron), dpf_enabled=COALESCE($12, dpf_enabled) WHERE bmc_mac_address=$13 RETURNING bmc_mac_address";
 
     let _: () = sqlx::query_as(query)
         .bind(&data.bmc_username)
@@ -335,7 +335,7 @@ pub async fn update_by_id(
     id: Uuid,
     data: ExpectedMachineData,
 ) -> DatabaseResult<()> {
-    let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2, serial_number=$3, fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7, sku_id=$8, host_nics=$9::jsonb, rack_id=$10, default_pause_ingestion_and_poweron=COALESCE($11, default_pause_ingestion_and_poweron), dpf_enabled=$12 WHERE id=$13 RETURNING id";
+    let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2, serial_number=$3, fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7, sku_id=$8, host_nics=$9::jsonb, rack_id=$10, default_pause_ingestion_and_poweron=COALESCE($11, default_pause_ingestion_and_poweron), dpf_enabled=COALESCE($12, dpf_enabled) WHERE id=$13 RETURNING id";
 
     let _: () = sqlx::query_as(query)
         .bind(&data.bmc_username)

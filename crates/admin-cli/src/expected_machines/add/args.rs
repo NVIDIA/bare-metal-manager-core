@@ -109,9 +109,8 @@ pub struct Args {
         action = clap::ArgAction::Set,
         value_name = "DPF_ENABLED",
         help = "DPF enable/disable for this machine. Default is updated as true.",
-        default_value_t = true
     )]
-    pub dpf_enabled: bool,
+    pub dpf_enabled: Option<bool>,
 }
 
 impl Args {
@@ -158,7 +157,9 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
             host_nics,
             rack_id: value.rack_id,
             default_pause_ingestion_and_poweron: value.default_pause_ingestion_and_poweron,
-            dpf_enabled: value.dpf_enabled,
+            #[allow(deprecated)]
+            dpf_enabled: value.dpf_enabled.unwrap_or_default(),
+            is_dpf_enabled: value.dpf_enabled,
         })
     }
 }
