@@ -47,22 +47,7 @@ impl PowerControl for NoopPowerControl {
 
 pub type TestBmc = HttpBmc<AxumRouterHttpClient>;
 
-pub fn wiwynn_gb200_router() -> axum::Router {
-    let dpus = vec![
-        DpuMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, DpuSettings::default()),
-        DpuMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, DpuSettings::default()),
-    ];
-    let machine_info =
-        MachineInfo::Host(HostMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, dpus));
-    machine_router(
-        machine_info,
-        Arc::new(NoopPowerControl),
-        "test-host-id".to_string(),
-    )
-}
-
-pub fn wiwynn_gb200_bmc() -> Arc<TestBmc> {
-    let router = wiwynn_gb200_router();
+fn test_bmc(router: axum::Router) -> Arc<TestBmc> {
     let client = AxumRouterHttpClient::new(router);
     let endpoint = Url::parse("https://bmc-mock.local").expect("valid URL");
     let credentials = BmcCredentials::new("root".to_string(), "password".to_string());
@@ -71,48 +56,53 @@ pub fn wiwynn_gb200_bmc() -> Arc<TestBmc> {
         endpoint,
         credentials,
         CacheSettings::with_capacity(32),
+    ))
+}
+
+pub fn wiwynn_gb200_bmc() -> Arc<TestBmc> {
+    test_bmc(machine_router(
+        MachineInfo::Host(HostMachineInfo::new(
+            HostHardwareType::WiwynnGB200Nvl,
+            vec![
+                DpuMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, DpuSettings::default()),
+                DpuMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, DpuSettings::default()),
+            ],
+        )),
+        Arc::new(NoopPowerControl),
+        "test-host-id".to_string(),
+    ))
+}
+
+pub fn liteon_powershelf_bmc() -> Arc<TestBmc> {
+    test_bmc(machine_router(
+        MachineInfo::Host(HostMachineInfo::new(
+            HostHardwareType::LiteOnPowerShelf,
+            vec![],
+        )),
+        Arc::new(NoopPowerControl),
+        "test-host-id".to_string(),
     ))
 }
 
 pub fn dell_poweredge_r750_bmc() -> Arc<TestBmc> {
-    let machine_info = MachineInfo::Host(HostMachineInfo::new(
-        HostHardwareType::DellPowerEdgeR750,
-        vec![],
-    ));
-    let router = machine_router(
-        machine_info,
+    test_bmc(machine_router(
+        MachineInfo::Host(HostMachineInfo::new(
+            HostHardwareType::DellPowerEdgeR750,
+            vec![],
+        )),
         Arc::new(NoopPowerControl),
         "test-host-id".to_string(),
-    );
-    let client = AxumRouterHttpClient::new(router);
-    let endpoint = Url::parse("https://bmc-mock.local").expect("valid URL");
-    let credentials = BmcCredentials::new("root".to_string(), "password".to_string());
-    Arc::new(HttpBmc::new(
-        client,
-        endpoint,
-        credentials,
-        CacheSettings::with_capacity(32),
     ))
 }
 
 pub fn dell_poweredge_r750_bluefield3_bmc(settings: DpuSettings) -> Arc<TestBmc> {
-    let machine_info = MachineInfo::Dpu(DpuMachineInfo::new(
-        HostHardwareType::DellPowerEdgeR750,
-        settings,
-    ));
-    let router = machine_router(
-        machine_info,
+    test_bmc(machine_router(
+        MachineInfo::Dpu(DpuMachineInfo::new(
+            HostHardwareType::DellPowerEdgeR750,
+            settings,
+        )),
         Arc::new(NoopPowerControl),
         "test-dpu-id".to_string(),
-    );
-    let client = AxumRouterHttpClient::new(router);
-    let endpoint = Url::parse("https://bmc-mock.local").expect("valid URL");
-    let credentials = BmcCredentials::new("root".to_string(), "password".to_string());
-    Arc::new(HttpBmc::new(
-        client,
-        endpoint,
-        credentials,
-        CacheSettings::with_capacity(32),
     ))
 }
 
@@ -128,7 +118,14 @@ mod test {
 
     #[tokio::test]
     async fn transport_supports_expand_query_through_mock_expander() {
-        let client = AxumRouterHttpClient::new(wiwynn_gb200_router());
+        let client = AxumRouterHttpClient::new(machine_router(
+            MachineInfo::Host(HostMachineInfo::new(
+                HostHardwareType::DellPowerEdgeR750,
+                vec![],
+            )),
+            Arc::new(NoopPowerControl),
+            "test-host-id".to_string(),
+        ));
         let url =
             Url::parse("https://bmc-mock.local/redfish/v1/Chassis?$expand=.($levels=1)").unwrap();
 

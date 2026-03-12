@@ -112,6 +112,9 @@ impl DpuMachineInfo {
                 nic_mode: self.settings.nic_mode,
             },
             HostHardwareType::WiwynnGB200Nvl => hw::bluefield3::Mode::B3240ColdAisle,
+            HostHardwareType::LiteOnPowerShelf => {
+                panic!("Bluefield3 DPU is defined for LiteOn PowerShelf")
+            }
         };
         let settings = &self.settings;
         hw::bluefield3::Bluefield3 {
@@ -162,6 +165,7 @@ impl HostMachineInfo {
                 redfish::oem::State::DellIdrac(redfish::oem::dell::idrac::IdracState::default())
             }
             HostHardwareType::WiwynnGB200Nvl => redfish::oem::State::Other,
+            HostHardwareType::LiteOnPowerShelf => redfish::oem::State::Other,
         }
     }
 
@@ -169,6 +173,7 @@ impl HostMachineInfo {
         match self.hw_type {
             HostHardwareType::DellPowerEdgeR750 => redfish::oem::BmcVendor::Dell,
             HostHardwareType::WiwynnGB200Nvl => redfish::oem::BmcVendor::Wiwynn,
+            HostHardwareType::LiteOnPowerShelf => redfish::oem::BmcVendor::LiteOn,
         }
     }
 
@@ -176,6 +181,7 @@ impl HostMachineInfo {
         match self.hw_type {
             HostHardwareType::DellPowerEdgeR750 => None,
             HostHardwareType::WiwynnGB200Nvl => Some("GB200 NVL"),
+            HostHardwareType::LiteOnPowerShelf => None,
         }
     }
 
@@ -183,6 +189,7 @@ impl HostMachineInfo {
         match self.hw_type {
             HostHardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().manager_config(),
             HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().manager_config(),
+            HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().manager_config(),
         }
     }
 
@@ -197,6 +204,7 @@ impl HostMachineInfo {
             HostHardwareType::WiwynnGB200Nvl => {
                 self.wiwynn_gb200_nvl().system_config(power_control)
             }
+            HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().system_config(),
         }
     }
 
@@ -204,6 +212,7 @@ impl HostMachineInfo {
         match self.hw_type {
             HostHardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().chassis_config(),
             HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().chassis_config(),
+            HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().chassis_config(),
         }
     }
 
@@ -213,6 +222,7 @@ impl HostMachineInfo {
                 self.dell_poweredge_r750().update_service_config()
             }
             HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().update_service_config(),
+            HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().update_service_config(),
         }
     }
 
@@ -220,6 +230,9 @@ impl HostMachineInfo {
         match self.hw_type {
             HostHardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().discovery_info(),
             HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().discovery_info(),
+            HostHardwareType::LiteOnPowerShelf => {
+                panic!("discovery_info requested for LiteOn PowerShelf")
+            }
         }
     }
 
@@ -261,6 +274,13 @@ impl HostMachineInfo {
                 .next()
                 .expect("Two DPUs must present for GB200 NVL")
                 .bluefield3(),
+        }
+    }
+
+    fn liteon_power_shelf(&self) -> hw::liteon_power_shelf::LiteOnPowerShelf<'_> {
+        hw::liteon_power_shelf::LiteOnPowerShelf {
+            bmc_mac_address: self.bmc_mac_address,
+            product_serial_number: Cow::Borrowed(&self.serial),
         }
     }
 }

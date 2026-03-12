@@ -238,7 +238,6 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
 
     let mut b = builder(&resource(&system_id))
         .ethernet_interfaces(redfish::ethernet_interface::system_collection(&system_id))
-        .boot_options(&redfish::boot_option::collection(&system_id))
         .bios(&redfish::bios::resource(&system_id))
         .secure_boot(&redfish::secure_boot::resource(&system_id))
         .link_chassis(&system_state.config.chassis);
@@ -278,6 +277,11 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
         .flat_map(|chassis| chassis.pcie_devices_resources().into_iter())
         .collect::<Vec<_>>();
 
+    let boot_options = config
+        .boot_options
+        .is_some()
+        .then_some(redfish::boot_option::collection(&system_id));
+
     let log_services = config
         .log_services
         .is_some()
@@ -291,6 +295,7 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
     b.maybe_with(SystemBuilder::serial_number, &config.serial_number)
         .maybe_with(SystemBuilder::manufacturer, &config.manufacturer)
         .maybe_with(SystemBuilder::model, &config.model)
+        .maybe_with(SystemBuilder::boot_options, &boot_options)
         .maybe_with(SystemBuilder::log_services, &log_services)
         .maybe_with(SystemBuilder::storage, &storage)
         .pcie_devices(&pcie_devices)

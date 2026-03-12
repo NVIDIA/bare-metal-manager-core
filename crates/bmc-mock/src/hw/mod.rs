@@ -30,6 +30,9 @@ pub mod dell_poweredge_r750;
 /// Support of Wiwynn GB200 NVL servers.
 pub mod wiwynn_gb200_nvl;
 
+/// Support of LiteOn Power Shelf.
+pub mod liteon_power_shelf;
+
 use bmc_vendor::BMCVendor;
 
 pub fn bmc_vendor_to_udev_dmi(v: BMCVendor) -> &'static str {

@@ -50,6 +50,8 @@ pub enum HostHardwareType {
     DellPowerEdgeR750,
     #[serde(rename = "wiwynn_gb200_nvl")]
     WiwynnGB200Nvl,
+    #[serde(rename = "liteon_power_shelf")]
+    LiteOnPowerShelf,
 }
 
 #[derive(Debug, Copy, Clone, Default)]
