@@ -37,6 +37,7 @@ use model::machine::nvlink::{MachineNvLinkGpuStatusObservation, MachineNvLinkSta
 use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
 use sqlx::PgPool;
 use tokio::sync::oneshot;
+use tracing::Instrument;
 
 use crate::api::TransactionVending;
 use crate::cfg::file::NvLinkConfig;
@@ -677,7 +678,36 @@ impl NvlPartitionMonitor {
 
     pub async fn run_single_iteration(&self) -> CarbideResult<usize> {
         let mut metrics = NvlPartitionMonitorMetrics::new();
+        let span_id: String = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
+        let check_nvl_partition_span = tracing::span!(
+            parent: None,
+            tracing::Level::INFO,
+            "nvl_partition_monitor",
+            span_id,
+            otel.status_code = tracing::field::Empty,
+            otel.status_message = tracing::field::Empty,
+            metrics = tracing::field::Empty,
+        );
+        let result = self
+            .run_single_iteration_inner(&mut metrics)
+            .instrument(check_nvl_partition_span.clone())
+            .await;
+        check_nvl_partition_span.record(
+            "otel.status_code",
+            if result.is_ok() { "ok" } else { "error" },
+        );
+        if let Err(ref e) = result {
+            check_nvl_partition_span.record("otel.status_message", format!("{e:?}"));
+        }
+        check_nvl_partition_span.record("metrics", metrics.to_string());
+        self.metric_holder.update_metrics(metrics);
+        result
+    }
 
+    async fn run_single_iteration_inner(
+        &self,
+        metrics: &mut NvlPartitionMonitorMetrics,
+    ) -> CarbideResult<usize> {
         let _lock = match self
             .work_lock_manager_handle
             .try_acquire_lock(Self::ITERATION_WORK_KEY.into())
@@ -696,29 +726,12 @@ impl NvlPartitionMonitor {
             "NvlPartitionMonitor acquired the lock",
         );
 
-        let span_id: String = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
-        let check_nvl_partition_span = tracing::span!(
-            parent: None,
-            tracing::Level::INFO,
-            "nvlink_partition_monitor",
-            span_id,
-            otel.status_code = tracing::field::Empty,
-            otel.status_message = tracing::field::Empty,
-            metrics = tracing::field::Empty,
-        );
-
         let nmxm_client = self
             .nmxm_client_pool
             .create_client(&self.config.nmx_m_endpoint, None)
             .await
             .map_err(|e| {
                 metrics.nmxm.connect_error = "Failed to create NMXM client".to_string();
-                check_nvl_partition_span.record("otel.status_code", "error");
-                check_nvl_partition_span.record(
-                    "otel.status_message",
-                    format!("Failed to create NMMX client {e:?}"),
-                );
-
                 CarbideError::internal(format!("Failed to create NMXM client: {e}"))
             })?;
 
@@ -742,24 +755,11 @@ impl NvlPartitionMonitor {
 
         let nmx_m_partitions = nmxm_client.get_partitions_list().await.map_err(|e| {
             metrics.nmxm.connect_error = "Failed to get NMXM partitions list".to_string();
-
-            check_nvl_partition_span.record("otel.status_code", "error");
-            check_nvl_partition_span.record(
-                "otel.status_message",
-                format!("Failed to get NMXM partitions list {e:?}"),
-            );
-
             CarbideError::internal(format!("Failed to get NMXM partitions list: {e}"))
         })?;
 
         let nmx_m_gpus = nmxm_client.get_gpu(None).await.map_err(|e| {
             metrics.nmxm.connect_error = "Failed to get NMXM gpu list".to_string();
-            check_nvl_partition_span.record("otel.status_code", "error");
-            check_nvl_partition_span.record(
-                "otel.status_message",
-                format!("Failed to get NMXM gpu list {e:?}"),
-            );
-
             CarbideError::internal(format!("Failed to get NMXM gpu list: {e}"))
         })?;
 
@@ -771,7 +771,7 @@ impl NvlPartitionMonitor {
                 &nmx_m_gpus,
                 db_nvl_partitions,
                 &nmx_m_partitions,
-                &mut metrics,
+                metrics,
             )
             .await?;
 
@@ -790,10 +790,10 @@ impl NvlPartitionMonitor {
         let observations = self.check_nv_link_partitions(
             &mut partition_processing_context,
             managed_host_snapshots,
-            &mut metrics,
-        );
+            metrics,
+        )?;
 
-        self.record_nvlink_status_observation(observations?).await?;
+        self.record_nvlink_status_observation(observations).await?;
 
         let nmx_m_operations = partition_processing_context.nmx_m_operations;
 
@@ -810,7 +810,7 @@ impl NvlPartitionMonitor {
 
         // Poll NMX-M operation IDs with timeout
         let completed_nmx_m_operations = self
-            .poll_nmx_m_operations_with_timeout(pending_nmx_m_operations, &mut metrics)
+            .poll_nmx_m_operations_with_timeout(pending_nmx_m_operations, metrics)
             .await?;
 
         if !completed_nmx_m_operations.is_empty() {
@@ -823,23 +823,12 @@ impl NvlPartitionMonitor {
         let num_completed_operations = completed_nmx_m_operations.len();
         metrics.num_completed_operations = num_completed_operations;
 
-        check_nvl_partition_span.record("metrics", metrics.to_string());
-
         // Get a fresh list of partitions from NMX-M.
         let nmx_m_partitions = nmxm_client.get_partitions_list().await.map_err(|e| {
             metrics.nmxm.connect_error =
                 "Failed to get NMXM partitions list when updating db".to_string();
-            check_nvl_partition_span.record("otel.status_code", "error");
-            check_nvl_partition_span.record(
-                "otel.status_message",
-                format!("Failed to get NMXM partitions list when updating db {e:?}"),
-            );
             CarbideError::internal(format!("Failed to get NMXM partitions list: {e}"))
         })?;
-
-        check_nvl_partition_span.record("otel.status_code", "ok");
-
-        self.metric_holder.update_metrics(metrics);
 
         // Update db.
         let mut txn = self.db_pool.txn_begin().await?;
@@ -1354,7 +1343,12 @@ impl NvlPartitionMonitor {
                     db_partition_nmx_m_id,
                 )) = partition_ctx.get_db_partition_info(&nmxm_partition.id)
                 else {
-                    tracing::error!("No partition found with nmx_m_id = {}", nmxm_partition.id);
+                    if !is_nmx_m_default_partition(nmxm_partition) {
+                        tracing::error!(
+                            "No partition found with nmx_m_id = {} while processing removal of GPU {gpu:?} in admin network",
+                            nmxm_partition.id,
+                        );
+                    }
                     continue;
                 };
 
@@ -1430,92 +1424,105 @@ impl NvlPartitionMonitor {
                 match operation.operation_type {
                     NmxmPartitionOperationType::Create => {
                         // Create the nvl partition.
+                        let name =
+                            format!("{}{}", logical_partition_id, operation.gpu_ids.join(","));
+                        // NMX-M has a limit of 244 characters for the partition name
+                        let name: String = name.chars().take(240).collect();
                         let request = libnmxm::nmxm_model::CreatePartitionRequest {
                             // For integration test to pass, till we can fix SimClient to cache partition info dynamically
-                            name: format!(
-                                "{}{}",
-                                logical_partition_id,
-                                operation.gpu_ids.join(",")
-                            ),
+                            name,
                             members: Box::new(libnmxm::nmxm_model::PartitionMembers::Ids(
                                 operation.gpu_ids.clone(),
                             )),
                         };
-                        let result =
-                            nmxm_client
-                                .create_partition(Some(request))
-                                .await
-                                .map_err(|e| {
-                                    CarbideError::internal(format!(
-                                        "Failed to create partition: {e}"
-                                    ))
-                                })?;
-                        pending_operations
-                            .entry(logical_partition_id)
-                            .and_modify(|ops| {
-                                ops.push(NmxmPartitionOperation {
-                                    domain_uuid: operation.domain_uuid,
-                                    operation_type: NmxmPartitionOperationType::Pending(
-                                        result.operation_id.clone(),
-                                    ),
-                                    original_operation_type: Some(
-                                        NmxmPartitionOperationType::Create,
-                                    ),
-                                    gpu_ids: operation.gpu_ids.clone(),
-                                    name: operation.name.clone(),
-                                    db_partition_id: operation.db_partition_id,
-                                });
-                            })
-                            .or_insert(vec![NmxmPartitionOperation {
-                                domain_uuid: operation.domain_uuid,
-                                operation_type: NmxmPartitionOperationType::Pending(
-                                    result.operation_id.clone(),
-                                ),
-                                original_operation_type: Some(NmxmPartitionOperationType::Create),
-                                gpu_ids: operation.gpu_ids.clone(),
-                                name: operation.name.clone(),
-                                db_partition_id: operation.db_partition_id,
-                            }]);
+                        match nmxm_client.create_partition(Some(request)).await {
+                            Ok(result) => {
+                                pending_operations
+                                    .entry(logical_partition_id)
+                                    .and_modify(|ops| {
+                                        ops.push(NmxmPartitionOperation {
+                                            domain_uuid: operation.domain_uuid,
+                                            operation_type: NmxmPartitionOperationType::Pending(
+                                                result.operation_id.clone(),
+                                            ),
+                                            original_operation_type: Some(
+                                                NmxmPartitionOperationType::Create,
+                                            ),
+                                            gpu_ids: operation.gpu_ids.clone(),
+                                            name: operation.name.clone(),
+                                            db_partition_id: operation.db_partition_id,
+                                        });
+                                    })
+                                    .or_insert(vec![NmxmPartitionOperation {
+                                        domain_uuid: operation.domain_uuid,
+                                        operation_type: NmxmPartitionOperationType::Pending(
+                                            result.operation_id.clone(),
+                                        ),
+                                        original_operation_type: Some(
+                                            NmxmPartitionOperationType::Create,
+                                        ),
+                                        gpu_ids: operation.gpu_ids.clone(),
+                                        name: operation.name.clone(),
+                                        db_partition_id: operation.db_partition_id,
+                                    }]);
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    %logical_partition_id,
+                                    "Failed to issue create partition to NMX-M, continuing with other operations: {e}"
+                                );
+                            }
+                        }
                     }
                     NmxmPartitionOperationType::Remove(nmx_m_partition_id) => {
                         // Remove from the partition.
 
-                        let result = nmxm_client
+                        match nmxm_client
                             .delete_partition(nmx_m_partition_id.clone())
                             .await
-                            .map_err(|e| {
-                                CarbideError::internal(format!("Failed to create partition: {e}"))
-                            })?;
-                        pending_operations
-                            .entry(logical_partition_id)
-                            .and_modify(|ops| {
-                                ops.push(NmxmPartitionOperation {
-                                    domain_uuid: operation.domain_uuid,
-                                    operation_type: NmxmPartitionOperationType::Pending(
-                                        result.operation_id.clone(),
-                                    ),
-                                    original_operation_type: Some(
-                                        NmxmPartitionOperationType::Remove(
-                                            nmx_m_partition_id.clone(),
+                        {
+                            Ok(result) => {
+                                pending_operations
+                                    .entry(logical_partition_id)
+                                    .and_modify(|ops| {
+                                        ops.push(NmxmPartitionOperation {
+                                            domain_uuid: operation.domain_uuid,
+                                            operation_type: NmxmPartitionOperationType::Pending(
+                                                result.operation_id.clone(),
+                                            ),
+                                            original_operation_type: Some(
+                                                NmxmPartitionOperationType::Remove(
+                                                    nmx_m_partition_id.clone(),
+                                                ),
+                                            ),
+                                            gpu_ids: operation.gpu_ids.clone(),
+                                            name: operation.name.clone(),
+                                            db_partition_id: operation.db_partition_id,
+                                        });
+                                    })
+                                    .or_insert(vec![NmxmPartitionOperation {
+                                        domain_uuid: operation.domain_uuid,
+                                        operation_type: NmxmPartitionOperationType::Pending(
+                                            result.operation_id.clone(),
                                         ),
-                                    ),
-                                    gpu_ids: operation.gpu_ids.clone(),
-                                    name: operation.name.clone(),
-                                    db_partition_id: operation.db_partition_id,
-                                });
-                            })
-                            .or_insert(vec![NmxmPartitionOperation {
-                                domain_uuid: operation.domain_uuid,
-                                operation_type: NmxmPartitionOperationType::Pending(
-                                    result.operation_id.clone(),
-                                ),
-                                original_operation_type: Some(NmxmPartitionOperationType::Remove(
-                                    nmx_m_partition_id.clone(),
-                                )),
-                                gpu_ids: operation.gpu_ids.clone(),
-                                name: operation.name.clone(),
-                                db_partition_id: operation.db_partition_id,
-                            }]);
+                                        original_operation_type: Some(
+                                            NmxmPartitionOperationType::Remove(
+                                                nmx_m_partition_id.clone(),
+                                            ),
+                                        ),
+                                        gpu_ids: operation.gpu_ids.clone(),
+                                        name: operation.name.clone(),
+                                        db_partition_id: operation.db_partition_id,
+                                    }]);
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    %logical_partition_id,
+                                    %nmx_m_partition_id,
+                                    "Failed to issue delete partition to NMX-M, continuing with other operations: {e}"
+                                );
+                            }
+                        }
                     }
                     NmxmPartitionOperationType::RemoveDefaultPartition(nmx_m_partition_id) => {
                         tracing::info!("NOT Removing default partition {nmx_m_partition_id}");
@@ -1568,42 +1575,52 @@ impl NvlPartitionMonitor {
                                 operation.gpu_ids.clone(),
                             )),
                         };
-                        let result = nmxm_client
+                        match nmxm_client
                             .update_partition(nmx_m_partition_id.clone(), request)
                             .await
-                            .map_err(|e| {
-                                CarbideError::internal(format!("Failed to update partition: {e}"))
-                            })?;
-                        pending_operations
-                            .entry(logical_partition_id)
-                            .and_modify(|ops| {
-                                ops.push(NmxmPartitionOperation {
-                                    domain_uuid: operation.domain_uuid,
-                                    operation_type: NmxmPartitionOperationType::Pending(
-                                        result.operation_id.clone(),
-                                    ),
-                                    original_operation_type: Some(
-                                        NmxmPartitionOperationType::Update(
-                                            nmx_m_partition_id.clone(),
+                        {
+                            Ok(result) => {
+                                pending_operations
+                                    .entry(logical_partition_id)
+                                    .and_modify(|ops| {
+                                        ops.push(NmxmPartitionOperation {
+                                            domain_uuid: operation.domain_uuid,
+                                            operation_type: NmxmPartitionOperationType::Pending(
+                                                result.operation_id.clone(),
+                                            ),
+                                            original_operation_type: Some(
+                                                NmxmPartitionOperationType::Update(
+                                                    nmx_m_partition_id.clone(),
+                                                ),
+                                            ),
+                                            gpu_ids: operation.gpu_ids.clone(),
+                                            name: operation.name.clone(),
+                                            db_partition_id: operation.db_partition_id,
+                                        });
+                                    })
+                                    .or_insert(vec![NmxmPartitionOperation {
+                                        domain_uuid: operation.domain_uuid,
+                                        operation_type: NmxmPartitionOperationType::Pending(
+                                            result.operation_id.clone(),
                                         ),
-                                    ),
-                                    gpu_ids: operation.gpu_ids.clone(),
-                                    name: operation.name.clone(),
-                                    db_partition_id: operation.db_partition_id,
-                                });
-                            })
-                            .or_insert(vec![NmxmPartitionOperation {
-                                domain_uuid: operation.domain_uuid,
-                                operation_type: NmxmPartitionOperationType::Pending(
-                                    result.operation_id.clone(),
-                                ),
-                                original_operation_type: Some(NmxmPartitionOperationType::Update(
-                                    nmx_m_partition_id.clone(),
-                                )),
-                                gpu_ids: operation.gpu_ids.clone(),
-                                name: operation.name.clone(),
-                                db_partition_id: operation.db_partition_id,
-                            }]);
+                                        original_operation_type: Some(
+                                            NmxmPartitionOperationType::Update(
+                                                nmx_m_partition_id.clone(),
+                                            ),
+                                        ),
+                                        gpu_ids: operation.gpu_ids.clone(),
+                                        name: operation.name.clone(),
+                                        db_partition_id: operation.db_partition_id,
+                                    }]);
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    %logical_partition_id,
+                                    %nmx_m_partition_id,
+                                    "Failed to issue update partition to NMX-M, continuing with other operations: {e}"
+                                );
+                            }
+                        }
                     }
                     NmxmPartitionOperationType::Pending(_operation_id) => {
                         // This will be handled by the poll_nmx_m_operations_with_timeout function, there should not be any Pending operations in this step.
@@ -1653,7 +1670,7 @@ impl NvlPartitionMonitor {
                             continue;
                         }
                     };
-                    let result = nmxm_client
+                    let get_operation_result = nmxm_client
                         .get_operation(operation_id.to_string())
                         .await
                         .map_err(|e| {
@@ -1664,16 +1681,20 @@ impl NvlPartitionMonitor {
                             ))
                         })?;
 
-                    match result.status {
+                    match get_operation_result.status {
                         libnmxm::nmxm_model::OperationStatus::Completed => {
                             tracing::info!(
-                                "Operation {operation:?} for logical partition {logical_partition_id} completed successfully"
+                                "Operation {get_operation_result:?} for logical partition {logical_partition_id} completed successfully"
                             );
                             completed_operations_for_this_logical_partition.push(operation.clone());
                             operations_to_remove.push(*logical_partition_id);
 
                             let applied_change = AppliedChange {
-                                operation: operation.operation_type.clone().into(),
+                                operation: operation
+                                    .original_operation_type
+                                    .clone()
+                                    .unwrap_or_else(|| operation.operation_type.clone())
+                                    .into(),
                                 status: NmxmPartitionOperationStatus::Completed,
                             };
                             *metrics
@@ -1687,13 +1708,25 @@ impl NvlPartitionMonitor {
                                 .push(start_time.elapsed());
                         }
                         libnmxm::nmxm_model::OperationStatus::Failed => {
-                            tracing::error!(
-                                "Operation {operation:?} for logical partition {logical_partition_id} failed with error"
-                            );
+                            if let Some(result) = get_operation_result.result.as_ref() {
+                                let error = result.error.as_deref().unwrap_or_default();
+                                let error_details = result.details.as_deref().unwrap_or_default();
+                                tracing::error!(
+                                    "Operation {get_operation_result:?} for logical partition {logical_partition_id} failed with error: {error} {error_details}"
+                                );
+                            } else {
+                                tracing::error!(
+                                    "Operation {get_operation_result:?} for logical partition {logical_partition_id} failed with unknown error"
+                                );
+                            }
                             operations_to_remove.push(*logical_partition_id);
 
                             let applied_change = AppliedChange {
-                                operation: operation.operation_type.clone().into(),
+                                operation: operation
+                                    .original_operation_type
+                                    .clone()
+                                    .unwrap_or_else(|| operation.operation_type.clone())
+                                    .into(),
                                 status: NmxmPartitionOperationStatus::Failed,
                             };
                             *metrics
@@ -1717,7 +1750,11 @@ impl NvlPartitionMonitor {
                             operations_to_remove.push(*logical_partition_id);
 
                             let applied_change = AppliedChange {
-                                operation: operation.operation_type.clone().into(),
+                                operation: operation
+                                    .original_operation_type
+                                    .clone()
+                                    .unwrap_or_else(|| operation.operation_type.clone())
+                                    .into(),
                                 status: NmxmPartitionOperationStatus::Cancelled,
                             };
                             *metrics
@@ -1753,7 +1790,11 @@ impl NvlPartitionMonitor {
         for (logical_partition_id, operation) in pending_nmx_m_operations {
             for op in &operation {
                 let applied_change = AppliedChange {
-                    operation: op.operation_type.clone().into(),
+                    operation: op
+                        .original_operation_type
+                        .clone()
+                        .unwrap_or_else(|| op.operation_type.clone())
+                        .into(),
                     status: NmxmPartitionOperationStatus::Timedout,
                 };
                 *metrics
