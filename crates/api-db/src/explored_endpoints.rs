@@ -150,8 +150,7 @@ pub async fn find_by_machine_ids(
     db: impl DbReader<'_>,
     ids: &[String],
 ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
-    let query =
-        "SELECT * FROM explored_endpoints WHERE exploration_report->>'MachineId' = ANY($1)";
+    let query = "SELECT * FROM explored_endpoints WHERE exploration_report->>'MachineId' = ANY($1)";
 
     sqlx::query_as::<_, DbExploredEndpoint>(query)
         .bind(ids)
@@ -165,8 +164,7 @@ pub async fn find_by_switch_ids(
     db: impl DbReader<'_>,
     ids: &[String],
 ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
-    let query =
-        "SELECT * FROM explored_endpoints WHERE exploration_report->>'SwitchId' = ANY($1)";
+    let query = "SELECT * FROM explored_endpoints WHERE exploration_report->>'SwitchId' = ANY($1)";
 
     sqlx::query_as::<_, DbExploredEndpoint>(query)
         .bind(ids)

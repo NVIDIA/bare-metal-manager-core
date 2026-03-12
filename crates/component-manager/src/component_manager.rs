@@ -37,15 +37,12 @@ pub async fn build_component_manager(
 ) -> Result<ComponentManager, ComponentManagerError> {
     let nv_switch: Arc<dyn NvSwitchManager> = match config.nv_switch_backend.as_str() {
         "nsm" => {
-            let endpoint = config
-                .nsm
-                .as_ref()
-                .ok_or_else(|| {
-                    ComponentManagerError::InvalidArgument(
-                        "nv_switch_backend is 'nsm' but [component_manager.nsm] config is missing"
-                            .into(),
-                    )
-                })?;
+            let endpoint = config.nsm.as_ref().ok_or_else(|| {
+                ComponentManagerError::InvalidArgument(
+                    "nv_switch_backend is 'nsm' but [component_manager.nsm] config is missing"
+                        .into(),
+                )
+            })?;
             Arc::new(
                 crate::nsm::NsmSwitchBackend::connect(&endpoint.url, endpoint.tls.as_ref()).await?,
             )
@@ -60,17 +57,15 @@ pub async fn build_component_manager(
 
     let power_shelf: Arc<dyn PowerShelfManager> = match config.power_shelf_backend.as_str() {
         "psm" => {
-            let endpoint = config
-                .psm
-                .as_ref()
-                .ok_or_else(|| {
-                    ComponentManagerError::InvalidArgument(
-                        "power_shelf_backend is 'psm' but [component_manager.psm] config is missing"
-                            .into(),
-                    )
-                })?;
+            let endpoint = config.psm.as_ref().ok_or_else(|| {
+                ComponentManagerError::InvalidArgument(
+                    "power_shelf_backend is 'psm' but [component_manager.psm] config is missing"
+                        .into(),
+                )
+            })?;
             Arc::new(
-                crate::psm::PsmPowerShelfBackend::connect(&endpoint.url, endpoint.tls.as_ref()).await?,
+                crate::psm::PsmPowerShelfBackend::connect(&endpoint.url, endpoint.tls.as_ref())
+                    .await?,
             )
         }
         "mock" => Arc::new(crate::mock::MockPowerShelfManager::default()),

@@ -6,8 +6,7 @@ use carbide_uuid::switch::SwitchId;
 
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
-    FirmwareState as SwFwState, NvSwitchManager, SwitchComponentResult,
-    SwitchFirmwareUpdateStatus,
+    FirmwareState as SwFwState, NvSwitchManager, SwitchComponentResult, SwitchFirmwareUpdateStatus,
 };
 use crate::power_shelf_manager::{
     FirmwareState as PsFwState, PowerShelfComponentResult, PowerShelfFirmwareUpdateStatus,

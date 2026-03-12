@@ -45,7 +45,11 @@ fn dispatch_error_to_status(err: ComponentManagerError) -> Status {
     }
 }
 
-fn make_result(id: &str, status: rpc::ComponentDispatchStatusCode, error: Option<String>) -> rpc::ComponentResult {
+fn make_result(
+    id: &str,
+    status: rpc::ComponentDispatchStatusCode,
+    error: Option<String>,
+) -> rpc::ComponentResult {
     rpc::ComponentResult {
         component_id: id.to_owned(),
         status: status as i32,
@@ -124,7 +128,12 @@ pub(crate) async fn component_power_control(
 
     let results = match target {
         rpc::component_power_control_request::Target::SwitchIds(list) => {
-            tracing::info!(backend = cm.nv_switch.name(), count = list.ids.len(), ?action, "power control for switches");
+            tracing::info!(
+                backend = cm.nv_switch.name(),
+                count = list.ids.len(),
+                ?action,
+                "power control for switches"
+            );
             let backend_results = cm
                 .nv_switch
                 .power_control(&list.ids, action)
@@ -143,7 +152,12 @@ pub(crate) async fn component_power_control(
                 .collect()
         }
         rpc::component_power_control_request::Target::PowerShelfIds(list) => {
-            tracing::info!(backend = cm.power_shelf.name(), count = list.ids.len(), ?action, "power control for power shelves");
+            tracing::info!(
+                backend = cm.power_shelf.name(),
+                count = list.ids.len(),
+                ?action,
+                "power control for power shelves"
+            );
             let backend_results = cm
                 .power_shelf
                 .power_control(&list.ids, action)
@@ -168,7 +182,9 @@ pub(crate) async fn component_power_control(
         }
     };
 
-    Ok(Response::new(rpc::ComponentPowerControlResponse { results }))
+    Ok(Response::new(rpc::ComponentPowerControlResponse {
+        results,
+    }))
 }
 
 // ---- Inventory ----
@@ -187,12 +203,10 @@ pub(crate) async fn get_component_inventory(
 
     let entries = match target {
         rpc::get_component_inventory_request::Target::SwitchIds(list) => {
-            let id_ip_pairs = db::switch::find_bmc_ips_by_switch_ids(
-                &mut api.db_reader(),
-                &list.ids,
-            )
-            .await
-            .map_err(|e| Status::internal(format!("db error: {e}")))?;
+            let id_ip_pairs =
+                db::switch::find_bmc_ips_by_switch_ids(&mut api.db_reader(), &list.ids)
+                    .await
+                    .map_err(|e| Status::internal(format!("db error: {e}")))?;
 
             let ip_to_id: HashMap<IpAddr, String> = id_ip_pairs
                 .into_iter()
@@ -201,12 +215,9 @@ pub(crate) async fn get_component_inventory(
 
             let id_strings: Vec<String> = list.ids.iter().map(|id| id.to_string()).collect();
             let ips: Vec<IpAddr> = ip_to_id.keys().copied().collect();
-            let endpoints = db::explored_endpoints::find_by_ips(
-                &mut api.db_reader(),
-                ips,
-            )
-            .await
-            .map_err(|e| Status::internal(format!("db error: {e}")))?;
+            let endpoints = db::explored_endpoints::find_by_ips(&mut api.db_reader(), ips)
+                .await
+                .map_err(|e| Status::internal(format!("db error: {e}")))?;
 
             let report_by_id: HashMap<String, _> = endpoints
                 .into_iter()
@@ -219,12 +230,10 @@ pub(crate) async fn get_component_inventory(
             build_inventory_entries(&id_strings, &report_by_id)
         }
         rpc::get_component_inventory_request::Target::PowerShelfIds(list) => {
-            let id_ip_pairs = db::power_shelf::find_bmc_ips_by_power_shelf_ids(
-                &mut api.db_reader(),
-                &list.ids,
-            )
-            .await
-            .map_err(|e| Status::internal(format!("db error: {e}")))?;
+            let id_ip_pairs =
+                db::power_shelf::find_bmc_ips_by_power_shelf_ids(&mut api.db_reader(), &list.ids)
+                    .await
+                    .map_err(|e| Status::internal(format!("db error: {e}")))?;
 
             let ip_to_id: HashMap<IpAddr, String> = id_ip_pairs
                 .into_iter()
@@ -233,12 +242,9 @@ pub(crate) async fn get_component_inventory(
 
             let id_strings: Vec<String> = list.ids.iter().map(|id| id.to_string()).collect();
             let ips: Vec<IpAddr> = ip_to_id.keys().copied().collect();
-            let endpoints = db::explored_endpoints::find_by_ips(
-                &mut api.db_reader(),
-                ips,
-            )
-            .await
-            .map_err(|e| Status::internal(format!("db error: {e}")))?;
+            let endpoints = db::explored_endpoints::find_by_ips(&mut api.db_reader(), ips)
+                .await
+                .map_err(|e| Status::internal(format!("db error: {e}")))?;
 
             let report_by_id: HashMap<String, _> = endpoints
                 .into_iter()
@@ -279,12 +285,9 @@ pub(crate) async fn get_component_inventory(
                 .collect();
 
             let ips: Vec<IpAddr> = ip_to_id.keys().copied().collect();
-            let endpoints = db::explored_endpoints::find_by_ips(
-                &mut api.db_reader(),
-                ips,
-            )
-            .await
-            .map_err(|e| Status::internal(format!("db error: {e}")))?;
+            let endpoints = db::explored_endpoints::find_by_ips(&mut api.db_reader(), ips)
+                .await
+                .map_err(|e| Status::internal(format!("db error: {e}")))?;
 
             let report_by_id: HashMap<String, _> = endpoints
                 .into_iter()
@@ -298,7 +301,9 @@ pub(crate) async fn get_component_inventory(
         }
     };
 
-    Ok(Response::new(rpc::GetComponentInventoryResponse { entries }))
+    Ok(Response::new(rpc::GetComponentInventoryResponse {
+        entries,
+    }))
 }
 
 // ---- Firmware Update ----
@@ -359,7 +364,9 @@ pub(crate) async fn update_component_firmware(
         }
     };
 
-    Ok(Response::new(rpc::UpdateComponentFirmwareResponse { results }))
+    Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
+        results,
+    }))
 }
 
 // ---- Firmware Status ----
@@ -395,13 +402,23 @@ pub(crate) async fn get_component_firmware_status(
                             error_result(&id, s.error.unwrap_or_default())
                         }),
                         state: match s.state {
-                            FirmwareState::Unknown => rpc::FirmwareUpdateState::FwStateUnknown as i32,
+                            FirmwareState::Unknown => {
+                                rpc::FirmwareUpdateState::FwStateUnknown as i32
+                            }
                             FirmwareState::Queued => rpc::FirmwareUpdateState::FwStateQueued as i32,
-                            FirmwareState::InProgress => rpc::FirmwareUpdateState::FwStateInProgress as i32,
-                            FirmwareState::Verifying => rpc::FirmwareUpdateState::FwStateVerifying as i32,
-                            FirmwareState::Completed => rpc::FirmwareUpdateState::FwStateCompleted as i32,
+                            FirmwareState::InProgress => {
+                                rpc::FirmwareUpdateState::FwStateInProgress as i32
+                            }
+                            FirmwareState::Verifying => {
+                                rpc::FirmwareUpdateState::FwStateVerifying as i32
+                            }
+                            FirmwareState::Completed => {
+                                rpc::FirmwareUpdateState::FwStateCompleted as i32
+                            }
                             FirmwareState::Failed => rpc::FirmwareUpdateState::FwStateFailed as i32,
-                            FirmwareState::Cancelled => rpc::FirmwareUpdateState::FwStateCancelled as i32,
+                            FirmwareState::Cancelled => {
+                                rpc::FirmwareUpdateState::FwStateCancelled as i32
+                            }
                         },
                         target_version: s.target_version,
                         updated_at: None,
@@ -427,13 +444,23 @@ pub(crate) async fn get_component_firmware_status(
                             error_result(&id, s.error.unwrap_or_default())
                         }),
                         state: match s.state {
-                            FirmwareState::Unknown => rpc::FirmwareUpdateState::FwStateUnknown as i32,
+                            FirmwareState::Unknown => {
+                                rpc::FirmwareUpdateState::FwStateUnknown as i32
+                            }
                             FirmwareState::Queued => rpc::FirmwareUpdateState::FwStateQueued as i32,
-                            FirmwareState::InProgress => rpc::FirmwareUpdateState::FwStateInProgress as i32,
-                            FirmwareState::Verifying => rpc::FirmwareUpdateState::FwStateVerifying as i32,
-                            FirmwareState::Completed => rpc::FirmwareUpdateState::FwStateCompleted as i32,
+                            FirmwareState::InProgress => {
+                                rpc::FirmwareUpdateState::FwStateInProgress as i32
+                            }
+                            FirmwareState::Verifying => {
+                                rpc::FirmwareUpdateState::FwStateVerifying as i32
+                            }
+                            FirmwareState::Completed => {
+                                rpc::FirmwareUpdateState::FwStateCompleted as i32
+                            }
                             FirmwareState::Failed => rpc::FirmwareUpdateState::FwStateFailed as i32,
-                            FirmwareState::Cancelled => rpc::FirmwareUpdateState::FwStateCancelled as i32,
+                            FirmwareState::Cancelled => {
+                                rpc::FirmwareUpdateState::FwStateCancelled as i32
+                            }
                         },
                         target_version: s.target_version,
                         updated_at: None,
@@ -448,7 +475,9 @@ pub(crate) async fn get_component_firmware_status(
         }
     };
 
-    Ok(Response::new(rpc::GetComponentFirmwareStatusResponse { statuses }))
+    Ok(Response::new(rpc::GetComponentFirmwareStatusResponse {
+        statuses,
+    }))
 }
 
 // ---- List Firmware Versions ----
@@ -488,10 +517,8 @@ pub(crate) async fn list_component_firmware_versions(
                 versions,
             }))
         }
-        rpc::list_component_firmware_versions_request::Target::MachineIds(_) => {
-            Err(Status::unimplemented(
-                "machine firmware versions are not supported via this RPC",
-            ))
-        }
+        rpc::list_component_firmware_versions_request::Target::MachineIds(_) => Err(
+            Status::unimplemented("machine firmware versions are not supported via this RPC"),
+        ),
     }
 }

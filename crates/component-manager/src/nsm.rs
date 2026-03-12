@@ -21,7 +21,10 @@ pub struct NsmSwitchBackend {
 }
 
 impl NsmSwitchBackend {
-    pub async fn connect(url: &str, tls: Option<&BackendTlsConfig>) -> Result<Self, ComponentManagerError> {
+    pub async fn connect(
+        url: &str,
+        tls: Option<&BackendTlsConfig>,
+    ) -> Result<Self, ComponentManagerError> {
         let channel = crate::tls::build_channel(url, tls, "NSM").await?;
         Ok(Self {
             client: nsm::nv_switch_manager_client::NvSwitchManagerClient::new(channel),
@@ -51,8 +54,9 @@ fn ids_to_strings(ids: &[SwitchId]) -> Vec<String> {
 }
 
 fn parse_switch_id(s: &str) -> Result<SwitchId, ComponentManagerError> {
-    SwitchId::from_str(s)
-        .map_err(|e| ComponentManagerError::Internal(format!("invalid switch id from backend: {e}")))
+    SwitchId::from_str(s).map_err(|e| {
+        ComponentManagerError::Internal(format!("invalid switch id from backend: {e}"))
+    })
 }
 
 #[async_trait::async_trait]
@@ -177,17 +181,8 @@ impl NvSwitchManager for NsmSwitchBackend {
 
     #[instrument(skip(self), fields(backend = "nsm"))]
     async fn list_firmware_bundles(&self) -> Result<Vec<String>, ComponentManagerError> {
-        let response = self
-            .client
-            .clone()
-            .list_bundles(())
-            .await?
-            .into_inner();
+        let response = self.client.clone().list_bundles(()).await?.into_inner();
 
-        Ok(response
-            .bundles
-            .into_iter()
-            .map(|b| b.version)
-            .collect())
+        Ok(response.bundles.into_iter().map(|b| b.version).collect())
     }
 }

@@ -21,7 +21,10 @@ pub struct PsmPowerShelfBackend {
 }
 
 impl PsmPowerShelfBackend {
-    pub async fn connect(url: &str, tls: Option<&BackendTlsConfig>) -> Result<Self, ComponentManagerError> {
+    pub async fn connect(
+        url: &str,
+        tls: Option<&BackendTlsConfig>,
+    ) -> Result<Self, ComponentManagerError> {
         let channel = crate::tls::build_channel(url, tls, "PSM").await?;
         Ok(Self {
             client: psm::powershelf_manager_client::PowershelfManagerClient::new(channel),
@@ -67,13 +70,13 @@ impl PowerShelfManager for PsmPowerShelfBackend {
         };
 
         let response = match action {
-            PowerAction::On => {
-                self.client.clone().power_on(request).await?.into_inner()
-            }
+            PowerAction::On => self.client.clone().power_on(request).await?.into_inner(),
             PowerAction::ForceOff | PowerAction::GracefulShutdown => {
                 self.client.clone().power_off(request).await?.into_inner()
             }
-            PowerAction::GracefulRestart | PowerAction::ForceRestart | PowerAction::AcPowercycle => {
+            PowerAction::GracefulRestart
+            | PowerAction::ForceRestart
+            | PowerAction::AcPowercycle => {
                 let off = self
                     .client
                     .clone()
@@ -95,7 +98,11 @@ impl PowerShelfManager for PsmPowerShelfBackend {
                             Ok(PowerShelfComponentResult {
                                 power_shelf_id: parse_power_shelf_id(&r.pmc_mac_address)?,
                                 success: r.status == psm::StatusCode::Success as i32,
-                                error: if r.error.is_empty() { None } else { Some(r.error) },
+                                error: if r.error.is_empty() {
+                                    None
+                                } else {
+                                    Some(r.error)
+                                },
                             })
                         })
                         .collect();
@@ -118,7 +125,11 @@ impl PowerShelfManager for PsmPowerShelfBackend {
                 Ok(PowerShelfComponentResult {
                     power_shelf_id: parse_power_shelf_id(&r.pmc_mac_address)?,
                     success: r.status == psm::StatusCode::Success as i32,
-                    error: if r.error.is_empty() { None } else { Some(r.error) },
+                    error: if r.error.is_empty() {
+                        None
+                    } else {
+                        Some(r.error)
+                    },
                 })
             })
             .collect()
@@ -135,41 +146,40 @@ impl PowerShelfManager for PsmPowerShelfBackend {
             .iter()
             .map(|id| {
                 let mac = id.to_string();
-                let component_reqs: Vec<psm::UpdateComponentFirmwareRequest> = if components
-                    .is_empty()
-                {
-                    vec![
-                        psm::UpdateComponentFirmwareRequest {
-                            component: psm::PowershelfComponent::Pmc as i32,
-                            upgrade_to: Some(psm::FirmwareVersion {
-                                version: target_version.to_owned(),
-                            }),
-                        },
-                        psm::UpdateComponentFirmwareRequest {
-                            component: psm::PowershelfComponent::Psu as i32,
-                            upgrade_to: Some(psm::FirmwareVersion {
-                                version: target_version.to_owned(),
-                            }),
-                        },
-                    ]
-                } else {
-                    components
-                        .iter()
-                        .filter_map(|c| {
-                            let comp = match c.to_lowercase().as_str() {
-                                "pmc" => psm::PowershelfComponent::Pmc as i32,
-                                "psu" => psm::PowershelfComponent::Psu as i32,
-                                _ => return None,
-                            };
-                            Some(psm::UpdateComponentFirmwareRequest {
-                                component: comp,
+                let component_reqs: Vec<psm::UpdateComponentFirmwareRequest> =
+                    if components.is_empty() {
+                        vec![
+                            psm::UpdateComponentFirmwareRequest {
+                                component: psm::PowershelfComponent::Pmc as i32,
                                 upgrade_to: Some(psm::FirmwareVersion {
                                     version: target_version.to_owned(),
                                 }),
+                            },
+                            psm::UpdateComponentFirmwareRequest {
+                                component: psm::PowershelfComponent::Psu as i32,
+                                upgrade_to: Some(psm::FirmwareVersion {
+                                    version: target_version.to_owned(),
+                                }),
+                            },
+                        ]
+                    } else {
+                        components
+                            .iter()
+                            .filter_map(|c| {
+                                let comp = match c.to_lowercase().as_str() {
+                                    "pmc" => psm::PowershelfComponent::Pmc as i32,
+                                    "psu" => psm::PowershelfComponent::Psu as i32,
+                                    _ => return None,
+                                };
+                                Some(psm::UpdateComponentFirmwareRequest {
+                                    component: comp,
+                                    upgrade_to: Some(psm::FirmwareVersion {
+                                        version: target_version.to_owned(),
+                                    }),
+                                })
                             })
-                        })
-                        .collect()
-                };
+                            .collect()
+                    };
                 psm::UpdatePowershelfFirmwareRequest {
                     pmc_mac_address: mac,
                     components: component_reqs,

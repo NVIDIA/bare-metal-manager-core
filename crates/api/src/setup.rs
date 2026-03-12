@@ -386,12 +386,17 @@ pub async fn start_api(
     let component_manager = if let Some(cd_config) = &carbide_config.component_manager {
         match component_manager::component_manager::build_component_manager(cd_config).await {
             Ok(cm) => {
-                tracing::info!("Component dispatch configured (nv_switch={}, power_shelf={})",
-                    cm.nv_switch.name(), cm.power_shelf.name());
+                tracing::info!(
+                    "Component dispatch configured (nv_switch={}, power_shelf={})",
+                    cm.nv_switch.name(),
+                    cm.power_shelf.name()
+                );
                 Some(cm)
             }
             Err(e) => {
-                tracing::warn!("Failed to build component managers, dispatch RPCs will be unavailable: {e}");
+                tracing::warn!(
+                    "Failed to build component managers, dispatch RPCs will be unavailable: {e}"
+                );
                 None
             }
         }
