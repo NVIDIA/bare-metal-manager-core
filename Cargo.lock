@@ -1015,6 +1015,8 @@ dependencies = [
  "axum 0.8.6",
  "axum-server",
  "bytes",
+ "carbide-rpc",
+ "carbide-utils",
  "chrono",
  "clap",
  "duration-str",

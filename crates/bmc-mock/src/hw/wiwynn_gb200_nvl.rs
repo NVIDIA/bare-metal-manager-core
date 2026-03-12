@@ -18,7 +18,12 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use rpc::machine_discovery::{
+    BlockDevice, CpuInfo, DiscoveryInfo, DmiData, Gpu, GpuPlatformInfo, InfinibandInterface,
+    MemoryDevice, NvmeDevice, PciDeviceProperties,
+};
 use serde_json::json;
+use utils::models::arch::CpuArchitecture;
 
 use crate::{PowerControl, hw, redfish};
 
@@ -246,6 +251,102 @@ impl WiwynnGB200Nvl<'_> {
             .iter()
             .map(|(id, version)| fw_inv_builder(id).version(version).build())
             .collect(),
+        }
+    }
+
+    pub fn discovery_info(&self) -> DiscoveryInfo {
+        DiscoveryInfo {
+            network_interfaces: vec![
+                self.dpu1.host_nic().discovery_info(0x0603),
+                self.dpu2.host_nic().discovery_info(0x1603),
+            ],
+            infiniband_interfaces: (0..4)
+                .map(|n| {
+                    let (domain, numa_node) = [(0x0000, 0), (0x0002, 0), (0x0010, 1), (0x0012, 1)][n];
+                    let device_name = if domain == 0 {
+                        Cow::Borrowed("ibp3s0")
+                    } else {
+                        format!("ibP{domain}p3s0").into()
+                    };
+                    InfinibandInterface {
+                        pci_properties: Some(PciDeviceProperties {
+                            vendor: "Mellanox Technologies".into(),
+                            device: "MT2910 Family [ConnectX-7]".into(),
+                            path: format!("/devices/pci{domain:02x}:00/{domain:02x}:00:00.0/{domain:02x}:01:00.0/{domain:02x}:02:00.0/{domain:02x}:03:00.0/infiniband/{device_name}"),
+                            numa_node,
+                            description: Some("MT2910 Family [ConnectX-7]".into()),
+                            slot: format!("{domain}:03:00.0").into(),
+                        }),
+                        guid: format!("7c8c09000000000{n}"),
+                    }
+                })
+                .collect(),
+            cpu_info: vec![CpuInfo {
+                model: "Neoverse-V2".into(),
+                vendor: "ARM".into(),
+                sockets: 2,
+                cores: 72,
+                threads: 72,
+            }],
+            block_devices: (0..9)
+                .map(|n| BlockDevice {
+                    model: "SAMSUNG MZTL63T8HFLT-00AW7".into(),
+                    revision: "LDDL4U2Q".into(),
+                    serial: format!("BDFAKESERNUM{n}"),
+                    device_type: "disk".into(),
+                })
+                .collect(),
+            machine_type: CpuArchitecture::Aarch64.to_string(),
+            machine_arch: Some(CpuArchitecture::Aarch64.into()),
+            nvme_devices: (0..9)
+                .map(|n| NvmeDevice {
+                    model: "SAMSUNG MZTL63T8HFLT-00AW7".into(),
+                    firmware_rev: "LDDL4U2Q".into(),
+                    serial: format!("BDFAKESERNUM{n}"),
+                })
+                .collect(),
+            dmi_data: Some(DmiData {
+                board_name: "KINABALU BMC CARD".into(),
+                board_version: "PVT".into(),
+                bios_version: "00000083".into(),
+                bios_date: "20260107".into(),
+                product_serial: self.chassis_serial_number.to_string(),
+                board_serial: self.chassis_serial_number.to_string(),
+                chassis_serial: self.chassis_serial_number.to_string(),
+                product_name: "GB200 NVL".into(),
+                sys_vendor: "NVIDIA".into(),
+            }),
+            dpu_info: None,
+            gpus: (0..4).map(|n| {
+                let module_id = [2, 1, 4, 3][n];
+                let pci_bus_id = ["00000008:01:00.0", "00000009:01:00.0", "00000018:01:00.0", "00000019:01:00.0"][n];
+                Gpu {
+                    name: "NVIDIA GB200".into(),
+                    serial: format!("165000000000{n}"),
+                    driver_version: "580.126.16".into(),
+                    vbios_version: "97.00.B9.00.76".into(),
+                    inforom_version: "G548.0201.00.06".into(),
+                    total_memory: "189471 MiB".into(),
+                    frequency: "2062 MHz".into(),
+                    pci_bus_id: pci_bus_id.into(),
+                    platform_info: Some(GpuPlatformInfo {
+                        chassis_serial: format!("182100000000{n}"),
+                        slot_number: 24,
+                        tray_index: 14,
+                        host_id: 1,
+                        module_id,
+                        fabric_guid: format!("0xfeeeeeeeeeeeee{n:02x}"),
+                    })
+                }}).collect(),
+            memory_devices: (0..2)
+                .map(|_| MemoryDevice {
+                    size_mb: Some(491520),
+                    mem_type: Some("LPDDR5".into()),
+                })
+                .collect(),
+            tpm_ek_certificate: None,
+            tpm_description: None,
+            ..Default::default()
         }
     }
 }

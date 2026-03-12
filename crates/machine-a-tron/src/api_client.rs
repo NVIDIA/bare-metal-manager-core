@@ -17,13 +17,14 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use base64::prelude::*;
+use bmc_mock::MachineInfo;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use mac_address::MacAddress;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::operating_system::Variant;
 use rpc::forge::{
-    ConfigSetting, ExpectedMachine, InlineIpxe, MachineType, MachinesByIdsRequest, OperatingSystem,
+    ConfigSetting, ExpectedMachine, InlineIpxe, MachinesByIdsRequest, OperatingSystem,
     PxeInstructions, SetDynamicConfigRequest,
 };
 use rpc::protos::forge_api_client::ForgeApiClient;
@@ -47,12 +48,7 @@ type ClientApiResult<T> = Result<T, ClientApiError>;
 // Simple wrapper around the inputs to discover_machine so that callers can see the field names
 pub struct MockDiscoveryData {
     pub machine_interface_id: MachineInterfaceId,
-    pub network_interface_macs: Vec<String>,
-    pub product_serial: Option<String>,
-    pub chassis_serial: Option<String>,
     pub tpm_ek_certificate: Option<Vec<u8>>,
-    pub host_mac_address: Option<MacAddress>,
-    pub dpu_nic_version: Option<String>,
 }
 
 static SUBNET_COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -130,82 +126,23 @@ impl ApiClient {
 
     pub async fn discover_machine(
         &self,
-        template_dir: &str,
-        machine_type: MachineType,
+        machine_info: &MachineInfo,
         discovery_data: MockDiscoveryData,
     ) -> ClientApiResult<rpc::forge::MachineDiscoveryResult> {
         let MockDiscoveryData {
             machine_interface_id,
-            network_interface_macs,
-            product_serial,
-            chassis_serial,
-            host_mac_address,
             tpm_ek_certificate,
-            dpu_nic_version,
         } = discovery_data;
-        let json_path = if machine_type == MachineType::Dpu {
-            format!("{template_dir}/dpu_discovery_info.json")
-        } else {
-            format!("{template_dir}/host_discovery_info.json")
-        };
-        let dhcp_string = std::fs::read_to_string(&json_path)
-            .map_err(|e| ClientApiError::ConfigError(format!("Unable to read {json_path}: {e}")))?;
-        let mut discovery_data: rpc::machine_discovery::DiscoveryInfo =
-            serde_json::from_str(&dhcp_string).map_err(|e| {
-                ClientApiError::ConfigError(format!(
-                    "{json_path} does not have correct format: {e}"
-                ))
-            })?;
-
-        if let Some(ref mut dmi_data) = discovery_data.dmi_data {
-            if let Some(product_serial) = product_serial {
-                dmi_data.product_serial = product_serial;
-            }
-            if let Some(chassis_serial) = chassis_serial {
-                dmi_data.chassis_serial = chassis_serial;
-            }
-        }
-        if machine_type == MachineType::Host {
-            discovery_data.tpm_ek_certificate =
+        let mut machine_discovery_info = machine_info.discovery_info();
+        if matches!(machine_info, MachineInfo::Host(_)) {
+            machine_discovery_info.tpm_ek_certificate =
                 Some(BASE64_STANDARD.encode(tpm_ek_certificate.ok_or(
                     ClientApiError::ConfigError("No TPM EK certificate waa supplied".to_string()),
-                )?));
-            discovery_data.dpu_info = None;
-        } else if let Some(ref mut dpu_info) = discovery_data.dpu_info {
-            if let Some(host_mac_address) = host_mac_address {
-                dpu_info.factory_mac_address = host_mac_address.to_string();
-            }
-            if let Some(dpu_nic_version) = dpu_nic_version {
-                dpu_info.firmware_version = dpu_nic_version;
-            }
+                )?))
         }
-        let pci_properties = if machine_type == MachineType::Dpu {
-            None
-        } else {
-            Some(rpc::PciDeviceProperties {
-                vendor: "Mellanox Technologies".into(),
-                device: "0xa2d6".into(),
-                path: "/devices/pci0000:b0/0000:b0:04.0/0000:b1:00.1/net/enp177s0f1np1".into(),
-                numa_node: 1,
-                description: Some(
-                    "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller1".into(),
-                ),
-                slot: None,
-            })
-        };
-        discovery_data.network_interfaces = network_interface_macs
-            .iter()
-            .map(|mac| rpc::machine_discovery::NetworkInterface {
-                mac_address: mac.clone(),
-                pci_properties: pci_properties.clone(),
-            })
-            .collect();
-
         let mdi = rpc::forge::MachineDiscoveryInfo {
             machine_interface_id: Some(machine_interface_id),
-            discovery_data: Some(rpc::forge::machine_discovery_info::DiscoveryData::Info(
-                discovery_data,
-            )),
+            discovery_data: Some(rpc::DiscoveryData::Info(machine_discovery_info)),
             create_machine: true,
         };
 

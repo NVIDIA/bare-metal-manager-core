@@ -25,11 +25,8 @@ use bmc_mock::{
     PowerControl, SetSystemPowerError, SetSystemPowerResult, SystemPowerControl,
 };
 use carbide_uuid::machine::MachineId;
-use mac_address::MacAddress;
 use rand::Rng;
-use rpc::forge::{
-    MachineArchitecture, MachineDiscoveryResult, MachineType, ManagedHostNetworkConfigResponse,
-};
+use rpc::forge::{MachineArchitecture, MachineDiscoveryResult, ManagedHostNetworkConfigResponse};
 use rpc::forge_agent_control_response::Action;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
@@ -714,25 +711,10 @@ impl MachineStateMachine {
             .app_context
             .api_client()
             .discover_machine(
-                &self.config.template_dir,
-                rpc_machine_type(&self.machine_info),
+                &self.machine_info,
                 MockDiscoveryData {
                     machine_interface_id,
-                    network_interface_macs: self
-                        .machine_info
-                        .dhcp_mac_addresses()
-                        .iter()
-                        .map(MacAddress::to_string)
-                        .collect(),
-                    product_serial: Some(self.machine_info.product_serial().clone()),
-                    chassis_serial: Some("Unspecified Chassis Board Serial Number".to_string()),
-                    host_mac_address: self.machine_info.host_mac_address(),
                     tpm_ek_certificate,
-                    dpu_nic_version: if let MachineInfo::Dpu(d) = &self.machine_info {
-                        d.settings.firmware_versions.nic.clone()
-                    } else {
-                        None
-                    },
                 },
             )
             .await?;
@@ -1202,11 +1184,4 @@ pub enum AddressConfigError {
     Io(#[from] std::io::Error),
     #[error("Error running ip command: {0:?}, output: {1:?}")]
     CommandFailure(Box<tokio::process::Command>, std::process::Output),
-}
-
-fn rpc_machine_type(machine_info: &MachineInfo) -> MachineType {
-    match machine_info {
-        MachineInfo::Dpu(_) => MachineType::Dpu,
-        MachineInfo::Host(_) => MachineType::Host,
-    }
 }

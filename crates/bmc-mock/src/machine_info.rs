@@ -216,6 +216,13 @@ impl HostMachineInfo {
         }
     }
 
+    pub fn discovery_info(&self) -> rpc::machine_discovery::DiscoveryInfo {
+        match self.hw_type {
+            HostHardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().discovery_info(),
+            HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().discovery_info(),
+        }
+    }
+
     fn dell_poweredge_r750(&self) -> hw::dell_poweredge_r750::DellPowerEdgeR750<'_> {
         let nics = if self.dpus.is_empty() {
             self.non_dpu_mac_address
@@ -350,6 +357,13 @@ impl MachineInfo {
             Some(d.host_mac_address)
         } else {
             None
+        }
+    }
+
+    pub fn discovery_info(&self) -> rpc::machine_discovery::DiscoveryInfo {
+        match self {
+            Self::Host(h) => h.discovery_info(),
+            Self::Dpu(dpu) => dpu.bluefield3().discovery_info(),
         }
     }
 }

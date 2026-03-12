@@ -19,7 +19,9 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use mac_address::MacAddress;
+use rpc::machine_discovery::{BlockDevice, CpuInfo, DiscoveryInfo, DmiData, DpuData};
 use serde_json::json;
+use utils::models::arch::CpuArchitecture;
 
 use crate::{LogService, LogServices, PowerControl, hw, redfish};
 
@@ -212,7 +214,7 @@ impl Bluefield3<'_> {
     }
 
     pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
-        let base_mac = self.host_mac_address.to_string().replace(':', "");
+        let base_mac = self.base_mac().to_string().replace(':', "");
         let sys_image = format!(
             "{}:{}00:00{}:{}",
             &base_mac[0..4],
@@ -257,6 +259,61 @@ impl Bluefield3<'_> {
         }
     }
 
+    pub fn discovery_info(&self) -> DiscoveryInfo {
+        DiscoveryInfo {
+            network_interfaces: vec![],
+            infiniband_interfaces: vec![],
+            cpu_info: vec![CpuInfo {
+                model: "Cortex-A78AE".into(),
+                vendor: "ARM".into(),
+                sockets: 1,
+                cores: 16,
+                threads: 16,
+            }],
+            block_devices: std::iter::once(BlockDevice {
+                model: "KBG40ZPZ128G TOSHIBA MEMORY".into(),
+                revision: "AEGA0103".into(),
+                serial: "FAKESERNUM0".into(),
+                device_type: "disk".into(),
+            })
+            .chain((0..3).map(|_| BlockDevice {
+                model: "NO_MODEL".into(),
+                revision: "NO_REVISION".into(),
+                serial: "NO_SERIAL".into(),
+                device_type: "disk".into(),
+            }))
+            .collect(),
+            machine_type: CpuArchitecture::Aarch64.to_string(),
+            machine_arch: Some(CpuArchitecture::Aarch64.into()),
+            nvme_devices: vec![],
+            dmi_data: Some(DmiData {
+                board_name: "Bluefield-3 DPU".into(),
+                board_version: "AG".into(),
+                bios_version: "4.13.0-26-g337fea6bfd".into(),
+                bios_date: "Nov  3 2025".into(),
+                product_serial: self.product_serial_number.to_string(),
+                board_serial: "Unspecified Base Board Serial Number".into(),
+                chassis_serial: "Unspecified Chassis Board Serial Number".into(),
+                product_name: "BlueField-3 DPU".into(),
+                sys_vendor: "Nvidia".into(),
+            }),
+            dpu_info: Some(DpuData {
+                part_number: self.part_number().into(),
+                part_description: format!("NVIDIA Bluefield-3 {}", self.part_number()),
+                product_version: self.firmware_versions.dpu_nic.clone(),
+                factory_mac_address: self.base_mac().to_string(),
+                firmware_version: self.firmware_versions.dpu_nic.clone(),
+                firmware_date: "11.11.2025".into(),
+                switches: vec![],
+            }),
+            gpus: vec![],
+            memory_devices: vec![],
+            tpm_ek_certificate: None,
+            tpm_description: None,
+            ..Default::default()
+        }
+    }
+
     fn part_number(&self) -> &'static str {
         match self.mode {
             Mode::B3240ColdAisle => "900-9D3B6-00CN-PA0",
@@ -269,6 +326,10 @@ impl Bluefield3<'_> {
             Mode::SuperNIC { nic_mode: true } => "900-9D3B4-00CC-EA0",
             Mode::SuperNIC { nic_mode: false } => "900-9D3B6-00CV-AA0",
         }
+    }
+
+    fn base_mac(&self) -> MacAddress {
+        self.host_mac_address
     }
 
     fn opn(&self) -> &'static str {
