@@ -14,8 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
@@ -25,18 +24,18 @@ use serde_json::json;
 use tempfile::TempDir;
 
 pub struct Kea {
-    temp_conf_file: PathBuf,
-
     dhcp_in_port: u16,
     dhcp_out_port: u16,
-
     // Hold this around so that when Kea is dropped, TempDir is dropped and cleaned up
     temp_base_directory: TempDir,
-
     process: Option<Child>,
 }
 
 impl Kea {
+    fn config_file_path(&self) -> PathBuf {
+        self.temp_base_directory.path().join("kea-dhcp4.conf")
+    }
+
     // Start the Kea DHCP server as a sub-process and return a handle to it
     // Stops when the returned object is dropped.
     pub fn new(
@@ -45,22 +44,14 @@ impl Kea {
         dhcp_out_port: u16,
     ) -> Result<Kea, eyre::Report> {
         let temp_base_directory = tempfile::tempdir()?;
-
-        let temp_conf_file = temp_base_directory.path().join("kea-dhcp4.conf");
-
-        let mut temp_conf_fd = File::create(&temp_conf_file)?;
-        temp_conf_fd.write_all(Kea::config(api_server_url).as_bytes())?;
-
-        // Close the file so it's updated for Kea.
-        drop(temp_conf_fd);
-
-        Ok(Kea {
-            temp_conf_file,
+        let kea = Kea {
             temp_base_directory,
             dhcp_in_port,
             dhcp_out_port,
             process: None,
-        })
+        };
+        std::fs::write(kea.config_file_path(), Kea::config(api_server_url).as_bytes())?;
+        Ok(kea)
     }
 
     pub fn run(&mut self) -> Result<(), eyre::Report> {
@@ -68,7 +59,7 @@ impl Kea {
             .env("KEA_PIDFILE_DIR", self.temp_base_directory.path())
             .env("KEA_LOCKFILE_DIR", self.temp_base_directory.path())
             .arg("-c")
-            .arg(self.temp_conf_file.as_os_str())
+            .arg(self.config_file_path())
             .arg("-p")
             .arg(self.dhcp_in_port.to_string())
             .arg("-P")
