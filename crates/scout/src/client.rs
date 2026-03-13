@@ -38,3 +38,22 @@ pub(crate) async fn create_forge_client(
         .map_err(|err| CarbideClientError::TransportError(err.to_string()))?;
     Ok(client)
 }
+
+// create_http_client builds a reqwest HTTP client configured with the same
+// mTLS certificates used for gRPC communication with carbide-api.
+pub(crate) fn create_http_client(config: &Options) -> CarbideClientResult<reqwest::Client> {
+    let root_ca = std::fs::read(&config.root_ca)?;
+    let root_cert = reqwest::Certificate::from_pem(&root_ca)
+        .map_err(|e| CarbideClientError::TransportError(e.to_string()))?;
+
+    let client_cert = std::fs::read(&config.client_cert)?;
+    let client_key = std::fs::read(&config.client_key)?;
+    let identity = reqwest::Identity::from_pem(&[client_cert, client_key].concat())
+        .map_err(|e| CarbideClientError::TransportError(e.to_string()))?;
+
+    reqwest::Client::builder()
+        .add_root_certificate(root_cert)
+        .identity(identity)
+        .build()
+        .map_err(|e| CarbideClientError::TransportError(e.to_string()))
+}
