@@ -1964,6 +1964,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbide-ipmitool"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "byteorder",
+ "bytes",
+ "cbc",
+ "clap",
+ "color-eyre",
+ "digest 0.10.7",
+ "eyre",
+ "hex",
+ "hmac 0.12.1",
+ "insta",
+ "md-5 0.10.6",
+ "rand 0.9.2",
+ "sha1",
+ "sha2 0.10.9",
+ "strum 0.26.3",
+ "strum_macros 0.26.4",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "carbide-libmlx"
 version = "0.0.1"
 dependencies = [
@@ -2820,6 +2848,18 @@ dependencies = [
  "serde_json",
  "sqlx",
  "thiserror 2.0.17",
+]
+
+[[package]]
+name = "console"
+version = "0.15.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "054ccb5b10f9f2cbf51eb355ca1d05c2d279ce1804688d0db74b4733a5aeafd8"
+dependencies = [
+ "encode_unicode",
+ "libc",
+ "once_cell",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5075,6 +5115,18 @@ checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
 dependencies = [
  "block-padding",
  "generic-array",
+]
+
+[[package]]
+name = "insta"
+version = "1.46.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e82db8c87c7f1ccecb34ce0c24399b8a73081427f3c7c50a5d597925356115e4"
+dependencies = [
+ "console",
+ "once_cell",
+ "similar",
+ "tempfile",
 ]
 
 [[package]]
