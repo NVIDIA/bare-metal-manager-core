@@ -192,6 +192,7 @@ impl Bluefield3<'_> {
                     },
                 })),
                 storage: None,
+                secure_boot_available: true,
             }],
         }
     }
