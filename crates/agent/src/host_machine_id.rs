@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 use backon::{ExponentialBuilder, Retryable};
-use core::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -62,18 +61,13 @@ pub async fn get_host_machine_id(
 ) -> Result<Option<MachineId>, eyre::Error> {
     // Try to get interface id from the agent config, otherwise try the periodic config fetcher.
     let interface_id_option = match agent_config.machine.interface_id {
-        Some(id) => Some(id.to_string()),
+        Some(id) => Some(id.into()),
         None => fetcher.get_host_machine_interface_id(),
     };
 
     if let Some(interface_id) = interface_id_option {
         let mut client = create_forge_client(forge_api, &forge_client_config).await?;
-
-        let interface = get_interface(
-            &mut client,
-            MachineInterfaceId::from_str(&interface_id)?,
-        ).await?;
-
+        let interface = get_interface(&mut client, interface_id).await?;
         return Ok(interface.machine_id);
     }
 
