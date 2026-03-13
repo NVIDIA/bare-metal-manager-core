@@ -15,9 +15,6 @@
  * limitations under the License.
  */
 
-use std::fs;
-use std::io::ErrorKind;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -80,13 +77,7 @@ impl MainLoop {
             key_path: self.agent_config.forge_system.client_key.clone(),
         };
 
-        let touch_file = Path::new("/tmp/otel-agent-reissue");
-
         loop {
-            run_if_touch_file(touch_file, || {
-                self.client_cert_renewer.renew_on_next_check();
-            });
-
             let result = self.run_single_iteration(&certs).await?;
             if result.stop {
                 return Ok(());
@@ -135,23 +126,5 @@ impl MainLoop {
 async fn notify_watchdog() {
     if let Err(err) = systemd::notify_watchdog().await {
         tracing::error!(error = format!("{err:#}"), "systemd::notify_watchdog");
-    }
-}
-
-fn run_if_touch_file<F>(touch_file: &Path, f: F)
-where
-    F: FnOnce(),
-{
-    if touch_file.is_file() {
-        f(); // run
-        // then delete the file
-        if let Err(e) = fs::remove_file(touch_file)
-            && e.kind() != ErrorKind::NotFound {
-                tracing::error!(
-                    path = %touch_file.display(),
-                    error = %e,
-                    "failed to remove touch file",
-                );
-            }
     }
 }
