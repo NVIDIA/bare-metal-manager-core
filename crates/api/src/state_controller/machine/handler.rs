@@ -974,7 +974,7 @@ impl MachineStateHandler {
 
             ManagedHostState::Ready => {
                 if let Some(outcome) = self
-                    .handle_scout_heartbeat_timeout(host_machine_id, mh_snapshot, ctx)
+                    .handle_scout_heartbeat_timeout(mh_snapshot, ctx)
                     .await?
                 {
                     return Ok(outcome);
@@ -1730,10 +1730,10 @@ impl MachineStateHandler {
 
     async fn handle_scout_heartbeat_timeout(
         &self,
-        host_machine_id: &MachineId,
         mh_snapshot: &ManagedHostStateSnapshot,
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     ) -> Result<Option<StateHandlerOutcome<ManagedHostState>>, StateHandlerError> {
+        let host_machine_id = &mh_snapshot.host_snapshot.id;
         let Some(last_scout_contact) = mh_snapshot.host_snapshot.last_scout_contact_time else {
             return Ok(None);
         };
