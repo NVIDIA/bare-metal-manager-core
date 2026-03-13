@@ -20,4 +20,6 @@
 //! Each submodule implements one command group (chassis, sdr, sel, etc.)
 //! using the [`IpmiTransport`](crate::transport::IpmiTransport) trait.
 
-// TODO: Phase 3+ — add command modules as they're implemented.
+pub mod chassis;
+pub mod mc;
+pub mod raw;
