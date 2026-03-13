@@ -481,12 +481,15 @@ impl MainLoop {
             dpu_extension_services: vec![],
         };
 
-        status_out.last_dhcp_requests =
-            fetch_last_dhcp_requests(self.options.dhcp_grpc_server.as_deref()).await;
-
         // `read` does not block
         match self.periodic_config_reader.net_conf_read() {
             Some(conf) => {
+                // DHCP server only runs on the primary dpu or when using the tenant network
+                if !conf.use_admin_network || conf.is_primary_dpu {
+                    status_out.last_dhcp_requests =
+                        fetch_last_dhcp_requests(self.options.dhcp_grpc_server.as_deref()).await;
+                }
+
                 let instance_data = self.periodic_config_reader.meta_data_conf_reader();
 
                 let proposed_routes: Vec<_> = conf
