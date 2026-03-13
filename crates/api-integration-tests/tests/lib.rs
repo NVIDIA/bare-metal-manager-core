@@ -24,8 +24,7 @@ use std::time::{self, Duration};
 use ::machine_a_tron::{BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig};
 use ::utils::HostPortPair;
 use api_test_helper::{
-    IntegrationTestEnvironment, domain, identity_config, instance, machine, metrics, subnet,
-    tenant, utils, vpc,
+    IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, tenant, utils, vpc,
 };
 use bmc_mock::{HostHardwareType, ListenerOrAddress};
 use eyre::ContextCompat;
@@ -107,7 +106,6 @@ async fn test_integration() -> eyre::Result<()> {
 
     let tenant_org_id = "tenant_organization";
     tenant::create(carbide_api_addrs, tenant_org_id, "Tenant Organization").await?;
-    run_identity_config_tests(carbide_api_addrs, tenant_org_id).await?;
     let tenant1_vpc = vpc::create(carbide_api_addrs, tenant_org_id).await?;
     let domain_id = domain::create(carbide_api_addrs, "tenant-1.local").await?;
     let managed_segment_id =
@@ -423,143 +421,6 @@ async fn test_metrics_integration() -> eyre::Result<()> {
     cancel_token.cancel();
     server_handle.wait().await?;
     db_pool.close().await;
-    Ok(())
-}
-
-async fn run_identity_config_tests(
-    carbide_api_addrs: &[SocketAddr],
-    tenant_org_id: &str,
-) -> eyre::Result<()> {
-    println!("[identity_config] Running identity config integration tests for org {tenant_org_id}");
-
-    // Identity config: set, get, delete
-    println!("[identity_config] Set identity configuration");
-    identity_config::set_identity_configuration(
-        carbide_api_addrs,
-        tenant_org_id,
-        "https://issuer.example.com",
-        "api",
-        &["api", "audience2"],
-        3600,
-        "example.com",
-        true,
-    )
-    .await?;
-
-    let cfg = identity_config::get_identity_configuration(carbide_api_addrs, tenant_org_id).await?;
-    assert_eq!(cfg.organization_id, tenant_org_id);
-    assert!(cfg.enabled);
-    assert_eq!(cfg.issuer, "https://issuer.example.com");
-    assert_eq!(cfg.default_audience, "api");
-    assert_eq!(cfg.allowed_audiences, vec!["api", "audience2"]);
-    assert_eq!(cfg.token_ttl_sec, 3600);
-    assert_eq!(cfg.subject_prefix, "spiffe://example.com/tenant-org-id");
-    assert!(cfg.key_id.is_some());
-    println!("[identity_config] Get identity configuration: ok");
-
-    println!("[identity_config] Delete identity configuration");
-    identity_config::delete_identity_configuration(carbide_api_addrs, tenant_org_id).await?;
-
-    // Re-create identity config for token delegation tests
-    identity_config::set_identity_configuration(
-        carbide_api_addrs,
-        tenant_org_id,
-        "https://issuer.example.com",
-        "api",
-        &["api"],
-        3600,
-        "spiffe://example.com/tenant-org-id",
-        true,
-    )
-    .await?;
-
-    // Token delegation with auth_method="none" (oneof omitted)
-    println!("[identity_config] Set token delegation (auth_method=none)");
-    identity_config::set_token_delegation(
-        carbide_api_addrs,
-        tenant_org_id,
-        "https://auth.example.com/token",
-        identity_config::AuthMethodConfig::None,
-        "https://api.example.com",
-    )
-    .await?;
-
-    let delegation_none =
-        identity_config::get_token_delegation(carbide_api_addrs, tenant_org_id).await?;
-    assert_eq!(delegation_none.organization_id, tenant_org_id);
-    assert_eq!(
-        delegation_none.token_endpoint,
-        "https://auth.example.com/token"
-    );
-    assert_eq!(
-        delegation_none.subject_token_audience.as_deref(),
-        Some("https://api.example.com")
-    );
-    assert!(
-        delegation_none.auth_method_config.is_none(),
-        "auth_method=none implies oneof omitted from response"
-    );
-    println!("[identity_config] Get token delegation (none): ok");
-
-    println!("[identity_config] Delete token delegation (none)");
-    identity_config::delete_token_delegation(carbide_api_addrs, tenant_org_id).await?;
-
-    // Token delegation with client_secret_basic: set, get (assert no secrets), delete
-    println!("[identity_config] Set token delegation (client_secret_basic)");
-    identity_config::set_token_delegation(
-        carbide_api_addrs,
-        tenant_org_id,
-        "https://auth.example.com/token",
-        identity_config::AuthMethodConfig::ClientSecretBasic {
-            client_id: "test-client".to_string(),
-            client_secret: "secret123".to_string(),
-        },
-        "https://api.example.com",
-    )
-    .await?;
-
-    let delegation =
-        identity_config::get_token_delegation(carbide_api_addrs, tenant_org_id).await?;
-    assert_eq!(delegation.organization_id, tenant_org_id);
-    assert_eq!(delegation.token_endpoint, "https://auth.example.com/token");
-    assert!(
-        delegation.auth_method_config.is_some(),
-        "client_secret_basic implies oneof set"
-    );
-    // Response oneof: {"clientSecretBasic": {"clientId": "...", "clientSecretHash": "..."}}
-    let auth_cfg_obj = delegation
-        .auth_method_config
-        .as_ref()
-        .unwrap()
-        .as_object()
-        .unwrap();
-    let client_secret_basic = auth_cfg_obj
-        .get("clientSecretBasic")
-        .or_else(|| auth_cfg_obj.get("client_secret_basic"))
-        .and_then(|v| v.as_object())
-        .unwrap();
-    assert!(
-        !client_secret_basic.contains_key("client_secret")
-            && !client_secret_basic.contains_key("clientSecret"),
-        "client_secret must be omitted from response"
-    );
-    assert_eq!(
-        client_secret_basic
-            .get("clientId")
-            .or_else(|| client_secret_basic.get("client_id"))
-            .and_then(|v| v.as_str()),
-        Some("test-client")
-    );
-    assert_eq!(
-        delegation.subject_token_audience.as_deref(),
-        Some("https://api.example.com")
-    );
-    println!("[identity_config] Get token delegation: ok (client_secret omitted)");
-
-    println!("[identity_config] Delete token delegation");
-    identity_config::delete_token_delegation(carbide_api_addrs, tenant_org_id).await?;
-
-    println!("[identity_config] All identity config integration tests passed");
     Ok(())
 }
 

@@ -877,19 +877,13 @@ message IdentityConfigRequest {
 
 message IdentityConfigResponse {
   string organization_id = 1;
-  bool enabled = 2;
-  string issuer = 3;
-  string default_audience = 4;
-  repeated string allowed_audiences = 5;
-  uint32 token_ttl_sec = 6;
-  string subject_prefix = 7;
+  IdentityConfig config = 2;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp updated_at = 9;
   string key_id = 10;
 }
 
 // Token delegation config (per-org token exchange for machine identity).
-// auth_method_config: strongly-typed oneof per auth method.
 // The structure used when CREATING or UPDATING a secret
 message ClientSecretBasic {
   string client_id = 1;

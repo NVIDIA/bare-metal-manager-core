@@ -21,14 +21,15 @@
 
 use ::rpc::Timestamp;
 use ::rpc::forge::{
-    ClientSecretBasicResponse, GetIdentityConfigRequest, GetTokenDelegationRequest,
-    IdentityConfigRequest, IdentityConfigResponse, TokenDelegationRequest, TokenDelegationResponse,
-    token_delegation, token_delegation_response,
+    ClientSecretBasic, ClientSecretBasicResponse, GetIdentityConfigRequest,
+    GetTokenDelegationRequest, IdentityConfig as ProtoIdentityConfig, IdentityConfigRequest,
+    IdentityConfigResponse, TokenDelegationRequest, TokenDelegationResponse, token_delegation,
+    token_delegation_response,
 };
 use db::{WithTransaction, tenant, tenant_identity_config};
 use model::tenant::{
-    IdentityConfig, IdentityConfigValidationError, InvalidTenantOrg, StoredClientSecretBasicConfig,
-    TenantOrganizationId, TokenDelegation, TokenDelegationValidationError,
+    IdentityConfig, IdentityConfigValidationError, InvalidTenantOrg, TenantOrganizationId,
+    TokenDelegation, TokenDelegationValidationError, compute_client_secret_hash,
 };
 use tonic::{Request, Response, Status};
 
@@ -82,14 +83,15 @@ fn truncate_hash_for_display(full_hash: &str) -> String {
 /// Only used when auth_method is "client_secret_basic"; for "none" the oneof is omitted.
 fn stored_to_response_auth_config(
     auth_method: &str,
-    stored: Option<&StoredClientSecretBasicConfig>,
+    stored: Option<&ClientSecretBasic>,
 ) -> Option<token_delegation_response::AuthMethodConfig> {
     match auth_method {
-        "client_secret_basic" => stored.map(|s| {
+        "client_secret_basic" => stored.filter(|s| !s.client_secret.is_empty()).map(|s| {
+            let hash = compute_client_secret_hash(&s.client_secret);
             token_delegation_response::AuthMethodConfig::ClientSecretBasic(
                 ClientSecretBasicResponse {
                     client_id: s.client_id.clone(),
-                    client_secret_hash: truncate_hash_for_display(&s.client_secret_hash),
+                    client_secret_hash: truncate_hash_for_display(&hash),
                 },
             )
         }),
@@ -141,12 +143,15 @@ pub(crate) async fn get_identity_configuration(
 
     Ok(Response::new(IdentityConfigResponse {
         organization_id: org_id_str,
-        enabled: cfg.enabled,
-        issuer: cfg.issuer,
-        default_audience: cfg.default_audience,
-        allowed_audiences: cfg.allowed_audiences.0.clone(),
-        token_ttl_sec: cfg.token_ttl_sec as u32,
-        subject_prefix: cfg.subject_prefix,
+        config: Some(ProtoIdentityConfig {
+            enabled: cfg.enabled,
+            issuer: cfg.issuer.clone(),
+            default_audience: cfg.default_audience.clone(),
+            allowed_audiences: cfg.allowed_audiences.0.clone(),
+            token_ttl_sec: cfg.token_ttl_sec as u32,
+            subject_prefix: cfg.subject_prefix.clone(),
+            rotate_key: false,
+        }),
         created_at: Some(Timestamp::from(cfg.created_at)),
         updated_at: Some(Timestamp::from(cfg.updated_at)),
         key_id: cfg.key_id,
@@ -219,7 +224,6 @@ pub(crate) async fn set_identity_configuration(
     let req = request.into_inner();
     let config: IdentityConfig = req
         .config
-        .as_ref()
         .ok_or_else(|| {
             Status::from(CarbideError::InvalidArgument(
                 "IdentityConfig is required".to_string(),
@@ -227,9 +231,9 @@ pub(crate) async fn set_identity_configuration(
         })
         .and_then(|c| {
             IdentityConfig::try_from_proto(
-                c.clone(),
+                c,
                 &model::tenant::IdentityConfigValidationBounds::from(
-                    &api.runtime_config.machine_identity,
+                    api.runtime_config.machine_identity.clone(),
                 ),
             )
             .map_err(|e: IdentityConfigValidationError| {
@@ -267,12 +271,15 @@ pub(crate) async fn set_identity_configuration(
 
     Ok(Response::new(IdentityConfigResponse {
         organization_id: org_id_str,
-        enabled: cfg.enabled,
-        issuer: cfg.issuer,
-        default_audience: cfg.default_audience,
-        allowed_audiences: cfg.allowed_audiences.0.clone(),
-        token_ttl_sec: cfg.token_ttl_sec as u32,
-        subject_prefix: cfg.subject_prefix,
+        config: Some(ProtoIdentityConfig {
+            enabled: cfg.enabled,
+            issuer: cfg.issuer.clone(),
+            default_audience: cfg.default_audience.clone(),
+            allowed_audiences: cfg.allowed_audiences.0.clone(),
+            token_ttl_sec: cfg.token_ttl_sec as u32,
+            subject_prefix: cfg.subject_prefix.clone(),
+            rotate_key: false,
+        }),
         created_at: Some(Timestamp::from(cfg.created_at)),
         updated_at: Some(Timestamp::from(cfg.updated_at)),
         key_id: cfg.key_id,
@@ -330,7 +337,7 @@ pub(crate) async fn get_token_delegation(
         }
     };
 
-    let stored: Option<StoredClientSecretBasicConfig> = cfg
+    let stored: Option<ClientSecretBasic> = cfg
         .encrypted_auth_method_config
         .as_ref()
         .and_then(|s| serde_json::from_str(s).ok());
@@ -416,7 +423,7 @@ pub(crate) async fn set_token_delegation(
         .await??;
 
     let auth_method = cfg.auth_method.as_deref().unwrap_or("");
-    let stored: Option<StoredClientSecretBasicConfig> = cfg
+    let stored: Option<ClientSecretBasic> = cfg
         .encrypted_auth_method_config
         .as_ref()
         .and_then(|s| serde_json::from_str(s).ok());
@@ -506,25 +513,22 @@ mod tests {
 
     #[test]
     fn test_stored_to_response_auth_config_client_secret_basic() {
-        let stored = super::StoredClientSecretBasicConfig {
+        let stored = super::ClientSecretBasic {
             client_id: "my-client".to_string(),
-            client_secret: Some("secret".to_string()),
-            client_secret_hash:
-                "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
-                    .to_string(),
+            client_secret: "secret".to_string(),
         };
         let out = stored_to_response_auth_config("client_secret_basic", Some(&stored)).unwrap();
         let AuthMethodConfig::ClientSecretBasic(c) = &out;
         assert_eq!(c.client_id, "my-client");
-        assert_eq!(c.client_secret_hash, "sha256:abcdef12..");
+        assert!(c.client_secret_hash.starts_with("sha256:"));
+        assert!(c.client_secret_hash.ends_with(".."));
     }
 
     #[test]
     fn test_stored_to_response_auth_config_omits_cleartext() {
-        let stored = super::StoredClientSecretBasicConfig {
+        let stored = super::ClientSecretBasic {
             client_id: "my-client".to_string(),
-            client_secret: Some("secret".to_string()),
-            client_secret_hash: "sha256:abcdef1234567890".to_string(),
+            client_secret: "secret".to_string(),
         };
         let out = stored_to_response_auth_config("client_secret_basic", Some(&stored)).unwrap();
         let AuthMethodConfig::ClientSecretBasic(c) = &out;
@@ -535,11 +539,20 @@ mod tests {
 
     #[test]
     fn test_stored_to_response_auth_config_unknown_returns_none() {
-        let stored = super::StoredClientSecretBasicConfig {
+        let stored = super::ClientSecretBasic {
             client_id: "x".to_string(),
-            client_secret: None,
-            client_secret_hash: "sha256:abc".to_string(),
+            client_secret: "secret".to_string(),
         };
         assert!(stored_to_response_auth_config("unknown_method", Some(&stored)).is_none());
+    }
+
+    #[test]
+    fn test_stored_to_response_auth_config_client_secret_empty_returns_none() {
+        // When client_secret is empty (e.g. legacy data), we cannot compute hash for display
+        let stored = super::ClientSecretBasic {
+            client_id: "x".to_string(),
+            client_secret: String::new(),
+        };
+        assert!(stored_to_response_auth_config("client_secret_basic", Some(&stored)).is_none());
     }
 }

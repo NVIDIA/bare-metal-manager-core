@@ -541,12 +541,12 @@ impl Default for MachineIdentityConfig {
     }
 }
 
-impl From<&MachineIdentityConfig> for model::tenant::IdentityConfigValidationBounds {
-    fn from(mi: &MachineIdentityConfig) -> Self {
+impl From<MachineIdentityConfig> for model::tenant::IdentityConfigValidationBounds {
+    fn from(mi: MachineIdentityConfig) -> Self {
         Self {
             token_ttl_min_sec: mi.token_ttl_min_sec,
             token_ttl_max_sec: mi.token_ttl_max_sec,
-            algorithm: mi.algorithm.clone(),
+            algorithm: mi.algorithm,
             master_key_id: "placeholder-master-key".to_string(),
         }
     }

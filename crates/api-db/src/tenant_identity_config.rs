@@ -18,36 +18,11 @@
 //! Tenant identity config for SPIFFE JWT-SVID machine identity.
 //! Stores per-org identity config and signing keys in `tenant_identity_config` table.
 
-use chrono::{DateTime, Utc};
-use model::tenant::{IdentityConfig, TenantOrganizationId, TokenDelegation};
+use model::tenant::{IdentityConfig, TenantIdentityConfig, TenantOrganizationId, TokenDelegation};
 use sqlx::PgConnection;
 use sqlx::types::Json;
 
 use crate::{DatabaseError, DatabaseResult};
-
-#[derive(Debug, sqlx::FromRow)]
-pub struct TenantIdentityConfig {
-    pub issuer: String,
-    pub default_audience: String,
-    pub allowed_audiences: Json<Vec<String>>,
-    pub token_ttl_sec: i32,
-    pub subject_prefix: String,
-    pub enabled: bool,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub encrypted_signing_key: String,
-    pub signing_key_public: String,
-    pub key_id: String,
-    pub algorithm: String,
-    pub master_key_id: String,
-    // Token delegation (optional)
-    pub token_endpoint: Option<String>,
-    pub auth_method: Option<String>,
-    /// Auth method config blob (TEXT). Stores JSON; not yet encrypted at rest.
-    pub encrypted_auth_method_config: Option<String>,
-    pub subject_token_audience: Option<String>,
-    pub token_delegation_created_at: Option<DateTime<Utc>>,
-}
 
 /// Set identity config for an org. On first create, generates a placeholder key.
 /// Caller must ensure tenant exists and global machine-identity is enabled.
@@ -273,11 +248,24 @@ mod tests {
         let cfg = set(&org_id, &config, &mut txn).await.unwrap();
         assert_eq!(cfg.issuer, "https://issuer.example.com");
         assert_eq!(cfg.default_audience, "api");
+        assert_eq!(cfg.allowed_audiences.0, ["api", "audience2"]);
         assert_eq!(cfg.token_ttl_sec, 3600);
+        assert_eq!(cfg.subject_prefix, "example.com");
+        assert!(cfg.enabled);
+        assert_eq!(cfg.algorithm, "ES256");
+        assert_eq!(cfg.master_key_id, "test-master");
         assert!(!cfg.key_id.is_empty());
 
         let found = find(&org_id, &mut txn).await.unwrap().unwrap();
         assert_eq!(found.issuer, cfg.issuer);
+        assert_eq!(found.default_audience, cfg.default_audience);
+        assert_eq!(found.allowed_audiences.0, cfg.allowed_audiences.0);
+        assert_eq!(found.token_ttl_sec, cfg.token_ttl_sec);
+        assert_eq!(found.subject_prefix, cfg.subject_prefix);
+        assert_eq!(found.enabled, cfg.enabled);
+        assert_eq!(found.algorithm, cfg.algorithm);
+        assert_eq!(found.master_key_id, cfg.master_key_id);
+        assert_eq!(found.key_id, cfg.key_id);
 
         let deleted = delete(&org_id, &mut txn).await.unwrap();
         assert!(deleted);

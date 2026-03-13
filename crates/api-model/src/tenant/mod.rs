@@ -20,6 +20,7 @@ use std::str::FromStr;
 
 use carbide_uuid::UuidConversionError;
 use carbide_uuid::instance::InstanceId;
+use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use itertools::Itertools;
 use rpc::errors::RpcDataConversionError;
@@ -27,6 +28,7 @@ use rpc::forge as rpc_forge;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use sqlx::postgres::PgRow;
+use sqlx::types::Json;
 use sqlx::{FromRow, Row};
 
 use crate::metadata::Metadata;
@@ -407,6 +409,32 @@ impl FromStr for TenantOrganizationId {
     }
 }
 
+/// Database row for tenant_identity_config table.
+/// Persisted identity config with signing keys and token delegation.
+#[derive(Debug, sqlx::FromRow)]
+pub struct TenantIdentityConfig {
+    pub issuer: String,
+    pub default_audience: String,
+    pub allowed_audiences: Json<Vec<String>>,
+    pub token_ttl_sec: i32,
+    pub subject_prefix: String,
+    pub enabled: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub encrypted_signing_key: String,
+    pub signing_key_public: String,
+    pub key_id: String,
+    pub algorithm: String,
+    pub master_key_id: String,
+    // Token delegation (optional)
+    pub token_endpoint: Option<String>,
+    pub auth_method: Option<String>,
+    /// Auth method config blob (TEXT). Stores JSON; not yet encrypted at rest.
+    pub encrypted_auth_method_config: Option<String>,
+    pub subject_token_audience: Option<String>,
+    pub token_delegation_created_at: Option<DateTime<Utc>>,
+}
+
 /// Settable fields for tenant identity config (SPIFFE JWT-SVID).
 /// Used as input to set identity configuration.
 #[derive(Debug, Clone)]
@@ -503,13 +531,10 @@ pub enum TokenDelegationAuthMethodConfig {
     },
 }
 
-/// Stored auth config for client_secret_basic. Serialized to DB blob.
-/// client_secret is stored for token exchange; client_secret_hash for display.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StoredClientSecretBasicConfig {
-    pub client_id: String,
-    pub client_secret: Option<String>,
-    pub client_secret_hash: String,
+/// Computes SHA256 hash of client_secret for display (e.g. in get_token_delegation response).
+pub fn compute_client_secret_hash(client_secret: &str) -> String {
+    let h = sha2::Sha256::digest(client_secret.as_bytes());
+    format!("sha256:{}", hex::encode(h))
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -525,14 +550,9 @@ impl TokenDelegation {
                 client_id,
                 client_secret,
             } => {
-                let hash = {
-                    let h = sha2::Sha256::digest(client_secret.as_bytes());
-                    format!("sha256:{}", hex::encode(h))
-                };
-                let stored = StoredClientSecretBasicConfig {
+                let stored = rpc_forge::ClientSecretBasic {
                     client_id: client_id.clone(),
-                    client_secret: Some(client_secret.clone()),
-                    client_secret_hash: hash,
+                    client_secret: client_secret.clone(),
                 };
                 let config_json =
                     serde_json::to_string(&stored).unwrap_or_else(|_| "{}".to_string());
@@ -693,14 +713,13 @@ mod tests {
         };
         let (auth_method, config_json) = config.to_db_format();
         assert_eq!(auth_method, "client_secret_basic");
-        let stored: StoredClientSecretBasicConfig = serde_json::from_str(&config_json).unwrap();
-        assert!(stored.client_secret_hash.starts_with("sha256:"));
-        assert_eq!(stored.client_secret_hash.len(), 7 + 64);
-        assert!(
-            stored.client_secret_hash[7..]
-                .chars()
-                .all(|c| c.is_ascii_hexdigit())
-        );
+        let stored: rpc_forge::ClientSecretBasic = serde_json::from_str(&config_json).unwrap();
+        assert_eq!(stored.client_id, "client");
+        assert_eq!(stored.client_secret, "secret");
+        // Hash is computed on the fly when retrieving
+        let hash = compute_client_secret_hash("secret");
+        assert!(hash.starts_with("sha256:"));
+        assert_eq!(hash.len(), 7 + 64);
     }
 
     #[test]

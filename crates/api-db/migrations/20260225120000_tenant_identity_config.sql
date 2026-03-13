@@ -13,7 +13,7 @@ CREATE TABLE tenant_identity_config (
     default_audience         VARCHAR(255) NOT NULL,
     allowed_audiences        JSONB NOT NULL,
     token_ttl_sec            INTEGER NOT NULL,
-    subject_prefix    VARCHAR(255) NOT NULL,
+    subject_prefix           VARCHAR(255) NOT NULL,
     enabled                  BOOLEAN NOT NULL DEFAULT TRUE,
     created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
