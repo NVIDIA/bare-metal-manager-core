@@ -24,6 +24,7 @@ authors.workspace = true
 [dependencies]
 async-trait = { workspace = true }
 carbide-uuid = { path = "../uuid" }
+mac_address = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
 thiserror = { workspace = true }

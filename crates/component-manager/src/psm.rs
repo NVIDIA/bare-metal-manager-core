@@ -1,16 +1,15 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::str::FromStr;
-
-use carbide_uuid::power_shelf::PowerShelfId;
+use mac_address::MacAddress;
 use tonic::transport::Channel;
 use tracing::instrument;
 
 use crate::config::BackendTlsConfig;
 use crate::error::ComponentManagerError;
 use crate::power_shelf_manager::{
-    FirmwareState, PowerShelfComponentResult, PowerShelfFirmwareUpdateStatus, PowerShelfManager,
+    FirmwareState, PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfFirmwareUpdateStatus,
+    PowerShelfManager, PowerShelfVendor,
 };
 use crate::proto::psm;
 use crate::types::PowerAction;
@@ -42,14 +41,69 @@ fn map_psm_fw_state(state: i32) -> FirmwareState {
     }
 }
 
-fn ids_to_strings(ids: &[PowerShelfId]) -> Vec<String> {
-    ids.iter().map(|id| id.to_string()).collect()
+fn parse_mac(s: &str) -> Result<MacAddress, ComponentManagerError> {
+    s.parse::<MacAddress>()
+        .map_err(|e| ComponentManagerError::Internal(format!("invalid MAC from backend: {e}")))
 }
 
-fn parse_power_shelf_id(s: &str) -> Result<PowerShelfId, ComponentManagerError> {
-    PowerShelfId::from_str(s).map_err(|e| {
-        ComponentManagerError::Internal(format!("invalid power shelf id from backend: {e}"))
-    })
+fn map_vendor(v: &PowerShelfVendor) -> i32 {
+    match v {
+        PowerShelfVendor::Unknown => psm::PmcVendor::PmcTypeUnknown as i32,
+        PowerShelfVendor::Liteon => psm::PmcVendor::PmcTypeLiteon as i32,
+    }
+}
+
+fn mac_strings(endpoints: &[PowerShelfEndpoint]) -> Vec<String> {
+    endpoints.iter().map(|ep| ep.pmc_mac.to_string()).collect()
+}
+
+/// Registers endpoints with PSM. PSM uses PMC MAC as its identifier, so
+/// registration is primarily about ensuring PSM knows about the device and
+/// has credentials.
+async fn register_with_psm(
+    client: &mut psm::powershelf_manager_client::PowershelfManagerClient<Channel>,
+    endpoints: &[PowerShelfEndpoint],
+) -> Result<(), ComponentManagerError> {
+    let reqs: Vec<psm::RegisterPowershelfRequest> = endpoints
+        .iter()
+        .map(|ep| psm::RegisterPowershelfRequest {
+            pmc_mac_address: ep.pmc_mac.to_string(),
+            pmc_ip_address: ep.pmc_ip.to_string(),
+            pmc_vendor: map_vendor(&ep.pmc_vendor),
+            pmc_credentials: None,
+        })
+        .collect();
+
+    let response = client
+        .register_powershelves(psm::RegisterPowershelvesRequest {
+            registration_requests: reqs,
+        })
+        .await?
+        .into_inner();
+
+    let failures: Vec<_> = response
+        .responses
+        .iter()
+        .filter(|r| r.status != psm::StatusCode::Success as i32)
+        .collect();
+
+    if failures.len() == endpoints.len() && !endpoints.is_empty() {
+        let errors: Vec<String> = failures.iter().map(|f| f.error.clone()).collect();
+        return Err(ComponentManagerError::Internal(format!(
+            "PSM registration failed for all power shelves: {}",
+            errors.join("; ")
+        )));
+    }
+
+    for f in &failures {
+        tracing::warn!(
+            pmc_mac = %f.pmc_mac_address,
+            error = %f.error,
+            "PSM registration failed for power shelf"
+        );
+    }
+
+    Ok(())
 }
 
 #[async_trait::async_trait]
@@ -61,12 +115,14 @@ impl PowerShelfManager for PsmPowerShelfBackend {
     #[instrument(skip(self), fields(backend = "psm"))]
     async fn power_control(
         &self,
-        ids: &[PowerShelfId],
+        endpoints: &[PowerShelfEndpoint],
         action: PowerAction,
     ) -> Result<Vec<PowerShelfComponentResult>, ComponentManagerError> {
-        let id_strings = ids_to_strings(ids);
+        register_with_psm(&mut self.client.clone(), endpoints).await?;
+
+        let pmc_macs = mac_strings(endpoints);
         let request = psm::PowershelfRequest {
-            pmc_macs: id_strings.clone(),
+            pmc_macs: pmc_macs.clone(),
         };
 
         let response = match action {
@@ -81,7 +137,7 @@ impl PowerShelfManager for PsmPowerShelfBackend {
                     .client
                     .clone()
                     .power_off(psm::PowershelfRequest {
-                        pmc_macs: id_strings.clone(),
+                        pmc_macs: pmc_macs.clone(),
                     })
                     .await?
                     .into_inner();
@@ -96,7 +152,7 @@ impl PowerShelfManager for PsmPowerShelfBackend {
                         .into_iter()
                         .map(|r| {
                             Ok(PowerShelfComponentResult {
-                                power_shelf_id: parse_power_shelf_id(&r.pmc_mac_address)?,
+                                pmc_mac: parse_mac(&r.pmc_mac_address)?,
                                 success: r.status == psm::StatusCode::Success as i32,
                                 error: if r.error.is_empty() {
                                     None
@@ -110,9 +166,7 @@ impl PowerShelfManager for PsmPowerShelfBackend {
 
                 self.client
                     .clone()
-                    .power_on(psm::PowershelfRequest {
-                        pmc_macs: id_strings,
-                    })
+                    .power_on(psm::PowershelfRequest { pmc_macs })
                     .await?
                     .into_inner()
             }
@@ -123,7 +177,7 @@ impl PowerShelfManager for PsmPowerShelfBackend {
             .into_iter()
             .map(|r| {
                 Ok(PowerShelfComponentResult {
-                    power_shelf_id: parse_power_shelf_id(&r.pmc_mac_address)?,
+                    pmc_mac: parse_mac(&r.pmc_mac_address)?,
                     success: r.status == psm::StatusCode::Success as i32,
                     error: if r.error.is_empty() {
                         None
@@ -138,14 +192,16 @@ impl PowerShelfManager for PsmPowerShelfBackend {
     #[instrument(skip(self), fields(backend = "psm"))]
     async fn update_firmware(
         &self,
-        ids: &[PowerShelfId],
+        endpoints: &[PowerShelfEndpoint],
         target_version: &str,
         components: &[String],
     ) -> Result<Vec<PowerShelfComponentResult>, ComponentManagerError> {
-        let upgrades = ids
+        register_with_psm(&mut self.client.clone(), endpoints).await?;
+
+        let upgrades = endpoints
             .iter()
-            .map(|id| {
-                let mac = id.to_string();
+            .map(|ep| {
+                let mac = ep.pmc_mac.to_string();
                 let component_reqs: Vec<psm::UpdateComponentFirmwareRequest> =
                     if components.is_empty() {
                         vec![
@@ -212,7 +268,7 @@ impl PowerShelfManager for PsmPowerShelfBackend {
                     .collect::<Vec<_>>()
                     .join("; ");
                 Ok(PowerShelfComponentResult {
-                    power_shelf_id: parse_power_shelf_id(&r.pmc_mac_address)?,
+                    pmc_mac: parse_mac(&r.pmc_mac_address)?,
                     success: !any_error,
                     error: if error_msg.is_empty() {
                         None
@@ -227,12 +283,14 @@ impl PowerShelfManager for PsmPowerShelfBackend {
     #[instrument(skip(self), fields(backend = "psm"))]
     async fn get_firmware_status(
         &self,
-        ids: &[PowerShelfId],
+        endpoints: &[PowerShelfEndpoint],
     ) -> Result<Vec<PowerShelfFirmwareUpdateStatus>, ComponentManagerError> {
-        let queries = ids
+        register_with_psm(&mut self.client.clone(), endpoints).await?;
+
+        let queries = endpoints
             .iter()
-            .flat_map(|id| {
-                let mac = id.to_string();
+            .flat_map(|ep| {
+                let mac = ep.pmc_mac.to_string();
                 vec![
                     psm::FirmwareUpdateQuery {
                         pmc_mac_address: mac.clone(),
@@ -260,7 +318,7 @@ impl PowerShelfManager for PsmPowerShelfBackend {
             .into_iter()
             .map(|s| {
                 Ok(PowerShelfFirmwareUpdateStatus {
-                    power_shelf_id: parse_power_shelf_id(&s.pmc_mac_address)?,
+                    pmc_mac: parse_mac(&s.pmc_mac_address)?,
                     state: map_psm_fw_state(s.state),
                     target_version: String::new(),
                     error: if s.error.is_empty() {
@@ -276,10 +334,12 @@ impl PowerShelfManager for PsmPowerShelfBackend {
     #[instrument(skip(self), fields(backend = "psm"))]
     async fn list_firmware(
         &self,
-        ids: &[PowerShelfId],
+        endpoints: &[PowerShelfEndpoint],
     ) -> Result<Vec<String>, ComponentManagerError> {
+        register_with_psm(&mut self.client.clone(), endpoints).await?;
+
         let request = psm::PowershelfRequest {
-            pmc_macs: ids_to_strings(ids),
+            pmc_macs: mac_strings(endpoints),
         };
 
         let response = self

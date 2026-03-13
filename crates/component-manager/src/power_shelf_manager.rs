@@ -2,22 +2,38 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::Debug;
+use std::net::IpAddr;
 
-use carbide_uuid::power_shelf::PowerShelfId;
+use mac_address::MacAddress;
 
 use crate::error::ComponentManagerError;
 use crate::types::PowerAction;
 
+/// Physical network identifiers for a power shelf, used to register with and
+/// operate against the backend service (PSM).
+#[derive(Debug, Clone)]
+pub struct PowerShelfEndpoint {
+    pub pmc_ip: IpAddr,
+    pub pmc_mac: MacAddress,
+    pub pmc_vendor: PowerShelfVendor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PowerShelfVendor {
+    Unknown,
+    Liteon,
+}
+
 #[derive(Debug, Clone)]
 pub struct PowerShelfComponentResult {
-    pub power_shelf_id: PowerShelfId,
+    pub pmc_mac: MacAddress,
     pub success: bool,
     pub error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct PowerShelfFirmwareUpdateStatus {
-    pub power_shelf_id: PowerShelfId,
+    pub pmc_mac: MacAddress,
     pub state: FirmwareState,
     pub target_version: String,
     pub error: Option<String>,
@@ -36,34 +52,33 @@ pub enum FirmwareState {
 
 /// Backend trait for power shelf management operations.
 ///
-/// Implementations translate between core domain types and the backend-specific
-/// wire protocol (e.g. PSM gRPC). Inventory is resolved in core via
-/// ID -> BMC IP and `FindExploredEndpointsByIds`; this trait does not expose
-/// inventory queries.
+/// Implementations receive physical endpoint information (PMC IP/MAC + vendor)
+/// and handle registration with the backend service internally. Results are
+/// keyed by `pmc_mac`.
 #[async_trait::async_trait]
 pub trait PowerShelfManager: Send + Sync + Debug + 'static {
     fn name(&self) -> &str;
 
     async fn power_control(
         &self,
-        ids: &[PowerShelfId],
+        endpoints: &[PowerShelfEndpoint],
         action: PowerAction,
     ) -> Result<Vec<PowerShelfComponentResult>, ComponentManagerError>;
 
     async fn update_firmware(
         &self,
-        ids: &[PowerShelfId],
+        endpoints: &[PowerShelfEndpoint],
         target_version: &str,
         components: &[String],
     ) -> Result<Vec<PowerShelfComponentResult>, ComponentManagerError>;
 
     async fn get_firmware_status(
         &self,
-        ids: &[PowerShelfId],
+        endpoints: &[PowerShelfEndpoint],
     ) -> Result<Vec<PowerShelfFirmwareUpdateStatus>, ComponentManagerError>;
 
     async fn list_firmware(
         &self,
-        ids: &[PowerShelfId],
+        endpoints: &[PowerShelfEndpoint],
     ) -> Result<Vec<String>, ComponentManagerError>;
 }
