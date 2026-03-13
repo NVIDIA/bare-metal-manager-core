@@ -816,6 +816,19 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
         tracing::info!("nv config apply: {stdout}");
     }
 
+    // Restart nl2doca
+    // This is a workaround for a bug in versions of HBN 3.2.0 and older that
+    // will sometimes lead to loss of connectivity when switch over to an L3 evpn overlay.
+    let stdout = super::hbn::run_in_container(
+        &container_id,
+        &["supervisorctl", "restart", "nl2doca"],
+        false,
+    )
+    .await?;
+    if !stdout.is_empty() {
+        tracing::info!("nl2doca restart: {stdout}");
+    }
+
     Ok(())
 }
 
