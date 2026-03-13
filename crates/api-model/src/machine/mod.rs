@@ -377,6 +377,34 @@ impl ManagedHostStateSnapshot {
             }
         }
 
+        if let Some(scout_override) = self
+            .host_snapshot
+            .health_report_overrides
+            .merges
+            .get_mut("scout")
+        {
+            for alert in scout_override
+                .alerts
+                .iter_mut()
+                .filter(|a| a.id == health_report::HealthProbeId::heartbeat_timeout())
+            {
+                if !host_health_config.prevent_allocations_on_scout_heartbeat_timeout {
+                    alert.classifications.retain(|c| {
+                        *c != health_report::HealthAlertClassification::prevent_allocations()
+                    });
+                }
+                if host_health_config.suppress_external_alerting_on_scout_heartbeat_timeout
+                    && !alert.classifications.contains(
+                        &health_report::HealthAlertClassification::suppress_external_alerting(),
+                    )
+                {
+                    alert.classifications.push(
+                        health_report::HealthAlertClassification::suppress_external_alerting(),
+                    );
+                }
+            }
+        }
+
         for (source, over) in self.host_snapshot.health_report_overrides.merges.iter_mut() {
             let merged_hardware = Self::merge_override_report_with_hw_health(
                 &mut output,
@@ -2819,6 +2847,14 @@ pub struct HostHealthConfig {
     /// Whether to fail health checks if a DPU agent version is stale
     #[serde(default)]
     pub prevent_allocations_on_stale_dpu_agent_version: bool,
+
+    /// Whether the scout heartbeat timeout alert should prevent allocations
+    #[serde(default)]
+    pub prevent_allocations_on_scout_heartbeat_timeout: bool,
+
+    /// Whether the scout heartbeat timeout alert should suppress external alerting
+    #[serde(default = "HostHealthConfig::default_suppress_ext_alert_on_scout_heartbeat")]
+    pub suppress_external_alerting_on_scout_heartbeat_timeout: bool,
 }
 
 /// As of now, chrono::Duration does not support Serialization, so we have to handle it manually.
@@ -2836,6 +2872,9 @@ impl Default for HostHealthConfig {
             dpu_agent_version_staleness_threshold:
                 Self::dpu_agent_version_staleness_threshold_default(),
             prevent_allocations_on_stale_dpu_agent_version: false,
+            prevent_allocations_on_scout_heartbeat_timeout: false,
+            suppress_external_alerting_on_scout_heartbeat_timeout:
+                Self::default_suppress_ext_alert_on_scout_heartbeat(),
         }
     }
 }
@@ -2843,6 +2882,10 @@ impl Default for HostHealthConfig {
 impl HostHealthConfig {
     pub fn dpu_agent_version_staleness_threshold_default() -> Duration {
         Duration::days(1)
+    }
+
+    fn default_suppress_ext_alert_on_scout_heartbeat() -> bool {
+        true
     }
 }
 

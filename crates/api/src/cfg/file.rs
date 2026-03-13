@@ -3303,6 +3303,16 @@ mod tests {
         );
 
         assert_eq!(
+            config.host_health,
+            HostHealthConfig {
+                hardware_health_reports: model::machine::HardwareHealthReportsConfig::Disabled,
+                dpu_agent_version_staleness_threshold: Duration::days(1),
+                prevent_allocations_on_stale_dpu_agent_version: true,
+                prevent_allocations_on_scout_heartbeat_timeout: true,
+                suppress_external_alerting_on_scout_heartbeat_timeout: false,
+            }
+        );
+        assert_eq!(
             config.machine_state_controller,
             MachineStateControllerConfig {
                 controller: StateControllerConfig {
@@ -3582,6 +3592,16 @@ mod tests {
             }
         );
 
+        assert_eq!(
+            config.host_health,
+            HostHealthConfig {
+                hardware_health_reports: model::machine::HardwareHealthReportsConfig::Disabled,
+                dpu_agent_version_staleness_threshold: Duration::days(1),
+                prevent_allocations_on_stale_dpu_agent_version: true,
+                prevent_allocations_on_scout_heartbeat_timeout: true,
+                suppress_external_alerting_on_scout_heartbeat_timeout: false,
+            }
+        );
         assert_eq!(
             config.machine_state_controller,
             MachineStateControllerConfig {

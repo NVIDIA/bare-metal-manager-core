@@ -772,6 +772,12 @@ pub async fn initialize_and_start_controllers(
                 prevent_allocations_on_stale_dpu_agent_version: carbide_config
                     .host_health
                     .prevent_allocations_on_stale_dpu_agent_version,
+                prevent_allocations_on_scout_heartbeat_timeout: carbide_config
+                    .host_health
+                    .prevent_allocations_on_scout_heartbeat_timeout,
+                suppress_external_alerting_on_scout_heartbeat_timeout: carbide_config
+                    .host_health
+                    .suppress_external_alerting_on_scout_heartbeat_timeout,
             },
         }))
         .state_change_emitter(state_change_emitter)
