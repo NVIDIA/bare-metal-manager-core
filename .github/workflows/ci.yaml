@@ -443,6 +443,7 @@ jobs:
       push: ${{ !contains(github.ref, 'pull-request/') }}
       load: true
       tag_latest: false
+      timeout_minutes: 120
     secrets: inherit
 
   build-release-container-aarch64:

@@ -60,6 +60,11 @@ on:
         required: false
         default: false
         type: boolean
+      timeout_minutes:
+        description: 'Job timeout in minutes'
+        required: false
+        default: 360
+        type: number
     secrets:
       NVCR_USERNAME:
         description: "NVIDIA Container Registry username (typically '$oauthtoken')"
@@ -85,6 +90,7 @@ on:
 jobs:
   build:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
     outputs:
       digest: ${{ steps.build.outputs.digest }}
       image_tag: ${{ inputs.image_tag }}
