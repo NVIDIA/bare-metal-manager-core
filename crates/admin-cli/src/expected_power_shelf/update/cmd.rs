@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use ::rpc::admin_cli::CarbideCliError;
+
 use super::args::Args;
 use crate::metadata::parse_rpc_labels;
 use crate::rpc::ApiClient;
@@ -29,16 +31,55 @@ pub async fn update(data: Args, api_client: &ApiClient) -> color_eyre::Result<()
         description: data.meta_description.unwrap_or_default(),
         labels: parse_rpc_labels(data.labels.unwrap_or_default()),
     };
+
+    let get_req = match (data.bmc_mac_address, data.id.map(|id| id.to_string())) {
+        (Some(_), Some(_)) => {
+            return Err(CarbideCliError::GenericError(
+                "Cannot specify both BMC MAC address and --id. Please provide only one."
+                    .to_string(),
+            )
+            .into());
+        }
+        (None, None) => {
+            return Err(CarbideCliError::GenericError(
+                "Must specify either a BMC MAC address or --id.".to_string(),
+            )
+            .into());
+        }
+        (_, Some(id)) => rpc::forge::ExpectedPowerShelfRequest {
+            bmc_mac_address: String::new(),
+            expected_power_shelf_id: Some(::rpc::common::Uuid { value: id }),
+        },
+        (Some(mac), None) => rpc::forge::ExpectedPowerShelfRequest {
+            bmc_mac_address: mac.to_string(),
+            expected_power_shelf_id: None,
+        },
+    };
+
+    let existing = api_client.0.get_expected_power_shelf(get_req).await?;
+    let mac_str = data
+        .bmc_mac_address
+        .map(|m| m.to_string())
+        .unwrap_or(existing.bmc_mac_address.clone());
+
+    let request = rpc::forge::ExpectedPowerShelf {
+        expected_power_shelf_id: existing.expected_power_shelf_id.clone(),
+        bmc_mac_address: mac_str,
+        bmc_username: data.bmc_username.unwrap_or(existing.bmc_username),
+        bmc_password: data.bmc_password.unwrap_or(existing.bmc_password),
+        shelf_serial_number: data
+            .shelf_serial_number
+            .unwrap_or(existing.shelf_serial_number),
+        metadata: Some(metadata),
+        ip_address: data.ip_address.unwrap_or(existing.ip_address),
+        rack_id: data.rack_id,
+    };
+
     api_client
-        .update_expected_power_shelf(
-            data.bmc_mac_address,
-            data.bmc_username,
-            data.bmc_password,
-            data.shelf_serial_number,
-            data.rack_id,
-            data.ip_address,
-            metadata,
-        )
-        .await?;
+        .0
+        .update_expected_power_shelf(request)
+        .await
+        .map_err(CarbideCliError::ApiInvocationError)?;
+
     Ok(())
 }

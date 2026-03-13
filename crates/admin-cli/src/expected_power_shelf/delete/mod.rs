@@ -26,10 +26,31 @@ use crate::cfg::runtime::RuntimeContext;
 
 impl Run for Args {
     async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
-        ctx.api_client
-            .0
-            .delete_expected_power_shelf(self.bmc_mac_address.to_string())
-            .await?;
+        let req = match (self.bmc_mac_address, self.id) {
+            (Some(_), Some(_)) => {
+                return Err(::rpc::admin_cli::CarbideCliError::GenericError(
+                    "Cannot specify both BMC MAC address and --id. Please provide only one."
+                        .to_string(),
+                ));
+            }
+            (None, None) => {
+                return Err(::rpc::admin_cli::CarbideCliError::GenericError(
+                    "Must specify either a BMC MAC address or --id.".to_string(),
+                ));
+            }
+            (None, Some(id)) => rpc::forge::ExpectedPowerShelfRequest {
+                bmc_mac_address: String::new(),
+                expected_power_shelf_id: Some(::rpc::common::Uuid {
+                    value: id.to_string(),
+                }),
+            },
+            (Some(mac), None) => rpc::forge::ExpectedPowerShelfRequest {
+                bmc_mac_address: mac.to_string(),
+                expected_power_shelf_id: None,
+            },
+        };
+
+        ctx.api_client.0.delete_expected_power_shelf(req).await?;
         Ok(())
     }
 }

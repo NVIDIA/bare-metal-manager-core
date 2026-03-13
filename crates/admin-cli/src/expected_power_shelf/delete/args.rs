@@ -17,9 +17,13 @@
 
 use clap::Parser;
 use mac_address::MacAddress;
+use uuid::Uuid;
 
 #[derive(Parser, Debug)]
 pub struct Args {
     #[clap(help = "BMC MAC address of expected power shelf to delete.")]
-    pub bmc_mac_address: MacAddress,
+    pub bmc_mac_address: Option<MacAddress>,
+
+    #[clap(long, help = "ID (UUID) of the expected power shelf to delete.")]
+    pub id: Option<Uuid>,
 }

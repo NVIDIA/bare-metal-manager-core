@@ -17,12 +17,11 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use carbide_uuid::rack::RackId;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::expected_switch::{ExpectedSwitch, LinkedExpectedSwitch};
-use model::metadata::Metadata;
 use sqlx::PgConnection;
+use uuid::Uuid;
 
 use crate::{DatabaseError, DatabaseResult};
 
@@ -34,6 +33,18 @@ pub async fn find_by_bmc_mac_address(
     let sql = "SELECT * FROM expected_switches WHERE bmc_mac_address=$1";
     sqlx::query_as(sql)
         .bind(bmc_mac_address)
+        .fetch_optional(txn)
+        .await
+        .map_err(|err| DatabaseError::query(sql, err))
+}
+
+pub async fn find_by_id(
+    txn: &mut PgConnection,
+    id: Uuid,
+) -> Result<Option<ExpectedSwitch>, DatabaseError> {
+    let sql = "SELECT * FROM expected_switches WHERE expected_switch_id=$1";
+    sqlx::query_as(sql)
+        .bind(id)
         .fetch_optional(txn)
         .await
         .map_err(|err| DatabaseError::query(sql, err))
@@ -95,7 +106,8 @@ pub async fn find_all_linked(txn: &mut PgConnection) -> DatabaseResult<Vec<Linke
   SELECT
   es.serial_number,
   es.bmc_mac_address,
-  s.id AS switch_id
+  s.id AS switch_id,
+  es.expected_switch_id
  FROM expected_switches es
   LEFT JOIN switches s ON es.serial_number = s.config->>'name'
   ORDER BY es.bmc_mac_address
@@ -113,7 +125,8 @@ pub async fn find_one_linked(
   SELECT
   es.serial_number,
   es.bmc_mac_address,
-  s.id AS switch_id
+  s.id AS switch_id,
+  es.expected_switch_id
  FROM expected_switches es
   LEFT JOIN switches s ON es.serial_number = s.config->>'name'
   ORDER BY es.bmc_mac_address
@@ -125,39 +138,35 @@ pub async fn find_one_linked(
         .map_err(|err| DatabaseError::query(sql, err))
 }
 
-#[allow(clippy::too_many_arguments)]
+/// create inserts a new expected switch record. If the id field is None,
+/// a new UUID is generated.
 pub async fn create(
     txn: &mut PgConnection,
-    bmc_mac_address: MacAddress,
-    bmc_username: String,
-    bmc_password: String,
-    serial_number: String,
-    metadata: Metadata,
-    rack_id: Option<RackId>,
-    nvos_username: Option<String>,
-    nvos_password: Option<String>,
+    switch: ExpectedSwitch,
 ) -> DatabaseResult<ExpectedSwitch> {
+    let id = switch.expected_switch_id.unwrap_or_else(Uuid::new_v4);
     let query = "INSERT INTO expected_switches
-             (bmc_mac_address, bmc_username, bmc_password, serial_number, metadata_name, metadata_description, rack_id, metadata_labels, nvos_username, nvos_password)
+             (expected_switch_id, bmc_mac_address, bmc_username, bmc_password, serial_number, metadata_name, metadata_description, rack_id, metadata_labels, nvos_username, nvos_password)
              VALUES
-             ($1::macaddr, $2::varchar, $3::varchar, $4::varchar, $5::varchar, $6::varchar, $7::varchar, $8::jsonb, $9::varchar, $10::varchar) RETURNING *";
+             ($1::uuid, $2::macaddr, $3::varchar, $4::varchar, $5::varchar, $6::varchar, $7::varchar, $8::varchar, $9::jsonb, $10::varchar, $11::varchar) RETURNING *";
 
     sqlx::query_as(query)
-        .bind(bmc_mac_address)
-        .bind(bmc_username)
-        .bind(bmc_password)
-        .bind(serial_number)
-        .bind(metadata.name)
-        .bind(metadata.description)
-        .bind(rack_id)
-        .bind(sqlx::types::Json(metadata.labels))
-        .bind(nvos_username)
-        .bind(nvos_password)
+        .bind(id)
+        .bind(switch.bmc_mac_address)
+        .bind(&switch.bmc_username)
+        .bind(&switch.bmc_password)
+        .bind(&switch.serial_number)
+        .bind(&switch.metadata.name)
+        .bind(&switch.metadata.description)
+        .bind(switch.rack_id)
+        .bind(sqlx::types::Json(&switch.metadata.labels))
+        .bind(&switch.nvos_username)
+        .bind(&switch.nvos_password)
         .fetch_one(txn)
         .await
         .map_err(|err: sqlx::Error| match err {
             sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => {
-                DatabaseError::ExpectedHostDuplicateMacAddress(bmc_mac_address)
+                DatabaseError::ExpectedHostDuplicateMacAddress(switch.bmc_mac_address)
             }
             _ => DatabaseError::query(query, err),
         })
@@ -182,6 +191,25 @@ pub async fn delete(bmc_mac_address: MacAddress, txn: &mut PgConnection) -> Data
     Ok(())
 }
 
+pub async fn delete_by_id(id: Uuid, txn: &mut PgConnection) -> DatabaseResult<()> {
+    let query = "DELETE FROM expected_switches WHERE expected_switch_id=$1";
+
+    let result = sqlx::query(query)
+        .bind(id)
+        .execute(txn)
+        .await
+        .map_err(|err| DatabaseError::query(query, err))?;
+
+    if result.rows_affected() == 0 {
+        return Err(DatabaseError::NotFoundError {
+            kind: "expected_switch",
+            id: id.to_string(),
+        });
+    }
+
+    Ok(())
+}
+
 pub async fn clear(txn: &mut PgConnection) -> Result<(), DatabaseError> {
     let query = "DELETE FROM expected_switches";
 
@@ -192,47 +220,55 @@ pub async fn clear(txn: &mut PgConnection) -> Result<(), DatabaseError> {
         .map_err(|err| DatabaseError::query(query, err))
 }
 
-#[allow(clippy::too_many_arguments)]
-pub async fn update<'a>(
-    expected_switch: &'a mut ExpectedSwitch,
-    txn: &mut PgConnection,
-    bmc_username: String,
-    bmc_password: String,
-    serial_number: String,
-    metadata: Metadata,
-    rack_id: Option<RackId>,
-    nvos_username: Option<String>,
-    nvos_password: Option<String>,
-) -> DatabaseResult<&'a mut ExpectedSwitch> {
-    let query = "UPDATE expected_switches SET bmc_username=$1, bmc_password=$2, serial_number=$3, metadata_name=$4, metadata_description=$5, metadata_labels=$6, rack_id=$7 , nvos_username=$8, nvos_password=$9 WHERE bmc_mac_address=$10 RETURNING bmc_mac_address";
+/// update updates an existing expected switch. If expected_switch_id is set,
+/// it matches by ID. Otherwise it matches by bmc_mac_address.
+pub async fn update(txn: &mut PgConnection, switch: &ExpectedSwitch) -> DatabaseResult<()> {
+    let set_clause = "SET bmc_username=$1, bmc_password=$2, serial_number=$3, metadata_name=$4, metadata_description=$5, metadata_labels=$6, rack_id=$7, nvos_username=$8, nvos_password=$9";
 
-    let _: () = sqlx::query_as(query)
-        .bind(&bmc_username)
-        .bind(&bmc_password)
-        .bind(&serial_number)
-        .bind(&metadata.name)
-        .bind(&metadata.description)
-        .bind(sqlx::types::Json(&metadata.labels))
-        .bind(rack_id)
-        .bind(&nvos_username)
-        .bind(&nvos_password)
-        .bind(expected_switch.bmc_mac_address)
-        .fetch_one(txn)
-        .await
-        .map_err(|err: sqlx::Error| match err {
-            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
-                kind: "expected_switch",
-                id: expected_switch.bmc_mac_address.to_string(),
-            },
-            _ => DatabaseError::query(query, err),
-        })?;
+    let (result, error_id) = if let Some(id) = switch.expected_switch_id {
+        let query = format!("UPDATE expected_switches {set_clause} WHERE expected_switch_id=$10");
+        let r = sqlx::query(&query)
+            .bind(&switch.bmc_username)
+            .bind(&switch.bmc_password)
+            .bind(&switch.serial_number)
+            .bind(&switch.metadata.name)
+            .bind(&switch.metadata.description)
+            .bind(sqlx::types::Json(&switch.metadata.labels))
+            .bind(switch.rack_id)
+            .bind(&switch.nvos_username)
+            .bind(&switch.nvos_password)
+            .bind(id)
+            .execute(&mut *txn)
+            .await
+            .map_err(|err| DatabaseError::query(&query, err))?;
+        (r, id.to_string())
+    } else {
+        let query = format!("UPDATE expected_switches {set_clause} WHERE bmc_mac_address=$10");
+        let r = sqlx::query(&query)
+            .bind(&switch.bmc_username)
+            .bind(&switch.bmc_password)
+            .bind(&switch.serial_number)
+            .bind(&switch.metadata.name)
+            .bind(&switch.metadata.description)
+            .bind(sqlx::types::Json(&switch.metadata.labels))
+            .bind(switch.rack_id)
+            .bind(&switch.nvos_username)
+            .bind(&switch.nvos_password)
+            .bind(switch.bmc_mac_address)
+            .execute(&mut *txn)
+            .await
+            .map_err(|err| DatabaseError::query(&query, err))?;
+        (r, switch.bmc_mac_address.to_string())
+    };
 
-    expected_switch.serial_number = serial_number;
-    expected_switch.bmc_username = bmc_username;
-    expected_switch.bmc_password = bmc_password;
-    expected_switch.metadata = metadata;
-    expected_switch.rack_id = rack_id;
-    Ok(expected_switch)
+    if result.rows_affected() == 0 {
+        return Err(DatabaseError::NotFoundError {
+            kind: "expected_switch",
+            id: error_id,
+        });
+    }
+
+    Ok(())
 }
 
 /// fn will insert rows that are not currently present in DB for each expected_switch arg in list,
@@ -256,19 +292,7 @@ pub async fn create_missing_from(
             continue;
         }
 
-        let expected_switch = expected_switch.clone();
-        create(
-            txn,
-            expected_switch.bmc_mac_address,
-            expected_switch.bmc_username,
-            expected_switch.bmc_password,
-            expected_switch.serial_number,
-            expected_switch.metadata,
-            expected_switch.rack_id,
-            expected_switch.nvos_username,
-            expected_switch.nvos_password,
-        )
-        .await?;
+        create(txn, expected_switch.clone()).await?;
     }
 
     Ok(())

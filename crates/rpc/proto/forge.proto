@@ -1651,10 +1651,15 @@ message ExpectedPowerShelf {
   // Metadata that will automatically get associated with a newly created PowerShelf
   Metadata metadata = 6;
   optional common.RackId rack_id = 7;
+  // Unique identifier for the expected power shelf. When omitted, server generates one.
+  optional common.UUID expected_power_shelf_id = 8;
 }
 
 message ExpectedPowerShelfRequest {
   string bmc_mac_address = 1;
+  // Optional unique identifier for selecting an expected power shelf.
+  // If provided, server will use this to select the record.
+  optional common.UUID expected_power_shelf_id = 2;
 }
 
 message ExpectedPowerShelfList {
@@ -1669,6 +1674,7 @@ message LinkedExpectedPowerShelf {
   string shelf_serial_number = 1;
   string bmc_mac_address = 2; // from expected_power_shelves table
   optional common.PowerShelfId power_shelf_id = 3; // The power shelf
+  optional common.UUID expected_power_shelf_id = 4;
 }
 
 // Describe the desired configuration of a Switch
@@ -1771,10 +1777,15 @@ message ExpectedSwitch {
   optional common.RackId rack_id = 6;
   optional string nvos_username = 7;
   optional string nvos_password = 8;
+  // Unique identifier for the expected switch. When omitted, server generates one.
+  optional common.UUID expected_switch_id = 9;
 }
 
 message ExpectedSwitchRequest {
   string bmc_mac_address = 1;
+  // Optional unique identifier for selecting an expected switch.
+  // If provided, server will use this to select the record.
+  optional common.UUID expected_switch_id = 2;
 }
 
 message ExpectedSwitchList {
@@ -1789,6 +1800,7 @@ message LinkedExpectedSwitch {
   string switch_serial_number = 1;
   string bmc_mac_address = 2; // from expected_switches table
   optional common.SwitchId switch_id = 3; // The switch
+  optional common.UUID expected_switch_id = 4;
 }
 
 message IBFabricSearchFilter {

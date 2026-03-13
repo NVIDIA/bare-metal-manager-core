@@ -82,6 +82,7 @@ impl From<Args> for rpc::forge::ExpectedSwitch {
             labels,
         };
         Self {
+            expected_switch_id: None,
             bmc_mac_address: value.bmc_mac_address.to_string(),
             bmc_username: value.bmc_username,
             bmc_password: value.bmc_password,
