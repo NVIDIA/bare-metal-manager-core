@@ -148,18 +148,30 @@ script = '''
 set -e
 if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
 docker build -f ${REPO_ROOT}/dev/docker/Dockerfile.build-container-x86_64 -t carbide-build-x86_64 ${REPO_ROOT}/dev/docker
-echo "Image carbide-build-x86_64 built. Run: cargo make cargo-docker -- \"build -p carbide-admin-cli --release\""
+echo "Image carbide-build-x86_64 built. Run: cargo make cargo-docker -- build -p carbide-admin-cli --release"
+'''
+
+[tasks.build-cargo-docker-image-minimal]
+category = "Build"
+description = "Build minimal Cargo Docker image (Rust 1.90 + protoc). Quick (~2-5 min). Required once before cargo-docker-minimal for workspace builds (e.g. carbide-rpc)."
+workspace = false
+script = '''
+set -e
+docker build -f ${REPO_ROOT}/dev/docker/Dockerfile.cargo-docker-minimal -t carbide-build-minimal ${REPO_ROOT}/dev/docker
+echo "Image carbide-build-minimal built. Run: cargo make cargo-docker-minimal -- build -p carbide-admin-cli --release"
 '''
 
 [tasks.cargo-docker]
 category = "Build"
-description = "Run Cargo inside the carbide-build-x86_64 Docker container. Example: cargo make cargo-docker -- \"build -p carbide-admin-cli --release\" or \"test -p carbide-api ib_partition\""
+description = "Run Cargo inside the carbide-build-x86_64 Docker container. Requires build-cargo-docker-image first (slow on Apple Silicon). Pass cargo args after -- without extra quotes."
 workspace = false
 dependencies = ["check-cargo-home-set"]
 script = '''
 set -e
 if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
 CARGO_ARGS="${CARGO_MAKE_TASK_ARGS:-build -p carbide-admin-cli --release}"
+CARGO_ARGS="${CARGO_ARGS//;/ }"
+CARGO_ARGS="${CARGO_ARGS#-- }"
 docker run --rm \
   -v "${REPO_ROOT}":/code \
   -v "${CARGO_HOME}":/cargo \
@@ -167,6 +179,32 @@ docker run --rm \
   -u $(id -u):$(id -g) \
   -e CARGO_HOME=/cargo \
   carbide-build-x86_64 \
+  cargo ${CARGO_ARGS}
+'''
+
+[tasks.cargo-docker-minimal]
+category = "Build"
+description = "Run Cargo in minimal Linux image (Rust 1.90 + protoc). Requires build-cargo-docker-image-minimal once (~2-5 min). For DB tests set DATABASE_URL (use host.docker.internal, not localhost). Pass cargo args after -- without extra quotes."
+workspace = false
+dependencies = ["check-cargo-home-set"]
+script = '''
+set -e
+if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
+# cargo-make may join task args with semicolons; normalize to spaces and strip leading --
+CARGO_ARGS="${CARGO_MAKE_TASK_ARGS:-build -p carbide-admin-cli --release}"
+CARGO_ARGS="${CARGO_ARGS//;/ }"
+CARGO_ARGS="${CARGO_ARGS#-- }"
+# Pass DATABASE_URL into container so DB tests can connect (use host.docker.internal from Mac)
+DOCKER_EXTRA=
+[ -n "$DATABASE_URL" ] && DOCKER_EXTRA="-e DATABASE_URL=$DATABASE_URL"
+docker run --rm \
+  -v "${REPO_ROOT}":/code \
+  -v "${CARGO_HOME}":/cargo \
+  -w /code \
+  -u $(id -u):$(id -g) \
+  -e CARGO_HOME=/cargo \
+  $DOCKER_EXTRA \
+  carbide-build-minimal \
   cargo ${CARGO_ARGS}
 '''
 
