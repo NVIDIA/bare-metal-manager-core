@@ -80,6 +80,12 @@ spec:
                   key: FORGE_VAULT_PKI_MOUNT
             - name: VAULT_PKI_ROLE_NAME
               value: {{ .Values.env.VAULT_PKI_ROLE_NAME | quote }}
+            {{- if .Values.extraCredentialsSecret.enabled }}
+            - name: CARBIDE_CREDENTIALS_FILE_ENABLED
+              value: "true"
+            - name: CARBIDE_CREDENTIALS_FILE_PATH
+              value: "{{ .Values.extraCredentialsSecret.secretMountPath }}/{{ .Values.extraCredentialsSecret.secretKey }}"
+            {{- end }}
             - name: DATASTORE_USER
               valueFrom:
                 secretKeyRef:
@@ -146,6 +152,11 @@ spec:
             - name: firmware
               mountPath: "/opt/carbide/firmware"
               readOnly: true
+            {{- if .Values.extraCredentialsSecret.enabled }}
+            - name: extra-credentials
+              mountPath: "{{ .Values.extraCredentialsSecret.secretMountPath }}"
+              readOnly: true
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
@@ -165,3 +176,8 @@ spec:
             secretName: forge-roots
         - name: firmware
           emptyDir: {}
+        {{- if .Values.extraCredentialsSecret.enabled }}
+        - name: extra-credentials
+          secret:
+            secretName: {{ .Values.extraCredentialsSecret.secretName }}
+        {{- end }}
