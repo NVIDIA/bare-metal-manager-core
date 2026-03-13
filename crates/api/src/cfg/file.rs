@@ -470,6 +470,9 @@ pub struct CarbideConfig {
     /// ```
     #[serde(default)]
     pub supernic_firmware_profiles: HashMap<String, HashMap<String, FirmwareFlasherProfile>>,
+
+    #[serde(default)]
+    pub component_manager: Option<component_manager::config::ComponentManagerConfig>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
