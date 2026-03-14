@@ -32,7 +32,7 @@ use crate::bmc::client_pool::BmcPoolMetrics;
 use crate::bmc::connection_impl;
 use crate::bmc::connection_impl::{ipmi, ssh};
 use crate::bmc::message_proxy::{ToBmcMessage, ToFrontendMessage};
-use crate::bmc::vendor::{BmcVendor, BmcVendorDetectionError, SshBmcVendor};
+use crate::bmc::vendor::{BmcVendor, BmcVendorDetectionError, IpmiBmcVendor, SshBmcVendor};
 use crate::config::{Config, ConfigError};
 use crate::shutdown_handle::ShutdownHandle;
 
@@ -166,7 +166,7 @@ pub async fn lookup(
         .id
         .ok_or_else(|| LookupError::MachineMissingId { machine_id })?;
 
-    let bmc_vendor = if machine_id.machine_type().is_dpu() {
+    let mut bmc_vendor = if machine_id.machine_type().is_dpu() {
         BmcVendor::Ssh(SshBmcVendor::Dpu)
     } else {
         BmcVendor::detect_from_api_machine(&machine)
@@ -197,6 +197,39 @@ pub async fn lookup(
     let ip: IpAddr = ip.parse().map_err(|e| LookupError::InvalidBmcMetadata {
         reason: format!("Error parsing IP address {ip:?}: {e:?}"),
     })?;
+
+    // Some Lenovo platforms (for example HS350X V3) do not support SOL over SSH,
+    // so for those we switch to IPMI if site-explorer reports LenovoAMI.
+    // See: https://github.com/NVIDIA/bare-metal-manager-core/issues/528
+    if matches!(bmc_vendor, BmcVendor::Ssh(SshBmcVendor::Lenovo)) {
+        let request = rpc::site_explorer::ExploredEndpointsByIdsRequest {
+            endpoint_ids: vec![ip.to_string()],
+        };
+        let explored_endpoints = forge_api_client
+            .find_explored_endpoints_by_ids(request)
+            .await
+            .map(|response| response.endpoints)
+            .unwrap_or_else(|status| {
+                tracing::debug!(
+                    %machine_id,
+                    bmc_ip = %ip,
+                    ?status,
+                    "Could not query explored endpoint BMC vendor, falling back to DMI detection"
+                );
+                vec![]
+            });
+        let explored_endpoint_bmc_vendor = explored_endpoints
+            .into_iter()
+            .find(|endpoint| endpoint.address == ip.to_string())
+            .and_then(|endpoint| endpoint.report.and_then(|report| report.vendor));
+
+        if explored_endpoint_bmc_vendor
+            .as_deref()
+            .is_some_and(|vendor| vendor.eq_ignore_ascii_case("LenovoAMI"))
+        {
+            bmc_vendor = BmcVendor::Ipmi(IpmiBmcVendor::LenovoAmi);
+        }
+    }
 
     let port = match &bmc_vendor {
         BmcVendor::Ssh(ssh_bmc_vendor) => ssh_port
