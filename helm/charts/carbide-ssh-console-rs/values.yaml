@@ -51,9 +51,14 @@ readinessProbe:
   failureThreshold: 3
   successThreshold: 1
 
-## OpenTelemetry log collector sidecar (must be set by user)
+## OpenTelemetry Collector Contrib sidecar for shipping console logs to Loki.
+## This requires a separate image from the BMM core services.
+## Example: repository: otel/opentelemetry-collector-contrib, tag: "0.81.0"
 lokiLogCollector:
+  enabled: false
   image:
+    ## repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
+    ## tag: "0.81.0"
     repository: ""
     tag: ""
 
