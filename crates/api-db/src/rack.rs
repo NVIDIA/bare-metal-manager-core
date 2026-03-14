@@ -80,17 +80,13 @@ pub async fn create(
     expected_nvlink_switches: Vec<MacAddress>,
     expected_power_shelves: Vec<MacAddress>,
 ) -> DatabaseResult<Rack> {
-    if !expected_nvlink_switches.is_empty() {
-        return Err(DatabaseError::new(
-            "nvlink switch todo",
-            sqlx::error::Error::ColumnNotFound("nvlink_switch".to_string()),
-        ));
-    }
     let config = RackConfig {
         compute_trays: Vec::new(),
         power_shelves: Vec::new(),
         expected_compute_trays,
+        expected_switches: expected_nvlink_switches,
         expected_power_shelves,
+        rack_type_definition: None,
     };
     let controller_state = String::from("{\"state\":\"expected\"}");
     let controller_state_outcome = String::from("{}");
@@ -123,6 +119,75 @@ pub async fn update(
         .map_err(|e| DatabaseError::new(query, e))?;
 
     Ok(rack)
+}
+
+/// register_expected_switch registers an expected switch BMC (not NVOS) MAC
+/// to a rack's RackConfig, creating the rack if it doesn't exist.
+pub async fn register_expected_switch(
+    txn: &mut PgConnection,
+    rack_id: RackId,
+    bmc_mac_address: MacAddress,
+) -> DatabaseResult<()> {
+    match get(&mut *txn, rack_id).await {
+        Ok(rack) => {
+            let mut config = rack.config.clone();
+            if !config.expected_switches.contains(&bmc_mac_address) {
+                config.expected_switches.push(bmc_mac_address);
+                update(&mut *txn, rack_id, &config).await?;
+            }
+        }
+        Err(DatabaseError::NotFoundError { .. }) => {
+            create(&mut *txn, rack_id, vec![], vec![bmc_mac_address], vec![]).await?;
+        }
+        Err(e) => return Err(e),
+    }
+    Ok(())
+}
+
+/// register_expected_machine registers an expected machine BMC MAC to
+/// a rack's RackConfig, creating the rack if it doesn't exist.
+pub async fn register_expected_machine(
+    txn: &mut PgConnection,
+    rack_id: RackId,
+    bmc_mac_address: MacAddress,
+) -> DatabaseResult<()> {
+    match get(&mut *txn, rack_id).await {
+        Ok(rack) => {
+            let mut config = rack.config.clone();
+            if !config.expected_compute_trays.contains(&bmc_mac_address) {
+                config.expected_compute_trays.push(bmc_mac_address);
+                update(&mut *txn, rack_id, &config).await?;
+            }
+        }
+        Err(DatabaseError::NotFoundError { .. }) => {
+            create(&mut *txn, rack_id, vec![bmc_mac_address], vec![], vec![]).await?;
+        }
+        Err(e) => return Err(e),
+    }
+    Ok(())
+}
+
+/// register_expected_power_shelf registers an expected power shelf
+/// BMC MAC to a rack's RackConfig, creating the rack if it doesn't exist.
+pub async fn register_expected_power_shelf(
+    txn: &mut PgConnection,
+    rack_id: RackId,
+    bmc_mac_address: MacAddress,
+) -> DatabaseResult<()> {
+    match get(&mut *txn, rack_id).await {
+        Ok(rack) => {
+            let mut config = rack.config.clone();
+            if !config.expected_power_shelves.contains(&bmc_mac_address) {
+                config.expected_power_shelves.push(bmc_mac_address);
+                update(&mut *txn, rack_id, &config).await?;
+            }
+        }
+        Err(DatabaseError::NotFoundError { .. }) => {
+            create(&mut *txn, rack_id, vec![], vec![], vec![bmc_mac_address]).await?;
+        }
+        Err(e) => return Err(e),
+    }
+    Ok(())
 }
 
 pub async fn try_update_controller_state(

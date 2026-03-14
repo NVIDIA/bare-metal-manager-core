@@ -16,7 +16,7 @@
  */
 
 use ::rpc::forge as rpc;
-use db::{DatabaseError, expected_switch as db_expected_switch};
+use db::{DatabaseError, expected_switch as db_expected_switch, rack as db_rack};
 use mac_address::MacAddress;
 use tonic::{Request, Response, Status};
 
@@ -36,29 +36,31 @@ pub async fn add_expected_switch(
     let metadata = model::metadata::Metadata::try_from(metadata)
         .map_err(|e| Status::invalid_argument(format!("Invalid metadata: {}", e)))?;
 
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
+    let rack_id = expected_switch.rack_id;
+
+    let mut txn = api.txn_begin().await.map_err(CarbideError::from)?;
 
     db_expected_switch::create(
-        &mut txn,
+        txn.as_pgconn(),
         bmc_mac_address,
         expected_switch.bmc_username,
         expected_switch.bmc_password,
         expected_switch.switch_serial_number,
         metadata,
-        expected_switch.rack_id,
+        rack_id,
         expected_switch.nvos_username,
         expected_switch.nvos_password,
     )
     .await
-    .map_err(|e| Status::internal(format!("Failed to create expected switch: {}", e)))?;
+    .map_err(CarbideError::from)?;
 
-    txn.commit()
-        .await
-        .map_err(|e| Status::internal(format!("Failed to commit transaction: {}", e)))?;
+    if let Some(rack_id) = rack_id {
+        db_rack::register_expected_switch(txn.as_pgconn(), rack_id, bmc_mac_address)
+            .await
+            .map_err(CarbideError::from)?;
+    }
+
+    txn.commit().await.map_err(CarbideError::from)?;
 
     Ok(Response::new(()))
 }
@@ -102,39 +104,42 @@ pub async fn update_expected_switch(
     let metadata = model::metadata::Metadata::try_from(metadata)
         .map_err(|e| Status::invalid_argument(format!("Invalid metadata: {}", e)))?;
 
-    let mut txn = api
-        .database_connection
-        .begin()
-        .await
-        .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
+    let rack_id = expected_switch.rack_id;
 
-    let mut existing = db_expected_switch::find_by_bmc_mac_address(&mut txn, bmc_mac_address)
-        .await
-        .map_err(|e| Status::internal(format!("Failed to find expected switch: {}", e)))?
-        .ok_or_else(|| {
-            Status::not_found(format!(
-                "Expected switch with MAC address {} not found",
-                bmc_mac_address
-            ))
-        })?;
+    let mut txn = api.txn_begin().await.map_err(CarbideError::from)?;
+
+    let mut existing =
+        db_expected_switch::find_by_bmc_mac_address(txn.as_pgconn(), bmc_mac_address)
+            .await
+            .map_err(CarbideError::from)?
+            .ok_or_else(|| {
+                Status::not_found(format!(
+                    "Expected switch with MAC address {} not found",
+                    bmc_mac_address
+                ))
+            })?;
 
     db_expected_switch::update(
         &mut existing,
-        &mut txn,
+        txn.as_pgconn(),
         expected_switch.bmc_username,
         expected_switch.bmc_password,
         expected_switch.switch_serial_number,
         metadata,
-        expected_switch.rack_id,
+        rack_id,
         expected_switch.nvos_username,
         expected_switch.nvos_password,
     )
     .await
-    .map_err(|e| Status::internal(format!("Failed to update expected switch: {}", e)))?;
+    .map_err(CarbideError::from)?;
 
-    txn.commit()
-        .await
-        .map_err(|e| Status::internal(format!("Failed to commit transaction: {}", e)))?;
+    if let Some(rack_id) = rack_id {
+        db_rack::register_expected_switch(txn.as_pgconn(), rack_id, bmc_mac_address)
+            .await
+            .map_err(CarbideError::from)?;
+    }
+
+    txn.commit().await.map_err(CarbideError::from)?;
 
     Ok(Response::new(()))
 }

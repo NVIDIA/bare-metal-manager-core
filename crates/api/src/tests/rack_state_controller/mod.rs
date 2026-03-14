@@ -38,6 +38,7 @@ use crate::tests::common::api_fixtures::create_test_env;
 use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 
 mod fixtures;
+mod handler;
 use fixtures::rack::{mark_rack_as_deleted, set_rack_controller_state};
 
 #[derive(Debug, Default, Clone)]
@@ -125,6 +126,14 @@ async fn test_can_retrieve_rack_state_history(
             [0x01, 0x1A, 0x2B, 0x3C, 0x4D, 0x50],
             [0x01, 0x1A, 0x2B, 0x3C, 0x4D, 0x51],
         ])
+        .with_expected_switches(vec![[0x02, 0x1A, 0x2B, 0x3C, 0x4D, 0x50]])
+        .with_rack_type_definition(model::rack_type::RackTypeDefinition {
+            name: "NVL72".to_string(),
+            description: "Test rack type".to_string(),
+            expected_compute_trays: 2,
+            expected_switches: 1,
+            expected_power_shelves: 2,
+        })
         .persist(&mut txn)
         .await?;
 
