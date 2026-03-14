@@ -237,3 +237,25 @@ carbide-dhcp:
 ```
 
 Ensure that firewall rules and network policies allow traffic between Carbide services and the bare metal hosts on all required ports.
+
+---
+
+## 7. Loki (Optional — for SSH Console Log Shipping)
+
+The `carbide-ssh-console-rs` subchart includes an optional OpenTelemetry Collector Contrib sidecar that ships SSH console logs to Loki. This sidecar is **disabled by default** (`lokiLogCollector.enabled: false`).
+
+If you want console logs shipped to Loki, you must:
+
+1. Deploy a Loki instance reachable at `http://loki.loki.svc.cluster.local:3100` from the `forge-system` namespace (the default endpoint configured in `helm/charts/carbide-ssh-console-rs/files/otelcol-config.yaml`).
+2. Enable the sidecar and provide the collector image in your values such as:
+
+```yaml
+carbide-ssh-console-rs:
+  lokiLogCollector:
+    enabled: true
+    image:
+      repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
+      tag: "0.81.0"
+```
+
+If Loki is not deployed, leave `lokiLogCollector.enabled: false` (the default). The SSH console proxy will function normally without log shipping.

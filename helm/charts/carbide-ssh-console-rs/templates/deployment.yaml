@@ -57,8 +57,9 @@ spec:
               readOnly: true
             - name: console-logs
               mountPath: /var/log/consoles
+        {{ if .Values.lokiLogCollector.enabled }}
         - name: loki-log-collector
-          image: "{{ .Values.lokiLogCollector.image.repository }}:{{ .Values.lokiLogCollector.image.tag }}"
+          image: "{{ required "lokiLogCollector.image.repository is required when lokiLogCollector.enabled is true" .Values.lokiLogCollector.image.repository }}:{{ required "lokiLogCollector.image.tag is required when lokiLogCollector.enabled is true" .Values.lokiLogCollector.image.tag }}"
           imagePullPolicy: {{ .Values.global.image.pullPolicy }}
           args: ["--config=/etc/otelcol-contrib/config.yaml"]
           volumeMounts:
@@ -69,6 +70,7 @@ spec:
               mountPath: /var/log/consoles
             - name: otelcol-file-log-checkpoints
               mountPath: /var/lib/otelcol/filelog-checkpoints
+        {{ end }}
       volumes:
         - name: ssh-console-rs-config-files
           configMap:
@@ -86,8 +88,10 @@ spec:
             defaultMode: 0444
         - name: console-logs
           emptyDir: {}
+        {{ if .Values.lokiLogCollector.enabled }}
         - name: otelcol-file-log-checkpoints
           emptyDir: {}
         - name: otelcol-config
           configMap:
             name: ssh-console-rs-otelcol-config
+        {{ end }}

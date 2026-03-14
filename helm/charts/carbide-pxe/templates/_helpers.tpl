@@ -51,6 +51,7 @@ Certificate spec
 {{- define "carbide-pxe.certificateSpec" -}}
 duration: {{ .global.certificate.duration }}
 renewBefore: {{ .global.certificate.renewBefore }}
+commonName: {{ printf "%s.%s.svc.cluster.local" .cert.serviceName .namespace }}
 dnsNames:
   - {{ printf "%s.%s.svc.cluster.local" .cert.serviceName .namespace }}
   - {{ printf "%s.%s" .cert.serviceName .namespace }}
