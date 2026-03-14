@@ -22,7 +22,7 @@ use crate::{
     bmc_machine, boot_override, compute_allocation, credential, devenv, domain, dpa, dpu,
     dpu_remediation, expected_machines, expected_power_shelf, expected_switch, extension_service,
     firmware, generate_shell_complete, host, ib_partition, instance, instance_type, inventory, ip,
-    jump, machine, machine_interfaces, machine_validation, managed_host, mlx, network_devices,
+    jump, ipxe_template, machine, machine_interfaces, machine_validation, managed_host, mlx, network_devices,
     network_security_group, network_segment, nvl_logical_partition, nvl_partition, os_image, ping,
     power_shelf, rack, rack_firmware, redfish, resource_pool, rms, route_server, scout_stream, set,
     site_explorer, sku, ssh, switch, tenant, tenant_keyset, tpm_ca, trim_table, version, vpc,
@@ -241,6 +241,9 @@ pub enum CliCommand {
 
     #[clap(about = "Machine Validation", subcommand, visible_alias = "mv")]
     MachineValidation(machine_validation::Cmd),
+
+    #[clap(about = "iPXE template management", visible_alias = "ipxe-tmpl", subcommand)]
+    IpxeTemplate(ipxe_template::Cmd),
 
     #[clap(about = "OS catalog management", visible_alias = "os", subcommand)]
     OsImage(os_image::Cmd),
