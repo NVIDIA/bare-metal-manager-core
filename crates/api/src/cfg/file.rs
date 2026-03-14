@@ -323,6 +323,12 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub selected_profile: libredfish::BiosProfileType,
 
+    /// OEM manager attribute profiles applied during machine_setup.
+    /// Used for vendor-specific pre-ingestion fixes that must run before BMC lockdown.
+    /// Example: Dell R760 PSU Hot Spare disable (ServerPwr.1.PSRapidOn = Disabled).
+    #[serde(default)]
+    pub oem_manager_profiles: libredfish::BiosProfileVendor,
+
     /// DpaConfig refers to East West Ethernet (aka
     /// Cluster Interconnect Network) configuration
     #[serde(default)]
