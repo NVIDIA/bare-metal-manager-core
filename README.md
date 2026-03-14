@@ -11,8 +11,9 @@ building next generation AI Cloud offerings.
 ## Getting Started
 
 - Go to the [NVIDIA Bare Metal Manager overview](book/src/README.md) to get an overview of NVIDIA Bare Metal Manager architecture and capabilities.
-- Or jump to the [Site Setup guide](book/src/manuals/site-setup.md) to start setting up your site for NVIDIA Bare Metal Manager.
-- Or jump to the [Building Containers guide](book/src/manuals/building_bmm_containers.md) to see an overview for building the containers.
+- Follow the [End-to-End Installation Guide](book/src/manuals/installation-guide.md) for a complete walkthrough from cluster setup to first provisioned host.
+- Or jump to the [Site Setup guide](book/src/manuals/site-setup.md) for foundation service baselines and configuration.
+- Or jump to the [Building Containers guide](book/src/manuals/building_bmm_containers.md) to build and push all container images.
 
 ## Experimental Notice
 
