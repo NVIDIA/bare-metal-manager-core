@@ -23,13 +23,11 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
-use carbide_dpf::KubeImpl;
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
 use db::DatabaseError;
 use db::db_read::PgPoolReader;
-use db::machine::mark_machine_ingestion_done_with_dpf;
 use eyre::eyre;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
 use futures::TryFutureExt;
@@ -89,6 +87,7 @@ use crate::cfg::file::{
     BomValidationConfig, CarbideConfig, FirmwareConfig, MachineValidationConfig,
     PowerManagerOptions, TimePeriod,
 };
+use crate::dpf::DpfOperations;
 use crate::firmware_downloader::FirmwareDownloader;
 use crate::redfish::{
     self, host_power_control, host_power_control_with_location, set_host_uefi_password,
@@ -178,24 +177,6 @@ pub struct MachineStateHandler {
     enable_secure_boot: bool,
 }
 
-#[derive(Debug, Clone)]
-pub struct DpfConfig {
-    enabled: bool,
-    pub kube_client_provider: Arc<dyn KubeImpl>,
-}
-
-impl DpfConfig {
-    pub fn from(
-        config: crate::cfg::file::DpfConfig,
-        kube_client_provider: Arc<dyn KubeImpl>,
-    ) -> Self {
-        Self {
-            enabled: config.enabled,
-            kube_client_provider,
-        }
-    }
-}
-
 pub struct MachineStateHandlerBuilder {
     dpu_up_threshold: chrono::Duration,
     dpu_nic_firmware_initial_update_enabled: bool,
@@ -215,7 +196,7 @@ pub struct MachineStateHandlerBuilder {
     power_options_config: PowerOptionConfig,
     enable_secure_boot: bool,
     hgx_bmc_gpu_reboot_delay: chrono::Duration,
-    dpf_config: DpfConfig,
+    dpf_sdk: Option<Arc<dyn DpfOperations>>,
 }
 
 impl MachineStateHandlerBuilder {
@@ -252,15 +233,12 @@ impl MachineStateHandlerBuilder {
             },
             enable_secure_boot: false,
             hgx_bmc_gpu_reboot_delay: chrono::Duration::seconds(30),
-            dpf_config: DpfConfig {
-                enabled: false,
-                kube_client_provider: Arc::new(carbide_dpf::Production {}),
-            },
+            dpf_sdk: None,
         }
     }
 
-    pub fn dpf_config(mut self, dpf_config: DpfConfig) -> Self {
-        self.dpf_config = dpf_config;
+    pub fn dpf_sdk(mut self, dpf_sdk: Option<Arc<dyn DpfOperations>>) -> Self {
+        self.dpf_sdk = dpf_sdk;
         self
     }
 
@@ -419,7 +397,7 @@ impl MachineStateHandler {
                 builder.hardware_models.clone().unwrap_or_default(),
                 builder.reachability_params,
                 builder.enable_secure_boot,
-                builder.dpf_config.clone(),
+                builder.dpf_sdk.clone(),
             ),
             instance_handler: InstanceStateHandler::new(
                 builder.attestation_enabled,
@@ -428,7 +406,7 @@ impl MachineStateHandler {
                 host_upgrade.clone(),
                 builder.hardware_models.clone().unwrap_or_default(),
                 builder.enable_secure_boot,
-                builder.dpf_config.clone(),
+                builder.dpf_sdk.clone(),
             ),
             reachability_params: builder.reachability_params,
             host_upgrade,
@@ -1651,7 +1629,7 @@ impl MachineStateHandler {
                             dpu_snapshot,
                             ctx,
                             &self.dpu_handler.hardware_models,
-                            &self.dpu_handler.dpf_config,
+                            self.dpu_handler.dpf_sdk.as_deref(),
                         )
                         .await?
                     {
@@ -2634,7 +2612,7 @@ async fn handle_dpu_reprovision(
     dpu_snapshot: &Machine,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     hardware_models: &FirmwareConfig,
-    dpf_config: &DpfConfig,
+    dpf_sdk: Option<&dyn DpfOperations>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let dpu_machine_id = &dpu_snapshot.id;
     let reprovision_state = state
@@ -2647,16 +2625,12 @@ async fn handle_dpu_reprovision(
 
     match reprovision_state {
         ReprovisionState::DpfStates { substate } => {
-            dpf::handle_dpf_state_with_reprovision(
-                state,
-                dpu_snapshot,
-                substate,
-                ctx,
-                dpf_config,
-                reachability_params,
-                next_state_resolver,
-            )
-            .await
+            let dpf = dpf_sdk.ok_or_else(|| {
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "DPF reprovision state reached but DPF is not configured"
+                ))
+            })?;
+            dpf::handle_dpf_state(state, dpu_snapshot, substate, ctx, dpf).await
         }
         ReprovisionState::InstallDpuOs { substate } => {
             handle_bfb_install_state(
@@ -3209,7 +3183,7 @@ pub struct DpuMachineStateHandler {
     hardware_models: FirmwareConfig,
     reachability_params: ReachabilityParams,
     enable_secure_boot: bool,
-    pub dpf_config: DpfConfig,
+    pub dpf_sdk: Option<Arc<dyn DpfOperations>>,
 }
 
 impl DpuMachineStateHandler {
@@ -3218,14 +3192,14 @@ impl DpuMachineStateHandler {
         hardware_models: FirmwareConfig,
         reachability_params: ReachabilityParams,
         enable_secure_boot: bool,
-        dpf_config: DpfConfig,
+        dpf_sdk: Option<Arc<dyn DpfOperations>>,
     ) -> Self {
         DpuMachineStateHandler {
             dpu_nic_firmware_initial_update_enabled,
             hardware_models,
             reachability_params,
             enable_secure_boot,
-            dpf_config,
+            dpf_sdk,
         }
     }
 
@@ -3395,36 +3369,28 @@ impl DpuMachineStateHandler {
                     ));
                 }
 
-                // Checking dpf and updating state to start dpf based provisioing in this satte because this state works as a sync state as well.
-                let (next_state, txn_opt) =
-                    if dpf_based_dpu_provisioning_possible(state, self.dpf_config.enabled, false) {
-                        let mut txn = ctx.services.db_pool.begin().await?;
-                        mark_machine_ingestion_done_with_dpf(&mut txn, &state.host_snapshot.id)
-                            .await?;
-                        for dpu in state.dpu_snapshots.iter() {
-                            mark_machine_ingestion_done_with_dpf(&mut txn, &dpu.id).await?;
-                        }
-                        (
-                            DpuInitState::DpfStates {
-                                state: model::machine::DpfState::CreateDpuDevice,
-                            },
-                            Some(txn),
-                        )
-                    } else {
-                        //
-                        // Next just do a ForceRestart to netboot without secureboot.
-                        //
-                        // This will kick off the ARM OS install since we move to DPU/Init next.
-                        //
-                        for dpu_snapshot in &state.dpu_snapshots {
-                            handler_restart_dpu(dpu_snapshot, ctx).await?;
-                        }
-                        (DpuInitState::Init, None)
-                    };
+                if dpf_based_dpu_provisioning_possible(state, self.dpf_sdk.is_some(), false) {
+                    let mut txn = ctx.services.db_pool.begin().await?;
+                    db::machine::mark_machine_ingestion_done_with_dpf(
+                        &mut txn,
+                        &state.host_snapshot.id,
+                    )
+                    .await?;
 
+                    let next_state = DpuInitState::DpfStates {
+                        state: model::machine::DpfState::Provisioning,
+                    }
+                    .next_state_with_all_dpus_updated(&state.managed_state)?;
+
+                    return Ok(StateHandlerOutcome::transition(next_state).with_txn(txn));
+                }
+
+                for dpu_snapshot in &state.dpu_snapshots {
+                    handler_restart_dpu(dpu_snapshot, ctx).await?;
+                }
                 let next_state =
-                    next_state.next_state_with_all_dpus_updated(&state.managed_state)?;
-                Ok(StateHandlerOutcome::transition(next_state).with_txn_opt(txn_opt))
+                    DpuInitState::Init.next_state_with_all_dpus_updated(&state.managed_state)?;
+                Ok(StateHandlerOutcome::transition(next_state))
             }
         }
     }
@@ -3496,15 +3462,12 @@ impl DpuMachineStateHandler {
                 Ok(StateHandlerOutcome::transition(next_state))
             }
             DpuInitState::DpfStates { state: dpf_state } => {
-                dpf::handle_dpf_state(
-                    state,
-                    dpu_snapshot,
-                    dpf_state,
-                    ctx,
-                    &self.dpf_config,
-                    &self.reachability_params,
-                )
-                .await
+                let dpf_sdk = self.dpf_sdk.as_deref().ok_or_else(|| {
+                    StateHandlerError::GenericError(eyre::eyre!(
+                        "DPF state reached but DPF is not configured"
+                    ))
+                })?;
+                dpf::handle_dpf_state(state, dpu_snapshot, dpf_state, ctx, dpf_sdk).await
             }
             DpuInitState::WaitingForPlatformPowercycle {
                 substate: PerformPowerOperation::Off,
@@ -5192,7 +5155,7 @@ pub struct InstanceStateHandler {
     host_upgrade: Arc<HostUpgradeState>,
     hardware_models: FirmwareConfig,
     enable_secure_boot: bool,
-    dpf_config: DpfConfig,
+    dpf_sdk: Option<Arc<dyn DpfOperations>>,
 }
 
 impl InstanceStateHandler {
@@ -5204,7 +5167,7 @@ impl InstanceStateHandler {
         host_upgrade: Arc<HostUpgradeState>,
         hardware_models: FirmwareConfig,
         enable_secure_boot: bool,
-        dpf_config: DpfConfig,
+        dpf_sdk: Option<Arc<dyn DpfOperations>>,
     ) -> Self {
         InstanceStateHandler {
             attestation_enabled,
@@ -5213,7 +5176,7 @@ impl InstanceStateHandler {
             host_upgrade,
             hardware_models,
             enable_secure_boot,
-            dpf_config,
+            dpf_sdk,
         }
     }
 }
@@ -5940,7 +5903,7 @@ impl StateHandler for InstanceStateHandler {
                                 dpu_snapshot,
                                 ctx,
                                 &self.hardware_models,
-                                &self.dpf_config,
+                                self.dpf_sdk.as_deref(),
                             )
                             .await?
                         {

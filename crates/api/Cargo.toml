@@ -55,7 +55,7 @@ carbide-api-model = { path = "../api-model", default-features = false }
 carbide-api-db = { path = "../api-db", default-features = false }
 spancounter = { path = "../spancounter" }
 nras = { path = "../nras" }
-carbide-dpf = { path = "../dpf" }
+carbide-dpf-beta = { path = "../dpf-beta" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized
@@ -93,6 +93,13 @@ hyper-util = { workspace = true }
 ipnetwork = { workspace = true, features = ["serde"] }
 itertools = { workspace = true }
 jsonwebtoken = { features = ["rust_crypto"], workspace = true }
+k8s-openapi = { features = ["latest"], workspace = true }
+kube = { default-features = false, features = [
+  "runtime",
+  "derive",
+  "client",
+  "rustls-tls",
+], workspace = true }
 lazy_static = { workspace = true }
 libredfish = { workspace = true }
 librms = { workspace = true }
@@ -145,6 +152,7 @@ sqlx = { workspace = true, features = [
 ] }
 strum = { workspace = true }
 temp-dir = { workspace = true }
+tera = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
@@ -187,6 +195,7 @@ figment = { features = ["env", "test", "toml"], workspace = true }
 ctor = { workspace = true }
 lazy_static = { workspace = true }
 const_format = { workspace = true }
+mockall = { workspace = true }
 rcgen = { workspace = true }
 carbide-macros = { path = "../macros" }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
@@ -197,12 +206,6 @@ tower-test = { workspace = true }
 hyper = { features = ["client", "http1"], workspace = true }
 http = { workspace = true }
 once_cell = { workspace = true }
-kube = { default-features = false, features = [
-  "runtime",
-  "derive",
-  "client",
-  "rustls-tls",
-], workspace = true }
 
 [lints]
 workspace = true

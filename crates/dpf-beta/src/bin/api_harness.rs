@@ -21,8 +21,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use carbide_dpf::repository::{DpuRepository, K8sConfigRepository};
 use carbide_dpf::{
-    DpfError, DpfInitConfig, DpfSdk, DpuDeviceInfo, DpuNodeInfo, KubeRepository, NAMESPACE,
-    ServiceDefinition, dpu_node_name,
+    DpfError, DpfSdk, DpfSdkBuilder, DpuDeviceInfo, DpuNodeInfo, InitDpfResourcesConfig,
+    KubeRepository, NAMESPACE, ServiceDefinition, dpu_node_cr_name,
 };
 use clap::{Parser, Subcommand};
 use libredfish::model::BootProgressTypes;
@@ -125,7 +125,7 @@ enum Commands {
     GetPhase {
         #[arg(long)]
         device_name: String,
-        /// DPU node name (e.g. dpu-node-{node_id})
+        /// DPU node name (e.g. node-{node_id})
         #[arg(long)]
         node_name: String,
     },
@@ -134,7 +134,7 @@ enum Commands {
     DeleteDpu {
         #[arg(long)]
         device_name: String,
-        /// DPU node name (e.g. dpu-node-{node_id})
+        /// DPU node name (e.g. node-{node_id})
         #[arg(long)]
         node_name: String,
     },
@@ -143,14 +143,14 @@ enum Commands {
     ForceDeleteDpu {
         #[arg(long)]
         device_name: String,
-        /// DPU node name (e.g. dpu-node-{node_id})
+        /// DPU node name (e.g. node-{node_id})
         #[arg(long)]
         node_name: String,
     },
 
     /// Force delete a DPU node and all its DPU devices
     ForceDeleteNode {
-        /// DPU node name (e.g. dpu-node-{node_id})
+        /// DPU node name (e.g. node-{node_id})
         #[arg(long)]
         node_name: String,
     },
@@ -163,28 +163,28 @@ enum Commands {
 
     /// Delete a DPU node and associated resources
     DeleteNode {
-        /// DPU node name (e.g. dpu-node-{node_id})
+        /// DPU node name (e.g. node-{node_id})
         #[arg(long)]
         node_name: String,
     },
 
     /// Check if a DPU node is waiting for external reboot
     IsRebootRequired {
-        /// DPU node name (e.g. dpu-node-{node_id})
+        /// DPU node name (e.g. node-{node_id})
         #[arg(long)]
         node_name: String,
     },
 
     /// Clear the external reboot required annotation on a DPU node
     ClearReboot {
-        /// DPU node name (e.g. dpu-node-{node_id})
+        /// DPU node name (e.g. node-{node_id})
         #[arg(long)]
         node_name: String,
     },
 
     /// Release the maintenance hold on a DPU node
     ReleaseHold {
-        /// DPU node name (e.g. dpu-node-{node_id})
+        /// DPU node name (e.g. node-{node_id})
         #[arg(long)]
         node_name: String,
     },
@@ -383,7 +383,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cli = Cli::parse();
     let repo = KubeRepository::new().await?;
-    let sdk = Arc::new(DpfSdk::new(repo, cli.namespace.clone()));
+    let password_override = match &cli.command {
+        Commands::Provision { bmc_password, .. } => Some(bmc_password.as_str()),
+        _ => None,
+    };
+    let password = resolve_bmc_password(&repo, &cli.namespace, password_override).await?;
+    let sdk = Arc::new(
+        DpfSdkBuilder::new(repo, &cli.namespace, password)
+            .build_without_resources()
+            .await?,
+    );
 
     match cli.command {
         Commands::Provision {
@@ -402,7 +411,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             run_provisioning_flow(
                 sdk,
-                &cli.namespace,
                 &bfb_url,
                 &bmc_password,
                 &host_bmc_ip,
@@ -418,7 +426,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             device_name,
             timeout,
         } => {
-            let node_name = dpu_node_name(&device_name);
+            let node_name = dpu_node_cr_name(&device_name);
             run_reprovisioning_flow(
                 sdk,
                 &cli.namespace,
@@ -678,7 +686,6 @@ async fn monitor_until_ready(
 #[allow(clippy::too_many_arguments)]
 async fn run_provisioning_flow(
     sdk: Arc<DpfSdk<KubeRepository>>,
-    namespace: &str,
     bfb_url: &str,
     bmc_password: &str,
     host_bmc_ip: &str,
@@ -694,12 +701,11 @@ async fn run_provisioning_flow(
     tracing::info!(host = %host_bmc_ip, dpu_count = dpus.len(), timeout_secs, "Starting provisioning");
 
     tracing::info!("[1/4] Initializing DPF resources...");
-    let init_config = DpfInitConfig {
-        namespace: namespace.to_string(),
+    let init_config = InitDpfResourcesConfig {
         bfb_url: bfb_url.to_string(),
-        bmc_password: bmc_password.to_string(),
         deployment_name: "carbide-deployment".to_string(),
         services: services.to_vec(),
+        bfcfg_template: None,
     };
     sdk.create_initialization_objects(&init_config).await?;
     tracing::info!("BFB, DPUFlavor, and DPUDeployment created");
@@ -707,10 +713,12 @@ async fn run_provisioning_flow(
     tracing::info!("[2/4] Registering DPU devices...");
     for dpu in &dpus {
         let info = DpuDeviceInfo {
-            device_name: dpu.device_name.clone(),
+            device_id: dpu.device_name.clone(),
             dpu_bmc_ip: dpu.dpu_bmc_ip.clone(),
             host_bmc_ip: host_bmc_ip.to_string(),
             serial_number: dpu.serial_number.clone(),
+            host_machine_id: String::new(),
+            dpu_machine_id: String::new(),
         };
         sdk.register_dpu_device(info).await?;
         tracing::info!(device_name = %dpu.device_name, serial = %dpu.serial_number, "Registered device");
@@ -720,24 +728,23 @@ async fn run_provisioning_flow(
     let node_info = DpuNodeInfo {
         node_id: node_id.to_string(),
         host_bmc_ip: host_bmc_ip.to_string(),
-        dpu_device_names: dpus.iter().map(|d| d.device_name.clone()).collect(),
+        device_ids: dpus.iter().map(|d| d.device_name.clone()).collect(),
+        host_machine_id: String::new(),
     };
     sdk.register_dpu_node(node_info).await?;
     tracing::info!(dpu_count = dpus.len(), "Node registered");
 
-    let _node_name = dpu_node_name(node_id);
+    let _node_name = dpu_node_cr_name(node_id);
     tracing::info!(
         "[4/4] Monitoring DPU provisioning (maintenance -> release hold; reboot -> reboot + clear annotation)..."
     );
-    let repo = KubeRepository::new().await?;
-    let bmc_password = resolve_bmc_password(&repo, namespace, Some(bmc_password)).await?;
     let first_device = dpus
         .first()
         .map(|d| d.device_name.as_str())
         .ok_or("No DPUs registered on node")?;
 
     let elapsed =
-        monitor_until_ready(sdk, host_bmc_ip, &bmc_password, first_device, timeout).await?;
+        monitor_until_ready(sdk, host_bmc_ip, bmc_password, first_device, timeout).await?;
 
     tracing::info!(
         dpu_count = dpus.len(),
@@ -779,7 +786,7 @@ async fn wait_for_dpu_created_after(
     let watch_repo = repo.clone();
     let _watch_handle = tokio::spawn(async move {
         watch_repo
-            .watch(&namespace, move |dpu: Arc<DPU>| {
+            .watch(&namespace, None, move |dpu: Arc<DPU>| {
                 let name = dpu.metadata.name.as_deref().unwrap_or_default();
                 if dpu.spec.dpu_device_name != device_name {
                     tracing::debug!(
@@ -887,7 +894,7 @@ async fn run_cleanup(
 
     let node_name = device_names
         .first()
-        .map(|id| dpu_node_name(id))
+        .map(|id| dpu_node_cr_name(id))
         .ok_or("dpu_device_names must not be empty")?;
 
     tracing::info!("=== DPF Cleanup ===");
@@ -956,7 +963,7 @@ async fn show_status(
 
     // List DPU CRs (operator-created)
     tracing::info!("DPUs:");
-    let dpus = DpuRepository::list(&repo, namespace).await?;
+    let dpus = DpuRepository::list(&repo, namespace, None).await?;
     if dpus.is_empty() {
         tracing::info!("  (none)");
     }

@@ -30,8 +30,10 @@ use crate::crds::dpunodemaintenances_generated::*;
 use crate::crds::dpunodes_generated::*;
 use crate::crds::dpus_generated::*;
 use crate::error::DpfError;
-use crate::repository::{DpuNodeMaintenanceRepository, DpuNodeRepository, DpuRepository};
-use crate::sdk::{DpfSdk, HOLD_ANNOTATION, RESTART_ANNOTATION};
+use crate::repository::{
+    DpuNodeMaintenanceRepository, DpuNodeRepository, DpuRepository, K8sConfigRepository,
+};
+use crate::sdk::{DpfSdkBuilder, HOLD_ANNOTATION, RESTART_ANNOTATION};
 use crate::types::*;
 
 const TEST_NS: &str = "maintenance-flow-ns";
@@ -104,7 +106,7 @@ impl DpuRepository for MaintenanceFlowMock {
     async fn get(&self, _: &str, _: &str) -> Result<Option<DPU>, DpfError> {
         Ok(None)
     }
-    async fn list(&self, _: &str) -> Result<Vec<DPU>, DpfError> {
+    async fn list(&self, _: &str, _: Option<&str>) -> Result<Vec<DPU>, DpfError> {
         Ok(vec![])
     }
     async fn patch_status(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), DpfError> {
@@ -113,7 +115,12 @@ impl DpuRepository for MaintenanceFlowMock {
     async fn delete(&self, _: &str, _: &str) -> Result<(), DpfError> {
         Ok(())
     }
-    fn watch<F, Fut>(&self, _: &str, handler: F) -> impl Future<Output = ()> + Send + 'static
+    fn watch<F, Fut>(
+        &self,
+        _: &str,
+        _: Option<&str>,
+        handler: F,
+    ) -> impl Future<Output = ()> + Send + 'static
     where
         F: Fn(Arc<DPU>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<(), DpfError>> + Send + 'static,
@@ -197,6 +204,40 @@ impl DpuNodeMaintenanceRepository for MaintenanceFlowMock {
     }
 }
 
+#[async_trait]
+impl K8sConfigRepository for MaintenanceFlowMock {
+    async fn get_configmap(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> Result<Option<BTreeMap<String, String>>, DpfError> {
+        Ok(None)
+    }
+    async fn apply_configmap(
+        &self,
+        _: &str,
+        _: &str,
+        _: BTreeMap<String, String>,
+    ) -> Result<(), DpfError> {
+        Ok(())
+    }
+    async fn get_secret(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> Result<Option<BTreeMap<String, Vec<u8>>>, DpfError> {
+        Ok(None)
+    }
+    async fn create_secret(
+        &self,
+        _: &str,
+        _: &str,
+        _: BTreeMap<String, Vec<u8>>,
+    ) -> Result<(), DpfError> {
+        Ok(())
+    }
+}
+
 #[tokio::test]
 async fn test_node_effect_maintenance_then_ready() {
     let mock = MaintenanceFlowMock::new();
@@ -217,7 +258,10 @@ async fn test_node_effect_maintenance_then_ready() {
     };
     mock.insert_maintenance(&maint);
 
-    let sdk = DpfSdk::new(mock.clone(), TEST_NS);
+    let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NS, String::new())
+        .build_without_resources()
+        .await
+        .unwrap();
 
     let maint_events = Arc::new(Collector::<MaintenanceEvent>::default());
     let ready_events = Arc::new(Collector::<DpuReadyEvent>::default());
@@ -324,7 +368,10 @@ async fn test_reboot_then_node_effect_then_ready() {
     };
     mock.insert_maintenance(&maint);
 
-    let sdk = DpfSdk::new(mock.clone(), TEST_NS);
+    let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NS, String::new())
+        .build_without_resources()
+        .await
+        .unwrap();
 
     let reboot_events = Arc::new(Collector::<RebootRequiredEvent>::default());
     let maint_events = Arc::new(Collector::<MaintenanceEvent>::default());

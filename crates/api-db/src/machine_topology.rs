@@ -207,6 +207,18 @@ pub async fn find_machine_id_by_bmc_ip(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+pub async fn find_machine_id_by_bmc_mac(
+    txn: &mut PgConnection,
+    mac_address: mac_address::MacAddress,
+) -> Result<Option<MachineId>, DatabaseError> {
+    let query = "SELECT machine_id FROM machine_topologies WHERE topology->'bmc_info'->>'mac' = $1";
+    sqlx::query_as(query)
+        .bind(mac_address.to_string())
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 pub async fn find_machine_bmc_pairs(
     txn: impl DbReader<'_>,
     bmc_ips: Vec<String>,

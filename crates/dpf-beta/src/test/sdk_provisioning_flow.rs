@@ -28,8 +28,8 @@ use super::helpers::{Collector, make_dpu, make_dpu_reboot};
 use crate::crds::dpunodes_generated::*;
 use crate::crds::dpus_generated::*;
 use crate::error::DpfError;
-use crate::repository::{DpuNodeRepository, DpuRepository};
-use crate::sdk::{DpfSdk, RESTART_ANNOTATION};
+use crate::repository::{DpuNodeRepository, DpuRepository, K8sConfigRepository};
+use crate::sdk::{DpfSdkBuilder, RESTART_ANNOTATION};
 use crate::types::*;
 
 const TEST_NS: &str = "sdk-provisioning-ns";
@@ -89,7 +89,7 @@ impl DpuRepository for ProvisioningFlowMock {
     async fn get(&self, _: &str, _: &str) -> Result<Option<DPU>, DpfError> {
         Ok(None)
     }
-    async fn list(&self, _: &str) -> Result<Vec<DPU>, DpfError> {
+    async fn list(&self, _: &str, _: Option<&str>) -> Result<Vec<DPU>, DpfError> {
         Ok(vec![])
     }
     async fn patch_status(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), DpfError> {
@@ -98,7 +98,12 @@ impl DpuRepository for ProvisioningFlowMock {
     async fn delete(&self, _: &str, _: &str) -> Result<(), DpfError> {
         Ok(())
     }
-    fn watch<F, Fut>(&self, _: &str, handler: F) -> impl Future<Output = ()> + Send + 'static
+    fn watch<F, Fut>(
+        &self,
+        _: &str,
+        _: Option<&str>,
+        handler: F,
+    ) -> impl Future<Output = ()> + Send + 'static
     where
         F: Fn(Arc<DPU>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<(), DpfError>> + Send + 'static,
@@ -159,6 +164,40 @@ impl DpuNodeRepository for ProvisioningFlowMock {
     }
 }
 
+#[async_trait]
+impl K8sConfigRepository for ProvisioningFlowMock {
+    async fn get_configmap(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> Result<Option<BTreeMap<String, String>>, DpfError> {
+        Ok(None)
+    }
+    async fn apply_configmap(
+        &self,
+        _: &str,
+        _: &str,
+        _: BTreeMap<String, String>,
+    ) -> Result<(), DpfError> {
+        Ok(())
+    }
+    async fn get_secret(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> Result<Option<BTreeMap<String, Vec<u8>>>, DpfError> {
+        Ok(None)
+    }
+    async fn create_secret(
+        &self,
+        _: &str,
+        _: &str,
+        _: BTreeMap<String, Vec<u8>>,
+    ) -> Result<(), DpfError> {
+        Ok(())
+    }
+}
+
 #[tokio::test]
 async fn test_provisioning_flow_reboot_then_ready() {
     let mock = ProvisioningFlowMock::new();
@@ -180,7 +219,10 @@ async fn test_provisioning_flow_reboot_then_ready() {
     };
     mock.insert_node(&node);
 
-    let sdk = DpfSdk::new(mock.clone(), TEST_NS);
+    let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NS, String::new())
+        .build_without_resources()
+        .await
+        .unwrap();
 
     // Collect events
     let dpu_events = Arc::new(Collector::<DpuEvent>::default());
@@ -275,7 +317,10 @@ async fn test_pending_does_not_clear_annotation_external_clear_does() {
     };
     mock.insert_node(&node);
 
-    let sdk = DpfSdk::new(mock.clone(), TEST_NS);
+    let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NS, String::new())
+        .build_without_resources()
+        .await
+        .unwrap();
 
     let reboot_events = Arc::new(Collector::<RebootRequiredEvent>::default());
     let rbe = reboot_events.clone();

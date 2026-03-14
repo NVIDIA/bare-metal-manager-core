@@ -489,6 +489,20 @@ pub enum ComputeAllocationEnforcement {
 pub struct DpfConfig {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default)]
+    pub bfb_url: String,
+    #[serde(default)]
+    pub deployment_name: Option<String>,
+    #[serde(default)]
+    pub services: Option<Vec<DpfServiceConfig>>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DpfServiceConfig {
+    pub name: String,
+    pub helm_repo_url: String,
+    pub helm_chart: String,
+    pub helm_version: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

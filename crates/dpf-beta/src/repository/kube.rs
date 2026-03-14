@@ -115,9 +115,17 @@ impl DpuRepository for KubeRepository {
         Ok(api.get_opt(name).await?)
     }
 
-    async fn list(&self, namespace: &str) -> Result<Vec<DPU>, DpfError> {
+    async fn list(
+        &self,
+        namespace: &str,
+        label_selector: Option<&str>,
+    ) -> Result<Vec<DPU>, DpfError> {
         let api = self.api(namespace);
-        let list = api.list(&ListParams::default()).await?;
+        let params = match label_selector {
+            Some(sel) => ListParams::default().labels(sel),
+            None => ListParams::default(),
+        };
+        let list = api.list(&params).await?;
         Ok(list.items)
     }
 
@@ -142,6 +150,7 @@ impl DpuRepository for KubeRepository {
     fn watch<F, Fut>(
         &self,
         namespace: &str,
+        label_selector: Option<&str>,
         handler: F,
     ) -> impl Future<Output = ()> + Send + 'static
     where
@@ -150,8 +159,12 @@ impl DpuRepository for KubeRepository {
     {
         let api: Api<DPU> = self.api(namespace);
         let cancel = self.cancel.clone();
+        let watcher_config = match label_selector {
+            Some(selector) => watcher::Config::default().labels(selector),
+            None => watcher::Config::default(),
+        };
         async move {
-            Controller::new(api, watcher::Config::default())
+            Controller::new(api, watcher_config)
                 .graceful_shutdown_on(cancel.cancelled_owned())
                 .run(
                     |obj: Arc<DPU>, ctx: Arc<F>| async move {

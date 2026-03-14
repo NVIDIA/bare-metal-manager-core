@@ -20,8 +20,8 @@ use kube::core::ObjectMeta;
 
 use crate::crds::dpunodemaintenances_generated::*;
 use crate::error::DpfError;
-use crate::repository::DpuNodeMaintenanceRepository;
-use crate::sdk::{DpfSdk, HOLD_ANNOTATION};
+use crate::repository::{DpuNodeMaintenanceRepository, K8sConfigRepository};
+use crate::sdk::{DpfSdkBuilder, HOLD_ANNOTATION};
 
 const TEST_NS: &str = "sdk-maintenance-ns";
 
@@ -47,10 +47,16 @@ impl DpuNodeMaintenanceRepository for MaintenanceHoldMock {
         Ok(self.maintenances.read().unwrap().get(name).cloned())
     }
     async fn patch(&self, name: &str, _: &str, patch: serde_json::Value) -> Result<(), DpfError> {
-        if let Some(m) = self.maintenances.write().unwrap().get_mut(name)
-            && let Some(annos) = patch
-                .pointer("/metadata/annotations")
-                .and_then(|v| v.as_object())
+        let mut store = self.maintenances.write().unwrap();
+        let m = store.get_mut(name).ok_or_else(|| {
+            DpfError::KubeError(kube::Error::Api(Box::new(
+                kube::core::Status::failure(&format!("{name} not found"), "NotFound")
+                    .with_code(404),
+            )))
+        })?;
+        if let Some(annos) = patch
+            .pointer("/metadata/annotations")
+            .and_then(|v| v.as_object())
         {
             let m_annos = m.metadata.annotations.get_or_insert_with(BTreeMap::new);
             for (k, v) in annos {
@@ -65,21 +71,58 @@ impl DpuNodeMaintenanceRepository for MaintenanceHoldMock {
     }
 }
 
+#[async_trait]
+impl K8sConfigRepository for MaintenanceHoldMock {
+    async fn get_configmap(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> Result<Option<BTreeMap<String, String>>, DpfError> {
+        Ok(None)
+    }
+    async fn apply_configmap(
+        &self,
+        _: &str,
+        _: &str,
+        _: BTreeMap<String, String>,
+    ) -> Result<(), DpfError> {
+        Ok(())
+    }
+    async fn get_secret(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> Result<Option<BTreeMap<String, Vec<u8>>>, DpfError> {
+        Ok(None)
+    }
+    async fn create_secret(
+        &self,
+        _: &str,
+        _: &str,
+        _: BTreeMap<String, Vec<u8>>,
+    ) -> Result<(), DpfError> {
+        Ok(())
+    }
+}
+
 #[tokio::test]
 async fn test_release_maintenance_hold_sets_annotation_false() {
     let mock = MaintenanceHoldMock::default();
-    let sdk = DpfSdk::new(mock.clone(), TEST_NS);
+    let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NS, String::new())
+        .build_without_resources()
+        .await
+        .unwrap();
 
     // Pre-populate a DPUNodeMaintenance with hold annotation set to "true"
     let maint = DPUNodeMaintenance {
         metadata: ObjectMeta {
-            name: Some("dpu-node-host-001-hold".into()),
+            name: Some("node-host-001-hold".into()),
             namespace: Some(TEST_NS.into()),
             annotations: Some(BTreeMap::from([(HOLD_ANNOTATION.into(), "true".into())])),
             ..Default::default()
         },
         spec: DpuNodeMaintenanceSpec {
-            dpu_node_name: "dpu-node-host-001".into(),
+            dpu_node_name: "node-host-001".into(),
             node_effect: None,
             requestor: None,
         },
@@ -88,7 +131,7 @@ async fn test_release_maintenance_hold_sets_annotation_false() {
     mock.insert(&maint);
 
     // Verify hold is true
-    let m = mock.get("dpu-node-host-001-hold").unwrap();
+    let m = mock.get("node-host-001-hold").unwrap();
     assert_eq!(
         m.metadata
             .annotations
@@ -99,12 +142,10 @@ async fn test_release_maintenance_hold_sets_annotation_false() {
     );
 
     // Release the maintenance hold
-    sdk.release_maintenance_hold("dpu-node-host-001")
-        .await
-        .unwrap();
+    sdk.release_maintenance_hold("node-host-001").await.unwrap();
 
     // Hold annotation should now be "false"
-    let m = mock.get("dpu-node-host-001-hold").unwrap();
+    let m = mock.get("node-host-001-hold").unwrap();
     assert_eq!(
         m.metadata
             .annotations
@@ -112,5 +153,21 @@ async fn test_release_maintenance_hold_sets_annotation_false() {
             .unwrap()
             .get(HOLD_ANNOTATION),
         Some(&"false".to_string())
+    );
+}
+
+#[tokio::test]
+async fn test_release_maintenance_hold_noop_when_cr_missing() {
+    let mock = MaintenanceHoldMock::default();
+    let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NS, String::new())
+        .build_without_resources()
+        .await
+        .unwrap();
+
+    // No DPUNodeMaintenance CR exists — release_maintenance_hold should succeed as a no-op
+    let result = sdk.release_maintenance_hold("node-nonexistent").await;
+    assert!(
+        result.is_ok(),
+        "expected Ok for missing CR, got: {result:?}"
     );
 }
