@@ -5633,6 +5633,17 @@ message DpaInterface {
 
   string underlay_ip = 17;
   string overlay_ip = 18;
+
+  // mlxconfig_profile is the optional profile of mlxconfig
+  // parameters to sync to the device. This is specifically
+  // the name of the profile to sync down. The actual config
+  // is defined in the Carbide API site config. If this is
+  // empty, no mlxconfig parameters will be synced during
+  // [re]provisioning, and instead an mlxconfig parameter
+  // reset will be performed, ensuring the device is reset
+  // back to its default values before allocating to the
+  // next tenant.
+  optional string mlxconfig_profile = 19;
 }
 
 
