@@ -287,6 +287,13 @@ impl Forge for Api {
         crate::handlers::ib_partition::delete(self, request).await
     }
 
+    async fn update_ib_partition(
+        &self,
+        request: Request<rpc::IbPartitionUpdateRequest>,
+    ) -> Result<Response<rpc::IbPartition>, Status> {
+        crate::handlers::ib_partition::update(self, request).await
+    }
+
     async fn ib_partitions_for_tenant(
         &self,
         request: Request<rpc::TenantSearchQuery>,

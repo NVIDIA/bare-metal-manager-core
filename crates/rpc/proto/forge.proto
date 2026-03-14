@@ -79,6 +79,8 @@ service Forge {
   rpc FindIBPartitionsByIds(IBPartitionsByIdsRequest) returns (IBPartitionList);
   // Create a IB partition
   rpc CreateIBPartition(IBPartitionCreationRequest) returns (IBPartition);
+  // Update a IB partition
+  rpc UpdateIBPartition(IBPartitionUpdateRequest) returns (IBPartition);
   // Delete a IB partition
   rpc DeleteIBPartition(IBPartitionDeletionRequest) returns (IBPartitionDeletionResult);
   // Find all IB partitions under a specified tenant
@@ -1536,6 +1538,17 @@ message IBPartitionCreationRequest {
   optional common.IBPartitionId id = 2;
  
   Metadata metadata = 3;
+}
+
+message IBPartitionUpdateRequest {
+  common.IBPartitionId id = 1; 
+ 
+  // New IBPartitionConfig to be applied to the IBPartition.
+  IBPartitionConfig config = 2;
+
+  optional string if_version_match = 3;
+
+  Metadata metadata = 4;
 }
 
 message IBPartitionDeletionRequest {
