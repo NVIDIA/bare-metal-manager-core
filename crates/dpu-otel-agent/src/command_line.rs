@@ -37,8 +37,7 @@ pub enum AgentCommand {
 }
 
 #[derive(Parser, Debug)]
-pub struct RunOptions {
-}
+pub struct RunOptions {}
 
 impl Options {
     pub fn load() -> Self {
