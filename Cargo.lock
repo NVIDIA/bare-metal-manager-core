@@ -2232,6 +2232,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbide-rvs"
+version = "0.0.1"
+dependencies = [
+ "logfmt",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "carbide-scout"
 version = "0.0.1"
 dependencies = [

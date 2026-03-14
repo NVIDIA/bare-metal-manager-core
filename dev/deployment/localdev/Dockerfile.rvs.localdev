@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.4
+
 #
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
@@ -14,24 +16,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-
-generatorOptions:
-  disableNameSuffixHash: true
-
-labels:
-  - pairs:
-      app.kubernetes.io/managed-by: kustomize
-      app.kubernetes.io/part-of: site-controller
-
-resources:
-  - api
-  - dhcp
-  - dns
-  - dsx-exchange-consumer
-  - hardware-health
-  - pxe
-  - ssh-console-rs
-  - ntp
-  - rvs
+FROM runtime-container-localdev:latest as carbide
+WORKDIR ./carbide
+COPY .skaffold/target/carbide-rvs/debug/carbide-rvs /opt/carbide/

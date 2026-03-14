@@ -14,24 +14,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
+[package]
+name = "carbide-rvs"
+version = "0.0.1"
+description = "Rack Validation Service -- external validation orchestrator for BMMC"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
 
-generatorOptions:
-  disableNameSuffixHash: true
+[[bin]]
+name = "carbide-rvs"
+path = "src/main.rs"
 
-labels:
-  - pairs:
-      app.kubernetes.io/managed-by: kustomize
-      app.kubernetes.io/part-of: site-controller
+[dependencies]
+logfmt = { path = "../logfmt" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
-resources:
-  - api
-  - dhcp
-  - dns
-  - dsx-exchange-consumer
-  - hardware-health
-  - pxe
-  - ssh-console-rs
-  - ntp
-  - rvs
+[lints]
+workspace = true
