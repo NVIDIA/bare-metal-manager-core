@@ -49,6 +49,7 @@ async fn test_integration() -> eyre::Result<()> {
     let Some(test_env) =
         IntegrationTestEnvironment::try_from_environment(2, "api_server_test_integration").await?
     else {
+        println!("test_integration: SKIPPED (set REPO_ROOT and DATABASE_URL to run)");
         return Ok(());
     };
 

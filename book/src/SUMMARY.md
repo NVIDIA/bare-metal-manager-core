@@ -44,7 +44,7 @@
 
 # Design
 
-- [SPIFFE SVID Design](design/spiffe-svid-sdd.md)
+- [SPIFFE SVID Design](design/machine-identity/spiffe-svid-sdd.md)
 
 # Development
 

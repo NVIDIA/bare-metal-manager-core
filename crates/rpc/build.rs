@@ -83,6 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.AdminForceDeleteMachineResponse",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute("forge.ClientSecretBasic", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute("forge.CredentialResponse", "#[derive(serde::Serialize)]")
         .type_attribute(".dns", "#[derive(serde::Serialize)]")
         .type_attribute("forge.FlatInterfaceConfig", "#[derive(serde::Serialize)]")

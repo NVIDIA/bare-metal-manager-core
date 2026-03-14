@@ -84,6 +84,7 @@ pub mod sku;
 pub mod switch;
 pub mod switch_state_history;
 pub mod tenant;
+pub mod tenant_identity_config;
 pub mod tenant_keyset;
 pub mod trim_table;
 pub mod vpc;

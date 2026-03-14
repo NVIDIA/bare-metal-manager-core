@@ -31,10 +31,16 @@ use crate::auth::AuthContext;
 /// Actual signing and key loading are implemented in `crate::machine_identity`.
 #[allow(dead_code, clippy::unused_async)]
 pub(crate) async fn sign_machine_identity(
-    _api: &Api,
+    api: &Api,
     request: Request<rpc::MachineIdentityRequest>,
 ) -> Result<Response<MachineIdentityResponse>, Status> {
     log_request_data(&request);
+
+    if !api.runtime_config.machine_identity.enabled {
+        return Err(tonic::Status::unavailable(
+            "Machine identity is disabled in site config",
+        ));
+    }
 
     let auth_context = request
         .extensions()

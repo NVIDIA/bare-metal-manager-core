@@ -1178,6 +1178,7 @@ pub fn get_config() -> CarbideConfig {
             enabled: true,
             nras_config: Some(nras::Config::default()),
         },
+        machine_identity: crate::cfg::file::MachineIdentityConfig::default(),
         dsx_exchange_event_bus: None,
         use_onboard_nic: Arc::new(false.into()),
         dpf: crate::cfg::file::DpfConfig::default(),

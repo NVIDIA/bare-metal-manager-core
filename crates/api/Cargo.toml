@@ -117,6 +117,7 @@ opentelemetry_sdk = { workspace = true, features = [
 ] }
 pkcs1 = { workspace = true }
 prometheus = { workspace = true }
+prost-types = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { default-features = false, features = [

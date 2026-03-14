@@ -104,6 +104,36 @@ pub async fn update(
         })
 }
 
+/// Increments the tenant version. Used when identity config or token delegation changes.
+/// Caller must hold a transaction. Returns error if tenant not found.
+pub async fn increment_version<S: AsRef<str>>(
+    organization_id: S,
+    txn: &mut PgConnection,
+) -> DatabaseResult<()> {
+    let tenant = find(organization_id.as_ref(), true, txn)
+        .await?
+        .ok_or_else(|| DatabaseError::NotFoundError {
+            kind: "Tenant",
+            id: organization_id.as_ref().to_string(),
+        })?;
+    let next_version = tenant.version.increment();
+    let query = "UPDATE tenants SET version=$1 WHERE organization_id=$2 AND version=$3";
+    let result = sqlx::query(query)
+        .bind(next_version)
+        .bind(organization_id.as_ref())
+        .bind(tenant.version)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    if result.rows_affected() == 0 {
+        return Err(DatabaseError::ConcurrentModificationError(
+            "tenant",
+            tenant.version.to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub async fn find_tenant_organization_ids(
     txn: impl DbReader<'_>,
     search_config: rpc::TenantSearchFilter,

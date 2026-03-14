@@ -2700,6 +2700,48 @@ impl Forge for Api {
         ))
     }
 
+    async fn get_identity_configuration(
+        &self,
+        request: Request<rpc::GetIdentityConfigRequest>,
+    ) -> Result<Response<rpc::IdentityConfigResponse>, Status> {
+        crate::handlers::identity_config::get_identity_configuration(self, request).await
+    }
+
+    async fn set_identity_configuration(
+        &self,
+        request: tonic::Request<rpc::IdentityConfigRequest>,
+    ) -> Result<Response<rpc::IdentityConfigResponse>, Status> {
+        crate::handlers::identity_config::set_identity_configuration(self, request).await
+    }
+
+    async fn delete_identity_configuration(
+        &self,
+        request: Request<rpc::GetIdentityConfigRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::identity_config::delete_identity_configuration(self, request).await
+    }
+
+    async fn get_token_delegation(
+        &self,
+        request: Request<rpc::GetTokenDelegationRequest>,
+    ) -> Result<Response<rpc::TokenDelegationResponse>, Status> {
+        crate::handlers::identity_config::get_token_delegation(self, request).await
+    }
+
+    async fn set_token_delegation(
+        &self,
+        request: Request<rpc::TokenDelegationRequest>,
+    ) -> Result<Response<rpc::TokenDelegationResponse>, Status> {
+        crate::handlers::identity_config::set_token_delegation(self, request).await
+    }
+
+    async fn delete_token_delegation(
+        &self,
+        request: Request<rpc::GetTokenDelegationRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::identity_config::delete_token_delegation(self, request).await
+    }
+
     async fn modify_dpf_state(
         &self,
         request: Request<rpc::ModifyDpfStateRequest>,
@@ -2897,6 +2939,14 @@ pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
             format!("{:?}", request.get_ref()),
             ::rpc::MAX_ERR_MSG_SIZE as usize,
         ),
+    );
+}
+
+/// Logs a pre-redacted request string (e.g. for requests containing secrets).
+pub(crate) fn log_request_data_redacted(s: impl AsRef<str>) {
+    tracing::Span::current().record(
+        "request",
+        truncate(s.as_ref().to_string(), ::rpc::MAX_ERR_MSG_SIZE as usize),
     );
 }
 
