@@ -38,7 +38,8 @@ impl Run for Args {
         // Use patch API but provide all fields from JSON for full replacement
         ctx.api_client
             .patch_expected_machine(
-                expected_machine.bmc_mac_address,
+                Some(expected_machine.bmc_mac_address),
+                None,
                 Some(expected_machine.bmc_username),
                 Some(expected_machine.bmc_password),
                 Some(expected_machine.chassis_serial_number),

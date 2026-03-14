@@ -171,6 +171,7 @@ impl FakePowerShelf {
 
     fn as_expected_power_shelf(&self) -> model::expected_power_shelf::ExpectedPowerShelf {
         model::expected_power_shelf::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
             bmc_mac_address: self.bmc_mac_address,
             bmc_username: self.bmc_username.clone(),
             bmc_password: self.bmc_password.clone(),
@@ -2773,17 +2774,7 @@ async fn test_site_explorer_power_shelf_discovery(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf.bmc_mac_address,
-        expected_power_shelf.bmc_username.clone(),
-        expected_power_shelf.bmc_password.clone(),
-        expected_power_shelf.serial_number.clone(),
-        expected_power_shelf.ip_address,
-        expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id,
-    )
-    .await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
@@ -2932,17 +2923,7 @@ async fn test_site_explorer_power_shelf_with_expected_config(
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
 
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf.bmc_mac_address,
-        expected_power_shelf.bmc_username.clone(),
-        expected_power_shelf.bmc_password.clone(),
-        expected_power_shelf.serial_number.clone(),
-        expected_power_shelf.ip_address,
-        expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id,
-    )
-    .await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
@@ -3094,17 +3075,7 @@ async fn test_site_explorer_power_shelf_creation_limit(
     let mut txn = env.pool.begin().await?;
     for power_shelf in &power_shelves {
         let expected_power_shelf = power_shelf.as_expected_power_shelf();
-        db::expected_power_shelf::create(
-            &mut txn,
-            expected_power_shelf.bmc_mac_address,
-            expected_power_shelf.bmc_username.clone(),
-            expected_power_shelf.bmc_password.clone(),
-            expected_power_shelf.serial_number.clone(),
-            expected_power_shelf.ip_address,
-            expected_power_shelf.metadata.clone(),
-            expected_power_shelf.rack_id,
-        )
-        .await?;
+        db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     }
     txn.commit().await?;
 
@@ -3245,17 +3216,7 @@ async fn test_site_explorer_power_shelf_disabled(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf.bmc_mac_address,
-        expected_power_shelf.bmc_username.clone(),
-        expected_power_shelf.bmc_password.clone(),
-        expected_power_shelf.serial_number.clone(),
-        expected_power_shelf.ip_address,
-        expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id,
-    )
-    .await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
@@ -3382,17 +3343,7 @@ async fn test_site_explorer_power_shelf_error_handling(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf.bmc_mac_address,
-        expected_power_shelf.bmc_username.clone(),
-        expected_power_shelf.bmc_password.clone(),
-        expected_power_shelf.serial_number.clone(),
-        expected_power_shelf.ip_address,
-        expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id,
-    )
-    .await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
@@ -3531,17 +3482,7 @@ async fn test_site_explorer_creates_power_shelf(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf.bmc_mac_address,
-        expected_power_shelf.bmc_username.clone(),
-        expected_power_shelf.bmc_password.clone(),
-        expected_power_shelf.serial_number.clone(),
-        expected_power_shelf.ip_address,
-        expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id,
-    )
-    .await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     // Create exploration report for power shelf
@@ -3746,17 +3687,7 @@ async fn test_power_shelf_state_history(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf.bmc_mac_address,
-        expected_power_shelf.bmc_username.clone(),
-        expected_power_shelf.bmc_password.clone(),
-        expected_power_shelf.serial_number.clone(),
-        expected_power_shelf.ip_address,
-        expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id,
-    )
-    .await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     // Create exploration report for power shelf
@@ -3970,29 +3901,8 @@ async fn test_power_shelf_state_history_multiple(
     let expected_power_shelf1 = power_shelf1.as_expected_power_shelf();
     let expected_power_shelf2 = power_shelf2.as_expected_power_shelf();
 
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf1.bmc_mac_address,
-        expected_power_shelf1.bmc_username.clone(),
-        expected_power_shelf1.bmc_password.clone(),
-        expected_power_shelf1.serial_number.clone(),
-        expected_power_shelf1.ip_address,
-        expected_power_shelf1.metadata.clone(),
-        expected_power_shelf1.rack_id,
-    )
-    .await?;
-
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf2.bmc_mac_address,
-        expected_power_shelf2.bmc_username.clone(),
-        expected_power_shelf2.bmc_password.clone(),
-        expected_power_shelf2.serial_number.clone(),
-        expected_power_shelf2.ip_address,
-        expected_power_shelf2.metadata.clone(),
-        expected_power_shelf2.rack_id,
-    )
-    .await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf1.clone()).await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf2.clone()).await?;
     txn.commit().await?;
 
     // Create exploration reports for power shelves
@@ -4261,17 +4171,7 @@ async fn test_power_shelf_state_history_error_handling(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf.bmc_mac_address,
-        expected_power_shelf.bmc_username.clone(),
-        expected_power_shelf.bmc_password.clone(),
-        expected_power_shelf.serial_number.clone(),
-        expected_power_shelf.ip_address,
-        expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id,
-    )
-    .await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     // Create exploration report for power shelf
@@ -4457,17 +4357,7 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(
-        &mut txn,
-        expected_power_shelf.bmc_mac_address,
-        expected_power_shelf.bmc_username.clone(),
-        expected_power_shelf.bmc_password.clone(),
-        expected_power_shelf.serial_number.clone(),
-        expected_power_shelf.ip_address,
-        expected_power_shelf.metadata.clone(),
-        expected_power_shelf.rack_id,
-    )
-    .await?;
+    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());

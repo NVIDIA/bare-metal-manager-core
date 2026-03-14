@@ -469,7 +469,8 @@ impl ApiClient {
     #[allow(clippy::too_many_arguments)]
     pub async fn patch_expected_machine(
         &self,
-        bmc_mac_address: MacAddress,
+        bmc_mac_address: Option<MacAddress>,
+        id: Option<String>,
         bmc_username: Option<String>,
         bmc_password: Option<String>,
         chassis_serial_number: Option<String>,
@@ -482,13 +483,31 @@ impl ApiClient {
         default_pause_ingestion_and_poweron: Option<bool>,
         dpf_enabled: Option<bool>,
     ) -> Result<(), CarbideCliError> {
-        let expected_machine = self
-            .0
-            .get_expected_machine(::rpc::forge::ExpectedMachineRequest {
-                bmc_mac_address: bmc_mac_address.to_string(),
+        let get_req = match (bmc_mac_address, id) {
+            (Some(_), Some(_)) => {
+                return Err(CarbideCliError::GenericError(
+                    "Cannot specify both BMC MAC address and --id. Please provide only one."
+                        .to_string(),
+                ));
+            }
+            (None, None) => {
+                return Err(CarbideCliError::GenericError(
+                    "Must specify either a BMC MAC address or --id.".to_string(),
+                ));
+            }
+            (_, Some(id)) => ::rpc::forge::ExpectedMachineRequest {
+                bmc_mac_address: String::new(),
+                id: Some(::rpc::common::Uuid { value: id }),
+            },
+            (Some(mac), None) => ::rpc::forge::ExpectedMachineRequest {
+                bmc_mac_address: mac.to_string(),
                 id: None,
-            })
-            .await?;
+            },
+        };
+        let expected_machine = self.0.get_expected_machine(get_req).await?;
+        let mac_str = bmc_mac_address
+            .map(|m| m.to_string())
+            .unwrap_or(expected_machine.bmc_mac_address.clone());
 
         // Merge metadata fields individually
         let merged_metadata =
@@ -526,7 +545,7 @@ impl ApiClient {
             };
 
         let request = rpc::ExpectedMachine {
-            bmc_mac_address: bmc_mac_address.to_string(),
+            bmc_mac_address: mac_str,
             bmc_username: bmc_username.unwrap_or(expected_machine.bmc_username),
             bmc_password: bmc_password.unwrap_or(expected_machine.bmc_password),
             chassis_serial_number: chassis_serial_number
@@ -546,72 +565,6 @@ impl ApiClient {
         };
 
         Ok(self.0.update_expected_machine(request).await?)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn update_expected_power_shelf(
-        &self,
-        bmc_mac_address: MacAddress,
-        bmc_username: Option<String>,
-        bmc_password: Option<String>,
-        shelf_serial_number: Option<String>,
-        rack_id: Option<RackId>,
-        ip_address: Option<String>,
-        metadata: ::rpc::forge::Metadata,
-    ) -> Result<(), CarbideCliError> {
-        let expected_power_shelf = self
-            .0
-            .get_expected_power_shelf(bmc_mac_address.to_string())
-            .await?;
-        let request = rpc::ExpectedPowerShelf {
-            bmc_mac_address: bmc_mac_address.to_string(),
-            bmc_username: bmc_username.unwrap_or(expected_power_shelf.bmc_username),
-            bmc_password: bmc_password.unwrap_or(expected_power_shelf.bmc_password),
-            shelf_serial_number: shelf_serial_number
-                .unwrap_or(expected_power_shelf.shelf_serial_number),
-            metadata: Some(metadata),
-            ip_address: ip_address.unwrap_or(expected_power_shelf.ip_address),
-            rack_id,
-        };
-
-        self.0
-            .update_expected_power_shelf(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn update_expected_switch(
-        &self,
-        bmc_mac_address: MacAddress,
-        bmc_username: Option<String>,
-        bmc_password: Option<String>,
-        switch_serial_number: Option<String>,
-        rack_id: Option<RackId>,
-        nvos_username: Option<String>,
-        nvos_password: Option<String>,
-        metadata: ::rpc::forge::Metadata,
-    ) -> Result<(), CarbideCliError> {
-        let expected_switch = self
-            .0
-            .get_expected_switch(bmc_mac_address.to_string())
-            .await?;
-        let request = rpc::ExpectedSwitch {
-            bmc_mac_address: bmc_mac_address.to_string(),
-            bmc_username: bmc_username.unwrap_or(expected_switch.bmc_username),
-            bmc_password: bmc_password.unwrap_or(expected_switch.bmc_password),
-            switch_serial_number: switch_serial_number
-                .unwrap_or(expected_switch.switch_serial_number),
-            metadata: Some(metadata),
-            rack_id,
-            nvos_username: nvos_username.or(expected_switch.nvos_username),
-            nvos_password: nvos_password.or(expected_switch.nvos_password),
-        };
-
-        self.0
-            .update_expected_switch(request)
-            .await
-            .map_err(CarbideCliError::ApiInvocationError)
     }
 
     pub async fn replace_all_expected_machines(
@@ -654,6 +607,7 @@ impl ApiClient {
             expected_power_shelves: expected_power_shelf_list
                 .into_iter()
                 .map(|power_shelf| rpc::ExpectedPowerShelf {
+                    expected_power_shelf_id: None,
                     bmc_mac_address: power_shelf.bmc_mac_address.to_string(),
                     bmc_username: power_shelf.bmc_username,
                     bmc_password: power_shelf.bmc_password,
@@ -678,6 +632,7 @@ impl ApiClient {
             expected_switches: expected_switch_list
                 .into_iter()
                 .map(|switch| rpc::ExpectedSwitch {
+                    expected_switch_id: None,
                     bmc_mac_address: switch.bmc_mac_address.to_string(),
                     bmc_username: switch.bmc_username,
                     bmc_password: switch.bmc_password,

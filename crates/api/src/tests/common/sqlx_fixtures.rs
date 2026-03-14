@@ -40,6 +40,7 @@ define_sqlx_fixtures!(
     "create_dpu_remediation",
     "create_expected_machine",
     "create_expected_power_shelf",
+    "create_expected_switch",
     "create_machine_validation_tests",
     "create_tpm_ca_cert_invalid",
     "create_tpm_ca_wrong_cert",

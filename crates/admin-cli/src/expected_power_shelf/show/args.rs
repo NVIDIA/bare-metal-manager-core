@@ -17,6 +17,7 @@
 
 use clap::Parser;
 use mac_address::MacAddress;
+use uuid::Uuid;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -25,4 +26,7 @@ pub struct Args {
         help = "BMC MAC address of the expected power shelf to show. Leave unset for all."
     )]
     pub bmc_mac_address: Option<MacAddress>,
+
+    #[clap(long, help = "ID (UUID) of the expected power shelf to show.")]
+    pub id: Option<Uuid>,
 }

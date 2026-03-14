@@ -42,7 +42,8 @@ pub(crate) async fn get(
 
     let request = request.into_inner();
 
-    // If id was provided, fetch by id; else fetch by MAC
+    // If an ExpectedMachine "ID" was provided, then fetch by the ID.
+    // Otherwise, fetch by the BMC MAC address.
     if let Some(uuid_val) = request.id.clone() {
         let id = Uuid::parse_str(&uuid_val.value).map_err(|_| {
             CarbideError::InvalidArgument("invalid expected_machine id".to_string())

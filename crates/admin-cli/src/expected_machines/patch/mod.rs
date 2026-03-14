@@ -33,6 +33,7 @@ impl Run for Args {
         ctx.api_client
             .patch_expected_machine(
                 self.bmc_mac_address,
+                self.id.map(|id| id.to_string()),
                 self.bmc_username,
                 self.bmc_password,
                 self.chassis_serial_number,

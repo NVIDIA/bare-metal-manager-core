@@ -29,11 +29,28 @@ pub async fn show(
     api_client: &ApiClient,
     output_format: OutputFormat,
 ) -> CarbideCliResult<()> {
-    if let Some(bmc_mac_address) = query.bmc_mac_address {
-        let expected_switch = api_client
-            .0
-            .get_expected_switch(bmc_mac_address.to_string())
-            .await?;
+    let req = match (query.bmc_mac_address, &query.id) {
+        (Some(_), Some(_)) => {
+            return Err(::rpc::admin_cli::CarbideCliError::GenericError(
+                "Cannot specify both BMC MAC address and --id. Please provide only one."
+                    .to_string(),
+            ));
+        }
+        (None, Some(id)) => Some(rpc::forge::ExpectedSwitchRequest {
+            bmc_mac_address: String::new(),
+            expected_switch_id: Some(::rpc::common::Uuid {
+                value: id.to_string(),
+            }),
+        }),
+        (Some(mac), None) => Some(rpc::forge::ExpectedSwitchRequest {
+            bmc_mac_address: mac.to_string(),
+            expected_switch_id: None,
+        }),
+        (None, None) => None,
+    };
+
+    if let Some(req) = req {
+        let expected_switch = api_client.0.get_expected_switch(req).await?;
         println!("{:#?}", expected_switch);
         return Ok(());
     }

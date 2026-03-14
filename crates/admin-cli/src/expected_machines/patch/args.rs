@@ -20,6 +20,7 @@ use clap::{ArgGroup, Parser};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use utils::has_duplicates;
+use uuid::Uuid;
 
 /// Patch expected machine (partial update, preserves unprovided fields).
 ///
@@ -42,13 +43,12 @@ use utils::has_duplicates;
 "sku_id",
 ])))]
 pub struct Args {
-    #[clap(
-        short = 'a',
-        required = true,
-        long,
-        help = "BMC MAC Address of the expected machine"
-    )]
-    pub bmc_mac_address: MacAddress,
+    #[clap(short = 'a', long, help = "BMC MAC Address of the expected machine")]
+    pub bmc_mac_address: Option<MacAddress>,
+
+    #[clap(long = "id", help = "ID (UUID) of the expected machine to patch.")]
+    #[serde(skip)]
+    pub id: Option<Uuid>,
     #[clap(
         short = 'u',
         long,
@@ -138,6 +138,18 @@ pub struct Args {
 
 impl Args {
     pub fn validate(&self) -> Result<(), String> {
+        match (&self.bmc_mac_address, &self.id) {
+            (Some(_), Some(_)) => {
+                return Err(
+                    "Cannot specify both --bmc-mac-address and --id. Please provide only one."
+                        .to_string(),
+                );
+            }
+            (None, None) => {
+                return Err("Must specify either --bmc-mac-address (-a) or --id.".to_string());
+            }
+            _ => {}
+        }
         // TODO: It is possible to do these checks by clap itself, via arg groups
         if self.bmc_username.is_none()
             && self.bmc_password.is_none()

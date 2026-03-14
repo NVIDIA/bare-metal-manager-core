@@ -18,7 +18,9 @@
 use ::rpc::forge as rpc;
 use db::{DatabaseError, expected_switch as db_expected_switch};
 use mac_address::MacAddress;
+use model::expected_switch::ExpectedSwitch;
 use tonic::{Request, Response, Status};
+use uuid::Uuid;
 
 use crate::CarbideError;
 use crate::api::Api;
@@ -27,14 +29,10 @@ pub async fn add_expected_switch(
     api: &Api,
     request: Request<rpc::ExpectedSwitch>,
 ) -> Result<Response<()>, Status> {
-    let expected_switch = request.into_inner();
-
-    let bmc_mac_address = MacAddress::try_from(expected_switch.bmc_mac_address.as_str())
-        .map_err(|e| Status::invalid_argument(format!("Invalid MAC address: {}", e)))?;
-
-    let metadata = expected_switch.metadata.unwrap_or_default();
-    let metadata = model::metadata::Metadata::try_from(metadata)
-        .map_err(|e| Status::invalid_argument(format!("Invalid metadata: {}", e)))?;
+    let switch: ExpectedSwitch = request
+        .into_inner()
+        .try_into()
+        .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
 
     let mut txn = api
         .database_connection
@@ -42,19 +40,9 @@ pub async fn add_expected_switch(
         .await
         .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
 
-    db_expected_switch::create(
-        &mut txn,
-        bmc_mac_address,
-        expected_switch.bmc_username,
-        expected_switch.bmc_password,
-        expected_switch.switch_serial_number,
-        metadata,
-        expected_switch.rack_id,
-        expected_switch.nvos_username,
-        expected_switch.nvos_password,
-    )
-    .await
-    .map_err(|e| Status::internal(format!("Failed to create expected switch: {}", e)))?;
+    db_expected_switch::create(&mut txn, switch)
+        .await
+        .map_err(|e| Status::internal(format!("Failed to create expected switch: {}", e)))?;
 
     txn.commit()
         .await
@@ -69,18 +57,25 @@ pub async fn delete_expected_switch(
 ) -> Result<Response<()>, Status> {
     let req = request.into_inner();
 
-    let bmc_mac_address = MacAddress::try_from(req.bmc_mac_address.as_str())
-        .map_err(|e| Status::invalid_argument(format!("Invalid MAC address: {}", e)))?;
-
     let mut txn = api
         .database_connection
         .begin()
         .await
         .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
 
-    db_expected_switch::delete(bmc_mac_address, &mut txn)
-        .await
-        .map_err(|e| Status::internal(format!("Failed to delete expected switch: {}", e)))?;
+    if let Some(uuid_val) = req.expected_switch_id.as_ref() {
+        let id = Uuid::parse_str(&uuid_val.value)
+            .map_err(|_| Status::invalid_argument("invalid expected_switch id".to_string()))?;
+        db_expected_switch::delete_by_id(id, &mut txn)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to delete expected switch: {}", e)))?;
+    } else {
+        let bmc_mac_address = MacAddress::try_from(req.bmc_mac_address.as_str())
+            .map_err(|e| Status::invalid_argument(format!("Invalid MAC address: {}", e)))?;
+        db_expected_switch::delete(bmc_mac_address, &mut txn)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to delete expected switch: {}", e)))?;
+    }
 
     txn.commit()
         .await
@@ -93,14 +88,10 @@ pub async fn update_expected_switch(
     api: &Api,
     request: Request<rpc::ExpectedSwitch>,
 ) -> Result<Response<()>, Status> {
-    let expected_switch = request.into_inner();
-
-    let bmc_mac_address = MacAddress::try_from(expected_switch.bmc_mac_address.as_str())
-        .map_err(|e| Status::invalid_argument(format!("Invalid MAC address: {}", e)))?;
-
-    let metadata = expected_switch.metadata.unwrap_or_default();
-    let metadata = model::metadata::Metadata::try_from(metadata)
-        .map_err(|e| Status::invalid_argument(format!("Invalid metadata: {}", e)))?;
+    let switch: ExpectedSwitch = request
+        .into_inner()
+        .try_into()
+        .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
 
     let mut txn = api
         .database_connection
@@ -108,29 +99,9 @@ pub async fn update_expected_switch(
         .await
         .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
 
-    let mut existing = db_expected_switch::find_by_bmc_mac_address(&mut txn, bmc_mac_address)
+    db_expected_switch::update(&mut txn, &switch)
         .await
-        .map_err(|e| Status::internal(format!("Failed to find expected switch: {}", e)))?
-        .ok_or_else(|| {
-            Status::not_found(format!(
-                "Expected switch with MAC address {} not found",
-                bmc_mac_address
-            ))
-        })?;
-
-    db_expected_switch::update(
-        &mut existing,
-        &mut txn,
-        expected_switch.bmc_username,
-        expected_switch.bmc_password,
-        expected_switch.switch_serial_number,
-        metadata,
-        expected_switch.rack_id,
-        expected_switch.nvos_username,
-        expected_switch.nvos_password,
-    )
-    .await
-    .map_err(|e| Status::internal(format!("Failed to update expected switch: {}", e)))?;
+        .map_err(|e| Status::internal(format!("Failed to update expected switch: {}", e)))?;
 
     txn.commit()
         .await
@@ -145,24 +116,39 @@ pub async fn get_expected_switch(
 ) -> Result<Response<rpc::ExpectedSwitch>, Status> {
     let req = request.into_inner();
 
-    let bmc_mac_address = MacAddress::try_from(req.bmc_mac_address.as_str())
-        .map_err(|e| Status::invalid_argument(format!("Invalid MAC address: {}", e)))?;
-
     let mut txn = api
         .database_connection
         .begin()
         .await
         .map_err(|e| Status::internal(format!("Database error: {}", e)))?;
 
-    let expected_switch = db_expected_switch::find_by_bmc_mac_address(&mut txn, bmc_mac_address)
-        .await
-        .map_err(|e| Status::internal(format!("Failed to find expected switch: {}", e)))?
-        .ok_or_else(|| {
-            Status::not_found(format!(
-                "Expected switch with MAC address {} not found",
-                bmc_mac_address
-            ))
-        })?;
+    // If an expected_switch_id was provided, use that. Otherwise, fetch
+    // by the BMC MAC address.
+    let expected_switch = if let Some(uuid_val) = req.expected_switch_id.as_ref() {
+        let id = Uuid::parse_str(&uuid_val.value)
+            .map_err(|_| Status::invalid_argument("invalid expected_switch id".to_string()))?;
+        db_expected_switch::find_by_id(&mut txn, id)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to find expected switch: {}", e)))?
+            .ok_or_else(|| {
+                Status::not_found(format!(
+                    "Expected switch with id {} not found",
+                    uuid_val.value
+                ))
+            })?
+    } else {
+        let bmc_mac_address = MacAddress::try_from(req.bmc_mac_address.as_str())
+            .map_err(|e| Status::invalid_argument(format!("Invalid MAC address: {}", e)))?;
+        db_expected_switch::find_by_bmc_mac_address(&mut txn, bmc_mac_address)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to find expected switch: {}", e)))?
+            .ok_or_else(|| {
+                Status::not_found(format!(
+                    "Expected switch with MAC address {} not found",
+                    bmc_mac_address
+                ))
+            })?
+    };
 
     txn.commit()
         .await
@@ -217,26 +203,12 @@ pub async fn replace_all_expected_switches(
 
     // Add all new expected switches
     for expected_switch in req.expected_switches {
-        let bmc_mac_address = MacAddress::try_from(expected_switch.bmc_mac_address.as_str())
-            .map_err(|e| Status::invalid_argument(format!("Invalid MAC address: {}", e)))?;
-
-        let metadata = expected_switch.metadata.unwrap_or_default();
-        let metadata = model::metadata::Metadata::try_from(metadata)
-            .map_err(|e| Status::invalid_argument(format!("Invalid metadata: {}", e)))?;
-
-        db_expected_switch::create(
-            &mut txn,
-            bmc_mac_address,
-            expected_switch.bmc_username,
-            expected_switch.bmc_password,
-            expected_switch.switch_serial_number,
-            metadata,
-            expected_switch.rack_id,
-            expected_switch.nvos_username,
-            expected_switch.nvos_password,
-        )
-        .await
-        .map_err(|e| Status::internal(format!("Failed to create expected switch: {}", e)))?;
+        let switch: ExpectedSwitch = expected_switch
+            .try_into()
+            .map_err(|e| Status::invalid_argument(format!("{}", e)))?;
+        db_expected_switch::create(&mut txn, switch)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to create expected switch: {}", e)))?;
     }
 
     txn.commit()

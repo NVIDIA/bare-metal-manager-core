@@ -31,11 +31,30 @@ pub async fn show_expected_machines(
     output_format: OutputFormat,
     output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
 ) -> CarbideCliResult<()> {
-    if let Some(bmc_mac_address) = expected_machine_query.bmc_mac_address {
-        let req = ::rpc::forge::ExpectedMachineRequest {
-            bmc_mac_address: bmc_mac_address.to_string(),
+    let req = match (
+        expected_machine_query.bmc_mac_address,
+        &expected_machine_query.id,
+    ) {
+        (Some(_), Some(_)) => {
+            return Err(::rpc::admin_cli::CarbideCliError::GenericError(
+                "Cannot specify both BMC MAC address and --id. Please provide only one."
+                    .to_string(),
+            ));
+        }
+        (None, Some(id)) => Some(::rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: String::new(),
+            id: Some(::rpc::common::Uuid {
+                value: id.to_string(),
+            }),
+        }),
+        (Some(mac), None) => Some(::rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: mac.to_string(),
             id: None,
-        };
+        }),
+        (None, None) => None,
+    };
+
+    if let Some(req) = req {
         let expected_machine = api_client.0.get_expected_machine(req).await?;
         if output_format == OutputFormat::Json {
             async_write!(
