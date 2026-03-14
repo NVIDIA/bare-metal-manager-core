@@ -100,7 +100,7 @@ pub async fn find_by_host_mac_address(
 pub async fn find_one_linked(
     txn: &mut PgConnection,
     bmc_mac_address: MacAddress,
-) -> DatabaseResult<LinkedExpectedMachine> {
+) -> DatabaseResult<Option<LinkedExpectedMachine>> {
     let sql = r#"
  SELECT
  em.serial_number,
@@ -119,7 +119,7 @@ FROM expected_machines em
  "#;
     sqlx::query_as(sql)
         .bind(bmc_mac_address)
-        .fetch_one(txn)
+        .fetch_optional(txn)
         .await
         .map_err(|err| DatabaseError::query(sql, err))
 }
