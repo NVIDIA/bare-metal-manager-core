@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use askama::Template;
-use axum::extract::{Path as AxumPath, State as AxumState};
+use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
 use carbide_uuid::machine::{MachineId, MachineType};
@@ -34,6 +34,7 @@ use utils::managed_host_display::to_time;
 use super::filters;
 use super::machine_state_history::{MachineStateHistoryRecord, MachineStateHistoryTable};
 use crate::api::Api;
+use crate::web::explored_endpoint::ActionStatus;
 
 #[derive(Template)]
 #[template(path = "machine_show.html")]
@@ -431,7 +432,7 @@ pub async fn fetch_machines(
 
 #[derive(Template)]
 #[template(path = "machine_detail.html")]
-struct MachineDetail {
+struct MachineDetail<'a> {
     id: String,
     host_id: String,
     state: String,
@@ -474,6 +475,7 @@ struct MachineDetail {
     instance_type: String,
     has_instance_type: bool,
     nvlink_gpus: Vec<MachineNvLinkGpuDisplay>,
+    action_status: Option<ActionStatus<'a>>,
 }
 
 struct MachineCapability {
@@ -526,7 +528,7 @@ pub struct ValidationRun {
     pub machine_id: String,
 }
 
-impl From<forgerpc::Machine> for MachineDetail {
+impl From<forgerpc::Machine> for MachineDetail<'_> {
     fn from(m: forgerpc::Machine) -> Self {
         let machine_id = m.id.map(|id| id.to_string()).unwrap_or_default();
 
@@ -789,6 +791,7 @@ impl From<forgerpc::Machine> for MachineDetail {
             instance_type_id: m.instance_type_id.unwrap_or_default(),
             instance_type: "".to_string(),
             nvlink_gpus,
+            action_status: None,
         }
     }
 }
@@ -797,6 +800,7 @@ impl From<forgerpc::Machine> for MachineDetail {
 pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Response {
     let (show_json, machine_id) = match machine_id.strip_suffix(".json") {
         Some(machine_id) => (true, machine_id.to_string()),
@@ -865,6 +869,7 @@ pub async fn detail(
     };
 
     display.validation_runs = validation_runs;
+    display.action_status = ActionStatus::from_query(&params);
 
     if !display.is_host {
         let request = tonic::Request::new(forgerpc::ManagedHostNetworkConfigRequest {

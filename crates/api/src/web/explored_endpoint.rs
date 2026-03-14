@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -24,6 +25,7 @@ use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
 use hyper::http::StatusCode;
+use itertools::Itertools;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, BmcEndpointRequest, admin_power_control_request};
 use rpc::site_explorer::{
@@ -366,7 +368,7 @@ async fn fetch_explored_endpoints(api: &Api) -> Result<SiteExplorationReport, to
 
 #[derive(Template)]
 #[template(path = "explored_endpoint_detail.html")]
-struct ExploredEndpointDetail {
+struct ExploredEndpointDetail<'a> {
     endpoint: ExploredEndpoint,
     has_exploration_error: bool,
     last_exploration_error: String,
@@ -379,6 +381,70 @@ struct ExploredEndpointDetail {
     report_age: String,
     pause_remediation: bool,
     bmc_action_redirect_to: Option<String>,
+    action_status: Option<ActionStatus<'a>>,
+}
+
+pub(crate) struct ActionStatus<'a> {
+    pub action: Cow<'a, str>,
+    pub class: &'static str,
+    pub message: Cow<'a, str>,
+}
+
+impl ActionStatus<'_> {
+    pub fn from_query(query: &HashMap<String, String>) -> Option<ActionStatus<'_>> {
+        query.get("action_type").map(|action| {
+            let message = query
+                .get("action_message")
+                .map(String::as_str)
+                .unwrap_or(action.as_str());
+            let class = match query.get("action_class").map(String::as_str) {
+                Some("success") => "success",
+                Some("error") => "error",
+                _ => "warning",
+            };
+            ActionStatus {
+                action: Cow::Borrowed(action),
+                message: Cow::Borrowed(message),
+                class,
+            }
+        })
+    }
+
+    pub fn url_cleanup_script() -> &'static str {
+        r#"<script>
+(function() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('action_type');
+  url.searchParams.delete('action_class');
+  url.searchParams.delete('action_message');
+  const newUrl = url.pathname + url.search + url.hash;
+  window.history.replaceState({}, document.title, newUrl);
+})();
+</script>"#
+    }
+
+    pub fn update_redirect_url(
+        redirect_url: &str,
+        action: &str,
+        class: &str,
+        message: &str,
+    ) -> String {
+        let (base_url, anchor) = match redirect_url.rfind('#') {
+            Some(pos) => (&redirect_url[..pos], &redirect_url[pos..]),
+            None => (redirect_url, ""),
+        };
+        format!(
+            "{base_url}?{}{anchor}",
+            [
+                ("action_type", action),
+                ("action_class", class),
+                ("action_message", message),
+            ]
+            .iter()
+            .map(|(k, v)| format!("{k}={}", urlencoding::encode(v)))
+            .join("&"),
+        )
+    }
 }
 
 struct ExploredEndpointInfo {
@@ -387,7 +453,7 @@ struct ExploredEndpointInfo {
     has_machine: bool,
 }
 
-impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
+impl From<ExploredEndpointInfo> for ExploredEndpointDetail<'_> {
     fn from(endpoint_info: ExploredEndpointInfo) -> Self {
         let report_ref = endpoint_info.endpoint.report.as_ref();
 
@@ -428,6 +494,7 @@ impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
             report_age,
             pause_remediation,
             bmc_action_redirect_to: None,
+            action_status: None,
         }
     }
 }
@@ -463,11 +530,11 @@ pub async fn fetch_explored_endpoint(
 
     Ok(endpoint)
 }
-
 /// View details of an explored endpoint
 pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Response {
     let (show_json, endpoint_ip) = match endpoint_ip.strip_suffix(".json") {
         Some(endpoint_ip) => (true, endpoint_ip.to_string()),
@@ -568,7 +635,10 @@ pub async fn detail(
         has_machine,
     };
 
-    let display = ExploredEndpointDetail::from(endpoint_info);
+    let mut display = ExploredEndpointDetail::from(endpoint_info);
+
+    display.action_status = ActionStatus::from_query(&params);
+
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 
@@ -676,10 +746,16 @@ pub async fn power_control(
 
     let Some(act) = admin_power_control_request::SystemPowerControl::from_str_name(&action) else {
         tracing::error!(endpoint_ip = %endpoint_ip, action = %action, "power_control_endpoint invalid action");
-        return (StatusCode::BAD_REQUEST, "invalid action requested").into_response();
+        let redirect_url = ActionStatus::update_redirect_url(
+            &view_url,
+            "power",
+            "error",
+            "invalid action requested",
+        );
+        return Redirect::to(&redirect_url).into_response();
     };
 
-    if let Err(err) = state
+    match state
         .admin_power_control(tonic::Request::new(rpc::forge::AdminPowerControlRequest {
             machine_id: None,
             bmc_endpoint_request: Some(BmcEndpointRequest {
@@ -691,11 +767,26 @@ pub async fn power_control(
         .await
         .map(|response| response.into_inner())
     {
-        tracing::error!(%err, endpoint_ip = %endpoint_ip, action = %action, "power_control_endpoint");
-        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
+        Ok(response) => {
+            let message = response
+                .msg
+                .unwrap_or_else(|| format!("Power action '{}' completed successfully", action));
+            let status = if message.to_lowercase().contains("warning") {
+                "warning"
+            } else {
+                "success"
+            };
+            let redirect_url =
+                ActionStatus::update_redirect_url(&view_url, "power", status, &message);
+            Redirect::to(&redirect_url).into_response()
+        }
+        Err(err) => {
+            tracing::error!(%err, endpoint_ip = %endpoint_ip, action = %action, "power_control_endpoint");
+            let redirect_url =
+                ActionStatus::update_redirect_url(&view_url, "power", "error", err.message());
+            Redirect::to(&redirect_url).into_response()
+        }
     }
-
-    Redirect::to(&view_url).into_response()
 }
 
 #[derive(Deserialize, Debug)]

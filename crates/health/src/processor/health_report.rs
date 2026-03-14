@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::sync::Arc;
+
 use dashmap::DashMap;
 use nv_redfish::resource::Health as BmcHealth;
 
@@ -216,7 +218,7 @@ impl EventProcessor for HealthReportProcessor {
                     "Sending hardware health report"
                 );
 
-                return vec![CollectorEvent::HealthReport(report)];
+                return vec![CollectorEvent::HealthReport(Arc::new(report))];
             }
             CollectorEvent::Log(_)
             | CollectorEvent::Firmware(_)
