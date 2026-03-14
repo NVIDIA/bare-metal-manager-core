@@ -46,9 +46,12 @@ keyUsage = digitalSignature, keyEncipherment
 extendedKeyUsage = serverAuth, clientAuth
 subjectAltName = @alt_names
 
+# host.docker.internal and 192.168.65.254 are docker 'magic' name/ip to communicate with host on macOS.
 [ alt_names ]
 DNS.1 = localhost
+DNS.2 = host.docker.internal
 IP.1 = 127.0.0.1
+IP.2 = 192.168.65.254
 EOF
 
 # Generate CA key and self-signed certificate
