@@ -228,7 +228,44 @@ pub(crate) async fn persist_validation_result(
     )
     .await?;
 
+    let validation_id = validation_result.validation_id;
     db::machine_validation_result::create(validation_result, &mut txn).await?;
+
+    // If scout never calls machine_validation_completed (e.g. crash, network failure),
+    // the run would stay InProgress. When we have all results for this run, mark it
+    // complete here so the run state is updated to Success/Failed even in that case.
+    // Re-fetch the run after create() to get current status.total and end_time.
+    let run = db::machine_validation::find_by_id(&mut txn, &validation_id).await?;
+    if run.end_time.is_none() {
+        let results =
+            db::machine_validation_result::find_by_validation_id(&mut txn, &validation_id)
+                .await?;
+        let total = run.status.as_ref().map(|s| s.total).unwrap_or(0);
+        // total is expected positive when run is in progress; skip if unknown.
+        if total > 0 && results.len() >= total as usize {
+            let state = if results.iter().any(|r| r.exit_code != 0) {
+                MachineValidationState::Failed
+            } else {
+                MachineValidationState::Success
+            };
+            db::machine_validation::mark_machine_validation_complete(
+                &mut txn,
+                &machine.id,
+                &validation_id,
+                MachineValidationStatus {
+                    state,
+                    ..MachineValidationStatus::default()
+                },
+            )
+            .await?;
+            tracing::info!(
+                %machine.id,
+                %validation_id,
+                "marked machine validation run complete (all results persisted)"
+            );
+        }
+    }
+
     txn.commit().await.unwrap();
     Ok(tonic::Response::new(()))
 }
