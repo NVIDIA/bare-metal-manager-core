@@ -119,6 +119,7 @@ mod tests {
                 mac: "00:11:22:33:44:55".to_string(),
                 username: "admin".to_string(),
                 password: "pass".to_string(),
+                switch_serial: None,
             },
             StaticBmcEndpoint {
                 ip: "not-an-ip".to_string(),
@@ -126,6 +127,7 @@ mod tests {
                 mac: "aa:bb:cc:dd:ee:ff".to_string(),
                 username: "admin".to_string(),
                 password: "pass".to_string(),
+                switch_serial: None,
             },
         ];
 
@@ -137,6 +139,45 @@ mod tests {
             endpoints[0].addr.mac,
             MacAddress::from_str("00:11:22:33:44:55").unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn test_static_endpoint_with_switch_serial_sets_metadata() {
+        let configs = vec![StaticBmcEndpoint {
+            ip: "10.0.1.1".to_string(),
+            port: Some(443),
+            mac: "11:22:33:44:55:66".to_string(),
+            username: "cumulus".to_string(),
+            password: "pass".to_string(),
+            switch_serial: Some("SN-001".to_string()),
+        }];
+
+        let source = StaticEndpointSource::from_config(&configs);
+        let endpoints = source.fetch_bmc_hosts().await.unwrap();
+
+        assert_eq!(endpoints.len(), 1);
+        match &endpoints[0].metadata {
+            Some(EndpointMetadata::Switch(s)) => assert_eq!(s.serial, "SN-001"),
+            other => panic!("expected Switch metadata, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_static_endpoint_without_switch_serial_has_no_metadata() {
+        let configs = vec![StaticBmcEndpoint {
+            ip: "10.0.0.1".to_string(),
+            port: Some(443),
+            mac: "aa:bb:cc:dd:ee:ff".to_string(),
+            username: "admin".to_string(),
+            password: "pass".to_string(),
+            switch_serial: None,
+        }];
+
+        let source = StaticEndpointSource::from_config(&configs);
+        let endpoints = source.fetch_bmc_hosts().await.unwrap();
+
+        assert_eq!(endpoints.len(), 1);
+        assert!(endpoints[0].metadata.is_none());
     }
 
     struct FailingSource;

@@ -15,16 +15,4 @@
  * limitations under the License.
  */
 
-mod firmware;
-mod logs;
-mod nmxt;
-mod nvue;
-mod runtime;
-mod sensors;
-
-pub use firmware::{FirmwareCollector, FirmwareCollectorConfig};
-pub use logs::{LogFileWriter, LogsCollector, LogsCollectorConfig, create_log_file_writer};
-pub use nmxt::{NmxtCollector, NmxtCollectorConfig};
-pub use nvue::rest::collector::{NvueRestCollector, NvueRestCollectorConfig};
-pub use runtime::{Collector, IterationResult, PeriodicCollector};
-pub use sensors::{SensorCollector, SensorCollectorConfig};
+pub(in crate::collectors) mod rest;
