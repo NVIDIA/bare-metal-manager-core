@@ -1253,6 +1253,7 @@ dependencies = [
  "async-trait",
  "axum 0.8.6",
  "axum-server",
+ "backon",
  "blake3",
  "carbide-certs",
  "carbide-dpu-agent-utils",

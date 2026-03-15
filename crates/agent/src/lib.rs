@@ -35,6 +35,7 @@ use version_compare::{Part, Version};
 use crate::duppet::{SummaryFormat, SyncOptions};
 use crate::frr::FrrVlanConfig;
 use crate::health::HealthCheckParams;
+use crate::host_machine_id::get_host_machine_id_retry;
 
 pub mod dpu;
 
@@ -55,6 +56,7 @@ pub mod duppet;
 mod frr;
 mod hbn;
 mod health;
+mod host_machine_id;
 mod instance_metadata_endpoint;
 pub mod instrumentation;
 mod interfaces;
@@ -219,9 +221,10 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 summary_format: parsed_format,
             };
 
-            // Since the duppet sync also syncs out the otel machine_id
-            // file, we need to make a registration call to get the machine_id,
-            // and a single fetch to get the host_machine_id.
+            // Since the duppet sync also syncs out the otel machine_id and
+            // host_machine_id files, we need to make a registration call to
+            // get the machine_id, and a carbide api request to get the
+            // host_machine_id.
             let Registration { machine_id, .. } =
                 register(&agent).await.wrap_err("registration error")?;
 
@@ -238,7 +241,22 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             )
             .await;
 
-            managed_files::main_sync(sync_options, &machine_id, &periodic_config_fetcher);
+            let host_machine_id = match get_host_machine_id_retry(
+                &agent,
+                &periodic_config_fetcher,
+                Arc::clone(&forge_client_config),
+                &forge_api_server,
+            )
+            .await
+            {
+                Ok(id) => id,
+                Err(e) => {
+                    tracing::error!("get_host_machine_id_retry() failed: {:?}", e);
+                    return Err(e);
+                }
+            };
+
+            managed_files::main_sync(sync_options, &machine_id, &host_machine_id);
         }
 
         // Output a templated file

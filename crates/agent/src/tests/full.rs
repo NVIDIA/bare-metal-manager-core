@@ -29,14 +29,17 @@ use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
+use carbide_uuid::domain::DomainId;
+use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::network::NetworkSegmentId;
 use chrono::{DateTime, TimeZone, Utc};
 use eyre::WrapErr;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Bytes;
 use hyper_util::rt::TokioExecutor;
 use ipnetwork::IpNetwork;
-use rpc::common as rpc_common;
-use rpc::forge::{DpuInfo, FlatInterfaceNetworkSecurityGroupConfig};
+use rpc::forge::{DpuInfo, FlatInterfaceNetworkSecurityGroupConfig, InterfaceAssociationType};
+use rpc::{Timestamp, common as rpc_common};
 use tokio::sync::Mutex;
 
 use crate::tests::common;
@@ -327,6 +330,7 @@ async fn run_common_parts(
             "/forge.Forge/GetDpuInfoList",
             post(handle_get_dpu_info_list),
         )
+        .route("/forge.Forge/FindInterfaces", post(handle_find_interfaces))
         // ForgeApiClient needs a working Version route for connection retrying
         .route("/forge.Forge/Version", post(handle_version))
         .fallback(handler)
@@ -967,6 +971,51 @@ async fn handle_get_dpu_info_list(
                 loopback_ip: "172.20.0.200".to_string(),
             },
         ],
+    })
+}
+
+fn timestamp_from_secs_nanos(secs: i64, nanos: i32) -> Timestamp {
+    let duration = Duration::from_secs(secs as u64) + Duration::from_nanos(nanos as u64);
+    let system_time = UNIX_EPOCH + duration;
+    Timestamp::from(system_time)
+}
+
+async fn handle_find_interfaces() -> impl axum::response::IntoResponse {
+    let interface = rpc::forge::MachineInterface {
+        id: Some(
+            MachineInterfaceId::from_str("c5ab152e-5ba6-4785-bce0-04e9711f6dc6")
+                .expect("valid interface id"),
+        ),
+        attached_dpu_machine_id: Some(
+            MachineId::from_str("fm100ds7f2c7e5i3nlho0cfq4ke3ma8chtpn49qm6j12rv63l6fa527j8c0")
+                .expect("valid machine id"),
+        ),
+        machine_id: Some(
+            MachineId::from_str("fm100hthn93o41u6eq8b9ijnjtpce73m8uuh7hd462gtj9p0cvl08oo5r0g")
+                .expect("valid machine id"),
+        ),
+        segment_id: Some(
+            NetworkSegmentId::from_str("63ad6dcf-2a60-476b-a2c0-e3a85cd326d0")
+                .expect("valid network segment id"),
+        ),
+        hostname: "10-217-100-219".to_string(),
+        domain_id: Some(
+            DomainId::from_str("fd37cb4a-cad9-4d50-be07-b54f818dcde3").expect("valid domain id"),
+        ),
+        primary_interface: false,
+        mac_address: "9C:63:C0:E6:9F:50".to_string(),
+        address: vec!["10.217.100.219".to_string()],
+        vendor: None,
+        created: Some(timestamp_from_secs_nanos(1773084037, 3824000)),
+        last_dhcp: Some(timestamp_from_secs_nanos(1773097243, 70533000)),
+        is_bmc: None,
+        power_shelf_id: None,
+        switch_id: None,
+        association_type: Some(InterfaceAssociationType::Machine.into()),
+    };
+
+    common::respond(rpc::forge::InterfaceList {
+        interfaces: vec![interface],
     })
 }
 
