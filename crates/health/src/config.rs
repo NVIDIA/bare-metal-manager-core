@@ -1015,7 +1015,7 @@ switch_serial = "SN-SW-001"
             Some("SN-SWITCH-001")
         );
         if let Configurable::Enabled(ref health_override) = config.sinks.health_override {
-            assert_eq!(health_override.workers, 4);
+            assert_eq!(health_override.workers, 8);
         } else {
             panic!("health override sink is disabled");
         }
