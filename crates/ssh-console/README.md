@@ -119,7 +119,7 @@ instance_id = "d40ad750-b925-4b34-b25a-d7f94458cc9e"
 ip = "127.0.0.1"
 port = 8022
 
-# Valid: "dell", "hpe", "lenovo", "dpu", "nvidia_viking". Affects how BMC escape characters are interpreted, and
+# Valid: "dell", "hpe", "lenovo", "supermicro", "lenovo_ami", "dpu", "nvidia_viking". Affects how BMC escape characters are interpreted, and
 # how the serial console is activated.
 bmc_vendor = "dell"
 
