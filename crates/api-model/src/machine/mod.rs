@@ -327,6 +327,8 @@ impl ManagedHostStateSnapshot {
                         "".to_string(),
                         target,
                         "".to_string(),
+                        true,
+                        false,
                     ));
                 }
             };
@@ -374,34 +376,6 @@ impl ManagedHostStateSnapshot {
                     host_health_config.hardware_health_reports,
                 );
                 has_hardware_health |= merged_hardware;
-            }
-        }
-
-        if let Some(scout_override) = self
-            .host_snapshot
-            .health_report_overrides
-            .merges
-            .get_mut("scout")
-        {
-            for alert in scout_override
-                .alerts
-                .iter_mut()
-                .filter(|a| a.id == health_report::HealthProbeId::heartbeat_timeout())
-            {
-                if !host_health_config.prevent_allocations_on_scout_heartbeat_timeout {
-                    alert.classifications.retain(|c| {
-                        *c != health_report::HealthAlertClassification::prevent_allocations()
-                    });
-                }
-                if host_health_config.suppress_external_alerting_on_scout_heartbeat_timeout
-                    && !alert.classifications.contains(
-                        &health_report::HealthAlertClassification::suppress_external_alerting(),
-                    )
-                {
-                    alert.classifications.push(
-                        health_report::HealthAlertClassification::suppress_external_alerting(),
-                    );
-                }
             }
         }
 
@@ -1065,6 +1039,8 @@ impl From<Machine> for rpc::forge::Machine {
                         "forge-dpu-agent".to_string(),
                         "forge-dpu-agent".to_string(),
                         "No health data was received from DPU".to_string(),
+                        true,
+                        false,
                     )
                 });
                 if let Some(hr) = machine.site_explorer_health_report.as_ref() {

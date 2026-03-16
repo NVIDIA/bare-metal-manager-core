@@ -1464,6 +1464,8 @@ async fn test_scout_heartbeat_timeout_alert_cleared_on_ready_transition(pool: sq
         "scout".to_string(),
         "scout".to_string(),
         "test scout_heartbeat_timeout alert".to_string(),
+        false,
+        true,
     );
     send_health_report_override(
         &env,
@@ -1525,6 +1527,8 @@ async fn test_scout_heartbeat_timeout_alert_cleared_on_instance_creation_transit
         "scout".to_string(),
         "scout".to_string(),
         "test scout_heartbeat_timeout alert for instance path".to_string(),
+        false,
+        true,
     );
     send_health_report_override(
         &env,
@@ -1615,6 +1619,8 @@ async fn test_scout_heartbeat_timeout_alert_not_cleared_when_unhealthy_allocatio
         "scout".to_string(),
         "scout".to_string(),
         "test scout_heartbeat_timeout alert for blocked instance path".to_string(),
+        true,
+        false,
     );
     send_health_report_override(
         &env,

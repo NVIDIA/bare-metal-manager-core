@@ -643,6 +643,8 @@ impl MachineStateHandler {
                             "forge-dpu-agent".to_string(),
                             "forge-dpu-agent".to_string(),
                             message,
+                            true,
+                            false,
                         );
 
                         let mut txn = ctx.services.db_pool.begin().await?;
@@ -1752,8 +1754,15 @@ impl MachineStateHandler {
 
         if since_last_contact >= timeout_threshold && !scout_timeout_alert_exists {
             let message = format!("Last scout heartbeat over {timeout_threshold} ago");
-            let health_report =
-                HealthReport::heartbeat_timeout("scout".to_string(), "scout".to_string(), message);
+            let host_health = &ctx.services.site_config.host_health;
+            let health_report = HealthReport::heartbeat_timeout(
+                "scout".to_string(),
+                "scout".to_string(),
+                message,
+                host_health.prevent_allocations_on_scout_heartbeat_timeout,
+                host_health.suppress_external_alerting_on_scout_heartbeat_timeout,
+            );
+
             let mut txn = ctx.services.db_pool.begin().await?;
             db::machine::insert_health_report_override(
                 &mut txn,
