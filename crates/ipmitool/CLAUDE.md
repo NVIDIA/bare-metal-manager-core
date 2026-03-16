@@ -1,7 +1,8 @@
 # carbide-ipmitool
 
-Pure-Rust IPMI v2.0 RMCP+ client library and CLI, replacing the C
-`ipmitool` binary. Eliminates the OpenSSL/C dependency for BMC
+Pure-Rust IPMI v1.5/v2.0 client library and CLI, replacing the C
+`ipmitool` binary. Supports both `-I lan` (IPMI v1.5) and `-I lanplus`
+(IPMI v2.0 RMCP+). Eliminates the OpenSSL/C dependency for BMC
 communication.
 
 ## C implementation
@@ -29,7 +30,8 @@ crates/ipmitool/
 │   ├── cli/            # One file per command group — clap derive + output formatting
 │   ├── cmd/            # One file per command group — IPMI command logic
 │   ├── crypto/         # HMAC-SHA1/SHA256/MD5, AES-CBC-128, key derivation
-│   ├── transport/      # IpmiTransport trait, LanplusTransport, MockTransport
+│   ├── transport/      # IpmiTransport trait, Transport enum, LanTransport, LanplusTransport, MockTransport
+│   │   ├── lan/        # IPMI v1.5 LAN: packet build/parse, MD5 auth, session state
 │   │   └── lanplus/    # RMCP+ packet build/parse, RAKP handshake, session state
 │   └── types/          # NetFn, CompletionCode, IpmiRequest/Response, sensor/FRU/SEL types
 ```
@@ -41,9 +43,12 @@ cargo build -p carbide-ipmitool
 cargo test -p carbide-ipmitool
 cargo clippy -p carbide-ipmitool
 
-# Against a real BMC:
-cargo run -p carbide-ipmitool -- -H <bmc-ip> -U <user> -P <pass> chassis power status
-cargo run -p carbide-ipmitool -- -H <bmc-ip> -U <user> -P <pass> mc info
+# Against a real BMC (v2.0 RMCP+):
+cargo run -p carbide-ipmitool -- -I lanplus -H <bmc-ip> -U <user> -P <pass> chassis power status
+cargo run -p carbide-ipmitool -- -I lanplus -H <bmc-ip> -U <user> -P <pass> mc info
+
+# Against a v1.5-only BMC:
+cargo run -p carbide-ipmitool -- -I lan -H <bmc-ip> -U <user> -P <pass> chassis power status
 ```
 ## Tricky areas
 These are areas where the implementation is non-obvious or where bugs are likely
@@ -135,6 +140,7 @@ Phases 1-6.5 are complete on the `vibe_ipmitool` branch (182 tests).
 | 5 | Done | User and channel management |
 | 6 | Done | SOL activation/config |
 | 6.5 | Done | Interactive SOL terminal (bidirectional I/O, escape handling) |
+| 6.6 | Done | IPMI v1.5 LAN transport (`-I lan`) with MD5/None auth, `Transport` enum dispatch |
 | 7 | **Blocked** | Replace shell-out in `crates/api/src/ipmitool.rs` — **do not start until tested against a real BMC** |
 
 ## Testing
@@ -159,3 +165,8 @@ Phases 1-6.5 are complete on the `vibe_ipmitool` branch (182 tests).
 - The `md-5` crate (not `md5`) is the digest-compatible HMAC-MD5
   implementation. The workspace `md5 = "0.7"` is a different,
   incompatible crate used elsewhere.
+- IPMI v1.5 LAN auth types MD2 (`0x01`) and straight password
+  (`0x04`) are intentionally deferred — MD2 is obsolete and straight
+  password is insecure. Only MD5 and None are implemented.
+- SOL interactive sessions are lanplus-only; attempting `sol activate`
+  with `-I lan` produces a clear error message.

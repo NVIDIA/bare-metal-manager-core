@@ -18,8 +18,9 @@
 use clap::Parser;
 use color_eyre::eyre::{self, Context};
 use ipmitool::cli::{Cli, CliCommand};
+use ipmitool::transport::lan::LanTransport;
 use ipmitool::transport::lanplus::LanplusTransport;
-use ipmitool::transport::IpmiTransport;
+use ipmitool::transport::{IpmiTransport, Transport};
 use ipmitool::ConnectionConfig;
 
 #[tokio::main]
@@ -51,9 +52,21 @@ async fn main() -> eyre::Result<()> {
         ..Default::default()
     };
 
-    let mut transport = LanplusTransport::connect(config)
-        .await
-        .context("connect to BMC")?;
+    let mut transport = match cli.interface.as_str() {
+        "lanplus" => {
+            let t = LanplusTransport::connect(config)
+                .await
+                .context("connect to BMC via RMCP+")?;
+            Transport::Lanplus(t)
+        }
+        "lan" => {
+            let t = LanTransport::connect(config)
+                .await
+                .context("connect to BMC via IPMI v1.5 LAN")?;
+            Transport::Lan(t)
+        }
+        other => eyre::bail!("unsupported interface: {other} (supported: lan, lanplus)"),
+    };
 
     let result = match cli.command {
         CliCommand::Chassis { command } => {
@@ -79,10 +92,18 @@ async fn main() -> eyre::Result<()> {
         }
         CliCommand::Sol { command } => match command {
             ipmitool::cli::sol::SolCommand::Activate { instance } => {
-                transport
-                    .run_sol_interactive(instance)
-                    .await
-                    .context("SOL interactive session")
+                // SOL interactive sessions require RMCP+ (lanplus) for the
+                // encrypted, bidirectional payload channel.
+                match &mut transport {
+                    Transport::Lanplus(t) => {
+                        t.run_sol_interactive(instance)
+                            .await
+                            .context("SOL interactive session")
+                    }
+                    Transport::Lan(_) => {
+                        eyre::bail!("SOL requires RMCP+ (-I lanplus)")
+                    }
+                }
             }
             other => ipmitool::cli::sol::run(&mut transport, other).await,
         },

@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- IPMI v1.5 LAN transport (`-I lan`) for BMCs that do not support
+  RMCP+ (IPMI v2.0), with MD5 and None authentication types
 - Interactive SOL terminal session with bidirectional I/O, terminal raw
   mode, and `~`-prefixed escape sequences (`~.` disconnect, `~B` break,
   `~~` literal tilde, `~?` help)

@@ -33,9 +33,9 @@ pub mod user;
 
 use clap::Parser;
 
-/// IPMI v2.0 RMCP+ command-line tool.
+/// IPMI command-line tool supporting v1.5 LAN and v2.0 RMCP+.
 #[derive(Parser)]
-#[command(name = "carbide-ipmitool", about = "IPMI v2.0 RMCP+ tool")]
+#[command(name = "carbide-ipmitool", about = "IPMI v1.5/v2.0 tool (lan/lanplus)")]
 pub struct Cli {
     /// BMC hostname or IP address.
     #[arg(short = 'H', long)]
@@ -53,7 +53,7 @@ pub struct Cli {
     #[arg(short = 'E')]
     pub env_password: bool,
 
-    /// Interface type (only "lanplus" supported).
+    /// Interface type: "lanplus" (IPMI v2.0 RMCP+) or "lan" (IPMI v1.5).
     #[arg(short = 'I', long, default_value = "lanplus")]
     pub interface: String,
 

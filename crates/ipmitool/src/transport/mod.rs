@@ -17,6 +17,7 @@
 
 //! IPMI transport layer — defines the trait and transport implementations.
 
+pub mod lan;
 pub mod lanplus;
 #[cfg(test)]
 pub mod mock;
@@ -24,7 +25,7 @@ pub mod mock;
 use crate::error::Result;
 use crate::types::{IpmiRequest, IpmiResponse};
 
-/// Trait for sending IPMI commands over a transport (lanplus, etc.).
+/// Trait for sending IPMI commands over a transport (lanplus, lan, etc.).
 ///
 /// Implementations handle session management, encryption, and framing.
 /// The transport is async because it performs UDP I/O.
@@ -37,4 +38,36 @@ pub trait IpmiTransport: Send {
 
     /// Close the session and release resources.
     fn close(&mut self) -> impl std::future::Future<Output = Result<()>> + Send;
+}
+
+// ==============================================================================
+// Transport Enum Wrapper
+// ==============================================================================
+
+/// Transport enum dispatching to the concrete transport implementation.
+///
+/// [`IpmiTransport`] uses RPITIT (`impl Future` in return position), so it
+/// is not dyn-safe. This enum provides runtime dispatch between the LAN
+/// (IPMI v1.5) and LANPLUS (IPMI v2.0 RMCP+) transports.
+pub enum Transport {
+    /// IPMI v1.5 LAN transport (no encryption, MD5 or no auth).
+    Lan(lan::LanTransport),
+    /// IPMI v2.0 RMCP+ transport (encrypted + integrity-checked).
+    Lanplus(lanplus::LanplusTransport),
+}
+
+impl IpmiTransport for Transport {
+    async fn send_recv(&mut self, req: &IpmiRequest) -> Result<IpmiResponse> {
+        match self {
+            Self::Lan(t) => t.send_recv(req).await,
+            Self::Lanplus(t) => t.send_recv(req).await,
+        }
+    }
+
+    async fn close(&mut self) -> Result<()> {
+        match self {
+            Self::Lan(t) => t.close().await,
+            Self::Lanplus(t) => t.close().await,
+        }
+    }
 }
