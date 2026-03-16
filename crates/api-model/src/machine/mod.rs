@@ -418,8 +418,15 @@ impl ManagedHostStateSnapshot {
                 let state = &self.host_snapshot.state.value;
                 let version = &self.host_snapshot.state.version;
                 rpc_machine.health = Some(self.aggregate_health.clone().into());
-                rpc_machine.state_sla =
-                    Some(state_sla(state, version, &self.aggregate_health).into());
+                rpc_machine.state_sla = Some(
+                    state_sla(
+                        &self.host_snapshot.id,
+                        state,
+                        version,
+                        &self.aggregate_health,
+                    )
+                    .into(),
+                );
                 Some(rpc_machine)
             }
             Some(dpu_machine_id) => {
@@ -1097,7 +1104,13 @@ impl From<Machine> for rpc::forge::Machine {
             instance_type_id: machine.instance_type_id.map(|i| i.to_string()),
             state_version: machine.state.version.version_string(),
             state_sla: Some(
-                state_sla(&machine.state.value, &machine.state.version, &health).into(),
+                state_sla(
+                    &machine.id,
+                    &machine.state.value,
+                    &machine.state.version,
+                    &health,
+                )
+                .into(),
             ),
             machine_type: *RpcMachineTypeWrapper::from(machine.id.machine_type()) as _,
             metadata: Some(machine.metadata.into()),
@@ -2451,6 +2464,7 @@ impl From<MachineHealthHistoryRecord> for rpc::forge::MachineHealthHistoryRecord
 /// no SLA applies regardless of the current state. This allows operators to suppress
 /// SLA violations during manual operations without stopping the state machine.
 pub fn state_sla(
+    machine_id: &MachineId,
     state: &ManagedHostState,
     state_version: &ConfigVersion,
     aggregate_health: &health_report::HealthReport,
@@ -2461,6 +2475,10 @@ pub fn state_sla(
         .iter()
         .any(|a| a.classifications.contains(&exclude))
     {
+        tracing::debug!(
+            machine_id = %machine_id,
+            "Skipping state machine SLA for machine due to {exclude} classification"
+        );
         return StateSla::no_sla();
     }
 
@@ -2913,13 +2931,16 @@ mod tests {
     /// classification is present on the single alert.
     #[test]
     fn test_state_sla_exclude_classification_overrides_sla() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
         let state = ManagedHostState::Created;
         let state_version = ConfigVersion::initial();
         let health = health_report_with_alerts(vec![alert_with_classifications(vec![
             health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
         ])]);
 
-        let sla = state_sla(&state, &state_version, &health);
+        let sla = state_sla(&machine_id, &state, &state_version, &health);
 
         assert!(sla.sla.is_none(), "SLA should be absent when excluded");
         assert!(
@@ -2932,6 +2953,9 @@ mod tests {
     /// ExcludeFromStateMachineSla classification, the SLA is still suppressed.
     #[test]
     fn test_state_sla_exclude_classification_on_one_of_multiple_alerts_suppresses_sla() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
         let state = ManagedHostState::Created;
         let state_version = ConfigVersion::initial();
         let health = health_report_with_alerts(vec![
@@ -2945,7 +2969,7 @@ mod tests {
             ]),
         ]);
 
-        let sla = state_sla(&state, &state_version, &health);
+        let sla = state_sla(&machine_id, &state, &state_version, &health);
 
         assert!(
             sla.sla.is_none(),
@@ -2958,13 +2982,16 @@ mod tests {
     /// applies to states that have one defined.
     #[test]
     fn test_state_sla_without_exclude_classification_normal_sla_applies() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
         let state = ManagedHostState::Created;
         let state_version = ConfigVersion::initial();
         let health = health_report_with_alerts(vec![alert_with_classifications(vec![
             health_report::HealthAlertClassification::prevent_allocations(),
         ])]);
 
-        let sla = state_sla(&state, &state_version, &health);
+        let sla = state_sla(&machine_id, &state, &state_version, &health);
 
         assert!(
             sla.sla.is_some(),
@@ -2976,11 +3003,14 @@ mod tests {
     /// normal SLA logic applies.
     #[test]
     fn test_state_sla_empty_health_report_normal_sla_applies() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
         let state = ManagedHostState::Created;
         let state_version = ConfigVersion::initial();
         let health = health_report_with_alerts(vec![]);
 
-        let sla = state_sla(&state, &state_version, &health);
+        let sla = state_sla(&machine_id, &state, &state_version, &health);
 
         assert!(
             sla.sla.is_some(),
@@ -2992,16 +3022,16 @@ mod tests {
     /// for the Failed state, which ordinarily has an always-violated SLA (duration 0).
     #[test]
     fn test_state_sla_exclude_classification_overrides_failed_state_sla() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
         let state = ManagedHostState::Failed {
             details: FailureDetails {
                 cause: FailureCause::NoError,
                 failed_at: chrono::Utc::now(),
                 source: FailureSource::NoError,
             },
-            machine_id: MachineId::from_str(
-                "fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng",
-            )
-            .unwrap(),
+            machine_id,
             retry_count: 1,
         };
         let state_version = ConfigVersion::initial();
@@ -3009,7 +3039,7 @@ mod tests {
             health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
         ])]);
 
-        let sla = state_sla(&state, &state_version, &health);
+        let sla = state_sla(&machine_id, &state, &state_version, &health);
 
         assert!(
             sla.sla.is_none(),
@@ -3022,22 +3052,22 @@ mod tests {
     /// immediately violated (duration 0).
     #[test]
     fn test_state_sla_failed_state_without_exclude_classification_is_above_sla() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
         let state = ManagedHostState::Failed {
             details: FailureDetails {
                 cause: FailureCause::NoError,
                 failed_at: chrono::Utc::now(),
                 source: FailureSource::NoError,
             },
-            machine_id: MachineId::from_str(
-                "fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng",
-            )
-            .unwrap(),
+            machine_id,
             retry_count: 1,
         };
         let state_version = ConfigVersion::initial();
         let health = health_report_with_alerts(vec![]);
 
-        let sla = state_sla(&state, &state_version, &health);
+        let sla = state_sla(&machine_id, &state, &state_version, &health);
 
         assert_eq!(
             sla.sla,

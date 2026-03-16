@@ -301,6 +301,11 @@ impl StateControllerIO for MachineStateControllerIO {
     }
 
     fn state_sla(state: &Versioned<Self::ControllerState>, object_state: &Self::State) -> StateSla {
-        machine::state_sla(&state.value, &state.version, &object_state.aggregate_health)
+        machine::state_sla(
+            &object_state.host_snapshot.id,
+            &state.value,
+            &state.version,
+            &object_state.aggregate_health,
+        )
     }
 }
