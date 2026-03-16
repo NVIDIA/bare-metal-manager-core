@@ -2,7 +2,7 @@
 
 ## What's New
 
-The Release Instance API for NVIDIA Bare Metal Manager (BMM) now supports **issue reporting** and **automated repair workflows**. When releasing an instance, you can report problems to help improve system reliability.
+The Release Instance API for NCX Infra Controller (NICo) now supports **issue reporting** and **automated repair workflows**. When releasing an instance, you can report problems to help improve system reliability.
 
 ### Key Features
 - **Report Issues**: Hardware, Network, Performance, or Other problems
@@ -64,7 +64,7 @@ The system uses two complementary health overrides to manage the repair workflow
 - **Enabled**: Machine gets both overrides (`tenant-reported-issue` + `repair-request`) - repair plugins can act on the machine
 - **Disabled**: Machine gets only `tenant-reported-issue` override (manual intervention needed)
 
-### BMM - Breakfix Integration Workflow
+### NICo - Breakfix Integration Workflow
 
 #### Workflow Overview
 

@@ -1,6 +1,6 @@
 # Site Setup Guide
 
-This page outlines the software dependencies for a Kubernetes-based install of NVIDIA Bare Metal Manager (BMM). It includes the *validated baseline* of software dependencies,
+This page outlines the software dependencies for a Kubernetes-based install of NCX Infra Controller (NICo). It includes the *validated baseline* of software dependencies,
 as well as the *order of operations* for site bringup, including what you must configure if you already operate some of the common services yourself.
 
 **Important Notes**
@@ -16,7 +16,7 @@ as well as the *order of operations* for site bringup, including what you must c
 
 ## Validated Baseline
 
-This section lists all software dependencies, including the versions validated for this release of BMM.
+This section lists all software dependencies, including the versions validated for this release of NICo.
 
 ### Kubernetes and Node Runtime
 
@@ -58,7 +58,7 @@ This section lists all software dependencies, including the versions validated f
 
 ### Monitoring and Telemetry (OPTIONAL)
 
-These components are not required for BMM setup, but are recommended site metrics.
+These components are not required for NICo setup, but are recommended site metrics.
 
 - **Monitoring System**:  Prometheus Operator v0.68.0; Prometheus v2.47.0; Alertmanager v0.26.0
 
@@ -70,11 +70,11 @@ These components are not required for BMM setup, but are recommended site metric
 
 - **Host Monitoring** Node exporter v1.6.1
 
-### BMM Components
+### NICo Components
 
-The following services are installed during the BMM installation process.
+The following services are installed during the NICo installation process.
 
-- **BMM core (forge‑system)**
+- **NICo core (forge‑system)**
 
   - nvmetal-carbide:v2025.07.04-rc2-0-8-g077781771 (primary carbide-api, plus supporting workloads)
 

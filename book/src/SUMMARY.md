@@ -1,4 +1,4 @@
-# NVIDIA Bare Metal Manager
+# NCX Infra Controller
 
 - [Introduction](README.md)
 - [Hardware Compatbility List](hcl.md)
@@ -25,7 +25,7 @@
 
 - [Site Setup](manuals/site-setup.md)
     - [Site Reference Architecture](manuals/site-reference-arch.md)
-- [Building BMM Containers](manuals/building_bmm_containers.md)
+- [Building NICo Containers](manuals/building_nico_containers.md)
 - [Ingesting Hosts](manuals/ingesting_machines.md)
 - [Removing Hosts](manuals/removing_machines.md)
 - [Updating Expected Hosts Manifest](manuals/expected_machine_update.md)
@@ -66,7 +66,7 @@
 
 # Playbooks
 
-- [Azure OIDC for NVIDIA Bare Metal Manager-Web UI](playbooks/carbide_web_oauth2.md)
+- [Azure OIDC for NCX Infra Controller-Web UI](playbooks/carbide_web_oauth2.md)
 - [Force deleting and rebuilding Forge hosts](playbooks/force_delete.md)
 - [Rebooting a machine](playbooks/machine_reboot.md)
 - [Instance/Subnet/etc is stuck in a state]()

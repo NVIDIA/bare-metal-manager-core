@@ -321,6 +321,14 @@ pub struct DpaInterface {
     pub device_info: Option<MlxDeviceInfo>,
     pub device_info_ts: Option<DateTime<Utc>>,
 
+    // mlxconfig_profile is the name of an MlxConfigProfile from
+    // the mlx-config-profiles config map. When set, this profile
+    // will be applied to the device during the ApplyProfile state.
+    // When None, ApplyProfile will simply perform an mlxconfig
+    // reset and not apply any subsequent defaults, ensuring the
+    // card is back to stock before the next tenancy.
+    pub mlxconfig_profile: Option<String>,
+
     pub history: Vec<DpaInterfaceStateHistoryRecord>,
 }
 
@@ -475,6 +483,7 @@ impl From<DpaInterface> for rpc::forge::DpaInterface {
             pci_name: src.pci_name,
             underlay_ip: underlay,
             overlay_ip: overlay,
+            mlxconfig_profile: src.mlxconfig_profile,
         }
     }
 }
@@ -528,6 +537,8 @@ pub struct DpaInterfaceSnapshotPgJson {
     #[serde(default, alias = "device_info_report_ts")]
     pub device_info_ts: Option<DateTime<Utc>>,
     #[serde(default)]
+    pub mlxconfig_profile: Option<String>,
+    #[serde(default)]
     pub history: Vec<DpaInterfaceStateHistoryRecord>,
 }
 
@@ -566,6 +577,7 @@ impl TryFrom<DpaInterfaceSnapshotPgJson> for DpaInterface {
             card_state: value.card_state,
             device_info: value.device_info,
             device_info_ts: value.device_info_ts,
+            mlxconfig_profile: value.mlxconfig_profile,
             history: value.history,
             pci_name: value.pci_name,
             underlay_ip: value.underlay_ip,

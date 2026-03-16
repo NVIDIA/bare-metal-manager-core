@@ -1,10 +1,10 @@
 # Redfish Endpoints Reference
 
-This page documents all Redfish endpoints used by NVIDIA Bare Metal Manager (BMM), organized by resource group. Each section includes endpoint tables, required response fields with their importance to BMM, and vendor-specific notes.
+This page documents all Redfish endpoints used by NCX Infra Controller (NICo), organized by resource group. Each section includes endpoint tables, required response fields with their importance to NICo, and vendor-specific notes.
 
 Field importance levels:
-- **Critical** — BMM cannot function correctly without this field. Pairing, identification, or core workflows fail.
-- **Required** — Expected by BMM and used in normal operation. Missing values cause degraded behavior.
+- **Critical** — NICo cannot function correctly without this field. Pairing, identification, or core workflows fail.
+- **Required** — Expected by NICo and used in normal operation. Missing values cause degraded behavior.
 - **Recommended** — Used when available, with graceful fallback if absent.
 - **Optional** — Informational or used only in specific configurations.
 
@@ -22,7 +22,7 @@ Field importance levels:
 
 ### Key Response Fields
 
-| Field | Importance | BMM Usage |
+| Field | Importance | NICo Usage |
 |-------|-----------|---------------|
 | `Vendor` | Required | Vendor detection — determines all vendor-specific behavior |
 | `Systems` | Required | Link to systems collection |
@@ -45,7 +45,7 @@ Field importance levels:
 
 ### Key Response Fields
 
-| Field | Importance | BMM Usage |
+| Field | Importance | NICo Usage |
 |-------|-----------|---------------|
 | `SerialNumber` | **Critical** | Machine ID generation via DMI hash. Pairing fails without it. |
 | `Id` | Required | DPU detection (checks for "bluefield" substring) |
@@ -95,7 +95,7 @@ Field importance levels:
 
 ### Key Response Fields
 
-| Field | Importance | BMM Usage |
+| Field | Importance | NICo Usage |
 |-------|-----------|---------------|
 | `MACAddress` (or `MacAddress`) | **Critical** | DPU-host pairing, interface identification. Accepts both field name variants. |
 | `UefiDevicePath` | Required | Primary interface detection via PCI path ordering (parsed to format "2.1.0.0.0") |
@@ -117,7 +117,7 @@ Field importance levels:
 
 ### Key Response Fields
 
-| Field | Importance | BMM Usage |
+| Field | Importance | NICo Usage |
 |-------|-----------|---------------|
 | `Id` | **Critical** | System classification: "Card1"=DPU, "powershelf"=power shelf, "mgx_nvswitch_0"=NVSwitch, "Chassis_0"=GB200 |
 | `SerialNumber` | **Critical** | Fallback for system serial (DPU uses Chassis/Card1 serial). Power shelf/switch IDs. Whitespace trimmed. |
@@ -158,7 +158,7 @@ Field importance levels:
 
 ### Key Response Fields
 
-| Field | Importance | BMM Usage |
+| Field | Importance | NICo Usage |
 |-------|-----------|---------------|
 | `SerialNumber` | **Critical** | DPU-host pairing fallback path. **Must be visible to Host BMC.** Whitespace trimmed. |
 | `PartNumber` | **Critical** | BlueField/SuperNIC identification via `is_bluefield_model()` |
@@ -194,7 +194,7 @@ Field importance levels:
 
 ### Key Response Fields
 
-| Field | Importance | BMM Usage |
+| Field | Importance | NICo Usage |
 |-------|-----------|---------------|
 | `SerialNumber` | **Critical** | **Primary DPU-host pairing** — matched against DPU system serial numbers |
 | `PartNumber` | **Critical** | BlueField identification via `is_bluefield_model()` (BF2, BF3, BF3 SuperNIC) |
@@ -217,7 +217,7 @@ Field importance levels:
 
 ### Key Response Fields
 
-| Field | Importance | BMM Usage |
+| Field | Importance | NICo Usage |
 |-------|-----------|---------------|
 | `Id` | Required | Manager identification. Viking detection: `id == "BMC"`. Sets default manager ID for subsequent calls. |
 | `FirmwareVersion` | Required | BMC firmware version tracking |
@@ -240,7 +240,7 @@ Field importance levels:
 
 ### Key Response Fields
 
-| Field | Importance | BMM Usage |
+| Field | Importance | NICo Usage |
 |-------|-----------|---------------|
 | `MACAddress` | **Critical** | BMC identification and credential storage/lookup |
 
@@ -267,7 +267,7 @@ Field importance levels:
 
 ### Key Response Fields
 
-| Field | Importance | BMM Usage |
+| Field | Importance | NICo Usage |
 |-------|-----------|---------------|
 | `DisplayName` | Required | OOB interface detection (checks for "OOB" string) |
 | `UefiDevicePath` | Required | MAC extraction via regex `MAC\((?<mac>[[:alnum:]]+)\,` — e.g. extracts `B83FD2909582` to `B8:3F:D2:90:95:82` |
@@ -302,7 +302,7 @@ Field importance levels:
 
 ### Key Response Fields
 
-| Field | Importance | BMM Usage |
+| Field | Importance | NICo Usage |
 |-------|-----------|---------------|
 | `Attributes` | Required | BIOS attribute read/write (SR-IOV enablement, machine setup) |
 
@@ -324,7 +324,7 @@ Field importance levels:
 
 ### Key Response Fields
 
-| Field | Importance | BMM Usage |
+| Field | Importance | NICo Usage |
 |-------|-----------|---------------|
 | `SecureBootEnable` | Required | Secure boot enabled status |
 | `SecureBootCurrentBoot` | Required | Current boot secure boot state |
@@ -347,7 +347,7 @@ Field importance levels:
 
 ### Key Response Fields
 
-| Field | Importance | BMM Usage |
+| Field | Importance | NICo Usage |
 |-------|-----------|---------------|
 | `UserName` | Required | Account management |
 | `Password` | Required | Credential rotation |
@@ -370,7 +370,7 @@ Field importance levels:
 
 ### Key Response Fields
 
-| Field | Importance | BMM Usage |
+| Field | Importance | NICo Usage |
 |-------|-----------|---------------|
 | `Id` | Required | Component ID — matched against firmware config regex. Vendor-specific IDs: NVIDIA DPU=`DPU_NIC`/`DPU_UEFI`, Supermicro=`CPLD_Backplane_1`/`CPLD_Motherboard`, GBx00=`EROT_BIOS_0`/`HGX_FW_BMC_0`/`HostBMC_0` |
 | `Version` | Required | Firmware version — used for upgrade decisions. DPU versions: trim, lowercase, remove "bf-" prefix. |
@@ -414,7 +414,7 @@ All endpoints below are polled at the configured `sensor_fetch_interval` (defaul
 
 ### Key Response Fields
 
-| Field | Importance | BMM Usage |
+| Field | Importance | NICo Usage |
 |-------|-----------|---------------|
 | `Reading` / `ReadingCelsius` | Required | Sensor value for Prometheus metrics |
 | `ReadingUnits` / `ReadingType` | Required | Sensor classification: Cel, RPM, W, A |
@@ -459,7 +459,7 @@ Log collection runs at 5-minute intervals and uses incremental fetching: `?$filt
 
 ### Key Response Fields
 
-| Field | Importance | BMM Usage |
+| Field | Importance | NICo Usage |
 |-------|-----------|---------------|
 | `Id` | Required | Entry identifier for incremental collection |
 | `Created` | Required | Timestamp |
@@ -537,7 +537,7 @@ Dell also uses `Managers/{id}/Jobs/{id}` (converted to Task internally).
 
 ## CI/CD Pipeline Endpoints
 
-These endpoints are used by the CI/CD tooling (`cicd/redfish_cli.py`, `cicd/install_wrapper.py`) and are **not** part of core BMM.
+These endpoints are used by the CI/CD tooling (`cicd/redfish_cli.py`, `cicd/install_wrapper.py`) and are **not** part of core NICo.
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|

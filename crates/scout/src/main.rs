@@ -567,15 +567,15 @@ async fn handle_mlxreport_action(
                 };
                 report.observations.push(obs);
             }
-            OpCode::ApplyProfile { profile_str } => {
-                // XXX TODO XXX
-                // Call appropriate mlx routine to apply profile and handle errors
-                // XXX TODO XXX
+            OpCode::ApplyProfile { serialized_profile } => {
+                let (profile_name, profile_synced) =
+                    mlx_device::apply_profile(&dev_pci_name, serialized_profile);
+
                 let obs = MlxObservation {
                     device_info: Some(dev.into()),
                     lock_status: None,
-                    profile_name: Some(profile_str),
-                    profile_synced: Some(true),
+                    profile_name,
+                    profile_synced,
                     firmware_report: None,
                 };
                 report.observations.push(obs);

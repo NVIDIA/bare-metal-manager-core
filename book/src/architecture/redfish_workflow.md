@@ -1,14 +1,14 @@
 # Redfish Workflow
 
-BMM uses [DMTF Redfish](https://www.dmtf.org/standards/redfish) to discover, provision, and monitor bare-metal hosts and their DPUs through BMC (Baseboard Management Controller) interfaces. This document traces the end-to-end workflow from initial DHCP discovery through ongoing monitoring.
+NICo uses [DMTF Redfish](https://www.dmtf.org/standards/redfish) to discover, provision, and monitor bare-metal hosts and their DPUs through BMC (Baseboard Management Controller) interfaces. This document traces the end-to-end workflow from initial DHCP discovery through ongoing monitoring.
 
-For the overall BMM architecture and component responsibilities, see [Overview and components](overview.md). The Site Explorer component described there is the primary consumer of Redfish APIs.
+For the overall NICo architecture and component responsibilities, see [Overview and components](overview.md). The Site Explorer component described there is the primary consumer of Redfish APIs.
 
 ## Workflow Summary
 
 ```
 DHCP Request (BMC)
-  → BMM DHCP (Kea hook)
+  → NICo DHCP (Kea hook)
     → Carbide Core (gRPC discover_dhcp)
       → Site Explorer probes Redfish endpoint
         → Authenticates, collects inventory
@@ -28,7 +28,7 @@ DHCP Request (BMC)
 
 ## 1. DHCP Discovery
 
-When a BMC on the underlay network sends a DHCP request, the BMM DHCP server (a Kea hook plugin) captures it and forwards the discovery information to Carbide Core.
+When a BMC on the underlay network sends a DHCP request, the NICo DHCP server (a Kea hook plugin) captures it and forwards the discovery information to Carbide Core.
 
 The Kea hook is implemented as a Rust library with C FFI bindings. When a DHCP packet arrives, the hook:
 
@@ -47,7 +47,7 @@ The vendor class string is parsed to identify the BMC type and capabilities. DHC
 
 ## 2. Redfish Endpoint Probing and Inventory
 
-Once BMM knows about a BMC IP from DHCP, the Site Explorer component continuously probes and inventories it via Redfish.
+Once NICo knows about a BMC IP from DHCP, the Site Explorer component continuously probes and inventories it via Redfish.
 
 ### Probing
 
@@ -106,7 +106,7 @@ If the explored matches are incomplete, check `expected_machine.fallback_dpu_ser
 
 ### Validation
 
-Before accepting a pairing, BMM validates:
+Before accepting a pairing, NICo validates:
 - **DPU mode**: The DPU must be in DPU mode, not NIC mode. BlueFields in NIC mode are excluded from pairing.
 - **DPU model configuration**: `check_and_configure_dpu_mode()` verifies the DPU is correctly configured for its model. Hosts with misconfigured DPUs are not ingested.
 - **Completeness**: The number of explored DPUs must match the number of BlueField devices the host reports. Incomplete pairings are deferred.
@@ -120,11 +120,11 @@ Once all DPUs are matched and validated, the host enters an "ingestable" state a
 
 ## 4. DPU Provisioning
 
-After pairing, the DPU must be provisioned with BMM software. This is orchestrated via Temporal workflows (in `carbide-rest`) with Redfish power control (in `bare-metal-manager-core`).
+After pairing, the DPU must be provisioned with NICo software. This is orchestrated via Temporal workflows (in `carbide-rest`) with Redfish power control (in `ncx-infra-controller-core`).
 
 ### Boot Configuration
 
-The DPU is configured to boot from HTTP IPv4 UEFI, which directs it to the BMM PXE server. The PXE server serves different artifacts based on architecture:
+The DPU is configured to boot from HTTP IPv4 UEFI, which directs it to the NICo PXE server. The PXE server serves different artifacts based on architecture:
 
 - **ARM (BlueField DPUs)**: `carbide.efi` with cloud-init user-data containing `machine_id` and `server_uri`
 - **x86 (Hosts)**: `scout.efi` with machine discovery parameters (`cli_cmd=auto-detect`)
@@ -143,8 +143,8 @@ The power control operation supports multiple reset types: `On`, `ForceOff`, `Gr
 ### Installation
 
 After PXE boot, the DPU:
-1. Fetches `carbide.efi` from the BMM PXE server over HTTP
-2. Receives cloud-init configuration with its `machine_id` and BMM API endpoint
+1. Fetches `carbide.efi` from the NICo PXE server over HTTP
+2. Receives cloud-init configuration with its `machine_id` and NICo API endpoint
 3. Installs and starts the DPU agent (`dpu-agent`), which connects back to Carbide Core via gRPC
 
 **Key files:**
@@ -155,11 +155,11 @@ After PXE boot, the DPU:
 
 ## 5. Host Configuration and Boot
 
-With the DPU provisioned, BMM configures the host BIOS and boot order via Redfish.
+With the DPU provisioned, NICo configures the host BIOS and boot order via Redfish.
 
 ### BIOS Attribute Setting
 
-BMM sets BIOS attributes required for bare-metal infrastructure operation. This includes SR-IOV enablement and other platform-specific settings. BIOS operations use the libredfish `Redfish` trait:
+NICo sets BIOS attributes required for bare-metal infrastructure operation. This includes SR-IOV enablement and other platform-specific settings. BIOS operations use the libredfish `Redfish` trait:
 
 - `bios()` — Read current BIOS attributes
 - `set_bios()` — Set BIOS attribute values
@@ -199,7 +199,7 @@ Power cycles are rate-limited to avoid excessive reboots (checked via `time_sinc
 
 ## 6. Ongoing Monitoring
 
-Once hosts are provisioned, the `carbide-hw-health` service continuously monitors **both host BMCs and DPU BMCs** via Redfish. The endpoint discovery calls `find_machine_ids` with `include_dpus: true`, so every BMC known to BMM (host and DPU) gets its own set of collectors:
+Once hosts are provisioned, the `carbide-hw-health` service continuously monitors **both host BMCs and DPU BMCs** via Redfish. The endpoint discovery calls `find_machine_ids` with `include_dpus: true`, so every BMC known to NICo (host and DPU) gets its own set of collectors:
 
 - **Health monitor** — sensor collection and health alert reporting
 - **Firmware collector** — firmware inventory polling
@@ -227,7 +227,7 @@ GET /redfish/v1/UpdateService/FirmwareInventory/{id}  (for each item)
 
 Each firmware item's name and version is exported as a Prometheus gauge metric with labels:
 - `serial_number` — Machine chassis serial
-- `machine_id` — BMM machine UUID
+- `machine_id` — NICo machine UUID
 - `bmc_mac` — BMC MAC address
 - `firmware_name` — Component name (e.g., "BMC_Firmware", "DPU_NIC")
 - `version` — Firmware version string
@@ -259,7 +259,7 @@ All sensor data is exported as Prometheus metrics on the `/metrics` endpoint (po
 
 ## Redfish Libraries
 
-BMM uses two Redfish client libraries concurrently. **nv-redfish** is replacing **libredfish** over time.
+NICo uses two Redfish client libraries concurrently. **nv-redfish** is replacing **libredfish** over time.
 
 | Library | Version | Language | Used For | Location in Code |
 |---|---|---|---|---|
@@ -268,7 +268,7 @@ BMM uses two Redfish client libraries concurrently. **nv-redfish** is replacing 
 
 **libredfish** provides a `Redfish` trait with vendor-specific implementations (Dell, HPE, Lenovo, Supermicro, NVIDIA DPU/GB200/GH200/Viking). It handles the full breadth of BMC operations.
 
-**nv-redfish** uses a code-generation approach: CSDL (Redfish schema XML) is compiled into strongly-typed Rust at build time. It is feature-gated so only needed Redfish services are compiled in. Currently enabled features in BMM: `std-redfish`, `update-service`, `resource-status`.
+**nv-redfish** uses a code-generation approach: CSDL (Redfish schema XML) is compiled into strongly-typed Rust at build time. It is feature-gated so only needed Redfish services are compiled in. Currently enabled features in NICo: `std-redfish`, `update-service`, `resource-status`.
 
 Both libraries are declared in the workspace `Cargo.toml`.
 

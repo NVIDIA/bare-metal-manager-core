@@ -1,11 +1,11 @@
 # SKU Validation
 
-NVIDIA Bare Metal Manager (BMM) supports checking and validating the hardware in a machine, known as "SKU Validation."
+NCX Infra Controller (NICo) supports checking and validating the hardware in a machine, known as "SKU Validation."
 
 ## Summary
 
-A SKU is a collection of definitions managed by BMM that define a specific configuration of machine.
-Each host managed by BMM must have a SKU associated with it before it can be made available for use by a tenant
+A SKU is a collection of definitions managed by NICo that define a specific configuration of machine.
+Each host managed by NICo must have a SKU associated with it before it can be made available for use by a tenant
 (TODO: did we actually implement this?).
 
 Hardware configurations or SKUs are generated from existing machines by an admin and uploaded to forge via the CLI.
@@ -25,25 +25,25 @@ SKU Validation can be enabled or disabled for a site, however, when it is enable
 apply to a given machine. For a machine to have SKU Validation enforced, it must have an assigned SKU,
 however, note that SKUs will automatically be assigned to machines that match a given SKU, if they are in ready state.
 
-If a machine has an assigned SKU, and BMM (when the machine changes state and is not assigned) detects that
+If a machine has an assigned SKU, and NICo (when the machine changes state and is not assigned) detects that
 the hardware configuration does not match, the machine will have a SKU mismatch health alert placed on it, and it
 will be prevented from having allocations assigned to it.
 
 Generally, SKUs must be manually added a site to configure its SKUs. At some point, we may do this during the site
 bring-up process. However, for now, SKUs are only manually added to sites. It is also expected that, generally,
-the SKU assignments for individual machines are added automatically by BMM as those machines are reconfigured.
+the SKU assignments for individual machines are added automatically by NICo as those machines are reconfigured.
 
 ### BOM Validation States
 Verifying a SKU against a machine goes through several steps to aquire updated machine inventory and perform the validation.  Depending on the inventory of the machine and the SKU configuration, the state machine needs to handle several situations.  The bom validation process is broken down into the following sub-states:
 - `MatchingSku` - The state machine will attempt to find an existing SKU that matches the machine inventory.
-- `UpdatingInventory` - BMM is requesting that scout re-inventory the machine.  This ensures that other operations are using a recent version of the machine inventory
-- `VerifyingSku` - BMM is comparing the machine inventory against the SKU
+- `UpdatingInventory` - NICo is requesting that scout re-inventory the machine.  This ensures that other operations are using a recent version of the machine inventory
+- `VerifyingSku` - NICo is comparing the machine inventory against the SKU
 - `SkuVerificationFailed` - The machine did not match the SKU.  Manual intervention is required.  The `sku verify` command may be used to retry the verification
 - `WaitingForSkuAssignment` - The machine does not have a SKU assigned and the configuration requires one.
-- `SkuMissing` - The machine has a SKU assigned, but the SKU does not exist.  This happens when a SKU is specified in the expected machines, but was not created.  If configured, BMM will attempt to generate a SKU
+- `SkuMissing` - The machine has a SKU assigned, but the SKU does not exist.  This happens when a SKU is specified in the expected machines, but was not created.  If configured, NICo will attempt to generate a SKU
 
 ### Versions
-BMM maintains a version of the SKU schema used when a SKU is created.  This ensures that the same comparison is used during the lifetime of a SKU and ensures that the behavior of BOM validation does not change between BMM versions.  When new components are added, or new data sources are used during validation, existing SKUs will not be updated with the change and continue to behave as they did in previous BMM versions.  In order to use the new version, a new SKU must be created.
+NICo maintains a version of the SKU schema used when a SKU is created.  This ensures that the same comparison is used during the lifetime of a SKU and ensures that the behavior of BOM validation does not change between NICo versions.  When new components are added, or new data sources are used during validation, existing SKUs will not be updated with the change and continue to behave as they did in previous NICo versions.  In order to use the new version, a new SKU must be created.
 
 ### Configuration
 
@@ -72,11 +72,11 @@ auto_generate_missing_sku_interval = "300s"
   it will proceed as if all validation has passed. Only machines with an associated SKU will be validated. This allows
   existing sites to be upgraded and BOM Validation enabled as SKUs are added to the system without impacting site operation.
   Machines that do not have an assigned SKU will still be usable and assignable.
- - `find_match_interval` - determines how often BMM will attempt to find a matching SKU for a machine.  BMM will only
+ - `find_match_interval` - determines how often NICo will attempt to find a matching SKU for a machine.  NICo will only
   attempt to find a SKU when the machine is in the `Ready` state.
  - `auto_generate_missing_sku` - enable or disable generation of a SKU from a machine.  This only applies to a machine with a SKU
   specified in the expected machine configuration and in the `SkuMissing` state.
- - `auto_generate_missing_sku_interval` - determines how often BMM will attempt to generate a sku from the machine data.
+ - `auto_generate_missing_sku_interval` - determines how often NICo will attempt to generate a sku from the machine data.
 
 ### Hardware Validated
 
@@ -287,7 +287,7 @@ carbide-admin-cli sku delete <sku_name>
 ```
 
 #### Upgrading a SKU to the current version example
-When a new version of BMM is released that changes how SKUs behave, existing SKUs maintain their previous behavior.  In order to use the new version of the SKU, a manual "upgrade" process is required using the the `sku replace` command.
+When a new version of NICo is released that changes how SKUs behave, existing SKUs maintain their previous behavior.  In order to use the new version of the SKU, a manual "upgrade" process is required using the the `sku replace` command.
 
 The existing SKU is below.  Note that the "Storage Devices" section includes a device with a model of "NO_MODEL" and there is no TPM.  The extra storage device is created by the raid card and may not always exist and should not have been included in the SKU.
 
@@ -453,9 +453,9 @@ carbide-admin-cli sku show-machines <sku_name>
 
 ### Force SKU revalidation
 
-It may be beneficial when diagnosing a machine to force BMM to revalidate a SKU on a machine, if the machine is suspected
+It may be beneficial when diagnosing a machine to force NICo to revalidate a SKU on a machine, if the machine is suspected
 of issues, or if you believe that the validation may be out of date. You can force a revalidation with the command below,
-it will be validated the next time the machine is unassigned. Note that you cannot validate an assigned machine, and BMM
+it will be validated the next time the machine is unassigned. Note that you cannot validate an assigned machine, and NICo
 will refrain from doing so automatically.
 
 ```sh

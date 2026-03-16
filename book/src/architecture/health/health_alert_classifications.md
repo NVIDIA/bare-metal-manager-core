@@ -1,6 +1,6 @@
 ## Health alert classifications
 
-NVIDIA Bare Metal Manager (BMM) currently uses and recognizes the following set of health alert classifications by convention:
+NCX Infra Controller (NICo) currently uses and recognizes the following set of health alert classifications by convention:
 
 ### `PreventAllocations`
 
@@ -19,8 +19,8 @@ site-wide fleet-health. This is achieved by metrics/alerting queries ignoring th
 
 ### `StopRebootForAutomaticRecoveryFromStateMachine`
 
-For hosts with this classification, the BMM state machine will not automatically
-execute certain recovery actions (like reboots). The classification can be used to prevent BMM from interacting with hosts while datacenter operators manually perform certain actions.
+For hosts with this classification, the NICo state machine will not automatically
+execute certain recovery actions (like reboots). The classification can be used to prevent NICo from interacting with hosts while datacenter operators manually perform certain actions.
 
 ### `Hardware`
 

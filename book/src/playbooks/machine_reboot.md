@@ -1,6 +1,6 @@
 # Rebooting a machine
 
-This page describes how to reboot a machine managed by NVIDIA Bare Metal Manager (BMM) (i.e. amanaged host or DPU)
+This page describes how to reboot a machine managed by NCX Infra Controller (NICo) (i.e. amanaged host or DPU)
 in any potential state of its lifecycle.
 
 ## Important note
