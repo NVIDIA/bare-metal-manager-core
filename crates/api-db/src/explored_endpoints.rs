@@ -219,13 +219,16 @@ pub async fn lookup_vendor_by_ip(
     address: IpAddr,
     db_reader: impl DbReader<'_>,
 ) -> Result<Option<String>, DatabaseError> {
-    let query = "SELECT * FROM explored_endpoints WHERE address = $1";
+    let query = "SELECT exploration_report ->> 'Vendor' AS vendor FROM explored_endpoints WHERE address = $1";
 
-    sqlx::query_scalar(query)
+    // exploration_report is JSONB and technically the Vendor field can be set to NULL, so we need 2 levels of Option<T>
+    let vendor: Option<Option<String>> = sqlx::query_scalar(query)
         .bind(address)
         .fetch_optional(db_reader)
         .await
-        .map_err(|e| DatabaseError::new("explored_endpoints lookup_vendor_by_ip", e))
+        .map_err(|e| DatabaseError::new("explored_endpoints lookup_vendor_by_ip", e))?;
+
+    Ok(vendor.flatten())
 }
 
 /// Updates the explored information about a node

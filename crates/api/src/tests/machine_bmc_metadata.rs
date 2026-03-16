@@ -14,6 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::net::IpAddr;
+use std::str::FromStr;
 
 use common::api_fixtures::{create_managed_host_with_config, create_test_env};
 use rpc::forge::forge_server::Forge;
@@ -66,4 +68,73 @@ async fn fetch_bmc_credentials(pool: PgPool) {
         assert!(!metadata.password.is_empty());
         assert!(!metadata.user.is_empty());
     }
+}
+
+#[crate::sqlx_test]
+async fn test_fetch_ipmi_metadata(pool: PgPool) {
+    let env = create_test_env(pool).await;
+    let host_config = env.managed_host_config();
+    let host_bmc_mac = host_config.bmc_mac_address;
+    let mh = create_managed_host_with_config(&env, host_config).await;
+
+    let host_machine = mh.host().rpc_machine().await;
+    let bmc_info = host_machine.bmc_info.clone().unwrap();
+    assert_eq!(bmc_info.mac, Some(host_bmc_mac.to_string()));
+    let host_bmc_ip = bmc_info.ip.clone().expect("Host BMC IP must be available");
+    let metadata = env
+        .api
+        .get_bmc_meta_data(tonic::Request::new(rpc::forge::BmcMetaDataGetRequest {
+            machine_id: host_machine.id,
+            request_type: rpc::forge::BmcRequestType::Ipmi.into(),
+            role: rpc::forge::UserRoles::Administrator.into(),
+            bmc_endpoint_request: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(metadata.ip, host_bmc_ip);
+    assert_eq!(metadata.port, None);
+    assert_eq!(metadata.mac, host_bmc_mac.to_string());
+    assert!(!metadata.password.is_empty());
+    assert!(!metadata.user.is_empty());
+    assert!(metadata.vendor.is_some_and(|v| !v.is_empty()));
+}
+
+#[crate::sqlx_test]
+async fn test_fetch_ipmi_metadata_null_vendor(pool: PgPool) {
+    let env = create_test_env(pool).await;
+    let host_config = env.managed_host_config();
+    let host_bmc_mac = host_config.bmc_mac_address;
+    let mh = create_managed_host_with_config(&env, host_config).await;
+
+    let host_machine = mh.host().rpc_machine().await;
+    let bmc_info = host_machine.bmc_info.clone().unwrap();
+    assert_eq!(bmc_info.mac, Some(host_bmc_mac.to_string()));
+    let host_bmc_ip = bmc_info.ip.clone().expect("Host BMC IP must be available");
+
+    // Set the Vendor to a null string to test handling
+    let query = "UPDATE explored_endpoints SET exploration_report = jsonb_set(exploration_report, '{Vendor}', 'null'::jsonb) WHERE address = $1";
+    sqlx::query(query)
+        .bind(IpAddr::from_str(&host_bmc_ip).expect("invalid host IP"))
+        .execute(&env.pool)
+        .await
+        .unwrap();
+
+    let metadata = env
+        .api
+        .get_bmc_meta_data(tonic::Request::new(rpc::forge::BmcMetaDataGetRequest {
+            machine_id: host_machine.id,
+            request_type: rpc::forge::BmcRequestType::Ipmi.into(),
+            role: rpc::forge::UserRoles::Administrator.into(),
+            bmc_endpoint_request: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(metadata.ip, host_bmc_ip);
+    assert_eq!(metadata.port, None);
+    assert_eq!(metadata.mac, host_bmc_mac.to_string());
+    assert!(!metadata.password.is_empty());
+    assert!(!metadata.user.is_empty());
+    assert!(metadata.vendor.is_none());
 }

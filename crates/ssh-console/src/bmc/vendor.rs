@@ -73,23 +73,21 @@ impl BmcVendor {
             return Ok(BmcVendor::Ssh(SshBmcVendor::Dpu));
         }
 
-        Ok(
-            match bmc_vendor::BMCVendor::try_from(vendor_string).unwrap_or_default() {
-                BMCVendor::Lenovo => BmcVendor::Ssh(SshBmcVendor::Lenovo),
-                BMCVendor::LenovoAMI => BmcVendor::Ipmi(IpmiBmcVendor::LenovoAmi),
-                BMCVendor::Dell => BmcVendor::Ssh(SshBmcVendor::Dell),
-                BMCVendor::Supermicro => BmcVendor::Ipmi(IpmiBmcVendor::Supermicro),
-                BMCVendor::Hpe => BmcVendor::Ssh(SshBmcVendor::Hpe),
-                BMCVendor::Nvidia => BmcVendor::Ipmi(IpmiBmcVendor::NvidiaViking),
-                // Intentionally not doing a default `_` case so we get compiler errors (and can add more cases) later.
-                // TODO: figure out what kind of connection Liteon uses.
-                BMCVendor::Liteon | BMCVendor::Unknown => {
-                    return Err(BmcVendorDetectionError::UnknownSysVendor {
-                        sys_vendor: vendor_string.to_owned(),
-                    });
-                }
-            },
-        )
+        Ok(match bmc_vendor::BMCVendor::from(vendor_string) {
+            BMCVendor::Lenovo => BmcVendor::Ssh(SshBmcVendor::Lenovo),
+            BMCVendor::LenovoAMI => BmcVendor::Ipmi(IpmiBmcVendor::LenovoAmi),
+            BMCVendor::Dell => BmcVendor::Ssh(SshBmcVendor::Dell),
+            BMCVendor::Supermicro => BmcVendor::Ipmi(IpmiBmcVendor::Supermicro),
+            BMCVendor::Hpe => BmcVendor::Ssh(SshBmcVendor::Hpe),
+            BMCVendor::Nvidia => BmcVendor::Ipmi(IpmiBmcVendor::NvidiaViking),
+            // Intentionally not doing a default `_` case so we get compiler errors (and can add more cases) later.
+            // TODO: figure out what kind of connection Liteon uses.
+            BMCVendor::Liteon | BMCVendor::Unknown => {
+                return Err(BmcVendorDetectionError::UnknownSysVendor {
+                    sys_vendor: vendor_string.to_owned(),
+                });
+            }
+        })
     }
 
     pub fn from_config_string(s: &str) -> Option<Self> {
