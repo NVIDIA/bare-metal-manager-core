@@ -30,6 +30,8 @@ use model::machine_update_module::{
     AutomaticFirmwareUpdateReference, DpuReprovisionInitiator, HOST_UPDATE_HEALTH_REPORT_SOURCE,
 };
 use sqlx::PgConnection;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 
 use crate::CarbideResult;
 use crate::cfg::file::CarbideConfig;
@@ -210,9 +212,16 @@ async fn test_remove_machine_update_markers(
 #[crate::sqlx_test()]
 fn test_start(pool: sqlx::PgPool) {
     let test_module = Box::new(TestUpdateModule::new(vec![], HashSet::default()));
-    let work_lock_manager_handle = db::work_lock_manager::start(pool.clone(), Default::default())
-        .await
-        .unwrap();
+    let mut join_set = JoinSet::new();
+    let cancel_token = CancellationToken::new();
+    let work_lock_manager_handle = db::work_lock_manager::start(
+        &mut join_set,
+        pool.clone(),
+        Default::default(),
+        cancel_token.clone(),
+    )
+    .await
+    .unwrap();
 
     let mut config: Arc<CarbideConfig> = Arc::new(
         Figment::new()
@@ -231,7 +240,9 @@ fn test_start(pool: sqlx::PgPool) {
         work_lock_manager_handle,
     );
 
-    let stop = update_manager.start();
+    update_manager
+        .start(&mut join_set, cancel_token.clone())
+        .expect("Start failed");
 
     tokio::time::sleep(Duration::from_secs(4)).await;
 
@@ -243,9 +254,9 @@ fn test_start(pool: sqlx::PgPool) {
 
     assert_ne!(start_count, end_count);
 
-    drop(stop);
+    cancel_token.cancel();
 
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    join_set.join_all().await;
 
     let start_count = test_module.get_start_updates_called();
 

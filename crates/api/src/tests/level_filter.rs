@@ -19,6 +19,8 @@ use std::time::Duration;
 
 use common::api_fixtures::create_test_env;
 use rpc::forge::forge_server::Forge;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 use tracing_subscriber::filter::EnvFilter;
 
 use crate::tests::common;
@@ -26,10 +28,14 @@ use crate::tests::common;
 #[crate::sqlx_test]
 async fn test_dynamic_log_filter(db_pool: sqlx::PgPool) -> eyre::Result<()> {
     let env = create_test_env(db_pool.clone()).await;
+    let mut join_set = JoinSet::new();
+    let cancel_token = CancellationToken::new();
     // Real env does this in api/lib.rs::run
-    env.api
-        .dynamic_settings
-        .start_reset_task(Duration::from_millis(300));
+    env.api.dynamic_settings.start_reset_task(
+        &mut join_set,
+        Duration::from_millis(300),
+        cancel_token.clone(),
+    );
 
     // 1. It's correct when we start
     // This is actually set in TestEnv so not especially useful check, but we need it later
@@ -58,6 +64,9 @@ async fn test_dynamic_log_filter(db_pool: sqlx::PgPool) -> eyre::Result<()> {
     tokio::time::sleep(Duration::from_secs(1)).await;
     let base = env.api.log_filter_string();
     assert_eq!(local, base, "Expiry task did not revert log filter");
+
+    cancel_token.cancel();
+    join_set.join_all().await;
 
     Ok(())
 }

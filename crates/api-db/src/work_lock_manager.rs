@@ -19,7 +19,9 @@ use std::time::Duration;
 use sqlx::pool::PoolConnection;
 use sqlx::{Connection, PgConnection, PgPool, Postgres};
 use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinSet;
 use tokio::time::MissedTickBehavior;
+use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
 use crate::{DatabaseError, DatabaseResult};
@@ -81,8 +83,10 @@ impl Default for KeepaliveConfig {
 ///    call to [`WorkLockManagerHandle::try_acquire_lock`] is guaranteed to be processed after the lock is
 ///    released.
 pub async fn start(
+    join_set: &mut JoinSet<()>,
     pool: PgPool,
     keepalive_config: KeepaliveConfig,
+    cancel_token: CancellationToken,
 ) -> DatabaseResult<WorkLockManagerHandle> {
     // Use a single long-running postgres connection for the duration of the process, so that we can
     // always do our work, even if the connection pool fills up. But keep the `pool` so that we can
@@ -95,12 +99,13 @@ pub async fn start(
     } = keepalive_config;
 
     let (cmd_tx, cmd_rx) = mpsc::channel(COMMAND_BUFFER_SIZE);
-    tokio::task::Builder::new()
+    join_set
+        .build_task()
         .name("WorkLockManager")
         // Note: don't inherit the callers span, since child spans can't outlive their parent.
         // This prevents a crash in tracing-subscriber.
         .spawn(
-            run_loop(pool, db, cmd_rx, keepalive_timeout)
+            run_loop(pool, db, cmd_rx, keepalive_timeout, cancel_token)
                 .instrument(tracing::debug_span!(parent: None, "WorklockManager::run_loop")),
         )
         .expect("failed to start work manager");
@@ -120,8 +125,9 @@ async fn run_loop(
     mut db: PoolConnection<Postgres>,
     mut cmd_rx: mpsc::Receiver<WorkLockManagerCommand>,
     keepalive_timeout: Duration,
+    cancel_token: CancellationToken,
 ) {
-    while let Some(command) = cmd_rx.recv().await {
+    while let Some(Some(command)) = cancel_token.run_until_cancelled(cmd_rx.recv()).await {
         if let Err(e) = db.ping().await {
             tracing::warn!("WorkLockManager database connection closed, trying to re-acquire: {e}");
             db = match pool.acquire().await {
@@ -185,7 +191,7 @@ async fn run_loop(
             },
         }
     }
-    tracing::info!("WorkLockManager: all handles dropped, shutting down");
+    tracing::info!("WorkLockManager: shutting down");
 }
 
 /// A lock representing exclusive ownership of a logical, named unit of work. Upon drop, the lock
@@ -478,7 +484,16 @@ mod tests {
 
     #[crate::sqlx_test]
     async fn test_exclusivity(pool: PgPool) {
-        let manager = start(pool, Default::default()).await.unwrap();
+        let mut join_set = JoinSet::new();
+        let cancel_token = CancellationToken::new();
+        let manager = start(
+            &mut join_set,
+            pool,
+            Default::default(),
+            cancel_token.clone(),
+        )
+        .await
+        .unwrap();
 
         let lock_1 = manager.try_acquire_lock("work_key_1".into()).await.unwrap();
         assert!(
@@ -506,17 +521,29 @@ mod tests {
             }
             // lock is already dropped
         }
+
+        // Test cooperative cancellation
+        cancel_token.cancel();
+        tokio::select! {
+            _ = join_set.join_all() => {}
+            _ = tokio::time::sleep(Duration::from_secs(3)) => {
+                panic!("WorkLockManager did not shut down in a timely manner")
+            }
+        }
     }
 
     #[crate::sqlx_test]
     async fn test_db_failure(pool: PgPool) {
+        let mut join_set = JoinSet::new();
         let manager = start(
+            &mut join_set,
             pool.clone(),
             KeepaliveConfig {
                 // Make the interval fast, to make sure reconnection works
                 interval: Duration::from_millis(100),
                 timeout: Duration::from_millis(500),
             },
+            CancellationToken::new(),
         )
         .await
         .unwrap();
@@ -556,13 +583,16 @@ WHERE datname = $1 AND pid <> pg_backend_pid()"#,
 
     #[crate::sqlx_test]
     async fn test_expiry(pool: PgPool) {
+        let mut join_set = JoinSet::new();
         let manager = start(
+            &mut join_set,
             pool.clone(),
             KeepaliveConfig {
                 // Make timeout lower than interval, to test keepalive timeouts
                 interval: Duration::from_millis(500),
                 timeout: Duration::from_millis(100),
             },
+            CancellationToken::new(),
         )
         .await
         .unwrap();

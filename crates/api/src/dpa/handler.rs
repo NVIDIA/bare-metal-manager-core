@@ -26,7 +26,9 @@ use model::dpa_interface::DpaInterfaceNetworkStatusObservation;
 use mqttea::client::{ClientOptions, MqtteaClient};
 use mqttea::registry::traits::ProtobufRegistration;
 use rumqttc::QoS;
+use tokio::task::JoinSet;
 use tokio::time::{Duration, sleep};
+use tokio_util::sync::CancellationToken;
 use tracing::error;
 
 use crate::api::Api;
@@ -180,7 +182,11 @@ pub async fn send_dpa_command(
 
 // Create an MQTTEA client, and start up the thread that will do eventloop polling
 // by doing a connect.
-pub async fn start_dpa_handler(api_service: Arc<Api>) -> Result<Arc<MqtteaClient>, eyre::Report> {
+pub async fn start_dpa_handler(
+    join_set: &mut JoinSet<()>,
+    api_service: Arc<Api>,
+    cancel_token: CancellationToken,
+) -> Result<Arc<MqtteaClient>, eyre::Report> {
     let client_id = "forge-client".to_string();
 
     let default_qos = QoS::AtMostOnce;
@@ -242,7 +248,7 @@ pub async fn start_dpa_handler(api_service: Arc<Api>) -> Result<Arc<MqtteaClient
 
     let stat_client = client.clone();
 
-    tokio::spawn(async move {
+    join_set.spawn(async move {
         loop {
             let queue_stats = stat_client.queue_stats();
             let publish_stats = stat_client.publish_stats();
@@ -261,7 +267,12 @@ pub async fn start_dpa_handler(api_service: Arc<Api>) -> Result<Arc<MqtteaClient
                 last_sent = publish_stats.total_published;
             }
 
-            sleep(Duration::from_secs(5)).await;
+            tokio::select! {
+                _ = sleep(Duration::from_secs(5)) => {}
+                _ = cancel_token.cancelled() => {
+                    break;
+                }
+            }
         }
     });
 

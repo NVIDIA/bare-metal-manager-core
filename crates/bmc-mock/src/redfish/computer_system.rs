@@ -136,6 +136,7 @@ pub struct SingleSystemConfig {
     pub base_bios: Option<serde_json::Value>,
     pub log_services: Option<Arc<dyn LogServices>>,
     pub storage: Option<Vec<redfish::storage::Storage>>,
+    pub secure_boot_available: bool,
     pub oem: Oem,
 }
 
@@ -236,11 +237,7 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
         return http::not_found();
     };
 
-    let mut b = builder(&resource(&system_id))
-        .ethernet_interfaces(redfish::ethernet_interface::system_collection(&system_id))
-        .bios(&redfish::bios::resource(&system_id))
-        .secure_boot(&redfish::secure_boot::resource(&system_id))
-        .link_chassis(&system_state.config.chassis);
+    let mut b = builder(&resource(&system_id)).link_chassis(&system_state.config.chassis);
 
     let config = &system_state.config;
 
@@ -252,17 +249,19 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
         b = b.power_state(state)
     }
 
-    if let Some(boot_order) = system_state.boot_order_override() {
-        b = b.boot_order(&boot_order.iter().map(String::as_str).collect::<Vec<_>>());
-    } else {
-        b = b.boot_order(
-            &config
-                .boot_options
-                .iter()
-                .flatten()
-                .map(|v| v.id.as_ref())
-                .collect::<Vec<_>>(),
-        );
+    if config.boot_options.is_some() {
+        if let Some(boot_order) = system_state.boot_order_override() {
+            b = b.boot_order(&boot_order.iter().map(String::as_str).collect::<Vec<_>>());
+        } else {
+            b = b.boot_order(
+                &config
+                    .boot_options
+                    .iter()
+                    .flatten()
+                    .map(|v| v.id.as_ref())
+                    .collect::<Vec<_>>(),
+            );
+        }
     }
 
     b = match config.oem {
@@ -277,10 +276,20 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
         .flat_map(|chassis| chassis.pcie_devices_resources().into_iter())
         .collect::<Vec<_>>();
 
+    let bios = config
+        .base_bios
+        .is_some()
+        .then_some(redfish::bios::resource(&system_id));
+
     let boot_options = config
         .boot_options
         .is_some()
         .then_some(redfish::boot_option::collection(&system_id));
+
+    let ethernet_interfaces = config
+        .eth_interfaces
+        .is_some()
+        .then_some(redfish::ethernet_interface::system_collection(&system_id));
 
     let log_services = config
         .log_services
@@ -292,12 +301,19 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
         .is_some()
         .then_some(redfish::storage::system_collection(&system_id));
 
+    let secure_boot = config
+        .secure_boot_available
+        .then_some(redfish::secure_boot::resource(&system_id));
+
     b.maybe_with(SystemBuilder::serial_number, &config.serial_number)
         .maybe_with(SystemBuilder::manufacturer, &config.manufacturer)
         .maybe_with(SystemBuilder::model, &config.model)
+        .maybe_with(SystemBuilder::bios, &bios)
         .maybe_with(SystemBuilder::boot_options, &boot_options)
+        .maybe_with(SystemBuilder::ethernet_interfaces, &ethernet_interfaces)
         .maybe_with(SystemBuilder::log_services, &log_services)
         .maybe_with(SystemBuilder::storage, &storage)
+        .maybe_with(SystemBuilder::secure_boot, &secure_boot)
         .pcie_devices(&pcie_devices)
         .build()
         .into_ok_response()
@@ -713,7 +729,7 @@ impl SystemBuilder {
         self.add_str_field("Model", v)
     }
 
-    pub fn ethernet_interfaces(self, v: redfish::Collection<'_>) -> Self {
+    pub fn ethernet_interfaces(self, v: &redfish::Collection<'_>) -> Self {
         self.apply_patch(v.nav_property("EthernetInterfaces"))
     }
 

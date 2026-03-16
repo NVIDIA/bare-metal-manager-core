@@ -47,11 +47,12 @@ Global image reference
 
 {{/*
 Certificate spec
-Usage: {{ include "carbide-api.certificateSpec" (dict "name" "carbide-api-certificate" "cert" .Values.certificate "global" .Values.global) }}
+Usage: {{ include "carbide-api.certificateSpec" (dict "name" "carbide-api-certificate" "cert" .Values.certificate "global" .Values.global "namespace" (include "carbide-api.namespace" .)) }}
 */}}
 {{- define "carbide-api.certificateSpec" -}}
 duration: {{ .global.certificate.duration }}
 renewBefore: {{ .global.certificate.renewBefore }}
+commonName: {{ printf "%s.%s.svc.cluster.local" .cert.serviceName .namespace }}
 dnsNames:
   - {{ printf "%s.%s.svc.cluster.local" .cert.serviceName .namespace }}
   - {{ printf "%s.%s" .cert.serviceName .namespace }}

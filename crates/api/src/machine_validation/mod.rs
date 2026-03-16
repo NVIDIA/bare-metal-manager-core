@@ -18,10 +18,12 @@
 mod metrics;
 
 use std::default::Default;
+use std::io;
 use std::sync::Arc;
 
 use db::ObjectFilter;
-use tokio::sync::oneshot;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 
 use self::metrics::MachineValidationMetrics;
 use crate::CarbideResult;
@@ -52,19 +54,21 @@ impl MachineValidationManager {
             metric_holder,
         }
     }
-    pub fn start(self) -> eyre::Result<oneshot::Sender<i32>> {
-        let (stop_sender, stop_receiver) = oneshot::channel();
-
+    pub fn start(
+        self,
+        join_set: &mut JoinSet<()>,
+        cancel_token: CancellationToken,
+    ) -> io::Result<()> {
         if self.config.enabled {
-            tokio::task::Builder::new()
+            join_set
+                .build_task()
                 .name("machine_validation_manager")
-                .spawn(async move { self.run(stop_receiver).await })?;
+                .spawn(async move { self.run(cancel_token).await })?;
         }
-
-        Ok(stop_sender)
+        Ok(())
     }
 
-    async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {
+    async fn run(&self, cancel_token: CancellationToken) {
         let timer = PeriodicTimer::new(self.config.run_interval);
         loop {
             let tick = timer.tick();
@@ -74,7 +78,7 @@ impl MachineValidationManager {
 
             tokio::select! {
                 _ = tick.sleep() => {},
-                _ = &mut stop_receiver => {
+                _ = cancel_token.cancelled() => {
                     tracing::info!("MachineValidationManager stop was requested");
                     return;
                 }

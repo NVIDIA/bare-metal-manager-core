@@ -41,6 +41,7 @@ use sqlx::postgres::PgSslMode;
 use sqlx::{ConnectOptions, PgPool};
 use tokio::sync::Semaphore;
 use tokio::sync::oneshot::Sender;
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing_log::AsLog as _;
 
@@ -72,7 +73,7 @@ use crate::redfish::RedfishClientPool;
 use crate::scout_stream::ConnectionRegistry;
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::common_services::CommonStateHandlerServices;
-use crate::state_controller::controller::{Enqueuer, StateController, StateControllerHandleSet};
+use crate::state_controller::controller::{Enqueuer, StateController};
 use crate::state_controller::dpa_interface::handler::DpaInterfaceStateHandler;
 use crate::state_controller::dpa_interface::io::DpaInterfaceStateControllerIO;
 use crate::state_controller::ib_partition::handler::IBPartitionStateHandler;
@@ -222,6 +223,7 @@ async fn create_and_connect_postgres_pool(config: &CarbideConfig) -> eyre::Resul
 #[allow(clippy::too_many_arguments)]
 #[tracing::instrument(skip_all)]
 pub async fn start_api(
+    join_set: &mut JoinSet<()>,
     carbide_config: Arc<CarbideConfig>,
     meter: Meter,
     dynamic_settings: DynamicSettings,
@@ -237,8 +239,10 @@ pub async fn start_api(
     let db_pool = create_and_connect_postgres_pool(&carbide_config).await?;
 
     let work_lock_manager_handle = work_lock_manager::start(
+        join_set,
         db_pool.clone(),
         work_lock_manager::KeepaliveConfig::default(),
+        cancel_token.clone(),
     )
     .await?;
 
@@ -404,42 +408,50 @@ pub async fn start_api(
         metric_emitter: ApiMetricsEmitter::new(&meter),
     });
 
-    let controllers_handle = if carbide_config.listen_only {
+    if carbide_config.listen_only {
         tracing::info!("Not starting background services, as listen_only=true");
-        None
     } else {
-        Some(tokio::spawn(initialize_and_start_controllers(
+        initialize_and_start_controllers(
+            join_set,
             api_service.clone(),
             meter.clone(),
             ipmi_tool.clone(),
             cancel_token.clone(),
-        )))
+        )
+        .await?;
     };
 
-    listener::listen_and_serve(
+    listener::start(
+        join_set,
         api_service,
         listen_mode,
         carbide_config.listen,
         &carbide_config.auth,
         meter,
-        cancel_token,
-        ready_channel,
+        cancel_token.clone(),
     )
     .await?;
 
-    // The controllers use a cloned CancellationToken from `cancel_token`, and the only way for
-    // listen_and_serve to have completed is for it to have ben canceled. That same token also
-    // cancels the controllers, so just wait for it here.
-    if let Some(controllers_handle) = controllers_handle {
-        controllers_handle
-            .await
-            .expect("controller task panicked")?;
-    };
+    ready_channel
+        .send(())
+        .inspect_err(|_e| {
+            // Note: the `_e` here is just sending us back (rejecting) the () that we sent to the ready
+            // channel. This will only happen if the other end is closed.
+            tracing::warn!(
+                "Bug: api server ready_channel is closed, could not notify readiness status"
+            )
+        })
+        .ok();
 
     Ok(())
 }
 
+/// Initialize and spawn all controllers and background tasks.
+///
+/// All background tasks will be spawned into `join_set`, which can be awaited with
+/// [`JoinSet::join_all`] to wait for them to complete.
 pub async fn initialize_and_start_controllers(
+    join_set: &mut JoinSet<()>,
     api_service: Arc<Api>,
     meter: Meter,
     ipmi_tool: Arc<dyn IPMITool>,
@@ -584,7 +596,8 @@ pub async fn initialize_and_start_controllers(
     let mut dpa_info: Option<Arc<DpaInfo>> = None;
 
     if carbide_config.is_dpa_enabled() {
-        let mqtt_client = Some(start_dpa_handler(api_service.clone()).await?);
+        let mqtt_client =
+            Some(start_dpa_handler(join_set, api_service.clone(), cancel_token.clone()).await?);
         let subnet_ip = carbide_config.get_dpa_subnet_ip()?;
 
         let subnet_mask = carbide_config.get_dpa_subnet_mask()?;
@@ -645,9 +658,11 @@ pub async fn initialize_and_start_controllers(
             );
             emitter_builder = emitter_builder.hook(Box::new(MqttStateChangeHook::new(
                 client,
+                join_set,
                 config.publish_timeout,
                 config.queue_capacity,
                 &meter,
+                cancel_token.clone(),
             )));
         }
 
@@ -700,74 +715,68 @@ pub async fn initialize_and_start_controllers(
         }
     }
 
-    let mut state_controller_handles = StateControllerHandleSet::new();
-
     // handles need to be stored in a variable
     // If they are assigned to _ then the destructor will be immediately called
-    state_controller_handles.push(
-        StateController::<MachineStateControllerIO>::builder()
-            .database(db_pool.clone(), work_lock_manager_handle.clone())
-            .meter("carbide_machines", meter.clone())
-            .processor_id(state_controller_id.clone())
-            .services(handler_services.clone())
-            .iteration_config((&carbide_config.machine_state_controller.controller).into())
-            .state_handler(Arc::new(
-                MachineStateHandlerBuilder::builder()
-                    .dpu_up_threshold(carbide_config.machine_state_controller.dpu_up_threshold)
-                    .dpu_nic_firmware_reprovision_update_enabled(
-                        carbide_config
-                            .dpu_config
-                            .dpu_nic_firmware_reprovision_update_enabled,
-                    )
-                    .dpu_enable_secure_boot(carbide_config.dpu_config.dpu_enable_secure_boot)
-                    .dpu_wait_time(carbide_config.machine_state_controller.dpu_wait_time)
-                    .power_down_wait(carbide_config.machine_state_controller.power_down_wait)
-                    .failure_retry_time(carbide_config.machine_state_controller.failure_retry_time)
-                    .scout_reporting_timeout(
-                        carbide_config
-                            .machine_state_controller
-                            .scout_reporting_timeout,
-                    )
-                    .uefi_boot_wait(carbide_config.machine_state_controller.uefi_boot_wait)
-                    .hardware_models(carbide_config.get_firmware_config())
-                    .firmware_downloader(&downloader)
-                    .attestation_enabled(carbide_config.attestation_enabled)
-                    .upload_limiter(upload_limiter.clone())
-                    .machine_validation_config(carbide_config.machine_validation_config.clone())
-                    .common_pools(common_pools.clone())
-                    .bom_validation(carbide_config.bom_validation)
-                    .no_firmware_update_reset_retries(
-                        carbide_config.firmware_global.no_reset_retries,
-                    )
-                    .instance_autoreboot_period(
-                        carbide_config
-                            .machine_updater
-                            .instance_autoreboot_period
-                            .clone(),
-                    )
-                    .credential_reader(api_service.credential_manager.clone())
-                    .power_options_config(carbide_config.power_manager_options.clone().into())
-                    .dpf_config(crate::state_controller::machine::handler::DpfConfig::from(
-                        carbide_config.dpf.clone(),
-                        Arc::new(carbide_dpf::Production {}) as Arc<dyn carbide_dpf::KubeImpl>,
-                    ))
-                    .build(),
-            ))
-            .io(Arc::new(MachineStateControllerIO {
-                host_health: HostHealthConfig {
-                    hardware_health_reports: carbide_config.host_health.hardware_health_reports,
-                    dpu_agent_version_staleness_threshold: carbide_config
-                        .host_health
-                        .dpu_agent_version_staleness_threshold,
-                    prevent_allocations_on_stale_dpu_agent_version: carbide_config
-                        .host_health
-                        .prevent_allocations_on_stale_dpu_agent_version,
-                },
-            }))
-            .state_change_emitter(state_change_emitter)
-            .build_and_spawn(cancel_token.clone())
-            .expect("Unable to build MachineStateController"),
-    );
+    StateController::<MachineStateControllerIO>::builder()
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
+        .meter("carbide_machines", meter.clone())
+        .processor_id(state_controller_id.clone())
+        .services(handler_services.clone())
+        .iteration_config((&carbide_config.machine_state_controller.controller).into())
+        .state_handler(Arc::new(
+            MachineStateHandlerBuilder::builder()
+                .dpu_up_threshold(carbide_config.machine_state_controller.dpu_up_threshold)
+                .dpu_nic_firmware_reprovision_update_enabled(
+                    carbide_config
+                        .dpu_config
+                        .dpu_nic_firmware_reprovision_update_enabled,
+                )
+                .dpu_enable_secure_boot(carbide_config.dpu_config.dpu_enable_secure_boot)
+                .dpu_wait_time(carbide_config.machine_state_controller.dpu_wait_time)
+                .power_down_wait(carbide_config.machine_state_controller.power_down_wait)
+                .failure_retry_time(carbide_config.machine_state_controller.failure_retry_time)
+                .scout_reporting_timeout(
+                    carbide_config
+                        .machine_state_controller
+                        .scout_reporting_timeout,
+                )
+                .uefi_boot_wait(carbide_config.machine_state_controller.uefi_boot_wait)
+                .hardware_models(carbide_config.get_firmware_config())
+                .firmware_downloader(&downloader)
+                .attestation_enabled(carbide_config.attestation_enabled)
+                .upload_limiter(upload_limiter.clone())
+                .machine_validation_config(carbide_config.machine_validation_config.clone())
+                .common_pools(common_pools.clone())
+                .bom_validation(carbide_config.bom_validation)
+                .no_firmware_update_reset_retries(carbide_config.firmware_global.no_reset_retries)
+                .instance_autoreboot_period(
+                    carbide_config
+                        .machine_updater
+                        .instance_autoreboot_period
+                        .clone(),
+                )
+                .credential_reader(api_service.credential_manager.clone())
+                .power_options_config(carbide_config.power_manager_options.clone().into())
+                .dpf_config(crate::state_controller::machine::handler::DpfConfig::from(
+                    carbide_config.dpf.clone(),
+                    Arc::new(carbide_dpf::Production {}) as Arc<dyn carbide_dpf::KubeImpl>,
+                ))
+                .build(),
+        ))
+        .io(Arc::new(MachineStateControllerIO {
+            host_health: HostHealthConfig {
+                hardware_health_reports: carbide_config.host_health.hardware_health_reports,
+                dpu_agent_version_staleness_threshold: carbide_config
+                    .host_health
+                    .dpu_agent_version_staleness_threshold,
+                prevent_allocations_on_stale_dpu_agent_version: carbide_config
+                    .host_health
+                    .prevent_allocations_on_stale_dpu_agent_version,
+            },
+        }))
+        .state_change_emitter(state_change_emitter)
+        .build_and_spawn(join_set, cancel_token.clone())
+        .expect("Unable to build MachineStateController");
 
     let sc_pool_vlan_id = common_pools.ethernet.pool_vlan_id.clone();
     let sc_pool_vni = common_pools.ethernet.pool_vni.clone();
@@ -777,35 +786,29 @@ pub async fn initialize_and_start_controllers(
         .meter("carbide_network_segments", meter.clone())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone());
-    state_controller_handles.push(
-        ns_builder
-            .iteration_config((&carbide_config.network_segment_state_controller.controller).into())
-            .state_handler(Arc::new(NetworkSegmentStateHandler::new(
-                carbide_config
-                    .network_segment_state_controller
-                    .network_segment_drain_time,
-                sc_pool_vlan_id,
-                sc_pool_vni,
-            )))
-            .build_and_spawn(cancel_token.clone())
-            .expect("Unable to build NetworkSegmentController"),
-    );
+    ns_builder
+        .iteration_config((&carbide_config.network_segment_state_controller.controller).into())
+        .state_handler(Arc::new(NetworkSegmentStateHandler::new(
+            carbide_config
+                .network_segment_state_controller
+                .network_segment_drain_time,
+            sc_pool_vlan_id,
+            sc_pool_vni,
+        )))
+        .build_and_spawn(join_set, cancel_token.clone())
+        .expect("Unable to build NetworkSegmentController");
 
     if carbide_config.is_dpa_enabled() {
         tracing::info!("Starting DpaInterfaceStateController as dpa is enabled");
-        state_controller_handles.push(
-            StateController::<DpaInterfaceStateControllerIO>::builder()
-                .database(db_pool.clone(), work_lock_manager_handle.clone())
-                .meter("carbide_dpa_interfaces", meter.clone())
-                .processor_id(state_controller_id.clone())
-                .services(handler_services.clone())
-                .iteration_config(
-                    (&carbide_config.dpa_interface_state_controller.controller).into(),
-                )
-                .state_handler(Arc::new(DpaInterfaceStateHandler::new()))
-                .build_and_spawn(cancel_token.clone())
-                .expect("Unable to build DpaInterfaceStateController"),
-        );
+        StateController::<DpaInterfaceStateControllerIO>::builder()
+            .database(db_pool.clone(), work_lock_manager_handle.clone())
+            .meter("carbide_dpa_interfaces", meter.clone())
+            .processor_id(state_controller_id.clone())
+            .services(handler_services.clone())
+            .iteration_config((&carbide_config.dpa_interface_state_controller.controller).into())
+            .state_handler(Arc::new(DpaInterfaceStateHandler::new()))
+            .build_and_spawn(join_set, cancel_token.clone())
+            .expect("Unable to build DpaInterfaceStateController");
     }
 
     if carbide_config.spdm.enabled {
@@ -817,70 +820,60 @@ pub async fn initialize_and_start_controllers(
 
         let verifier = Arc::new(VerifierImpl::default());
 
-        state_controller_handles.push(
-            StateController::<SpdmStateControllerIO>::builder()
-                .database(db_pool.clone(), work_lock_manager_handle.clone())
-                .meter("carbide_spdm_attestation", meter.clone())
-                .processor_id(state_controller_id.clone())
-                .services(handler_services.clone())
-                .iteration_config((&carbide_config.spdm_state_controller.controller).into())
-                .state_handler(Arc::new(SpdmAttestationStateHandler::new(
-                    verifier,
-                    nras_config,
-                )))
-                .build_and_spawn(cancel_token.clone())
-                .expect("Unable to build SpdmStateController"),
-        )
+        StateController::<SpdmStateControllerIO>::builder()
+            .database(db_pool.clone(), work_lock_manager_handle.clone())
+            .meter("carbide_spdm_attestation", meter.clone())
+            .processor_id(state_controller_id.clone())
+            .services(handler_services.clone())
+            .iteration_config((&carbide_config.spdm_state_controller.controller).into())
+            .state_handler(Arc::new(SpdmAttestationStateHandler::new(
+                verifier,
+                nras_config,
+            )))
+            .build_and_spawn(join_set, cancel_token.clone())
+            .expect("Unable to build SpdmStateController");
     }
 
-    state_controller_handles.push(
-        StateController::<IBPartitionStateControllerIO>::builder()
-            .database(db_pool.clone(), work_lock_manager_handle.clone())
-            .meter("carbide_ib_partitions", meter.clone())
-            .processor_id(state_controller_id.clone())
-            .services(handler_services.clone())
-            .iteration_config((&carbide_config.ib_partition_state_controller.controller).into())
-            .state_handler(Arc::new(IBPartitionStateHandler::default()))
-            .build_and_spawn(cancel_token.clone())
-            .expect("Unable to build IBPartitionStateController"),
-    );
+    StateController::<IBPartitionStateControllerIO>::builder()
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
+        .meter("carbide_ib_partitions", meter.clone())
+        .processor_id(state_controller_id.clone())
+        .services(handler_services.clone())
+        .iteration_config((&carbide_config.ib_partition_state_controller.controller).into())
+        .state_handler(Arc::new(IBPartitionStateHandler::default()))
+        .build_and_spawn(join_set, cancel_token.clone())
+        .expect("Unable to build IBPartitionStateController");
 
-    state_controller_handles.push(
-        StateController::<PowerShelfStateControllerIO>::builder()
-            .database(db_pool.clone(), work_lock_manager_handle.clone())
-            .meter("carbide_power_shelves", meter.clone())
-            .processor_id(state_controller_id.clone())
-            .services(handler_services.clone())
-            .iteration_config((&carbide_config.power_shelf_state_controller.controller).into())
-            .state_handler(Arc::new(PowerShelfStateHandler::default()))
-            .build_and_spawn(cancel_token.clone())
-            .expect("Unable to build PowerShelfStateController"),
-    );
+    StateController::<PowerShelfStateControllerIO>::builder()
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
+        .meter("carbide_power_shelves", meter.clone())
+        .processor_id(state_controller_id.clone())
+        .services(handler_services.clone())
+        .iteration_config((&carbide_config.power_shelf_state_controller.controller).into())
+        .state_handler(Arc::new(PowerShelfStateHandler::default()))
+        .build_and_spawn(join_set, cancel_token.clone())
+        .expect("Unable to build PowerShelfStateController");
 
-    state_controller_handles.push(
-        StateController::<RackStateControllerIO>::builder()
-            .database(db_pool.clone(), work_lock_manager_handle.clone())
-            .meter("carbide_racks", meter.clone())
-            .processor_id(state_controller_id.clone())
-            .services(handler_services.clone())
-            .state_handler(Arc::new(RackStateHandler::default()))
-            .build_and_spawn(cancel_token.clone())
-            .expect("Unable to build RackStateController"),
-    );
+    StateController::<RackStateControllerIO>::builder()
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
+        .meter("carbide_racks", meter.clone())
+        .processor_id(state_controller_id.clone())
+        .services(handler_services.clone())
+        .state_handler(Arc::new(RackStateHandler::default()))
+        .build_and_spawn(join_set, cancel_token.clone())
+        .expect("Unable to build RackStateController");
 
-    state_controller_handles.push(
-        StateController::<SwitchStateControllerIO>::builder()
-            .database(db_pool.clone(), work_lock_manager_handle.clone())
-            .meter("carbide_switches", meter.clone())
-            .processor_id(state_controller_id.clone())
-            .services(handler_services.clone())
-            .iteration_config((&carbide_config.switch_state_controller.controller).into())
-            .state_handler(Arc::new(SwitchStateHandler::default()))
-            .build_and_spawn(cancel_token.clone())
-            .expect("Unable to build SwitchStateController"),
-    );
+    StateController::<SwitchStateControllerIO>::builder()
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
+        .meter("carbide_switches", meter.clone())
+        .processor_id(state_controller_id.clone())
+        .services(handler_services.clone())
+        .iteration_config((&carbide_config.switch_state_controller.controller).into())
+        .state_handler(Arc::new(SwitchStateHandler::default()))
+        .build_and_spawn(join_set, cancel_token.clone())
+        .expect("Unable to build SwitchStateController");
 
-    let ib_fabric_monitor = IbFabricMonitor::new(
+    IbFabricMonitor::new(
         db_pool.clone(),
         if ib_config.enabled {
             carbide_config.ib_fabrics.clone()
@@ -891,20 +884,20 @@ pub async fn initialize_and_start_controllers(
         ib_fabric_manager.clone(),
         carbide_config.clone(),
         work_lock_manager_handle.clone(),
-    );
-    let _ib_fabric_monitor_handle = ib_fabric_monitor.start()?;
+    )
+    .start(join_set, cancel_token.clone())?;
 
-    let nvlink_partition_monitor = NvlPartitionMonitor::new(
+    NvlPartitionMonitor::new(
         db_pool.clone(),
         shared_nmxm_pool.clone(),
         meter.clone(),
         carbide_config.nvlink_config.clone().unwrap_or_default(),
         carbide_config.host_health,
         work_lock_manager_handle.clone(),
-    );
-    let _nv_link_partition_monitor_handle = nvlink_partition_monitor.start()?;
+    )
+    .start(join_set, cancel_token.clone())?;
 
-    let site_explorer = SiteExplorer::new(
+    SiteExplorer::new(
         db_pool.clone(),
         carbide_config.site_explorer.clone(),
         meter.clone(),
@@ -913,18 +906,18 @@ pub async fn initialize_and_start_controllers(
         common_pools.clone(),
         work_lock_manager_handle.clone(),
         rms_client.clone(),
-    );
-    let _site_explorer_stop_handle = site_explorer.start()?;
+    )
+    .start(join_set, cancel_token.clone())?;
 
-    let machine_update_manager = MachineUpdateManager::new(
+    MachineUpdateManager::new(
         db_pool.clone(),
         carbide_config.clone(),
         meter.clone(),
         work_lock_manager_handle.clone(),
-    );
-    let _machine_update_manager_stop_handle = machine_update_manager.start()?;
+    )
+    .start(join_set, cancel_token.clone())?;
 
-    let preingestion_manager = PreingestionManager::new(
+    PreingestionManager::new(
         db_pool.clone(),
         carbide_config.clone(),
         shared_redfish_pool.clone(),
@@ -933,25 +926,25 @@ pub async fn initialize_and_start_controllers(
         Some(upload_limiter),
         Some(api_service.credential_manager.clone()),
         work_lock_manager_handle.clone(),
-    );
-    let _preingestion_manager_stop_handle = preingestion_manager.start()?;
+    )
+    .start(join_set, cancel_token.clone())?;
 
-    let measured_boot_collector = MeasuredBootMetricsCollector::new(
+    MeasuredBootMetricsCollector::new(
         db_pool.clone(),
         carbide_config.measured_boot_collector.clone(),
         meter.clone(),
-    );
-    let _measured_boot_collector_handle = measured_boot_collector.start()?;
+    )
+    .start(join_set, cancel_token.clone())?;
 
     // we need to create ek_cert_status entries for all existing machines
     attestation::backfill_ek_cert_status_for_existing_machines(db_pool).await?;
 
-    let machine_validation_metric = crate::machine_validation::MachineValidationManager::new(
+    crate::machine_validation::MachineValidationManager::new(
         db_pool.clone(),
         carbide_config.machine_validation_config.clone(),
         meter.clone(),
-    );
-    let _machine_validation_metric_handle = machine_validation_metric.start()?;
+    )
+    .start(join_set, cancel_token.clone())?;
 
     apply_config_on_startup(
         &api_service,
@@ -959,10 +952,6 @@ pub async fn initialize_and_start_controllers(
     )
     .await?;
 
-    // Block until all controllers are finished. They were constructed with `cancel_token` as their
-    // cancellation token, which means this will return once they've all gracefully returned after
-    // being canceled.
-    state_controller_handles.wait_all().await;
     Ok(())
 }
 

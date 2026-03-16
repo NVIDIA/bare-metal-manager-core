@@ -169,6 +169,7 @@ tracing-subscriber = { features = [
 ], workspace = true }
 tss-esapi = { optional = true, workspace = true }
 url = { features = ["serde"], workspace = true }
+urlencoding = { workspace = true }
 uuid = { features = ["v4", "serde"], workspace = true }
 version-compare = { workspace = true }
 x509-parser = { features = ["verify"], workspace = true }

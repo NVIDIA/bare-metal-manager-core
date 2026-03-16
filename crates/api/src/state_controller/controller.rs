@@ -20,7 +20,6 @@ use ::db::work_lock_manager::WorkLock;
 use chrono::{DateTime, Utc};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
-use tokio::task::JoinSet;
 
 use crate::state_controller::controller::periodic_enqueuer::PeriodicEnqueuer;
 use crate::state_controller::io::StateControllerIO;
@@ -151,40 +150,4 @@ enum IterationError {
     Panic(#[from] tokio::task::JoinError),
     #[error("State handler error: {0}")]
     StateHandlerError(#[from] StateHandlerError),
-}
-
-/// A remote handle for the state controller
-pub struct StateControllerHandle {
-    /// Wait on this to ensure all tasks complete. It will return nothing, but panic if any of the
-    /// tasks panicked.
-    join_set: JoinSet<()>,
-}
-
-impl StateControllerHandle {
-    pub async fn wait(self) {
-        self.join_set.join_all().await;
-    }
-}
-
-#[derive(Default)]
-pub struct StateControllerHandleSet {
-    handles: Vec<StateControllerHandle>,
-}
-
-impl StateControllerHandleSet {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn push(&mut self, handle: StateControllerHandle) {
-        self.handles.push(handle);
-    }
-
-    pub async fn wait_all(self) {
-        let mut join_set = JoinSet::new();
-        for handle in self.handles {
-            join_set.spawn(handle.wait());
-        }
-        join_set.join_all().await;
-    }
 }

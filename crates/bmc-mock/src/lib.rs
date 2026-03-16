@@ -52,6 +52,19 @@ pub enum HostHardwareType {
     WiwynnGB200Nvl,
     #[serde(rename = "liteon_power_shelf")]
     LiteOnPowerShelf,
+    #[serde(rename = "nvidia_switch_nd5200_ld")]
+    NvidiaSwitchNd5200Ld,
+}
+
+impl fmt::Display for HostHardwareType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::DellPowerEdgeR750 => "Dell PowerEdge R750".fmt(f),
+            Self::WiwynnGB200Nvl => "WIWYNN GB200 NVL".fmt(f),
+            Self::LiteOnPowerShelf => "Lite-On Power Shelf".fmt(f),
+            Self::NvidiaSwitchNd5200Ld => "NVIDIA Switch ND5200_LD".fmt(f),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, Default)]

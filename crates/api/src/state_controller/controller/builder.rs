@@ -24,11 +24,11 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::state_controller::config::IterationConfig;
+use crate::state_controller::controller::StateController;
 use crate::state_controller::controller::periodic_enqueuer::{
     EnqueuerMetricsEmitter, PeriodicEnqueuer,
 };
 use crate::state_controller::controller::processor::{ProcessorMetricsEmitter, StateProcessor};
-use crate::state_controller::controller::{StateController, StateControllerHandle};
 use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::metrics::MetricHolder;
 use crate::state_controller::state_change_emitter::StateChangeEmitter;
@@ -114,10 +114,10 @@ impl<IO: StateControllerIO> Builder<IO> {
     /// is kept alive.
     pub fn build_and_spawn(
         self,
+        join_set: &mut JoinSet<()>,
         cancel_token: CancellationToken,
-    ) -> Result<StateControllerHandle, StateControllerBuildError> {
+    ) -> Result<(), StateControllerBuildError> {
         let build_or_spawn = self.build_internal(cancel_token)?;
-        let mut join_set = JoinSet::new();
 
         join_set
             .build_task()
@@ -134,8 +134,7 @@ impl<IO: StateControllerIO> Builder<IO> {
                 build_or_spawn.controller_name
             ))
             .spawn(async move { build_or_spawn.controller.processor.run().await })?;
-
-        Ok(StateControllerHandle { join_set })
+        Ok(())
     }
 
     /// Builds a [`StateController`] with all configured options

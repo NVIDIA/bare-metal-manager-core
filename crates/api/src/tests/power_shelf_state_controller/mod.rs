@@ -24,6 +24,7 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use db::power_shelf as db_power_shelf;
 use model::power_shelf::{PowerShelf, PowerShelfControllerState};
 use rpc::forge::forge_server::Forge;
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::state_controller::config::IterationConfig;
@@ -117,8 +118,9 @@ async fn test_power_shelf_state_transitions(
         rms_client: None,
     });
 
+    let mut join_set = JoinSet::new();
     let cancel_token = CancellationToken::new();
-    let handle = StateController::<PowerShelfStateControllerIO>::builder()
+    StateController::<PowerShelfStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
             processor_dispatch_interval: Duration::from_millis(10),
@@ -128,12 +130,12 @@ async fn test_power_shelf_state_transitions(
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(power_shelf_handler.clone())
-        .build_and_spawn(cancel_token.clone())
+        .build_and_spawn(&mut join_set, cancel_token.clone())
         .unwrap();
 
     tokio::time::sleep(TEST_TIME).await;
     cancel_token.cancel();
-    handle.wait().await;
+    join_set.join_all().await;
 
     // Verify that the handler was called
     let count = power_shelf_handler.count.load(Ordering::SeqCst);
@@ -191,8 +193,9 @@ async fn test_power_shelf_deletion_flow(
         rms_client: None,
     });
 
+    let mut join_set = JoinSet::new();
     let cancel_token = CancellationToken::new();
-    let handle = StateController::<PowerShelfStateControllerIO>::builder()
+    StateController::<PowerShelfStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
             processor_dispatch_interval: Duration::from_millis(10),
@@ -202,7 +205,7 @@ async fn test_power_shelf_deletion_flow(
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(power_shelf_handler.clone())
-        .build_and_spawn(cancel_token.clone())
+        .build_and_spawn(&mut join_set, cancel_token.clone())
         .unwrap();
 
     // Let the controller process the active power shelf
@@ -227,7 +230,7 @@ async fn test_power_shelf_deletion_flow(
     // Let the controller run for a bit more after deletion
     tokio::time::sleep(TEST_TIME).await;
     cancel_token.cancel();
-    handle.wait().await;
+    join_set.join_all().await;
 
     // Verify that the handler count didn't increase significantly after deletion
     // (since deleted power shelves should not be processed)
@@ -287,8 +290,9 @@ async fn test_power_shelf_error_state_handling(
         rms_client: None,
     });
 
+    let mut join_set = JoinSet::new();
     let cancel_token = CancellationToken::new();
-    let handle = StateController::<PowerShelfStateControllerIO>::builder()
+    StateController::<PowerShelfStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
             processor_dispatch_interval: Duration::from_millis(10),
@@ -298,12 +302,12 @@ async fn test_power_shelf_error_state_handling(
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(power_shelf_handler.clone())
-        .build_and_spawn(cancel_token.clone())
+        .build_and_spawn(&mut join_set, cancel_token.clone())
         .unwrap();
 
     tokio::time::sleep(TEST_TIME).await;
     cancel_token.cancel();
-    handle.wait().await;
+    join_set.join_all().await;
 
     // Verify that the handler was called even in error state
     let count = power_shelf_handler.count.load(Ordering::SeqCst);
@@ -416,8 +420,9 @@ async fn test_power_shelf_deletion_with_state_controller(
         rms_client: None,
     });
 
+    let mut join_set = JoinSet::new();
     let cancel_token = CancellationToken::new();
-    let handle = StateController::<PowerShelfStateControllerIO>::builder()
+    StateController::<PowerShelfStateControllerIO>::builder()
         .iteration_config(IterationConfig {
             iteration_time: ITERATION_TIME,
             processor_dispatch_interval: Duration::from_millis(10),
@@ -427,7 +432,7 @@ async fn test_power_shelf_deletion_with_state_controller(
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(power_shelf_handler.clone())
-        .build_and_spawn(cancel_token.clone())
+        .build_and_spawn(&mut join_set, cancel_token.clone())
         .unwrap();
 
     // Let the controller run for a bit to process the active power shelf
@@ -446,7 +451,7 @@ async fn test_power_shelf_deletion_with_state_controller(
     // Let the controller run for a bit more after marking as deleted
     tokio::time::sleep(TEST_TIME).await;
     cancel_token.cancel();
-    handle.wait().await;
+    join_set.join_all().await;
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     // Verify that the handler count didn't increase significantly after marking as deleted

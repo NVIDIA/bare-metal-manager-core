@@ -207,6 +207,24 @@ code needs to be fixed, do not `#[allow(txn_held_across_await)]`.
   callers to pass a `PgPool` and avoid needing boilerplate to begin a transaction and commit it just to call a
   read-only function.
 
+## Background tasks
+
+Avoid spawning background tasks without joining them. Any panics that happen in background tasks will not propagate to
+the rest of the process unless you join them via `JoinHandle::join()` or add them to a `JoinSet` which is later awaited
+with `JoinSet::join_all()`.
+
+For carbide-api, we use a single `JoinSet` to spawn all background tasks, and call `join_all()` to block "forever" until
+the process is shut down. This makes it so any panics in the JoinSet will propagate to the main task, and crash the
+process (which is what we want.) If you want to spawn background work, prefer accepting a `&mut JoinSet` and spawn your
+background task into it. Your task can be constructed it inside `carbide::setup::initialize_and_spawn_controllers`,
+which has a JoinSet it can pass to your `start()` function.
+
+Avoid using `oneshot::Sender<()>` as a cancellation signal, and prefer tokio_util's `CancellationToken`, which can
+be cloned and re-used to cancel sub-tasks.
+
+A note on function naming: `start` or `spawn` should mean "spawns work in the background". `run` should mean "run
+forever".
+
 ## General Rust Coding Standards
 
 ### Mutability

@@ -18,6 +18,7 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt::Display;
+use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::panic::Location;
 use std::sync::Arc;
@@ -55,7 +56,8 @@ use model::site_explorer::{
 };
 use model::switch::{NewSwitch, SwitchConfig};
 use sqlx::PgPool;
-use tokio::sync::oneshot;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use version_compare::Cmp;
 
@@ -179,19 +181,22 @@ impl SiteExplorer {
     }
 
     /// Start the SiteExplorer and return a [sending channel](tokio::sync::oneshot::Sender) that will stop the SiteExplorer when dropped.
-    pub fn start(mut self) -> eyre::Result<oneshot::Sender<i32>> {
-        let (stop_sender, stop_receiver) = oneshot::channel();
-
+    pub fn start(
+        mut self,
+        join_set: &mut JoinSet<()>,
+        cancel_token: CancellationToken,
+    ) -> io::Result<()> {
         if self.enabled {
-            tokio::task::Builder::new()
+            join_set
+                .build_task()
                 .name("site_explorer")
-                .spawn(async move { self.run(stop_receiver).await })?;
+                .spawn(async move { self.run(cancel_token).await })?;
         }
 
-        Ok(stop_sender)
+        Ok(())
     }
 
-    async fn run(&mut self, mut stop_receiver: oneshot::Receiver<i32>) {
+    async fn run(&mut self, cancel_token: CancellationToken) {
         let timer = PeriodicTimer::new(self.config.run_interval);
         loop {
             let tick = timer.tick();
@@ -206,7 +211,7 @@ impl SiteExplorer {
 
             tokio::select! {
                 _ = tick.sleep() => {},
-                _ = &mut stop_receiver => {
+                _ = cancel_token.cancelled() => {
                     tracing::info!("SiteExplorer stop was requested");
                     return;
                 }

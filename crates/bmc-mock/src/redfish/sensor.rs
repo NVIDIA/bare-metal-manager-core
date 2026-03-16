@@ -52,7 +52,7 @@ pub fn builder(resource: &redfish::Resource) -> SensorBuilder {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Layout {
     pub temperature: usize,
     pub fan: usize,

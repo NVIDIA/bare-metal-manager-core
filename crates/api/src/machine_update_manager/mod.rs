@@ -21,6 +21,7 @@ pub mod machine_update_module;
 pub mod metrics;
 
 use std::collections::{HashMap, HashSet};
+use std::io;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -35,7 +36,8 @@ use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
 use model::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE;
 use sqlx::{PgConnection, PgPool};
-use tokio::sync::oneshot;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 
 use self::dpu_nic_firmware::DpuNicFirmwareUpdate;
 use self::metrics::MachineUpdateManagerMetrics;
@@ -119,20 +121,23 @@ impl MachineUpdateManager {
     }
 
     /// Start the MachineUpdateManager and return a [sending channel](tokio::sync::oneshot::Sender) that will stop the MachineUpdateManager when dropped.
-    pub fn start(self) -> eyre::Result<oneshot::Sender<i32>> {
-        let (stop_sender, stop_receiver) = oneshot::channel();
-
+    pub fn start(
+        self,
+        join_set: &mut JoinSet<()>,
+        cancel_token: CancellationToken,
+    ) -> io::Result<()> {
         if !self.update_modules.is_empty() {
-            tokio::task::Builder::new()
+            join_set
+                .build_task()
                 .name("machine_update_manager")
-                .spawn(async move { self.run(stop_receiver).await })?;
+                .spawn(async move { self.run(cancel_token).await })?;
         } else {
             tracing::info!("No modules configured.  Machine updates disabled");
         }
-        Ok(stop_sender)
+        Ok(())
     }
 
-    async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {
+    async fn run(&self, cancel_token: CancellationToken) {
         let timer = PeriodicTimer::new(self.run_interval);
         loop {
             let tick = timer.tick();
@@ -142,7 +147,7 @@ impl MachineUpdateManager {
 
             tokio::select! {
                 _ = tick.sleep() => {},
-                _ = &mut stop_receiver => {
+                _ = cancel_token.cancelled() => {
                     tracing::info!("Machine update manager stop was requested");
                     return;
                 }

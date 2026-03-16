@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 use std::default::Default;
+use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -36,8 +37,9 @@ use opentelemetry::metrics::Meter;
 use sqlx::PgPool;
 use tokio::fs::File;
 use tokio::io::AsyncBufReadExt;
-use tokio::sync::{Semaphore, oneshot};
+use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 
 use crate::cfg::file::{CarbideConfig, FirmwareConfig, FirmwareGlobal};
 use crate::firmware_downloader::FirmwareDownloader;
@@ -124,15 +126,19 @@ impl PreingestionManager {
         }
     }
 
-    pub fn start(self) -> eyre::Result<oneshot::Sender<i32>> {
-        let (stop_sender, stop_receiver) = oneshot::channel();
-        tokio::task::Builder::new()
-            .name("preintegration_manager")
-            .spawn(async move { self.run(stop_receiver).await })?;
-        Ok(stop_sender)
+    pub fn start(
+        self,
+        join_set: &mut JoinSet<()>,
+        cancel_token: CancellationToken,
+    ) -> io::Result<()> {
+        join_set
+            .build_task()
+            .name("preingestion_manager")
+            .spawn(async move { self.run(cancel_token).await })?;
+        Ok(())
     }
 
-    async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {
+    async fn run(&self, cancel_token: CancellationToken) {
         let timer = PeriodicTimer::new(self.static_info.run_interval);
         loop {
             let tick = timer.tick();
@@ -146,7 +152,7 @@ impl PreingestionManager {
             // we will wait before checking if new state changes need to happen.
             tokio::select! {
                 _ = tick.sleep() => {},
-                _ = &mut stop_receiver => {
+                _ = cancel_token.cancelled() => {
                     tracing::info!("Preingestion manager stop was requested");
                     return;
                 }

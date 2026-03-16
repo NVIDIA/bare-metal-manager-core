@@ -84,6 +84,17 @@ pub fn liteon_powershelf_bmc() -> Arc<TestBmc> {
     ))
 }
 
+pub fn nvidia_switch_nd5200_ld_bmc() -> Arc<TestBmc> {
+    test_bmc(machine_router(
+        MachineInfo::Host(HostMachineInfo::new(
+            HostHardwareType::NvidiaSwitchNd5200Ld,
+            vec![],
+        )),
+        Arc::new(NoopPowerControl),
+        "test-host-id".to_string(),
+    ))
+}
+
 pub fn dell_poweredge_r750_bmc() -> Arc<TestBmc> {
     test_bmc(machine_router(
         MachineInfo::Host(HostMachineInfo::new(

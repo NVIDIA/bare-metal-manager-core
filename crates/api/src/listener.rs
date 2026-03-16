@@ -29,8 +29,7 @@ use opentelemetry::metrics::Meter;
 use rustls::server::WebPkiClientVerifier;
 use rustls_pki_types::CertificateDer;
 use tokio::net::TcpListener;
-use tokio::select;
-use tokio::sync::oneshot::Sender;
+use tokio::task::JoinSet;
 use tokio_rustls::TlsAcceptor;
 use tokio_rustls::rustls::{RootCertStore, ServerConfig};
 use tokio_util::sync::CancellationToken;
@@ -177,15 +176,20 @@ impl ConnectionAttributes {
     }
 }
 
+/// Start listening for requests, spawning the listener task into `join_set`.
+///
+/// This method will return an error if any preconditions fail (could not bind to the port, issues
+/// with tls configuration), then moves processing to a background task spawned into `join_set`. The
+/// background task does not return unless `cancel_token` is canceled, or if something panics.
 #[tracing::instrument(skip_all)]
-pub async fn listen_and_serve(
+pub async fn start(
+    join_set: &mut JoinSet<()>,
     api_service: Arc<Api>,
     listen_mode: ApiListenMode,
     listen_port: SocketAddr,
     auth_config: &Option<AuthConfig>,
     meter: Meter,
     cancel_token: CancellationToken,
-    ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
     let api_reflection_service = Builder::configure()
         .register_encoded_file_descriptor_set(::rpc::REFLECTION_API_SERVICE_DESCRIPTOR)
@@ -274,7 +278,7 @@ pub async fn listen_and_serve(
         .layer(cert_description_layer)
         .option_layer(internal_rbac_layer)
         .option_layer(casbin_layer)
-        .service(router.clone());
+        .service(router);
 
     let connection_total_counter = meter
         .u64_counter("carbide-api.tls.connection_attempted")
@@ -291,128 +295,128 @@ pub async fn listen_and_serve(
 
     let mut tls_acceptor_created = Instant::now();
     let mut initialize_tls_acceptor = true;
-    _ = ready_channel.send(()).inspect_err(|_e| {
-        // Note: the `_e` here is just sending us back (rejecting) the () that we sent to the ready
-        // channel. This will only happen if the other end is closed.
-        tracing::warn!("Bug: api server ready_channel is closed, could not notify readiness status")
-    });
-    loop {
-        let incoming_connection = select! {
-            incoming_connection = listener.accept() => incoming_connection,
-            _ = cancel_token.cancelled() => {
-                tracing::info!("carbide-api shutting down");
-                return Ok(());
-            }
-        };
-        connection_total_counter.add(1, &[]);
-        let (conn, addr) = match incoming_connection {
-            Ok(incoming) => incoming,
-            Err(e) => {
-                tracing::error!(error = %e, "Error accepting connection");
-                connection_failed_counter
-                    .add(1, &[KeyValue::new("reason", "tcp_connection_failure")]);
-                continue;
-            }
-        };
 
-        // TODO: RT: change the subroutine to return the certificate's parsed expiration from
-        // the file on disk and only refresh if it's actually necessary to do so,
-        // and emit a metric for the remaining duration on the cert
-
-        // hard refresh our certs every five minutes
-        // they may have been rewritten on disk by cert-manager and we want to honor the new cert.
-        if let (Some(tls_config), true) = (
-            tls_config.as_ref(),
-            initialize_tls_acceptor
-                || tls_acceptor_created.elapsed() > tokio::time::Duration::from_secs(5 * 60),
-        ) {
-            tracing::info!("Refreshing certs");
-            initialize_tls_acceptor = false;
-            tls_acceptor_created = Instant::now();
-
-            let tls_config_clone = tls_config.clone();
-            let fut_tls_acceptor_new_certs = tokio::task::Builder::new()
-                .name("get_tls_acceptor refresh")
-                .spawn_blocking(move || get_tls_acceptor(&tls_config_clone));
-            match fut_tls_acceptor_new_certs {
-                Ok(next) => tls_acceptor = next.await?,
-                Err(_err) => {
-                    tracing::error!("Failed spawning blocking task get_tls_acceptor refresh")
+    join_set.build_task().name("listener accept loop").spawn(async move {
+        while let Some(incoming_connection) = cancel_token.run_until_cancelled(listener.accept()).await {
+            connection_total_counter.add(1, &[]);
+            let (conn, addr) = match incoming_connection {
+                Ok(incoming) => incoming,
+                Err(e) => {
+                    tracing::error!(error = %e, "Error accepting connection");
+                    connection_failed_counter
+                        .add(1, &[KeyValue::new("reason", "tcp_connection_failure")]);
+                    continue;
                 }
+            };
+
+            // TODO: RT: change the subroutine to return the certificate's parsed expiration from
+            // the file on disk and only refresh if it's actually necessary to do so,
+            // and emit a metric for the remaining duration on the cert
+
+            // hard refresh our certs every five minutes
+            // they may have been rewritten on disk by cert-manager and we want to honor the new cert.
+            if let (Some(tls_config), true) = (
+                tls_config.as_ref(),
+                initialize_tls_acceptor
+                    || tls_acceptor_created.elapsed() > tokio::time::Duration::from_secs(5 * 60),
+            ) {
+                tracing::info!("Refreshing certs");
+                initialize_tls_acceptor = false;
+                tls_acceptor_created = Instant::now();
+
+                tls_acceptor = tokio::task::Builder::new()
+                    .name("get_tls_acceptor refresh")
+                    .spawn_blocking({
+                        let tls_config = tls_config.clone();
+                        move || get_tls_acceptor(&tls_config)
+                    })
+                    // Safety: spawn_blocking only returns Error if run outside the tokio runtime
+                    .expect("Failed to spawn blocking task")
+                    .await
+                    // Safety: Awaiting a JoinHandle only fails if the task panicked, and we want to
+                    // propagate panics
+                    .expect("task panicked");
             }
-        }
 
-        let tls_acceptor = tls_acceptor.clone();
-        let http = http.clone();
-        let app = app.clone();
-        let connection_succeeded_counter = connection_succeeded_counter.clone();
-        let connection_failed_counter = connection_failed_counter.clone();
-        tokio::task::Builder::new().name("http conn handler").spawn(async move {
-            if let Some(tls_acceptor) = tls_acceptor {
-                match tls_acceptor.accept(conn).await {
-                    Ok(conn) => {
-                        let conn = TokioIo::new(conn);
-                        connection_succeeded_counter.add(1, &[]);
+            let tls_acceptor = tls_acceptor.clone();
+            let http = http.clone();
+            let app = app.clone();
+            let connection_succeeded_counter = connection_succeeded_counter.clone();
+            let connection_failed_counter = connection_failed_counter.clone();
 
-                        let (_, session) = conn.inner().get_ref();
-                        let connection_attributes = {
-                            let peer_address = addr;
-                            let peer_certificates =
-                                session.peer_certificates().unwrap_or_default().to_vec();
-                            Arc::new(ConnectionAttributes {
-                                peer_address,
-                                peer_certificates,
-                            })
-                        };
-                        let conn_attrs_extension_layer =
-                            AddExtensionLayer::new(connection_attributes);
+            tokio::task::Builder::new().name("http conn handler").spawn(async move {
+                if let Some(tls_acceptor) = tls_acceptor {
+                    match tls_acceptor.accept(conn).await {
+                        Ok(conn) => {
+                            let conn = TokioIo::new(conn);
+                            connection_succeeded_counter.add(1, &[]);
 
-                        let app_with_ext = tower::ServiceBuilder::new()
-                            .layer(conn_attrs_extension_layer)
-                            .service(app);
+                            let (_, session) = conn.inner().get_ref();
+                            let connection_attributes = {
+                                let peer_address = addr;
+                                let peer_certificates =
+                                    session.peer_certificates().unwrap_or_default().to_vec();
+                                Arc::new(ConnectionAttributes {
+                                    peer_address,
+                                    peer_certificates,
+                                })
+                            };
+                            let conn_attrs_extension_layer =
+                                AddExtensionLayer::new(connection_attributes);
 
-                        if let Err(error) = http.serve_connection(conn, TowerToHyperService::new(app_with_ext)).await {
-                            tracing::debug!(%error, "error servicing tls http request: {error:?}");
+                            let app_with_ext = tower::ServiceBuilder::new()
+                                .layer(conn_attrs_extension_layer)
+                                .service(app);
+
+                            if let Err(error) = http.serve_connection(conn, TowerToHyperService::new(app_with_ext)).await {
+                                tracing::debug!(%error, "error servicing tls http request: {error:?}");
+                            }
+                        }
+                        Err(error) => {
+                            tracing::error!(%error, address = %addr, "error accepting tls connection");
+                            connection_failed_counter
+                                .add(1, &[KeyValue::new("reason", "tls_connection_failure")]);
                         }
                     }
-                    Err(error) => {
-                        tracing::error!(%error, address = %addr, "error accepting tls connection");
-                        connection_failed_counter
-                            .add(1, &[KeyValue::new("reason", "tls_connection_failure")]);
+                } else {
+                    // servicing without tls -- HTTP only
+                    connection_succeeded_counter.add(1, &[]);
+
+                    let conn_attrs_extension_layer =
+                        AddExtensionLayer::new(Arc::new(ConnectionAttributes {
+                            peer_address: addr,
+                            peer_certificates: vec![],
+                        }));
+
+                    let conn = TokioIo::new(conn);
+
+                    let app_with_ext = tower::ServiceBuilder::new()
+                        .layer(conn_attrs_extension_layer)
+                        .service(app);
+
+                    let result = if serve_plaintext_via_http1 {
+                        // Serve the connection as HTTP/1.1 and allow upgrading to HTTP/2
+                        http1::Builder::new().serve_connection(conn, TowerToHyperService::new(app_with_ext)).with_upgrades().await
+                    } else {
+                        // Serve the connection as HTTP/2, which will fail if the initial
+                        // request is HTTP/1.1 (which is the default behavior for web browsers,
+                        // curl, etc.)
+                        http.serve_connection(conn, TowerToHyperService::new(app_with_ext)).await
+                    };
+
+                    if let Err(error) = result {
+                        tracing::debug!(%error, "error servicing plain http connection: {error:?}");
                     }
                 }
-            } else {
-                // servicing without tls -- HTTP only
-                connection_succeeded_counter.add(1, &[]);
+            })
+                // Safety: This should only fail if called outside a tokio runtime
+                .expect("could not spawn task to handle HTTP connection");
+        }
 
-                let conn_attrs_extension_layer =
-                    AddExtensionLayer::new(Arc::new(ConnectionAttributes {
-                        peer_address: addr,
-                        peer_certificates: vec![],
-                    }));
+        tracing::info!("carbide-api shutting down");
+    })?;
 
-                let conn = TokioIo::new(conn);
-
-                let app_with_ext = tower::ServiceBuilder::new()
-                    .layer(conn_attrs_extension_layer)
-                    .service(app);
-
-                let result = if serve_plaintext_via_http1 {
-                    // Serve the connection as HTTP/1.1 and allow upgrading to HTTP/2
-                    http1::Builder::new().serve_connection(conn, TowerToHyperService::new(app_with_ext)).with_upgrades().await
-                } else {
-                    // Serve the connection as HTTP/2, which will fail if the initial
-                    // request is HTTP/1.1 (which is the default behavior for web browsers,
-                    // curl, etc.)
-                    http.serve_connection(conn, TowerToHyperService::new(app_with_ext)).await
-                };
-
-                if let Err(error) = result {
-                    tracing::debug!(%error, "error servicing plain http connection: {error:?}");
-                }
-            }
-        })?;
-    }
+    Ok(())
 }
 
 /// Handle the root URL. Health check services often expect a 200 here.

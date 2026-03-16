@@ -25,8 +25,10 @@ use model::machine::ManagedHostState;
 use mqttea::{MqtteaClient, MqtteaClientError};
 use opentelemetry::metrics::Meter;
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 use tokio::time::error::Elapsed;
 use tokio::time::{Instant, timeout_at};
+use tokio_util::sync::CancellationToken;
 
 use crate::mqtt_state_change_hook::message::ManagedHostStateChangeMessage;
 use crate::mqtt_state_change_hook::metrics::MqttHookMetrics;
@@ -86,13 +88,20 @@ impl MqttStateChangeHook {
     /// - `forge_dsx_event_bus_queue_depth`: Current queue depth
     pub fn new<P: MqttPublisher>(
         client: P,
+        join_set: &mut JoinSet<()>,
         publish_timeout: Duration,
         queue_capacity: usize,
         meter: &Meter,
+        cancel_token: CancellationToken,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(queue_capacity);
         let metrics = MqttHookMetrics::new(meter, sender.downgrade());
-        tokio::spawn(process_events(receiver, client, metrics.clone()));
+        join_set.spawn(process_events(
+            receiver,
+            client,
+            metrics.clone(),
+            cancel_token,
+        ));
         Self {
             sender,
             publish_timeout,
@@ -142,8 +151,9 @@ async fn process_events<P: MqttPublisher>(
     mut receiver: mpsc::Receiver<QueuedMessage>,
     client: P,
     metrics: MqttHookMetrics,
+    cancel_token: CancellationToken,
 ) {
-    while let Some(msg) = receiver.recv().await {
+    while let Some(Some(msg)) = cancel_token.run_until_cancelled(receiver.recv()).await {
         match timeout_at(msg.deadline, client.publish(&msg.topic, msg.payload)).await {
             Ok(Ok(())) => {
                 tracing::debug!(topic = %msg.topic, "Published state change to MQTT");
@@ -229,7 +239,16 @@ mod tests {
     #[tokio::test]
     async fn test_events_are_published() {
         let (publisher, mut receiver) = SignalingPublisher::new();
-        let hook = MqttStateChangeHook::new(publisher, Duration::from_secs(1), 16, &test_meter());
+        let mut join_set = JoinSet::new();
+        let cancel_token = CancellationToken::new();
+        let hook = MqttStateChangeHook::new(
+            publisher,
+            &mut join_set,
+            Duration::from_secs(1),
+            16,
+            &test_meter(),
+            cancel_token.clone(),
+        );
 
         let id = test_machine_id();
         let state = ManagedHostState::Ready;
@@ -244,6 +263,9 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_slice(&payload).unwrap();
         let state_obj = parsed.get("managed_host_state").unwrap();
         assert_eq!(state_obj.get("state").unwrap(), "ready");
+
+        cancel_token.cancel();
+        join_set.join_all().await;
     }
 
     #[tokio::test]
@@ -276,7 +298,16 @@ mod tests {
             complete_count: complete_count.clone(),
         };
 
-        let hook = MqttStateChangeHook::new(publisher, Duration::from_millis(1), 16, &test_meter());
+        let mut join_set = JoinSet::new();
+        let cancel_token = CancellationToken::new();
+        let hook = MqttStateChangeHook::new(
+            publisher,
+            &mut join_set,
+            Duration::from_millis(1),
+            16,
+            &test_meter(),
+            cancel_token.clone(),
+        );
 
         let id = test_machine_id();
         let state = ManagedHostState::Ready;
@@ -289,6 +320,9 @@ mod tests {
         // Timeout should have cancelled it
         assert_eq!(call_count.load(Ordering::SeqCst), 1);
         assert_eq!(complete_count.load(Ordering::SeqCst), 0);
+
+        cancel_token.cancel();
+        join_set.join_all().await;
     }
 
     #[tokio::test]
@@ -315,11 +349,15 @@ mod tests {
 
         let publisher = GatedPublisher { gate: gate_rx, tx };
 
+        let mut join_set = JoinSet::new();
+        let cancel_token = CancellationToken::new();
         let hook = MqttStateChangeHook::new(
             publisher,
+            &mut join_set,
             Duration::from_secs(10),
             QUEUE_SIZE,
             &test_meter(),
+            cancel_token.clone(),
         );
 
         let id = test_machine_id();
@@ -344,5 +382,8 @@ mod tests {
 
         // Queue can hold QUEUE_SIZE events, so exactly that many should be processed
         assert_eq!(count, QUEUE_SIZE);
+
+        cancel_token.cancel();
+        join_set.join_all().await;
     }
 }

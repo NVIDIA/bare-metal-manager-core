@@ -33,6 +33,9 @@ pub mod wiwynn_gb200_nvl;
 /// Support of LiteOn Power Shelf.
 pub mod liteon_power_shelf;
 
+/// Support of NVIDIA Switch ND5200_LD.
+pub mod nvidia_switch_nd5200_ld;
+
 use bmc_vendor::BMCVendor;
 
 pub fn bmc_vendor_to_udev_dmi(v: BMCVendor) -> &'static str {

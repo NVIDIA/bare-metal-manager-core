@@ -82,6 +82,7 @@ impl LiteOnPowerShelf<'_> {
                 base_bios: Some(
                     redfish::bios::builder(&redfish::bios::resource(system_id)).build(),
                 ),
+                secure_boot_available: false,
             }],
         }
     }
