@@ -47,7 +47,11 @@ pub trait BfbRepository: Send + Sync {
 #[async_trait]
 pub trait DpuRepository: Send + Sync {
     async fn get(&self, name: &str, namespace: &str) -> Result<Option<DPU>, DpfError>;
-    async fn list(&self, namespace: &str) -> Result<Vec<DPU>, DpfError>;
+    async fn list(
+        &self,
+        namespace: &str,
+        label_selector: Option<&str>,
+    ) -> Result<Vec<DPU>, DpfError>;
     async fn patch_status(
         &self,
         name: &str,
@@ -61,9 +65,13 @@ pub trait DpuRepository: Send + Sync {
     /// The returned future runs until the watch is cancelled. The handler's
     /// `Result` signals whether the event was processed; implementations may
     /// retry on `Err`.
+    ///
+    /// When `label_selector` is `Some`, only DPU resources matching the
+    /// selector are watched.
     fn watch<F, Fut>(
         &self,
         namespace: &str,
+        label_selector: Option<&str>,
         handler: F,
     ) -> impl Future<Output = ()> + Send + 'static
     where

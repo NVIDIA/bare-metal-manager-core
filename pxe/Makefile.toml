@@ -50,9 +50,10 @@ IPXE_BANNER_VERSION = { script = [
 BUILD_LOCATION = "/tmp/bfb-dump/initramfs-tmp"
 
 # Detect sudo/doas elevation command from env
+# Prefer doas since if both are present it is likely the intended command.
 ELEVATE = { script = ['''
-  command -v sudo >/dev/null 2>&1 && echo sudo && exit 0
   command -v doas >/dev/null 2>&1 && echo doas && exit 0
+  command -v sudo >/dev/null 2>&1 && echo sudo && exit 0
   echo ""
   '''] }
 

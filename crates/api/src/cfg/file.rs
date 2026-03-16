@@ -304,6 +304,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub machine_validation_config: MachineValidationConfig,
 
+    /// Machine identity (SPIFFE JWT-SVID) config. Section `[machine_identity]`.
+    #[serde(default)]
+    pub machine_identity: MachineIdentityConfig,
+
     #[serde(default)]
     pub bypass_rbac: bool,
 
@@ -489,6 +493,77 @@ pub enum ComputeAllocationEnforcement {
 pub struct DpfConfig {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default)]
+    pub bfb_url: String,
+    #[serde(default)]
+    pub deployment_name: Option<String>,
+    #[serde(default)]
+    pub services: Option<Vec<DpfServiceConfig>>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DpfServiceConfig {
+    pub name: String,
+    pub helm_repo_url: String,
+    pub helm_chart: String,
+    pub helm_version: String,
+}
+
+/// Machine identity (SPIFFE JWT-SVID) configuration.
+/// Loaded from `[machine_identity]` section in config.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MachineIdentityConfig {
+    /// Master switch. If false, SetIdentityConfiguration and SignMachineIdentity return 503.
+    #[serde(default = "machine_identity_default_enabled")]
+    pub enabled: bool,
+    /// Signing algorithm for per-org keys (e.g. ES256).
+    #[serde(default = "machine_identity_default_algorithm")]
+    pub algorithm: String,
+    /// Min token TTL permitted in seconds.
+    #[serde(default = "machine_identity_default_token_ttl_min_sec")]
+    pub token_ttl_min_sec: u32,
+    /// Max token TTL permitted in seconds.
+    #[serde(default = "machine_identity_default_token_ttl_max_sec")]
+    pub token_ttl_max_sec: u32,
+    /// Optional HTTP proxy for token endpoint calls (SSRF mitigation).
+    #[serde(default)]
+    pub token_endpoint_http_proxy: Option<String>,
+}
+
+fn machine_identity_default_enabled() -> bool {
+    true
+}
+fn machine_identity_default_algorithm() -> String {
+    "ES256".to_string()
+}
+fn machine_identity_default_token_ttl_min_sec() -> u32 {
+    60
+}
+fn machine_identity_default_token_ttl_max_sec() -> u32 {
+    86400
+}
+
+impl Default for MachineIdentityConfig {
+    fn default() -> Self {
+        Self {
+            enabled: machine_identity_default_enabled(),
+            algorithm: machine_identity_default_algorithm(),
+            token_ttl_min_sec: machine_identity_default_token_ttl_min_sec(),
+            token_ttl_max_sec: machine_identity_default_token_ttl_max_sec(),
+            token_endpoint_http_proxy: None,
+        }
+    }
+}
+
+impl From<MachineIdentityConfig> for model::tenant::IdentityConfigValidationBounds {
+    fn from(mi: MachineIdentityConfig) -> Self {
+        Self {
+            token_ttl_min_sec: mi.token_ttl_min_sec,
+            token_ttl_max_sec: mi.token_ttl_max_sec,
+            algorithm: mi.algorithm,
+            master_key_id: "placeholder-master-key".to_string(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

@@ -41,7 +41,8 @@ pub const RELOAD_CMD: &str = "supervisorctl update";
 pub const RELOAD_DHCP_SERVER: &str =
     "supervisorctl update;supervisorctl restart forge-dhcp-server-default";
 
-pub const STOP_DHCP_SERVER: &str = "supervisorctl stop forge-dhcp-server-default";
+pub const STOP_DHCP_SERVER: &str =
+    "supervisorctl update;supervisorctl stop forge-dhcp-server-default";
 
 /// Generate default-forge-dhcp-server.conf
 pub fn build_server_supervisord_config(

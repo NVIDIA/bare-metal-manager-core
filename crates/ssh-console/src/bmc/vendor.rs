@@ -33,6 +33,7 @@ pub enum BmcVendor {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum IpmiBmcVendor {
     Supermicro,
+    LenovoAmi,
     NvidiaViking,
 }
 
@@ -40,6 +41,7 @@ impl IpmiBmcVendor {
     pub fn config_string(&self) -> &'static str {
         match self {
             IpmiBmcVendor::Supermicro => "supermicro",
+            IpmiBmcVendor::LenovoAmi => "lenovo_ami",
             IpmiBmcVendor::NvidiaViking => "nvidia_viking",
         }
     }
@@ -110,6 +112,8 @@ impl BmcVendor {
             Some(BmcVendor::Ssh(SshBmcVendor::Dpu))
         } else if s == IpmiBmcVendor::Supermicro.config_string() {
             Some(BmcVendor::Ipmi(IpmiBmcVendor::Supermicro))
+        } else if s == IpmiBmcVendor::LenovoAmi.config_string() {
+            Some(BmcVendor::Ipmi(IpmiBmcVendor::LenovoAmi))
         } else if s == IpmiBmcVendor::NvidiaViking.config_string() {
             Some(BmcVendor::Ipmi(IpmiBmcVendor::NvidiaViking))
         } else {

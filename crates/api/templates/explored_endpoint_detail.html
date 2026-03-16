@@ -113,6 +113,14 @@
 					<br>
 					Last Redfish BMC Powercycle: {{ endpoint.last_redfish_powercycle }}
 				</div>
+				{% if let Some(status) = action_status %}
+				{% if status.action == "power" %}
+				<div>
+					<span class="bubble {{ status.class }}">{{ status.message }}</span>
+				</div>
+				{{ ActionStatus::url_cleanup_script()|safe }}
+				{% endif %}
+				{% endif %}
 				<div>
 					{% set bmc_ip = endpoint.address.clone() %}
 					{% include "power_control.html" %}

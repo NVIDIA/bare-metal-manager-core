@@ -29,7 +29,7 @@ name = "model"
 # [local-dependencies]
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 bmc-vendor = { path = "../bmc-vendor" }
-carbide-dpf = { path = "../dpf" }
+carbide-dpf-beta = { path = "../dpf-beta" }
 config-version = { path = "../config-version", features = ["sqlx"] }
 carbide-host-support = { path = "../host-support", default-features = false }
 carbide-libmlx = { path = "../libmlx" }
@@ -51,6 +51,7 @@ casbin = { features = ["glob"], workspace = true }
 chrono = { workspace = true }
 duration-str = { workspace = true }
 eyre = { workspace = true }
+hex = { workspace = true }
 ipnetwork = { workspace = true, features = ["serde"] }
 itertools = { workspace = true }
 lazy_static = { workspace = true }

@@ -689,6 +689,14 @@ service Forge {
   // SPIFFE Machine Identity APIs
   // Signs a JWT-SVID token for machine identity
   rpc SignMachineIdentity(MachineIdentityRequest) returns (MachineIdentityResponse);
+  // Get, set, or delete per-org identity configuration (issuer, audiences, TTL, signing key)
+  rpc GetIdentityConfiguration(GetIdentityConfigRequest) returns (IdentityConfigResponse);
+  rpc SetIdentityConfiguration(IdentityConfigRequest) returns (IdentityConfigResponse);
+  rpc DeleteIdentityConfiguration(GetIdentityConfigRequest) returns (google.protobuf.Empty);
+  // Token delegation: get, set, or delete per-org token exchange config
+  rpc GetTokenDelegation(GetTokenDelegationRequest) returns (TokenDelegationResponse);
+  rpc SetTokenDelegation(TokenDelegationRequest) returns (TokenDelegationResponse);
+  rpc DeleteTokenDelegation(GetTokenDelegationRequest) returns (google.protobuf.Empty);
 
   // ScoutStream establishes a bidirectional streaming connection between
   // scout agents and carbide-api. The initial use-case for this is for
@@ -845,6 +853,79 @@ message MachineIdentityResponse {
   string issued_token_type = 2;
   string token_type = 3;
   string expires_in = 4;
+}
+
+// Identity configuration (per-org)
+message GetIdentityConfigRequest {
+  string organization_id = 1;
+}
+
+message IdentityConfig {
+  bool enabled = 1;
+  string issuer = 2;
+  string default_audience = 3;
+  repeated string allowed_audiences = 4;
+  uint32 token_ttl_sec = 5;
+  string subject_prefix = 6;
+  bool rotate_key = 7;
+}
+
+message IdentityConfigRequest {
+  string organization_id = 1;
+  IdentityConfig config = 2;
+}
+
+message IdentityConfigResponse {
+  string organization_id = 1;
+  IdentityConfig config = 2;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  string key_id = 10;
+}
+
+// Token delegation config (per-org token exchange for machine identity).
+// The structure used when CREATING or UPDATING a secret
+message ClientSecretBasic {
+  string client_id = 1;
+  string client_secret = 2;  // Required for input, never returned
+}
+
+// The structure used when RETRIEVING a secret configuration
+message ClientSecretBasicResponse {
+  string client_id = 1;
+  string client_secret_hash = 2;  // Returned to client, but never accepted as input
+}
+
+// auth_method_config oneof: only set for "client_secret_basic".
+// When omitted, auth_method is "none". auth_method is not returned; infer from oneof.
+message TokenDelegationResponse {
+  string organization_id = 1;
+  string token_endpoint = 2;
+  string subject_token_audience = 3;
+  oneof auth_method_config {
+    ClientSecretBasicResponse client_secret_basic = 4;
+  }
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message GetTokenDelegationRequest {
+  string organization_id = 1;
+}
+
+// auth_method_config oneof: only set when auth_method is "client_secret_basic".
+// When auth_method is "none", omit the oneof entirely.
+message TokenDelegation {
+  string token_endpoint = 1;
+  string subject_token_audience = 2;
+  oneof auth_method_config {
+    ClientSecretBasic client_secret_basic = 4;
+  }
+}
+
+message TokenDelegationRequest {
+  string organization_id = 1;
+  TokenDelegation config = 2;
 }
 
 // Determines machine ingestion state in relation to the power on gate

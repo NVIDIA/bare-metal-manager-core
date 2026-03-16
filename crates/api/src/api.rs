@@ -31,7 +31,6 @@ use ::rpc::protos::dns::{
     UpdateDomainRequest,
 };
 use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
-use carbide_dpf::KubeImpl;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
@@ -49,6 +48,7 @@ use tonic::{Request, Response, Status, Streaming};
 use self::metrics::ApiMetricsEmitter;
 use self::rpc::forge_server::Forge;
 use crate::cfg::file::CarbideConfig;
+use crate::dpf::DpfOperations;
 use crate::dynamic_settings::DynamicSettings;
 use crate::ethernet_virtualization::EthVirtData;
 use crate::ib::IBFabricManager;
@@ -78,7 +78,7 @@ pub struct Api {
     pub(crate) rms_client: Option<Arc<dyn RmsApi>>,
     pub(crate) nmxm_pool: Arc<dyn NmxmClientPool>,
     pub(crate) work_lock_manager_handle: WorkLockManagerHandle,
-    pub(crate) kube_client_provider: Arc<dyn KubeImpl>,
+    pub(crate) dpf_sdk: Option<Arc<dyn DpfOperations>>,
     pub(crate) machine_state_handler_enqueuer: Enqueuer<MachineStateControllerIO>,
     pub(crate) metric_emitter: ApiMetricsEmitter,
 }
@@ -2700,6 +2700,48 @@ impl Forge for Api {
         ))
     }
 
+    async fn get_identity_configuration(
+        &self,
+        request: Request<rpc::GetIdentityConfigRequest>,
+    ) -> Result<Response<rpc::IdentityConfigResponse>, Status> {
+        crate::handlers::identity_config::get_identity_configuration(self, request).await
+    }
+
+    async fn set_identity_configuration(
+        &self,
+        request: tonic::Request<rpc::IdentityConfigRequest>,
+    ) -> Result<Response<rpc::IdentityConfigResponse>, Status> {
+        crate::handlers::identity_config::set_identity_configuration(self, request).await
+    }
+
+    async fn delete_identity_configuration(
+        &self,
+        request: Request<rpc::GetIdentityConfigRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::identity_config::delete_identity_configuration(self, request).await
+    }
+
+    async fn get_token_delegation(
+        &self,
+        request: Request<rpc::GetTokenDelegationRequest>,
+    ) -> Result<Response<rpc::TokenDelegationResponse>, Status> {
+        crate::handlers::identity_config::get_token_delegation(self, request).await
+    }
+
+    async fn set_token_delegation(
+        &self,
+        request: Request<rpc::TokenDelegationRequest>,
+    ) -> Result<Response<rpc::TokenDelegationResponse>, Status> {
+        crate::handlers::identity_config::set_token_delegation(self, request).await
+    }
+
+    async fn delete_token_delegation(
+        &self,
+        request: Request<rpc::GetTokenDelegationRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::identity_config::delete_token_delegation(self, request).await
+    }
+
     async fn modify_dpf_state(
         &self,
         request: Request<rpc::ModifyDpfStateRequest>,
@@ -2897,6 +2939,14 @@ pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
             format!("{:?}", request.get_ref()),
             ::rpc::MAX_ERR_MSG_SIZE as usize,
         ),
+    );
+}
+
+/// Logs a pre-redacted request string (e.g. for requests containing secrets).
+pub(crate) fn log_request_data_redacted(s: impl AsRef<str>) {
+    tracing::Span::current().record(
+        "request",
+        truncate(s.as_ref().to_string(), ::rpc::MAX_ERR_MSG_SIZE as usize),
     );
 }
 

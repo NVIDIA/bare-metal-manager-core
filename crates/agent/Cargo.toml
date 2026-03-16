@@ -54,6 +54,7 @@ arc-swap = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros"] }
 axum-server = { features = ["tls-rustls"], workspace = true }
+backon = { workspace = true }
 blake3 = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }

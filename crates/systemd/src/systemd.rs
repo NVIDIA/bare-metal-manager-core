@@ -16,6 +16,7 @@
  */
 
 use std::env;
+#[cfg(target_os = "linux")]
 use std::os::linux::net::SocketAddrExt;
 use std::os::unix::net::{SocketAddr, UnixDatagram};
 
@@ -43,6 +44,7 @@ pub async fn notify_stop() -> eyre::Result<()> {
 }
 
 async fn sd_notify(msg: &str) -> eyre::Result<()> {
+    #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
     let mut sock_path = match env::var("NOTIFY_SOCKET") {
         Ok(path) if !path.is_empty() => path,
         _ => {
@@ -54,12 +56,21 @@ async fn sd_notify(msg: &str) -> eyre::Result<()> {
     let sock = UnixDatagram::unbound()?;
     sock.set_nonblocking(true)?;
     let addr = if sock_path.as_bytes()[0] == b'@' {
-        unsafe {
-            // abstract sockets must start with nul byte
-            sock_path.as_mut_vec()[0] = 0;
+        #[cfg(target_os = "linux")]
+        {
+            unsafe {
+                // abstract sockets must start with nul byte
+                sock_path.as_mut_vec()[0] = 0;
+            }
+            SocketAddr::from_abstract_name(sock_path.as_bytes())
+                .wrap_err_with(|| format!("invalid abstract socket name {sock_path}"))?
         }
-        SocketAddr::from_abstract_name(sock_path.as_bytes())
-            .wrap_err_with(|| format!("invalid abstract socket name {sock_path}"))?
+        #[cfg(not(target_os = "linux"))]
+        {
+            eyre::bail!(
+                "Abstract Unix sockets (NOTIFY_SOCKET starting with @) are only supported on Linux"
+            );
+        }
     } else {
         SocketAddr::from_pathname(&sock_path)
             .wrap_err_with(|| format!("invalid socket name {sock_path}"))?

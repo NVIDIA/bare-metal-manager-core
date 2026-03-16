@@ -39,6 +39,14 @@ mac = "aa:bb:cc:dd:ee:ff"
 username = "admin"
 password = "secret"
 
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.1.1"
+port = 443
+mac = "11:22:33:44:55:66"
+username = "admin"
+password = "secret"
+switch_serial = "SN-SWITCH-001"
+
 # ==============================================================================
 # Sinks: Where collector events are sent
 # ==============================================================================
@@ -54,6 +62,7 @@ root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
 api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+workers = 8
 
 # ==============================================================================
 # Rate Limiting
@@ -65,7 +74,7 @@ bucket_replenish = "35ms"
 max_jitter = "40ms"
 
 # ==============================================================================
-# Collectors: What data to collect from BMCs and NMX-T enabled switches
+# Collectors: What data to collect from BMCs and Switches (NMX-T/NVUE REST)
 # ==============================================================================
 
 [collectors.sensors]
@@ -88,6 +97,17 @@ logs_max_backups = 5
 
 [collectors.nmxt]
 scrape_interval = "1m"
+request_timeout = "30s"
+
+[collectors.nvue.rest]
+poll_interval = "1m"
+request_timeout = "30s"
+
+[collectors.nvue.rest.paths]
+system_health_enabled = true
+cluster_apps_enabled = true
+sdn_partitions_enabled = true
+interfaces_enabled = true
 
 # ==============================================================================
 # Processors

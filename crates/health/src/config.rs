@@ -99,15 +99,16 @@ pub struct StaticBmcEndpoint {
     pub mac: String,
     pub username: String,
     pub password: String,
+    pub switch_serial: Option<String>,
 }
 
-/// Debug structure omits credentials
 impl Debug for StaticBmcEndpoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StaticBmcEndpoint")
             .field("ip", &self.ip)
             .field("port", &self.port)
             .field("mac", &self.mac)
+            .field("switch_serial", &self.switch_serial)
             .finish()
     }
 }
@@ -124,7 +125,7 @@ pub struct SinksConfig {
 
     /// Health override sink: sends health override events to Carbide API.
     #[serde(alias = "carbide_override")]
-    pub health_override: Configurable<CarbideApiConnectionConfig>,
+    pub health_override: Configurable<HealthOverrideSinkConfig>,
 }
 
 impl Default for SinksConfig {
@@ -132,7 +133,7 @@ impl Default for SinksConfig {
         Self {
             tracing: Configurable::Enabled(TracingSinkConfig::default()),
             prometheus: Configurable::Enabled(PrometheusSinkConfig::default()),
-            health_override: Configurable::Enabled(CarbideApiConnectionConfig::default()),
+            health_override: Configurable::Enabled(HealthOverrideSinkConfig::default()),
         }
     }
 }
@@ -175,6 +176,25 @@ impl Default for CarbideApiConnectionConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+pub struct HealthOverrideSinkConfig {
+    #[serde(flatten)]
+    pub connection: CarbideApiConnectionConfig,
+
+    /// Number of concurrent workers submitting reports to Carbide API.
+    pub workers: usize,
+}
+
+impl Default for HealthOverrideSinkConfig {
+    fn default() -> Self {
+        Self {
+            connection: CarbideApiConnectionConfig::default(),
+            workers: 4,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RateLimitConfig {
     /// Burst value for explorations, optimal to set to max rate limit.
     pub bucket_burst: usize,
@@ -204,6 +224,9 @@ pub struct CollectorsConfig {
 
     /// Switch NMX-T collector configuration (if present, nmxt collector is enabled)
     pub nmxt: Configurable<NmxtCollectorConfig>,
+
+    /// NVUE collector configuration for direct NVUE HTTP(s) polling of NVLink switches
+    pub nvue: Configurable<NvueCollectorConfig>,
 }
 
 impl Default for CollectorsConfig {
@@ -213,6 +236,7 @@ impl Default for CollectorsConfig {
             firmware: Configurable::Disabled,
             logs: Configurable::Disabled,
             nmxt: Configurable::Disabled,
+            nvue: Configurable::Disabled,
         }
     }
 }
@@ -341,12 +365,81 @@ pub struct NmxtCollectorConfig {
     /// Interval between switch NMX-T metric scrapes.
     #[serde(with = "humantime_serde")]
     pub scrape_interval: Duration,
+
+    /// Timeout for individual NMX-T HTTP requests.
+    #[serde(with = "humantime_serde")]
+    pub request_timeout: Duration,
 }
 
 impl Default for NmxtCollectorConfig {
     fn default() -> Self {
         Self {
             scrape_interval: Duration::from_secs(60),
+            request_timeout: Duration::from_secs(30),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NvueCollectorConfig {
+    pub rest: Configurable<NvueRestConfig>,
+}
+
+impl Default for NvueCollectorConfig {
+    fn default() -> Self {
+        Self {
+            rest: Configurable::Enabled(NvueRestConfig::default()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NvueRestConfig {
+    /// Interval between NVUE REST poll iterations.
+    #[serde(with = "humantime_serde")]
+    pub poll_interval: Duration,
+
+    /// Timeout for individual REST requests.
+    #[serde(with = "humantime_serde")]
+    pub request_timeout: Duration,
+
+    /// NVUE REST paths to poll.
+    pub paths: NvueRestPaths,
+}
+
+impl Default for NvueRestConfig {
+    fn default() -> Self {
+        Self {
+            poll_interval: Duration::from_secs(300),
+            request_timeout: Duration::from_secs(30),
+            paths: NvueRestPaths::default(),
+        }
+    }
+}
+
+/// Supported NVUE REST API paths.
+/// - system_health_enabled: Poll `/nvue_v1/system/health`.
+/// - cluster_apps_enabled: Poll `/nvue_v1/cluster/apps`.
+/// - sdn_partitions_enabled: Poll `/nvue_v1/sdn/partition` (including per-partition details)
+/// - interfaces_enabled: Poll `/nvue_v1/interface`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NvueRestPaths {
+    pub system_health_enabled: bool,
+    pub cluster_apps_enabled: bool,
+    pub sdn_partitions_enabled: bool,
+    pub interfaces_enabled: bool,
+}
+
+impl Default for NvueRestPaths {
+    fn default() -> Self {
+        Self {
+            system_health_enabled: true,
+            cluster_apps_enabled: true,
+            sdn_partitions_enabled: true,
+            interfaces_enabled: true,
         }
     }
 }
@@ -430,6 +523,12 @@ impl Config {
                 "processors.leak_detection.minimum_alerts_per_report must be greater than 0"
                     .to_string(),
             );
+        }
+
+        if let Configurable::Enabled(health_override) = &self.sinks.health_override
+            && health_override.workers == 0
+        {
+            return Err("sinks.health_override.workers must be greater than 0".to_string());
         }
 
         self.metrics_addr()?;
@@ -524,8 +623,12 @@ mod tests {
             panic!("carbide api empty for sources")
         }
 
-        if let Configurable::Enabled(ref carbide_api) = config.sinks.health_override {
-            assert_eq!(carbide_api.root_ca, "/var/run/secrets/spiffe.io/ca.crt");
+        if let Configurable::Enabled(ref health_override) = config.sinks.health_override {
+            assert_eq!(
+                health_override.connection.root_ca,
+                "/var/run/secrets/spiffe.io/ca.crt"
+            );
+            assert_eq!(health_override.workers, 8);
         } else {
             panic!("health override sink is disabled")
         }
@@ -541,6 +644,7 @@ mod tests {
         assert!(config.collectors.sensors.is_enabled());
         assert!(config.collectors.firmware.is_enabled());
         assert!(config.collectors.logs.is_enabled());
+        assert!(config.collectors.nvue.is_enabled());
         assert!(!config.sinks.tracing.is_enabled());
         assert!(config.sinks.prometheus.is_enabled());
 
@@ -569,6 +673,17 @@ mod tests {
         assert_eq!(config.shards_count, 1);
 
         assert_eq!(config.cache_size, 100);
+
+        if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
+            if let Configurable::Enabled(ref rest) = nvue.rest {
+                assert_eq!(rest.poll_interval, Duration::from_secs(60));
+                assert_eq!(rest.request_timeout, Duration::from_secs(30));
+            } else {
+                panic!("nvue rest config should be enabled in example config");
+            }
+        } else {
+            panic!("nvue config should be enabled in example config");
+        }
     }
 
     #[test]
@@ -672,6 +787,14 @@ cache_size = 50
             minimum_alerts_per_report: 0,
         });
         assert!(config.validate().is_err());
+
+        config.processors.leak_detection =
+            Configurable::Enabled(LeakDetectionProcessorConfig::default());
+        config.sinks.health_override = Configurable::Enabled(HealthOverrideSinkConfig {
+            workers: 0,
+            ..HealthOverrideSinkConfig::default()
+        });
+        assert!(config.validate().is_err());
     }
 
     #[test]
@@ -683,5 +806,218 @@ cache_size = 50
         assert_eq!(config.metrics.endpoint, "0.0.0.0:9009");
         assert!(config.rate_limit.is_enabled());
         assert!(config.processors.leak_detection.is_enabled());
+        assert!(!config.collectors.nvue.is_enabled());
+    }
+
+    #[test]
+    fn test_nvue_config_defaults() {
+        let defaults = NvueCollectorConfig::default();
+        assert!(defaults.rest.is_enabled());
+
+        if let Configurable::Enabled(ref rest) = defaults.rest {
+            assert_eq!(rest.poll_interval, Duration::from_secs(300));
+            assert_eq!(rest.request_timeout, Duration::from_secs(30));
+            assert!(rest.paths.system_health_enabled);
+            assert!(rest.paths.cluster_apps_enabled);
+            assert!(rest.paths.sdn_partitions_enabled);
+            assert!(rest.paths.interfaces_enabled);
+        }
+    }
+
+    #[test]
+    fn test_nvue_config_parsing() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_override]
+enabled = false
+
+[collectors.nvue.rest]
+poll_interval = "2m"
+request_timeout = "45s"
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse nvue config");
+
+        assert!(config.collectors.nvue.is_enabled());
+
+        if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
+            if let Configurable::Enabled(ref rest) = nvue.rest {
+                assert_eq!(rest.poll_interval, Duration::from_secs(120));
+                assert_eq!(rest.request_timeout, Duration::from_secs(45));
+                assert!(rest.paths.system_health_enabled);
+            } else {
+                panic!("nvue rest config should be enabled");
+            }
+        } else {
+            panic!("nvue config should be enabled");
+        }
+    }
+
+    #[test]
+    fn test_nvue_config_disabled_by_default() {
+        let config = Config::default();
+        assert!(!config.collectors.nvue.is_enabled());
+    }
+
+    #[test]
+    fn test_nvue_config_explicit_disable() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_override]
+enabled = false
+
+[collectors.nvue]
+enabled = false
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse");
+
+        assert!(!config.collectors.nvue.is_enabled());
+    }
+
+    #[test]
+    fn test_nvue_config_rest_only() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_override]
+enabled = false
+
+[collectors.nvue.rest]
+poll_interval = "1m"
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse");
+
+        assert!(config.collectors.nvue.is_enabled());
+        if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
+            assert!(nvue.rest.is_enabled());
+        }
+    }
+
+    #[test]
+    fn test_nvue_config_selective_endpoints() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_override]
+enabled = false
+
+[collectors.nvue.rest]
+poll_interval = "1m"
+
+[collectors.nvue.rest.paths]
+system_health_enabled = true
+cluster_apps_enabled = false
+sdn_partitions_enabled = true
+interfaces_enabled = false
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse nvue config with selective endpoints");
+
+        if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
+            if let Configurable::Enabled(ref rest) = nvue.rest {
+                assert!(rest.paths.system_health_enabled);
+                assert!(!rest.paths.cluster_apps_enabled);
+                assert!(rest.paths.sdn_partitions_enabled);
+                assert!(!rest.paths.interfaces_enabled);
+            } else {
+                panic!("nvue rest config should be enabled");
+            }
+        } else {
+            panic!("nvue config should be enabled");
+        }
+    }
+
+    #[test]
+    fn test_static_endpoint_with_switch_serial() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_override]
+enabled = false
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.0.1"
+mac = "aa:bb:cc:dd:ee:ff"
+username = "admin"
+password = "pass"
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.1.1"
+mac = "11:22:33:44:55:66"
+username = "cumulus"
+password = "pass"
+switch_serial = "SN-SW-001"
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse static switch endpoint config");
+
+        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 2);
+        assert!(
+            config.endpoint_sources.static_bmc_endpoints[0]
+                .switch_serial
+                .is_none()
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[1]
+                .switch_serial
+                .as_deref(),
+            Some("SN-SW-001")
+        );
+    }
+
+    #[test]
+    fn test_example_config_static_endpoint_has_switch_serial() {
+        let toml_content = include_str!("../example/config.example.toml");
+        let config: Config = Figment::new()
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("could not parse config toml file");
+
+        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 2);
+        assert!(
+            config.endpoint_sources.static_bmc_endpoints[0]
+                .switch_serial
+                .is_none()
+        );
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[1]
+                .switch_serial
+                .as_deref(),
+            Some("SN-SWITCH-001")
+        );
+        if let Configurable::Enabled(ref health_override) = config.sinks.health_override {
+            assert_eq!(health_override.workers, 8);
+        } else {
+            panic!("health override sink is disabled");
+        }
     }
 }

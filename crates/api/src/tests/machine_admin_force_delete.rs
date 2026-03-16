@@ -18,6 +18,7 @@
 use std::collections::HashSet;
 use std::net::IpAddr;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use ::rpc::forge::forge_server::Forge;
 use ::rpc::forge::{
@@ -31,7 +32,8 @@ use common::api_fixtures::ib_partition::{DEFAULT_TENANT, create_ib_partition};
 use common::api_fixtures::instance::create_instance_with_ib_config;
 use common::api_fixtures::tpm_attestation::EK_CERT_SERIALIZED;
 use common::api_fixtures::{
-    TestEnv, TestEnvOverrides, create_managed_host, create_managed_host_multi_dpu, create_test_env,
+    TestEnv, TestEnvOverrides, create_managed_host, create_managed_host_multi_dpu,
+    create_managed_host_with_dpf, create_test_env, create_test_env_with_overrides, get_config,
     get_instance_type_fixture_id,
 };
 use model::hardware_info::TpmEkCertificate;
@@ -718,4 +720,93 @@ async fn test_admin_force_delete_with_instance_type(pool: sqlx::PgPool) {
 
     // Delete should succeed now.
     _ = force_delete(&env, &tmp_machine_id);
+}
+
+/// Force delete with DPF: the node_name and dpu_device_names passed to
+/// force_delete_host must use BMC MAC addresses, not 64-char MachineIds,
+/// so that the resulting K8s resource names stay within the 48-char limit.
+#[crate::sqlx_test]
+async fn test_admin_force_delete_with_dpf_uses_bmc_mac(pool: sqlx::PgPool) {
+    type DpfCallLog = Vec<(String, Vec<String>)>;
+    let captured_calls: Arc<std::sync::Mutex<DpfCallLog>> =
+        Arc::new(std::sync::Mutex::new(Vec::new()));
+
+    let mut mock = crate::dpf::MockDpfOperations::new();
+
+    mock.expect_register_dpu_device().returning(|_| Ok(()));
+    mock.expect_register_dpu_node().returning(|_| Ok(()));
+    mock.expect_release_maintenance_hold().returning(|_| Ok(()));
+    mock.expect_is_reboot_required().returning(|_| Ok(false));
+    mock.expect_get_dpu_phase()
+        .returning(|_, _| Ok(carbide_dpf::DpuPhase::Ready));
+
+    let cap = captured_calls.clone();
+    mock.expect_force_delete_host()
+        .returning(move |node_name, device_names| {
+            cap.lock()
+                .unwrap()
+                .push((node_name.to_string(), device_names.to_vec()));
+            Ok(())
+        });
+
+    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(mock);
+    let mut config = get_config();
+    config.dpf = crate::cfg::file::DpfConfig {
+        enabled: true,
+        bfb_url: "http://example.com/test.bfb".to_string(),
+        deployment_name: None,
+        services: None,
+    };
+
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config).with_dpf_sdk(dpf_sdk),
+    )
+    .await;
+
+    let mh = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        create_managed_host_with_dpf(&env),
+    )
+    .await
+    .expect("timed out during initial provisioning");
+    let host_id = mh.id;
+
+    tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        force_delete(&env, &host_id),
+    )
+    .await
+    .expect("timed out during force_delete");
+
+    let calls = captured_calls.lock().unwrap().clone();
+    assert_eq!(
+        calls.len(),
+        1,
+        "force_delete_host should have been called exactly once, got: {calls:?}"
+    );
+
+    let (node_name, device_names) = &calls[0];
+
+    assert!(
+        node_name.starts_with("node-"),
+        "node_name should start with 'node-', got: {node_name}",
+    );
+    assert!(
+        node_name.len() <= 48,
+        "node_name must be <= 48 chars for DPUNode CRD, got {} chars: {node_name}",
+        node_name.len(),
+    );
+
+    for name in device_names {
+        assert!(
+            name.len() <= 48,
+            "dpu device name must be <= 48 chars, got {} chars: {name}",
+            name.len(),
+        );
+        assert!(
+            name.contains('-'),
+            "dpu device name should be a MAC-derived id (contain hyphens), got: {name}",
+        );
+    }
 }

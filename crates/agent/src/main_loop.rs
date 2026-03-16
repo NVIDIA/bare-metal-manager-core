@@ -49,6 +49,7 @@ use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::duppet::{SummaryFormat, SyncOptions};
 use crate::ethernet_virtualization::ServiceAddresses;
 use crate::health::HealthCheckParams;
+use crate::host_machine_id::get_host_machine_id_retry;
 use crate::instance_metadata_endpoint::InstanceMetadataRouterStateImpl;
 use crate::instrumentation::{create_metrics, get_dpu_agent_meter};
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
@@ -189,6 +190,21 @@ pub async fn setup_and_run(
     )
     .await;
 
+    let host_machine_id = match get_host_machine_id_retry(
+        &agent_config,
+        &periodic_config_fetcher,
+        Arc::clone(&forge_client_config),
+        &forge_api_server,
+    )
+    .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!("get_host_machine_id_retry() failed: {:?}", e);
+            return Err(e);
+        }
+    };
+
     let duppet_options = SyncOptions {
         dry_run: false,
         quiet: false,
@@ -196,7 +212,7 @@ pub async fn setup_and_run(
         summary_format: SummaryFormat::PlainText,
     };
 
-    managed_files::main_sync(duppet_options, &machine_id, &periodic_config_fetcher);
+    managed_files::main_sync(duppet_options, &machine_id, &host_machine_id);
 
     if let Err(e) = lldp::set_lldp_system_description(&machine_id) {
         tracing::warn!("Couldn't update LLDP system description: {e}")
@@ -481,12 +497,15 @@ impl MainLoop {
             dpu_extension_services: vec![],
         };
 
-        status_out.last_dhcp_requests =
-            fetch_last_dhcp_requests(self.options.dhcp_grpc_server.as_deref()).await;
-
         // `read` does not block
         match self.periodic_config_reader.net_conf_read() {
             Some(conf) => {
+                // DHCP server only runs on the primary dpu or when using the tenant network
+                if !conf.use_admin_network || conf.is_primary_dpu {
+                    status_out.last_dhcp_requests =
+                        fetch_last_dhcp_requests(self.options.dhcp_grpc_server.as_deref()).await;
+                }
+
                 let instance_data = self.periodic_config_reader.meta_data_conf_reader();
 
                 let proposed_routes: Vec<_> = conf

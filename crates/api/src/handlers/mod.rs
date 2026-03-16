@@ -39,6 +39,7 @@ pub mod health;
 pub mod host_reprovisioning;
 pub mod ib_fabric;
 pub mod ib_partition;
+pub mod identity_config;
 pub mod instance;
 pub mod instance_type;
 pub mod logical_partition;

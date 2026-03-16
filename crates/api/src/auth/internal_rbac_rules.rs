@@ -168,7 +168,7 @@ impl InternalRBACRules {
         x.perm("CleanupMachineCompleted", vec![Machineatron, Scout]);
         x.perm("ReportForgeScoutError", vec![Scout]);
         x.perm("DiscoverDhcp", vec![Dhcp, Machineatron]);
-        x.perm("FindInterfaces", vec![ForgeAdminCLI]);
+        x.perm("FindInterfaces", vec![ForgeAdminCLI, Agent]);
         x.perm("DeleteInterface", vec![ForgeAdminCLI]);
         x.perm("FindIpAddress", vec![ForgeAdminCLI]);
         x.perm(
@@ -280,6 +280,15 @@ impl InternalRBACRules {
         );
         x.perm("AttestQuote", vec![Anonymous]);
         x.perm("SignMachineIdentity", vec![Agent]);
+        x.perm("GetIdentityConfiguration", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("SetIdentityConfiguration", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "DeleteIdentityConfiguration",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm("GetTokenDelegation", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("SetTokenDelegation", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("DeleteTokenDelegation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateMeasurementBundle", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteMeasurementBundle", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("RenameMeasurementBundle", vec![ForgeAdminCLI, SiteAgent]);

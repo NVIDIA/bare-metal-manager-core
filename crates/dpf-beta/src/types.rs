@@ -14,20 +14,46 @@
 
 use crate::crds::dpus_generated::DpuStatusPhase;
 
-/// Configuration for DPF initialization.
+/// Async provider for BMC passwords used to create and refresh the K8s BMC
+/// secret. Implement this trait to supply credentials dynamically (e.g. from
+/// a vault or credential manager).
+#[async_trait::async_trait]
+pub trait BmcPasswordProvider: Send + Sync {
+    async fn get_bmc_password(&self) -> Result<String, crate::DpfError>;
+}
+
+#[async_trait::async_trait]
+impl BmcPasswordProvider for String {
+    async fn get_bmc_password(&self) -> Result<String, crate::DpfError> {
+        Ok(self.clone())
+    }
+}
+
+/// Configuration for creating DPF operator resources (BFB, DPUFlavor,
+/// DPUDeployment, service templates, etc.) during initialization.
 #[derive(Debug, Clone)]
-pub struct DpfInitConfig {
-    /// Namespace for DPF operator resources.
-    pub namespace: String,
+pub struct InitDpfResourcesConfig {
     /// URL for the BFB (BlueField Bundle) image (use public/upstream BFB).
     pub bfb_url: String,
-    /// BMC password for DPU access.
-    pub bmc_password: String,
     /// Name of the DPUDeployment CR (e.g. "carbide-deployment").
     pub deployment_name: String,
     /// Service templates and configs for M4 DPUDeployment.
     /// When empty, `default_services()` is used automatically.
     pub services: Vec<ServiceDefinition>,
+    /// Rendered bf.cfg template content for the DPU configuration ConfigMap.
+    /// When set, a ConfigMap is created during initialization.
+    pub bfcfg_template: Option<String>,
+}
+
+impl Default for InitDpfResourcesConfig {
+    fn default() -> Self {
+        Self {
+            bfb_url: "http://carbide-pxe.forge/public/blobs/internal/aarch64/forge.bfb".to_string(),
+            deployment_name: "carbide-deployment".to_string(),
+            services: Vec::new(),
+            bfcfg_template: None,
+        }
+    }
 }
 
 /// Service type for configPorts (DPUServiceConfiguration).
@@ -119,40 +145,39 @@ impl ServiceDefinition {
     }
 }
 
-impl Default for DpfInitConfig {
-    fn default() -> Self {
-        Self {
-            namespace: crate::NAMESPACE.to_string(),
-            bfb_url: "http://carbide-pxe.forge/public/blobs/internal/aarch64/forge.bfb".to_string(),
-            bmc_password: String::new(),
-            deployment_name: "carbide-deployment".to_string(),
-            services: Vec::new(),
-        }
-    }
-}
-
 /// Information about a DPU device (DPUDevice CR).
 #[derive(Debug, Clone)]
 pub struct DpuDeviceInfo {
-    /// Name of the DPU device (DPUDevice CR name; matches operator label dpudevice-name).
-    pub device_name: String,
+    /// Identifier for this device (e.g. `01-02-03-04-05-06`).
+    /// Used as the DPUDevice CR name.
+    pub device_id: String,
     /// BMC IP address for the DPU.
     pub dpu_bmc_ip: String,
     /// BMC IP address for the host.
     pub host_bmc_ip: String,
     /// Serial number of the DPU.
     pub serial_number: String,
+    /// Caller-defined identifier for the host machine (e.g. Carbide MachineId).
+    /// Passed through to the labeler for resource labels.
+    pub host_machine_id: String,
+    /// Caller-defined identifier for the DPU machine (e.g. Carbide MachineId).
+    /// Passed through to the labeler for resource labels.
+    pub dpu_machine_id: String,
 }
 
 /// Information about a DPU node (host with DPUs).
 #[derive(Debug, Clone)]
 pub struct DpuNodeInfo {
-    /// Stable identifier for the node (e.g. host machine ID).
+    /// Identifier for this node (e.g. `01-02-03-04-05-06`).
+    /// Used to build the DPUNode CR name via `dpu_node_cr_name()`.
     pub node_id: String,
     /// BMC IP of the host.
     pub host_bmc_ip: String,
-    /// Names of the DPU devices (DPUDevice CR names) attached to this node.
-    pub dpu_device_names: Vec<String>,
+    /// Identifiers of each device attached to this node.
+    pub device_ids: Vec<String>,
+    /// Caller-defined identifier for the host machine (e.g. Carbide MachineId).
+    /// Passed through to the labeler for contextual node labels.
+    pub host_machine_id: String,
 }
 
 /// Phase of DPU lifecycle.

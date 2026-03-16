@@ -25,6 +25,7 @@ kube = { default-features = false, features = [
   "derive",
   "client",
   "rustls-tls",
+  "aws-lc-rs",
 ], workspace = true }
 rustls = { workspace = true }
 k8s-openapi = { features = ["latest", "schemars"], workspace = true }
@@ -41,12 +42,15 @@ futures = { workspace = true }
 tokio-util = { workspace = true }
 tokio-stream = { workspace = true }
 rand = { workspace = true }
+sha2 = { workspace = true }
 
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 
 # Optional dependencies for carbide-dpf-api-harness binary
 clap = { workspace = true, features = ["derive"], optional = true }
-tracing-subscriber = { workspace = true, features = ["env-filter"], optional = true }
+tracing-subscriber = { workspace = true, features = [
+  "env-filter",
+], optional = true }
 libredfish = { workspace = true, optional = true }
 
 [dev-dependencies]

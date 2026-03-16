@@ -17,16 +17,13 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 
 use nv_redfish::core::Bmc;
-use prometheus::{GaugeVec, Opts};
 
 use crate::HealthError;
 use crate::collectors::{IterationResult, PeriodicCollector};
 use crate::config::NmxtCollectorConfig as NmxtCollectorOptions;
 use crate::endpoint::{BmcEndpoint, EndpointMetadata};
-use crate::metrics::CollectorRegistry;
 use crate::sink::{CollectorEvent, DataSink, EventContext, SensorHealthData};
 
 /// default NMX-T port
@@ -113,14 +110,9 @@ async fn scrape_switch_nmxt_metrics(
 ) -> Result<Vec<NmxtMetricSample>, HealthError> {
     let url = format!("http://{}:{}{}", switch_ip, NMXT_PORT, NMXT_ENDPOINT);
 
-    let response = http_client
-        .get(&url)
-        .timeout(Duration::from_secs(30))
-        .send()
-        .await
-        .map_err(|e| {
-            HealthError::GenericError(format!("HTTP request failed for {}: {}", switch_ip, e))
-        })?;
+    let response = http_client.get(&url).send().await.map_err(|e| {
+        HealthError::GenericError(format!("HTTP request failed for {}: {}", switch_ip, e))
+    })?;
 
     if !response.status().is_success() {
         return Err(HealthError::GenericError(format!(
@@ -142,19 +134,15 @@ async fn scrape_switch_nmxt_metrics(
 
 pub struct NmxtCollectorConfig {
     pub nmxt_config: NmxtCollectorOptions,
-    pub collector_registry: Arc<CollectorRegistry>,
     pub data_sink: Option<Arc<dyn DataSink>>,
 }
 
 /// NMX-T collector for a single switch/endpoint
 pub struct NmxtCollector {
     endpoint: Arc<BmcEndpoint>,
-    http_client: reqwest::Client,
     switch_id: String,
+    http_client: reqwest::Client,
     event_context: EventContext,
-    effective_ber_gauge: GaugeVec,
-    symbol_error_gauge: GaugeVec,
-    link_down_gauge: GaugeVec,
     data_sink: Option<Arc<dyn DataSink>>,
 }
 
@@ -171,52 +159,20 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
             _ => endpoint.addr.mac.to_string(),
         };
         let event_context = EventContext::from_endpoint(endpoint.as_ref(), "nmxt");
+        let request_timeout = config.nmxt_config.request_timeout;
 
         let http_client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(60))
+            .timeout(request_timeout)
             .build()
             .map_err(|e| {
                 HealthError::GenericError(format!("Failed to create HTTP client: {}", e))
             })?;
 
-        let registry = config.collector_registry.registry();
-        let prefix = config.collector_registry.prefix();
-
-        let effective_ber_gauge = GaugeVec::new(
-            Opts::new(
-                format!("{prefix}_switch_effective_ber"),
-                "Effective BER from NMX-T telemetry",
-            ),
-            &["switch_id", "switch_ip", "node_guid", "port_num"],
-        )?;
-        registry.register(Box::new(effective_ber_gauge.clone()))?;
-
-        let symbol_error_gauge = GaugeVec::new(
-            Opts::new(
-                format!("{prefix}_switch_symbol_error_counter"),
-                "Symbol error counter from NMX-T telemetry",
-            ),
-            &["switch_id", "switch_ip", "node_guid", "port_num"],
-        )?;
-        registry.register(Box::new(symbol_error_gauge.clone()))?;
-
-        let link_down_gauge = GaugeVec::new(
-            Opts::new(
-                format!("{prefix}_switch_link_down_counter"),
-                "Link down counter from NMX-T telemetry",
-            ),
-            &["switch_id", "switch_ip", "node_guid", "port_num"],
-        )?;
-        registry.register(Box::new(link_down_gauge.clone()))?;
-
         Ok(Self {
             endpoint,
-            http_client,
             switch_id,
+            http_client,
             event_context,
-            effective_ber_gauge,
-            symbol_error_gauge,
-            link_down_gauge,
             data_sink: config.data_sink,
         })
     }
@@ -246,6 +202,8 @@ impl NmxtCollector {
 
         let metrics = scrape_switch_nmxt_metrics(&self.http_client, &switch_ip).await?;
 
+        self.emit_event(CollectorEvent::MetricCollectionStart);
+
         for sample in metrics {
             let NmxtMetricSample {
                 name,
@@ -254,25 +212,6 @@ impl NmxtCollector {
             } = sample;
             let port_num = sample_labels.remove("Port_Number").unwrap_or_default();
             let node_guid = sample_labels.remove("Node_GUID").unwrap_or_default();
-
-            let labels = [self.switch_id.as_str(), &switch_ip, &node_guid, &port_num];
-
-            match name.as_str() {
-                "Effective_BER" => {
-                    self.effective_ber_gauge
-                        .with_label_values(&labels)
-                        .set(value);
-                }
-                "Symbol_Errors" => {
-                    self.symbol_error_gauge
-                        .with_label_values(&labels)
-                        .set(value);
-                }
-                "Link_Down" => {
-                    self.link_down_gauge.with_label_values(&labels).set(value);
-                }
-                _ => {}
-            }
 
             let metric_type = match name.as_str() {
                 "Effective_BER" => "effective_ber",
@@ -306,6 +245,8 @@ impl NmxtCollector {
                 .into(),
             ));
         }
+
+        self.emit_event(CollectorEvent::MetricCollectionEnd);
 
         Ok(())
     }

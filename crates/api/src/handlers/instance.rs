@@ -948,25 +948,6 @@ pub(crate) async fn invoke_power(
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 
-    // Lenovo does not yet provide a BMC lockdown so a user could
-    // change the boot order which we set in `libredfish::machine_setup`.
-    // We also can't call `boot_first` for other vendors because lockdown
-    // prevents it.
-    // We use `boot_first` instead of `boot_once` for two reasons:
-    // 1. Reset PXE as first boot option on every Carbide-initiated reboot,
-    //    overriding any user modifications since the last reboot.
-    // 2. Avoid Lenovo's PCIe power reset issue: when `boot_once(Pxe)` is used
-    //    on Assigned/Ready machines, PXE boot will fail (Carbide iPXE returns exit),
-    //    causing Lenovo to reset PCIe power which restarts the DPU.
-    //    With `boot_first`, it falls through to installed OS after all PXE boot
-    //    options are failed.
-    // Note: since no lockdown it can still be modified later by user.
-    if snapshot.host_snapshot.bmc_vendor().is_lenovo() {
-        client
-            .boot_first(libredfish::Boot::Pxe)
-            .await
-            .map_err(CarbideError::from)?;
-    }
     client
         .power(libredfish::SystemPowerControl::ForceRestart)
         .await
