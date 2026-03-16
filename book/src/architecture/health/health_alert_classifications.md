@@ -17,6 +17,11 @@ The classification is mostly used to prevent a host from moving between states w
 Hosts with this classification will not be taken into account when calculating
 site-wide fleet-health. This is achieved by metrics/alerting queries ignoring the amount of hosts with this classification while doing the calculation of 1 - (hosts with alerts / total amount of hosts).
 
+### `ExcludeFromStateMachineSla`
+
+Hosts with this classification will not be counted towards state machine transition time SLA.
+This classification is mostly used to prevent state machine keep alerting when some manual operations are being performed on the machine.
+
 ### `StopRebootForAutomaticRecoveryFromStateMachine`
 
 For hosts with this classification, the BMM state machine will not automatically
