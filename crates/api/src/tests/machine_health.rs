@@ -637,6 +637,8 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
             hardware_health_reports: model::machine::HardwareHealthReportsConfig::Enabled,
             dpu_agent_version_staleness_threshold: chrono::Duration::days(1),
             prevent_allocations_on_stale_dpu_agent_version: false,
+            prevent_allocations_on_scout_heartbeat_timeout: false,
+            suppress_external_alerting_on_scout_heartbeat_timeout: true,
         },
     };
     let all_machines =
@@ -682,6 +684,8 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
             hardware_health_reports: model::machine::HardwareHealthReportsConfig::Enabled,
             dpu_agent_version_staleness_threshold: chrono::Duration::days(1),
             prevent_allocations_on_stale_dpu_agent_version: false,
+            prevent_allocations_on_scout_heartbeat_timeout: false,
+            suppress_external_alerting_on_scout_heartbeat_timeout: true,
         },
     };
     let all_machines =
@@ -744,6 +748,8 @@ async fn load_snapshot(
         hardware_health_reports: HardwareHealthReportsConfig::Enabled,
         dpu_agent_version_staleness_threshold: Default::default(),
         prevent_allocations_on_stale_dpu_agent_version: false,
+        prevent_allocations_on_scout_heartbeat_timeout: false,
+        suppress_external_alerting_on_scout_heartbeat_timeout: true,
     };
     let snapshot = db::managed_host::load_snapshot(
         &mut env.db_reader(),

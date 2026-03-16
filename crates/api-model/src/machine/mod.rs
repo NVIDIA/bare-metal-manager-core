@@ -327,6 +327,8 @@ impl ManagedHostStateSnapshot {
                         "".to_string(),
                         target,
                         "".to_string(),
+                        true,
+                        false,
                     ));
                 }
             };
@@ -1047,6 +1049,8 @@ impl From<Machine> for rpc::forge::Machine {
                         "forge-dpu-agent".to_string(),
                         "forge-dpu-agent".to_string(),
                         "No health data was received from DPU".to_string(),
+                        true,
+                        false,
                     )
                 });
                 if let Some(hr) = machine.site_explorer_health_report.as_ref() {
@@ -2879,6 +2883,14 @@ pub struct HostHealthConfig {
     /// Whether to fail health checks if a DPU agent version is stale
     #[serde(default)]
     pub prevent_allocations_on_stale_dpu_agent_version: bool,
+
+    /// Whether the scout heartbeat timeout alert should prevent allocations
+    #[serde(default)]
+    pub prevent_allocations_on_scout_heartbeat_timeout: bool,
+
+    /// Whether the scout heartbeat timeout alert should suppress external alerting
+    #[serde(default = "HostHealthConfig::default_suppress_ext_alert_on_scout_heartbeat")]
+    pub suppress_external_alerting_on_scout_heartbeat_timeout: bool,
 }
 
 /// As of now, chrono::Duration does not support Serialization, so we have to handle it manually.
@@ -2896,6 +2908,9 @@ impl Default for HostHealthConfig {
             dpu_agent_version_staleness_threshold:
                 Self::dpu_agent_version_staleness_threshold_default(),
             prevent_allocations_on_stale_dpu_agent_version: false,
+            prevent_allocations_on_scout_heartbeat_timeout: false,
+            suppress_external_alerting_on_scout_heartbeat_timeout:
+                Self::default_suppress_ext_alert_on_scout_heartbeat(),
         }
     }
 }
@@ -2903,6 +2918,10 @@ impl Default for HostHealthConfig {
 impl HostHealthConfig {
     pub fn dpu_agent_version_staleness_threshold_default() -> Duration {
         Duration::days(1)
+    }
+
+    fn default_suppress_ext_alert_on_scout_heartbeat() -> bool {
+        true
     }
 }
 

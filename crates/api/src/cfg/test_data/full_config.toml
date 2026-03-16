@@ -92,6 +92,11 @@ failure_retry_time = "31m"
 dpu_up_threshold = "33m"
 scout_reporting_timeout = "20m"
 
+[host_health]
+prevent_allocations_on_stale_dpu_agent_version = true
+prevent_allocations_on_scout_heartbeat_timeout = true
+suppress_external_alerting_on_scout_heartbeat_timeout = false
+
 [machine_state_controller.controller]
 iteration_time = "9m"
 max_object_handling_time = "99s"
