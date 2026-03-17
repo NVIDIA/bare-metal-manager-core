@@ -32,7 +32,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::crds::dpus_generated::*;
 use crate::error::DpfError;
-use crate::repository::DpuRepository;
+use crate::repository::{DpuRepository, K8sConfigRepository};
 
 pub(crate) struct Collector<T> {
     pub items: Mutex<Vec<T>>,
@@ -255,4 +255,42 @@ pub(crate) fn make_dpu_labeled(
         mid.into(),
     )]));
     dpu
+}
+
+/// Minimal K8sConfigRepository mock for tests that only need
+/// `build_without_resources` / `initialize` (BMC secret creation).
+pub(crate) struct ConfigMock;
+
+#[async_trait]
+impl K8sConfigRepository for ConfigMock {
+    async fn get_configmap(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> Result<Option<BTreeMap<String, String>>, DpfError> {
+        Ok(None)
+    }
+    async fn apply_configmap(
+        &self,
+        _: &str,
+        _: &str,
+        _: BTreeMap<String, String>,
+    ) -> Result<(), DpfError> {
+        Ok(())
+    }
+    async fn get_secret(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> Result<Option<BTreeMap<String, Vec<u8>>>, DpfError> {
+        Ok(None)
+    }
+    async fn create_secret(
+        &self,
+        _: &str,
+        _: &str,
+        _: BTreeMap<String, Vec<u8>>,
+    ) -> Result<(), DpfError> {
+        Ok(())
+    }
 }

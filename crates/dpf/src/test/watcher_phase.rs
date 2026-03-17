@@ -39,7 +39,8 @@ async fn test_dpu_event_ready() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu(TEST_NS, "d1", "dev", "n1", DpuStatusPhase::Ready));
     c.wait_for(1).await;
@@ -59,7 +60,8 @@ async fn test_dpu_event_error() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu(TEST_NS, "d1", "dev", "n1", DpuStatusPhase::Error));
     c.wait_for(1).await;
@@ -79,7 +81,8 @@ async fn test_dpu_event_provisioning() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu(
         TEST_NS,
@@ -122,7 +125,8 @@ async fn test_dpu_event_deleting() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu(
         TEST_NS,
@@ -148,7 +152,8 @@ async fn test_dpu_event_rebooting() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu(
         TEST_NS,
@@ -174,7 +179,8 @@ async fn test_dpu_event_node_effect() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu(
         TEST_NS,

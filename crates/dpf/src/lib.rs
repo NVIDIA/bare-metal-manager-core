@@ -48,7 +48,7 @@
 //!             println!("Reboot required for: {}", event.host_bmc_ip);
 //!             Ok(())
 //!         })
-//!         .start();
+//!         .start()?;
 //!
 //!     Ok(())
 //! }

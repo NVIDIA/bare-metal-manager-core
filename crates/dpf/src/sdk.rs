@@ -121,15 +121,7 @@ pub struct DpfSdk<R, L = NoLabels> {
     repo: Arc<R>,
     namespace: String,
     labeler: L,
-    _bmc_password_refresh_task: Option<tokio::task::JoinHandle<()>>,
-}
-
-impl<R, L> Drop for DpfSdk<R, L> {
-    fn drop(&mut self) {
-        if let Some(handle) = self._bmc_password_refresh_task.take() {
-            handle.abort();
-        }
-    }
+    _bmc_refresh_guard: Option<tokio_util::sync::DropGuard>,
 }
 
 impl<R, L> DpfSdk<R, L> {
@@ -145,15 +137,16 @@ impl<R, L> DpfSdk<R, L> {
 }
 
 /// Builder for [`DpfSdk`].
-pub struct DpfSdkBuilder<R, P, L = NoLabels> {
+pub struct DpfSdkBuilder<'a, R, P, L = NoLabels> {
     repo: R,
     namespace: String,
     labeler: L,
     bmc_password_provider: P,
     bmc_password_refresh_interval: Option<Duration>,
+    join_set: Option<&'a mut tokio::task::JoinSet<()>>,
 }
 
-impl<R, P> DpfSdkBuilder<R, P> {
+impl<R, P> DpfSdkBuilder<'_, R, P> {
     pub fn new(repo: R, namespace: impl Into<String>, bmc_password_provider: P) -> Self {
         DpfSdkBuilder {
             repo,
@@ -161,19 +154,21 @@ impl<R, P> DpfSdkBuilder<R, P> {
             labeler: NoLabels,
             bmc_password_provider,
             bmc_password_refresh_interval: None,
+            join_set: None,
         }
     }
 }
 
-impl<R, P, L> DpfSdkBuilder<R, P, L> {
+impl<'a, R, P, L> DpfSdkBuilder<'a, R, P, L> {
     // enables custom labels to be applied to the DPUDevice and DPUNode resources.
-    pub fn with_labeler<L2>(self, labeler: L2) -> DpfSdkBuilder<R, P, L2> {
+    pub fn with_labeler<L2>(self, labeler: L2) -> DpfSdkBuilder<'a, R, P, L2> {
         DpfSdkBuilder {
             repo: self.repo,
             namespace: self.namespace,
             labeler,
             bmc_password_provider: self.bmc_password_provider,
             bmc_password_refresh_interval: self.bmc_password_refresh_interval,
+            join_set: self.join_set,
         }
     }
 
@@ -182,9 +177,17 @@ impl<R, P, L> DpfSdkBuilder<R, P, L> {
         self.bmc_password_refresh_interval = Some(interval);
         self
     }
+
+    /// Spawn background tasks into the provided `JoinSet` instead of
+    /// via `tokio::spawn`. Use this in production to join all background
+    /// tasks via a single `JoinSet` to catch panics.
+    pub fn with_join_set(mut self, join_set: &'a mut tokio::task::JoinSet<()>) -> Self {
+        self.join_set = Some(join_set);
+        self
+    }
 }
 
-impl<R, P, L> DpfSdkBuilder<R, P, L>
+impl<R, P, L> DpfSdkBuilder<'_, R, P, L>
 where
     R: K8sConfigRepository + 'static,
     P: BmcPasswordProvider + 'static,
@@ -199,27 +202,24 @@ where
         let password = provider.get_bmc_password().await?;
         write_bmc_secret::<R>(&repo, &namespace, &password).await?;
 
-        let refresh_task = self.bmc_password_refresh_interval.map(|interval| {
-            let r = repo.clone();
-            let ns = namespace.clone();
-            tokio::spawn(async move {
-                let mut last_password = password;
-                let mut ticker = tokio::time::interval(interval);
-                ticker.tick().await; // skip the first (immediate) tick since we just wrote the secret
-                loop {
-                    ticker.tick().await;
-                    last_password =
-                        refresh_bmc_secret_if_changed(r.as_ref(), &ns, &provider, last_password)
-                            .await;
-                }
-            })
-        });
+        let guard = if let Some(interval) = self.bmc_password_refresh_interval {
+            Some(spawn_bmc_refresh(
+                repo.clone(),
+                namespace.clone(),
+                provider,
+                password,
+                interval,
+                self.join_set,
+            )?)
+        } else {
+            None
+        };
 
         Ok(DpfSdk {
             repo,
             namespace,
             labeler: self.labeler,
-            _bmc_password_refresh_task: refresh_task,
+            _bmc_refresh_guard: guard,
         })
     }
 
@@ -230,7 +230,7 @@ where
     }
 }
 
-impl<R, P, L> DpfSdkBuilder<R, P, L>
+impl<R, P, L> DpfSdkBuilder<'_, R, P, L>
 where
     R: BfbRepository
         + DpuFlavorRepository
@@ -288,6 +288,55 @@ async fn refresh_bmc_secret_if_changed<R: K8sConfigRepository>(
         }
         _ => last_password,
     }
+}
+
+// separate function to drop the 'a lifetime from the builder
+fn spawn_bmc_refresh<R, P>(
+    repo: Arc<R>,
+    namespace: String,
+    provider: P,
+    password: String,
+    interval: Duration,
+    join_set: Option<&mut tokio::task::JoinSet<()>>,
+) -> Result<tokio_util::sync::DropGuard, DpfError>
+where
+    R: K8sConfigRepository + 'static,
+    P: BmcPasswordProvider + 'static,
+{
+    let cancel_token = tokio_util::sync::CancellationToken::new();
+    let guard = cancel_token.clone().drop_guard();
+    let task = async move {
+        let mut last_password = password;
+        let mut ticker = tokio::time::interval(interval);
+        ticker.tick().await;
+        while cancel_token
+            .run_until_cancelled(ticker.tick())
+            .await
+            .is_some()
+        {
+            last_password =
+                refresh_bmc_secret_if_changed(repo.as_ref(), &namespace, &provider, last_password)
+                    .await;
+        }
+    };
+
+    if let Some(js) = join_set {
+        js.build_task()
+            .name("dpf_bmc_password_refresh")
+            .spawn(task)
+            .map_err(|e| {
+                DpfError::InvalidState(format!("Failed to spawn BMC refresh task: {e}"))
+            })?;
+    } else {
+        tokio::task::Builder::new()
+            .name("dpf_bmc_password_refresh")
+            .spawn(task)
+            .map_err(|e| {
+                DpfError::InvalidState(format!("Failed to spawn BMC refresh task: {e}"))
+            })?;
+    }
+
+    Ok(guard)
 }
 
 /// DPUNode CR name: `node-{node_id}`.
@@ -1090,7 +1139,7 @@ impl<R: DpuRepository, L: ResourceLabeler> DpfSdk<R, L> {
     /// with mock repositories.
     ///
     /// Call `.start()` on the returned builder to begin watching.
-    pub fn watcher(&self) -> DpuWatcherBuilder<R> {
+    pub fn watcher(&self) -> DpuWatcherBuilder<'_, R> {
         let mut builder = DpuWatcherBuilder::new(self.repo.clone(), self.namespace.clone());
         if let Some(selector) = self.labeler.dpu_label_selector() {
             builder = builder.with_label_selector(selector);

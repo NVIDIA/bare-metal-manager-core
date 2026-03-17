@@ -255,7 +255,8 @@ async fn test_provisioning_flow_reboot_then_ready() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
 
     mock.wait_for_watchers(1).await;
 
@@ -339,7 +340,8 @@ async fn test_pending_does_not_clear_annotation_external_clear_does() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
 
     mock.wait_for_watchers(1).await;
 

@@ -39,7 +39,8 @@ async fn test_maint_invoked_on_node_effect() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu(
         TEST_NS,
@@ -76,7 +77,8 @@ async fn test_maint_not_invoked_for_other_phases() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu(TEST_NS, "d1", "dev", "n1", DpuStatusPhase::Ready));
     m.emit_dpu(make_dpu(

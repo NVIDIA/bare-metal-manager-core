@@ -139,7 +139,8 @@ async fn test_callback_error_propagated() {
         .on_dpu_event(|_event| async move {
             Err(DpfError::InvalidState("dpu event handler failed".into()))
         })
-        .start();
+        .start()
+        .unwrap();
 
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu(TEST_NS, "d1", "dev", "n1", DpuStatusPhase::Ready));
@@ -180,7 +181,8 @@ async fn test_callback_error_short_circuits() {
                 }
             }
         })
-        .start();
+        .start()
+        .unwrap();
 
     m.wait_for_watchers(1).await;
 
