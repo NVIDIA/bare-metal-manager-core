@@ -51,6 +51,7 @@ use crate::api::Api;
 use crate::auth::{AuthContext, Principal};
 use crate::cfg::file::CarbideConfig;
 
+mod action_status;
 mod attestation;
 mod auth;
 mod compute_allocation;

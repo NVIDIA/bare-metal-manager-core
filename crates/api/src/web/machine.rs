@@ -34,7 +34,7 @@ use utils::managed_host_display::to_time;
 use super::filters;
 use super::machine_state_history::{MachineStateHistoryRecord, MachineStateHistoryTable};
 use crate::api::Api;
-use crate::web::explored_endpoint::ActionStatus;
+use crate::web::action_status::{self, ActionStatus};
 
 #[derive(Template)]
 #[template(path = "machine_show.html")]
@@ -1013,9 +1013,9 @@ pub async fn set_dpu_first_boot_order(
     AxumPath(machine_id): AxumPath<String>,
     Form(form): Form<SetDpuFirstBootOrderAction>,
 ) -> Response {
-    let view_url = format!("/admin/machine/{machine_id}");
+    let view_url = format!("/admin/machine/{machine_id}#bmc_info_view");
 
-    if let Err(err) = state
+    let redirect_url = match state
         .set_dpu_first_boot_order(tonic::Request::new(
             rpc::forge::SetDpuFirstBootOrderRequest {
                 machine_id: None,
@@ -1028,9 +1028,22 @@ pub async fn set_dpu_first_boot_order(
         ))
         .await
     {
-        tracing::error!(%err, "set_dpu_first_boot_order failed");
-        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
-    }
+        Ok(_) => ActionStatus {
+            action: action_status::Type::SetDpuFirstBootOrder,
+            class: action_status::Class::Success,
+            message: "Boot order set successfully".into(),
+        }
+        .update_redirect_url(&view_url),
+        Err(err) => {
+            tracing::error!(%err, "set_dpu_first_boot_order failed");
+            ActionStatus {
+                action: action_status::Type::SetDpuFirstBootOrder,
+                class: action_status::Class::Error,
+                message: err.message().into(),
+            }
+            .update_redirect_url(&view_url)
+        }
+    };
 
-    Redirect::to(&view_url).into_response()
+    Redirect::to(&redirect_url).into_response()
 }
