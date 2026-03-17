@@ -9122,7 +9122,7 @@ async fn handle_instance_host_platform_config(
                             instance_state: InstanceState::HostPlatformConfiguration {
                                 platform_config_state: HostPlatformConfigurationState::PowerCycle {
                                     power_on: true,
-                                    power_on_retry_count: 4,
+                                    power_on_retry_count: 0,
                                 },
                             },
                         },
