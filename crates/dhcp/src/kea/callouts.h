@@ -18,6 +18,7 @@
 #include <dhcp/option_custom.h>
 #pragma GCC diagnostic ignored "-Wsign-compare"
 #include <dhcp/option_int.h>
+#include <dhcp/option_int_array.h>
 #pragma GCC diagnostic pop
 
 using namespace isc::hooks;

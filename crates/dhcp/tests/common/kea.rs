@@ -142,20 +142,20 @@ impl Kea {
             "valid-lifetime": 3600,
             "hooks-libraries": [
                 {
-                    "library": hook_lib,
-                    "parameters": {
-                        "carbide-api-url": api_server_url,
+                        "library": hook_lib,
+                        "parameters": {
+                            "carbide-api-url": api_server_url,
                         "carbide-metrics-endpoint": "[::]:1089",
-                        "carbide-nameservers": "1.1.1.1,8.8.8.8",
-                        "carbide-provisioning-server-ipv4": "127.0.0.1"
-                    }
+                            "carbide-nameservers": "1.1.1.1,8.8.8.8",
+                            "carbide-provisioning-server-ipv4": "127.0.0.1"
+                        }
                 }
             ],
             "subnet4": [
                 {
                     "subnet": "0.0.0.0/0",
                     "pools": [{
-                        "pool": "0.0.0.0-255.255.255.255"
+                        "pool": "0.0.0.1-255.255.255.254"
                     }]
                 }
             ],

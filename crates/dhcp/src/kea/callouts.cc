@@ -217,10 +217,15 @@ update_discovery_parameters(DiscoveryBuilderFFI *discovery, int option,
 
 DiscoveryBuilderResult
 update_discovery_parameters(DiscoveryBuilderFFI *discovery, int option,
-                            boost::shared_ptr<OptionUint16> option_val) {
+                            boost::shared_ptr<OptionUint16Array> option_val) {
   switch (option) {
-  case DHO_SYSTEM:
-    return discovery_set_client_system(discovery, option_val->getValue());
+  case DHO_SYSTEM: {
+    const auto &architectures = option_val->getValues();
+    if (!architectures.empty()) {
+      return discovery_set_client_system(discovery, architectures.front());
+    }
+    break;
+  }
   }
 
   return DiscoveryBuilderResult::Success;
@@ -418,7 +423,7 @@ int pkt4_receive(CalloutHandle &handle) {
    * in order to figure out which filname to give back
    */
   if (builder_result == DiscoveryBuilderResult::Success) {
-    builder_result = update_discovery_parameters<OptionUint16>(
+    builder_result = update_discovery_parameters<OptionUint16Array>(
         query4_ptr, discovery.get(), DHO_SYSTEM);
   }
 

@@ -212,6 +212,9 @@ impl MockAPIServer {
                     ))
                 }
             }
+            "/forge.Forge/Echo" => respond(rpc::EchoResponse {
+                message: "dhcp_echo".into(),
+            }),
             "/forge.Forge/Version" => respond(rpc::BuildInfo::default()),
             _ => panic!("DHCP -> API wrong uri: {}", req.uri().path()),
         }
