@@ -625,7 +625,7 @@ pub fn truncate_hash_for_display(full_hash: &str) -> String {
 /// Only used when auth_method is ClientSecretBasic; for None the oneof is omitted.
 pub fn stored_to_response_auth_config(
     auth_method: TokenDelegationAuthMethod,
-    stored: Option<&rpc_forge::ClientSecretBasic>,
+    stored: Option<rpc_forge::ClientSecretBasic>,
 ) -> Option<rpc_forge::token_delegation_response::AuthMethodConfig> {
     match auth_method {
         TokenDelegationAuthMethod::ClientSecretBasic => {
@@ -633,7 +633,7 @@ pub fn stored_to_response_auth_config(
                 let hash = compute_client_secret_hash(&s.client_secret);
                 rpc_forge::token_delegation_response::AuthMethodConfig::ClientSecretBasic(
                     rpc_forge::ClientSecretBasicResponse {
-                        client_id: s.client_id.clone(),
+                        client_id: s.client_id,
                         client_secret_hash: truncate_hash_for_display(&hash),
                     },
                 )
@@ -730,7 +730,7 @@ impl TryFrom<TenantIdentityConfig> for rpc_forge::TokenDelegationResponse {
         let auth_method_config = match auth_method {
             TokenDelegationAuthMethod::None => None,
             TokenDelegationAuthMethod::ClientSecretBasic => Some(
-                stored_to_response_auth_config(auth_method, stored.as_ref()).ok_or_else(|| {
+                stored_to_response_auth_config(auth_method, stored).ok_or_else(|| {
                     RpcDataConversionError::InvalidArgument(
                         "Stored auth_method_config does not match auth_method".to_string(),
                     )
@@ -815,7 +815,7 @@ mod tests {
         };
         let out = stored_to_response_auth_config(
             TokenDelegationAuthMethod::ClientSecretBasic,
-            Some(&stored),
+            Some(stored),
         )
         .unwrap();
         let AuthMethodConfig::ClientSecretBasic(c) = &out;
@@ -832,7 +832,7 @@ mod tests {
         };
         let out = stored_to_response_auth_config(
             TokenDelegationAuthMethod::ClientSecretBasic,
-            Some(&stored),
+            Some(stored),
         )
         .unwrap();
         let AuthMethodConfig::ClientSecretBasic(c) = &out;
@@ -849,7 +849,7 @@ mod tests {
         assert!(
             stored_to_response_auth_config(
                 TokenDelegationAuthMethod::ClientSecretBasic,
-                Some(&stored),
+                Some(stored),
             )
             .is_none()
         );
