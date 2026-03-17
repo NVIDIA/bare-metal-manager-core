@@ -118,7 +118,7 @@ impl MachineValidationManager {
 
         metrics.tests = db::machine_validation_suites::find(
             &mut txn,
-            rpc::forge::MachineValidationTestsGetRequest::default(),
+            model::machine_validation::MachineValidationTestsGetRequest::default(),
         )
         .await?;
         tracing::debug!(

@@ -16,7 +16,10 @@
  */
 
 use config_version::ConfigVersion;
-use model::machine_validation::MachineValidationTest;
+use model::machine_validation::{
+    MachineValidationTest, MachineValidationTestAddRequest, MachineValidationTestUpdatePayload,
+    MachineValidationTestUpdateRequest, MachineValidationTestsGetRequest,
+};
 use regex::Regex;
 use sqlx::PgConnection;
 
@@ -25,7 +28,7 @@ use crate::{DatabaseError, DatabaseResult};
 
 /// Method to generate an SQL update query based on the fields that are `Some`
 fn build_update_query(
-    req: rpc::forge::machine_validation_test_update_request::Payload,
+    req: MachineValidationTestUpdatePayload,
     table: &str,
     version: String,
     test_id: &str,
@@ -87,7 +90,7 @@ fn build_update_query(
 }
 
 fn build_insert_query(
-    req: rpc::forge::MachineValidationTestAddRequest,
+    req: MachineValidationTestAddRequest,
     table: &str,
     version: String,
     test_id: &str,
@@ -158,7 +161,7 @@ fn build_insert_query(
     Ok(query)
 }
 fn build_select_query(
-    req: rpc::forge::MachineValidationTestsGetRequest,
+    req: MachineValidationTestsGetRequest,
     table: &str,
     // version: ConfigVersion,
 ) -> DatabaseResult<String> {
@@ -210,7 +213,7 @@ fn build_select_query(
 
 pub async fn find(
     txn: impl DbReader<'_>,
-    req: rpc::forge::MachineValidationTestsGetRequest,
+    req: MachineValidationTestsGetRequest,
 ) -> DatabaseResult<Vec<MachineValidationTest>> {
     let query = build_select_query(req, "machine_validation_tests")?;
     let ret = sqlx::query_as(&query)
@@ -226,7 +229,7 @@ pub fn generate_test_id(name: &str) -> String {
 
 pub async fn save(
     txn: &mut PgConnection,
-    mut req: rpc::forge::MachineValidationTestAddRequest,
+    mut req: MachineValidationTestAddRequest,
     version: ConfigVersion,
 ) -> DatabaseResult<String> {
     let test_id = generate_test_id(&req.name);
@@ -254,7 +257,7 @@ pub async fn save(
 
 pub async fn update(
     txn: &mut PgConnection,
-    req: rpc::forge::MachineValidationTestUpdateRequest,
+    req: MachineValidationTestUpdateRequest,
 ) -> DatabaseResult<String> {
     let Some(mut payload) = req.payload else {
         return Err(DatabaseError::InvalidArgument(
@@ -286,7 +289,7 @@ pub async fn clone(
     txn: &mut PgConnection,
     test: &MachineValidationTest,
 ) -> DatabaseResult<(String, ConfigVersion)> {
-    let add_req = rpc::forge::MachineValidationTestAddRequest {
+    let add_req = MachineValidationTestAddRequest {
         name: test.name.clone(),
         description: test.description.clone(),
         contexts: test.contexts.clone(),
@@ -316,15 +319,13 @@ pub async fn mark_verified(
     test_id: String,
     version: ConfigVersion,
 ) -> DatabaseResult<String> {
-    let req = rpc::forge::MachineValidationTestUpdateRequest {
+    let req = MachineValidationTestUpdateRequest {
         test_id,
         version: version.version_string(),
-        payload: Some(
-            rpc::forge::machine_validation_test_update_request::Payload {
-                verified: Some(true),
-                ..Default::default()
-            },
-        ),
+        payload: Some(MachineValidationTestUpdatePayload {
+            verified: Some(true),
+            ..Default::default()
+        }),
     };
     update(txn, req).await
 }
@@ -336,16 +337,14 @@ pub async fn enable_disable(
     is_enabled: bool,
     is_verified: bool,
 ) -> DatabaseResult<String> {
-    let req = rpc::forge::MachineValidationTestUpdateRequest {
+    let req = MachineValidationTestUpdateRequest {
         test_id,
         version: version.version_string(),
-        payload: Some(
-            rpc::forge::machine_validation_test_update_request::Payload {
-                is_enabled: Some(is_enabled),
-                verified: Some(is_verified),
-                ..Default::default()
-            },
-        ),
+        payload: Some(MachineValidationTestUpdatePayload {
+            is_enabled: Some(is_enabled),
+            verified: Some(is_verified),
+            ..Default::default()
+        }),
     };
     update(txn, req).await
 }
@@ -364,7 +363,7 @@ mod tests {
 
     #[test]
     fn test_build_select_query_uses_lower_for_strings() {
-        let req = rpc::forge::MachineValidationTestsGetRequest {
+        let req = MachineValidationTestsGetRequest {
             test_id: Some("Forge_MyTest".to_string()),
             ..Default::default()
         };
@@ -381,7 +380,7 @@ mod tests {
 
     #[test]
     fn test_build_select_query_no_lower_for_non_strings() {
-        let req = rpc::forge::MachineValidationTestsGetRequest {
+        let req = MachineValidationTestsGetRequest {
             is_enabled: Some(true),
             ..Default::default()
         };
@@ -394,7 +393,7 @@ mod tests {
 
     #[test]
     fn test_build_select_query_empty_request_returns_all() {
-        let req = rpc::forge::MachineValidationTestsGetRequest::default();
+        let req = MachineValidationTestsGetRequest::default();
         let query = build_select_query(req, "machine_validation_tests").unwrap();
         assert!(
             query.contains("WHERE 1=1"),

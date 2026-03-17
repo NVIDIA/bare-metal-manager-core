@@ -28,6 +28,146 @@ use uuid::Uuid;
 
 use crate::machine::MachineValidationFilter;
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct MachineValidationTestAddRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub contexts: Vec<String>,
+    pub img_name: Option<String>,
+    pub execute_in_host: Option<bool>,
+    pub container_arg: Option<String>,
+    pub command: String,
+    pub args: String,
+    pub extra_err_file: Option<String>,
+    pub external_config_file: Option<String>,
+    pub pre_condition: Option<String>,
+    pub timeout: Option<i64>,
+    pub extra_output_file: Option<String>,
+    pub supported_platforms: Vec<String>,
+    pub read_only: Option<bool>,
+    pub custom_tags: Vec<String>,
+    pub components: Vec<String>,
+    pub is_enabled: Option<bool>,
+}
+
+impl From<rpc::forge::MachineValidationTestAddRequest> for MachineValidationTestAddRequest {
+    fn from(req: rpc::forge::MachineValidationTestAddRequest) -> Self {
+        MachineValidationTestAddRequest {
+            name: req.name,
+            description: req.description,
+            contexts: req.contexts,
+            img_name: req.img_name,
+            execute_in_host: req.execute_in_host,
+            container_arg: req.container_arg,
+            command: req.command,
+            args: req.args,
+            extra_err_file: req.extra_err_file,
+            external_config_file: req.external_config_file,
+            pre_condition: req.pre_condition,
+            timeout: req.timeout,
+            extra_output_file: req.extra_output_file,
+            supported_platforms: req.supported_platforms,
+            read_only: req.read_only,
+            custom_tags: req.custom_tags,
+            components: req.components,
+            is_enabled: req.is_enabled,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct MachineValidationTestUpdatePayload {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub contexts: Vec<String>,
+    pub img_name: Option<String>,
+    pub execute_in_host: Option<bool>,
+    pub container_arg: Option<String>,
+    pub command: Option<String>,
+    pub args: Option<String>,
+    pub extra_err_file: Option<String>,
+    pub external_config_file: Option<String>,
+    pub pre_condition: Option<String>,
+    pub timeout: Option<i64>,
+    pub extra_output_file: Option<String>,
+    pub supported_platforms: Vec<String>,
+    pub verified: Option<bool>,
+    pub custom_tags: Vec<String>,
+    pub components: Vec<String>,
+    pub is_enabled: Option<bool>,
+}
+
+impl From<rpc::forge::machine_validation_test_update_request::Payload>
+    for MachineValidationTestUpdatePayload
+{
+    fn from(p: rpc::forge::machine_validation_test_update_request::Payload) -> Self {
+        MachineValidationTestUpdatePayload {
+            name: p.name,
+            description: p.description,
+            contexts: p.contexts,
+            img_name: p.img_name,
+            execute_in_host: p.execute_in_host,
+            container_arg: p.container_arg,
+            command: p.command,
+            args: p.args,
+            extra_err_file: p.extra_err_file,
+            external_config_file: p.external_config_file,
+            pre_condition: p.pre_condition,
+            timeout: p.timeout,
+            extra_output_file: p.extra_output_file,
+            supported_platforms: p.supported_platforms,
+            verified: p.verified,
+            custom_tags: p.custom_tags,
+            components: p.components,
+            is_enabled: p.is_enabled,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct MachineValidationTestUpdateRequest {
+    pub test_id: String,
+    pub version: String,
+    pub payload: Option<MachineValidationTestUpdatePayload>,
+}
+
+impl From<rpc::forge::MachineValidationTestUpdateRequest> for MachineValidationTestUpdateRequest {
+    fn from(req: rpc::forge::MachineValidationTestUpdateRequest) -> Self {
+        MachineValidationTestUpdateRequest {
+            test_id: req.test_id,
+            version: req.version,
+            payload: req.payload.map(MachineValidationTestUpdatePayload::from),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct MachineValidationTestsGetRequest {
+    pub supported_platforms: Vec<String>,
+    pub contexts: Vec<String>,
+    pub test_id: Option<String>,
+    pub read_only: Option<bool>,
+    pub custom_tags: Vec<String>,
+    pub version: Option<String>,
+    pub is_enabled: Option<bool>,
+    pub verified: Option<bool>,
+}
+
+impl From<rpc::forge::MachineValidationTestsGetRequest> for MachineValidationTestsGetRequest {
+    fn from(req: rpc::forge::MachineValidationTestsGetRequest) -> Self {
+        MachineValidationTestsGetRequest {
+            supported_platforms: req.supported_platforms,
+            contexts: req.contexts,
+            test_id: req.test_id,
+            read_only: req.read_only,
+            custom_tags: req.custom_tags,
+            version: req.version,
+            is_enabled: req.is_enabled,
+            verified: req.verified,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default, strum_macros::EnumString)]
 pub enum MachineValidationState {
     #[default]
@@ -411,5 +551,73 @@ impl TryFrom<rpc::forge::MachineValidationResult> for MachineValidationResult {
             end_time,
             test_id: value.test_id,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tests_get_request_from_rpc() {
+        let rpc_req = rpc::forge::MachineValidationTestsGetRequest {
+            test_id: Some("forge_mytest".to_string()),
+            is_enabled: Some(true),
+            verified: Some(false),
+            ..Default::default()
+        };
+        let req = MachineValidationTestsGetRequest::from(rpc_req);
+        assert_eq!(req.test_id, Some("forge_mytest".to_string()));
+        assert_eq!(req.is_enabled, Some(true));
+        assert_eq!(req.verified, Some(false));
+        assert!(req.version.is_none());
+    }
+
+    #[test]
+    fn tests_get_request_default_serializes_to_all_null_optionals() {
+        let req = MachineValidationTestsGetRequest::default();
+        let json = serde_json::to_value(&req).unwrap();
+        let obj = json.as_object().unwrap();
+        // Optional fields should be null, vec fields should be empty arrays
+        assert!(obj["test_id"].is_null());
+        assert!(obj["is_enabled"].is_null());
+        assert_eq!(obj["supported_platforms"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn test_add_request_from_rpc() {
+        let rpc_req = rpc::forge::MachineValidationTestAddRequest {
+            name: "my_test".to_string(),
+            command: "/bin/test".to_string(),
+            args: "--verbose".to_string(),
+            supported_platforms: vec!["x86_64".to_string()],
+            ..Default::default()
+        };
+        let req = MachineValidationTestAddRequest::from(rpc_req);
+        assert_eq!(req.name, "my_test");
+        assert_eq!(req.command, "/bin/test");
+        assert_eq!(req.supported_platforms, vec!["x86_64"]);
+    }
+
+    #[test]
+    fn test_update_request_from_rpc_with_payload() {
+        let rpc_req = rpc::forge::MachineValidationTestUpdateRequest {
+            test_id: "forge_mytest".to_string(),
+            version: "1".to_string(),
+            payload: Some(
+                rpc::forge::machine_validation_test_update_request::Payload {
+                    verified: Some(true),
+                    is_enabled: Some(false),
+                    ..Default::default()
+                },
+            ),
+        };
+        let req = MachineValidationTestUpdateRequest::from(rpc_req);
+        assert_eq!(req.test_id, "forge_mytest");
+        assert_eq!(req.version, "1");
+        let payload = req.payload.unwrap();
+        assert_eq!(payload.verified, Some(true));
+        assert_eq!(payload.is_enabled, Some(false));
+        assert!(payload.name.is_none());
     }
 }

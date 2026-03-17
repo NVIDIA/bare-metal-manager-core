@@ -24,6 +24,9 @@ use model::machine::{
 };
 use model::machine_validation::{
     MachineValidation, MachineValidationResult, MachineValidationState, MachineValidationStatus,
+    MachineValidationTestAddRequest as ModelTestAddRequest,
+    MachineValidationTestUpdateRequest as ModelTestUpdateRequest,
+    MachineValidationTestsGetRequest as ModelTestsGetRequest,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -516,7 +519,8 @@ pub(crate) async fn update_machine_validation_test(
     //         "Cannot modify read-only test cases",
     //     ));
     // }
-    let test_id = machine_validation_suites::update(&mut txn, req.clone()).await?;
+    let model_req: ModelTestUpdateRequest = req.clone().into();
+    let test_id = machine_validation_suites::update(&mut txn, model_req).await?;
 
     txn.commit().await?;
 
@@ -535,11 +539,12 @@ pub(crate) async fn add_machine_validation_test(
     let req = request.into_inner();
     let mut txn = api.txn_begin().await?;
 
+    let model_req: ModelTestAddRequest = req.into();
     let tests = machine_validation_suites::find(
         &mut txn,
-        rpc::MachineValidationTestsGetRequest {
-            test_id: Some(machine_validation_suites::generate_test_id(&req.name)),
-            ..rpc::MachineValidationTestsGetRequest::default()
+        ModelTestsGetRequest {
+            test_id: Some(machine_validation_suites::generate_test_id(&model_req.name)),
+            ..ModelTestsGetRequest::default()
         },
     )
     .await?;
@@ -547,7 +552,7 @@ pub(crate) async fn add_machine_validation_test(
         return Err(Status::invalid_argument("Name already exists"));
     }
     let version = ConfigVersion::initial();
-    let test_id = machine_validation_suites::save(&mut txn, req, version).await?;
+    let test_id = machine_validation_suites::save(&mut txn, model_req, version).await?;
 
     txn.commit().await?;
 
@@ -564,7 +569,7 @@ pub(crate) async fn get_machine_validation_tests(
     request: tonic::Request<rpc::MachineValidationTestsGetRequest>,
 ) -> Result<tonic::Response<rpc::MachineValidationTestsGetResponse>, Status> {
     log_request_data(&request);
-    let req = request.into_inner();
+    let req: ModelTestsGetRequest = request.into_inner().into();
 
     let tests = machine_validation_suites::find(&api.database_connection, req).await?;
 
@@ -587,10 +592,10 @@ pub(crate) async fn machine_validation_test_verfied(
 
     let existing = machine_validation_suites::find(
         &mut txn,
-        rpc::MachineValidationTestsGetRequest {
+        ModelTestsGetRequest {
             test_id: Some(req.test_id.clone()),
             version: Some(req.version.clone()),
-            ..rpc::MachineValidationTestsGetRequest::default()
+            ..ModelTestsGetRequest::default()
         },
     )
     .await?;
@@ -614,9 +619,9 @@ pub(crate) async fn machine_validation_test_next_version(
 
     let existing = machine_validation_suites::find(
         &mut txn,
-        rpc::MachineValidationTestsGetRequest {
+        ModelTestsGetRequest {
             test_id: Some(req.test_id.clone()),
-            ..rpc::MachineValidationTestsGetRequest::default()
+            ..ModelTestsGetRequest::default()
         },
     )
     .await?;
@@ -641,10 +646,10 @@ pub(crate) async fn machine_validation_test_enable_disable_test(
 
     let existing = machine_validation_suites::find(
         &mut txn,
-        rpc::MachineValidationTestsGetRequest {
+        ModelTestsGetRequest {
             test_id: Some(req.test_id.clone()),
             version: Some(req.version.clone()),
-            ..rpc::MachineValidationTestsGetRequest::default()
+            ..ModelTestsGetRequest::default()
         },
     )
     .await?;
@@ -704,9 +709,7 @@ pub async fn apply_config_on_startup(
     let mut txn = api.txn_begin().await?;
 
     // Get all tests from DB
-    let tests =
-        machine_validation_suites::find(&mut txn, rpc::MachineValidationTestsGetRequest::default())
-            .await?;
+    let tests = machine_validation_suites::find(&mut txn, ModelTestsGetRequest::default()).await?;
 
     // Create a set of test IDs from config for efficient lookup
     let config_test_ids: std::collections::HashSet<_> =
