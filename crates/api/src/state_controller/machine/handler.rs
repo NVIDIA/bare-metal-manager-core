@@ -83,6 +83,7 @@ use tokio::sync::Semaphore;
 use tracing::instrument;
 use version_compare::Cmp;
 
+use crate::CarbideError;
 use crate::cfg::file::{
     BomValidationConfig, CarbideConfig, FirmwareConfig, MachineValidationConfig,
     PowerManagerOptions, TimePeriod,
@@ -5590,6 +5591,7 @@ impl StateHandler for InstanceStateHandler {
                                     platform_config_state:
                                         HostPlatformConfigurationState::PowerCycle {
                                             power_on: power_state == libredfish::PowerState::Off,
+                                            power_on_retry_count: 0,
                                         },
                                 },
                             }
@@ -9100,7 +9102,10 @@ async fn handle_instance_host_platform_config(
         .await?;
 
     let instance_state = match platform_config_state {
-        HostPlatformConfigurationState::PowerCycle { power_on } => {
+        HostPlatformConfigurationState::PowerCycle {
+            power_on,
+            power_on_retry_count,
+        } => {
             let power_state = redfish_client.get_power_state().await.map_err(|e| {
                 StateHandlerError::RedfishError {
                     operation: "get_power_state",
@@ -9117,6 +9122,7 @@ async fn handle_instance_host_platform_config(
                             instance_state: InstanceState::HostPlatformConfiguration {
                                 platform_config_state: HostPlatformConfigurationState::PowerCycle {
                                     power_on: true,
+                                    power_on_retry_count: 0,
                                 },
                             },
                         },
@@ -9171,7 +9177,41 @@ async fn handle_instance_host_platform_config(
                 ));
             }
 
-            // Host is still off, issue power on command
+            // Host is still off. Every 5th retry use AC power cycle instead of On.
+            let next_retry = power_on_retry_count + 1;
+            if next_retry % 5 == 0 {
+                match host_power_control(
+                    redfish_client.as_ref(),
+                    &mh_snapshot.host_snapshot,
+                    SystemPowerControl::ACPowercycle,
+                    ctx,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        return Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::Assigned {
+                                instance_state: InstanceState::HostPlatformConfiguration {
+                                    platform_config_state:
+                                        HostPlatformConfigurationState::PowerCycle {
+                                            power_on: true,
+                                            power_on_retry_count: next_retry,
+                                        },
+                                },
+                            },
+                        ));
+                    }
+                    Err(CarbideError::RedfishError(RedfishError::NotSupported(_))) => {
+                        // if not supported, just power on
+                        tracing::info!("AC Powercycle not supported, skipping to power on");
+                    }
+                    Err(e) => {
+                        // TODO: Dell's return a generic error if in lockdown which needs to be changed in Redfish SDK
+                        tracing::warn!("Failed to AC Powercycle host, skipping to power on: {e}");
+                    }
+                };
+            }
+
             host_power_control(
                 redfish_client.as_ref(),
                 &mh_snapshot.host_snapshot,
@@ -9179,14 +9219,24 @@ async fn handle_instance_host_platform_config(
                 ctx,
             )
             .await
-            .map_err(|e| {
-                StateHandlerError::GenericError(eyre!("failed to power on host: {}", e))
-            })?;
+            .map_err(|e| StateHandlerError::GenericError(eyre!("failed to power on host: {e}")))?;
 
-            return Ok(StateHandlerOutcome::wait(format!(
-                "waiting for {} to power ON; current power state: {}",
-                mh_snapshot.host_snapshot.id, power_state
-            )));
+            tracing::info!(
+                host_id = %mh_snapshot.host_snapshot.id,
+                power_on_retry_count = next_retry,
+                %power_state,
+                "waiting for host to power ON"
+            );
+            return Ok(StateHandlerOutcome::transition(
+                ManagedHostState::Assigned {
+                    instance_state: InstanceState::HostPlatformConfiguration {
+                        platform_config_state: HostPlatformConfigurationState::PowerCycle {
+                            power_on: true,
+                            power_on_retry_count: next_retry,
+                        },
+                    },
+                },
+            ));
         }
         HostPlatformConfigurationState::UnlockHost { unlock_host_state } => {
             match unlock_host_state {

@@ -1986,6 +1986,9 @@ pub enum InstanceState {
 pub enum HostPlatformConfigurationState {
     PowerCycle {
         power_on: bool,
+        /// Number of times we have sent power-on and are still waiting for the host to come up.
+        #[serde(default)]
+        power_on_retry_count: u32,
     },
     UnlockHost {
         #[serde(default)]
