@@ -68,6 +68,7 @@ mod ib_partition;
 mod instance;
 mod instance_type;
 mod interface;
+mod ipam;
 mod machine;
 mod machine_state_history;
 mod machine_validation;
@@ -337,6 +338,11 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/interface", get(interface::show_html))
             .route("/interface.json", get(interface::show_all_json))
             .route("/interface/{interface_id}", get(interface::detail))
+            .route("/ipam/dhcp", get(ipam::dhcp_html))
+            .route("/ipam/dhcp.json", get(ipam::dhcp_json))
+            .route("/ipam/dns", get(ipam::dns_html))
+            .route("/ipam/underlay", get(ipam::underlay_html))
+            .route("/ipam/overlay", get(ipam::overlay_html))
             .route("/machine", get(machine::show_all_html))
             .route("/machine.json", get(machine::show_all_json))
             .route("/machine/{machine_id}", get(machine::detail))
