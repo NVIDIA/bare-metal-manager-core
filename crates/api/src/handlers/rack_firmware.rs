@@ -18,8 +18,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use db::DatabaseError;
-use db::rack_firmware::RackFirmware as DbRackFirmware;
+use db::{DatabaseError, rack_firmware as rack_firmware_db};
 use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 use rpc::forge::{
     DeviceUpdateResult, NodeJobInfo, RackFirmware, RackFirmwareApplyRequest,
@@ -327,7 +326,7 @@ pub async fn create(
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new("begin create", e)))?;
 
-    let db_config = DbRackFirmware::create(&mut txn, &id, config, parsed_components).await?;
+    let db_config = rack_firmware_db::create(&mut txn, &id, config, parsed_components).await?;
 
     txn.commit()
         .await
@@ -362,7 +361,7 @@ pub async fn get(
 ) -> Result<Response<RackFirmware>, Status> {
     let req = request.into_inner();
 
-    let db_config = DbRackFirmware::find_by_id(&api.database_connection, &req.id)
+    let db_config = rack_firmware_db::find_by_id(&api.database_connection, &req.id)
         .await
         .map_err(CarbideError::from)?;
 
@@ -382,7 +381,7 @@ pub async fn list(
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new("begin list", e)))?;
 
-    let db_configs = DbRackFirmware::list_all(&mut txn, req.only_available).await?;
+    let db_configs = rack_firmware_db::list_all(&mut txn, req.only_available).await?;
 
     txn.commit()
         .await
@@ -409,7 +408,7 @@ pub async fn delete(
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new("begin delete", e)))?;
 
-    DbRackFirmware::delete(&mut txn, &req.id)
+    rack_firmware_db::delete(&mut txn, &req.id)
         .await
         .map_err(CarbideError::from)?;
 
@@ -952,7 +951,7 @@ pub async fn apply(
     );
 
     // Get the RackFirmware configuration from the database
-    let fw_config = DbRackFirmware::find_by_id(&api.database_connection, &req.firmware_id)
+    let fw_config = rack_firmware_db::find_by_id(&api.database_connection, &req.firmware_id)
         .await
         .map_err(|e| Status::internal(format!("Failed to get firmware configuration: {}", e)))?;
 

@@ -16,8 +16,7 @@
  */
 
 use chrono::{DateTime, Utc};
-use model::rack_firmware::RackFirmwareApplyHistoryRecord;
-use serde::{Deserialize, Serialize};
+use model::rack_firmware::{RackFirmware, RackFirmwareApplyHistoryRecord};
 use sqlx::Error::RowNotFound;
 use sqlx::postgres::PgRow;
 use sqlx::types::Json;
@@ -63,7 +62,6 @@ impl From<DbRackFirmwareApplyHistoryWithAvailability> for RackFirmwareApplyHisto
     }
 }
 
-/// Record a firmware apply event
 pub async fn record_apply_history(
     txn: &mut PgConnection,
     firmware_id: &str,
@@ -127,141 +125,93 @@ pub async fn list_apply_history(
     Ok(rows.into_iter().map(Into::into).collect())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RackFirmware {
-    pub id: String,
-    pub config: Json<serde_json::Value>,
-    pub available: bool,
-    pub parsed_components: Option<Json<serde_json::Value>>,
-    pub created: DateTime<Utc>,
-    pub updated: DateTime<Utc>,
+pub async fn create(
+    txn: &mut PgConnection,
+    id: &str,
+    config: serde_json::Value,
+    parsed_components: Option<serde_json::Value>,
+) -> DatabaseResult<RackFirmware> {
+    let query = "INSERT INTO rack_firmware (id, config, parsed_components) VALUES ($1, $2::jsonb, $3::jsonb) RETURNING *";
+
+    sqlx::query_as(query)
+        .bind(id)
+        .bind(Json(config))
+        .bind(parsed_components.map(Json))
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new(query, e))
 }
 
-impl<'r> FromRow<'r, PgRow> for RackFirmware {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        Ok(RackFirmware {
-            id: row.try_get("id")?,
-            config: row.try_get("config")?,
-            available: row.try_get("available")?,
-            parsed_components: row.try_get("parsed_components")?,
-            created: row.try_get("created")?,
-            updated: row.try_get("updated")?,
-        })
-    }
-}
-impl From<&RackFirmware> for rpc::forge::RackFirmware {
-    fn from(db: &RackFirmware) -> Self {
-        let parsed_components = db
-            .parsed_components
-            .as_ref()
-            .map(|p| p.0.to_string())
-            .unwrap_or_else(|| "{}".to_string());
-
-        rpc::forge::RackFirmware {
-            id: db.id.clone(),
-            config_json: db.config.0.to_string(),
-            available: db.available,
-            created: db.created.format("%Y-%m-%d %H:%M:%S").to_string(),
-            updated: db.updated.format("%Y-%m-%d %H:%M:%S").to_string(),
-            parsed_components,
-        }
-    }
+pub async fn find_by_id(txn: impl DbReader<'_>, id: &str) -> DatabaseResult<RackFirmware> {
+    let query = "SELECT * FROM rack_firmware WHERE id = $1";
+    let ret = sqlx::query_as(query).bind(id).fetch_one(txn).await;
+    ret.map_err(|e| match e {
+        RowNotFound => DatabaseError::NotFoundError {
+            kind: "rack firmware",
+            id: format!("{id:?}"),
+        },
+        _ => DatabaseError::query(query, e),
+    })
 }
 
-impl RackFirmware {
-    /// Create a new Rack firmware configuration
-    pub async fn create(
-        txn: &mut PgConnection,
-        id: &str,
-        config: serde_json::Value,
-        parsed_components: Option<serde_json::Value>,
-    ) -> DatabaseResult<Self> {
-        let query = "INSERT INTO rack_firmware (id, config, parsed_components) VALUES ($1, $2::jsonb, $3::jsonb) RETURNING *";
+pub async fn list_all(
+    txn: &mut PgConnection,
+    only_available: bool,
+) -> DatabaseResult<Vec<RackFirmware>> {
+    let query = if only_available {
+        "SELECT * FROM rack_firmware WHERE available = true ORDER BY created DESC"
+    } else {
+        "SELECT * FROM rack_firmware ORDER BY created DESC"
+    };
 
-        sqlx::query_as(query)
-            .bind(id)
-            .bind(Json(config))
-            .bind(parsed_components.map(Json))
-            .fetch_one(txn)
-            .await
-            .map_err(|e| DatabaseError::new(query, e))
-    }
+    sqlx::query_as(query)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
 
-    /// Find a Rack firmware configuration by ID
-    pub async fn find_by_id(txn: impl DbReader<'_>, id: &str) -> DatabaseResult<Self> {
-        let query = "SELECT * FROM rack_firmware WHERE id = $1";
-        let ret = sqlx::query_as(query).bind(id).fetch_one(txn).await;
-        ret.map_err(|e| match e {
-            RowNotFound => DatabaseError::NotFoundError {
-                kind: "rack firmware",
-                id: format!("{id:?}"),
-            },
-            _ => DatabaseError::query(query, e),
-        })
-    }
+pub async fn update_config(
+    txn: &mut PgConnection,
+    id: &str,
+    config: serde_json::Value,
+) -> DatabaseResult<RackFirmware> {
+    let query =
+        "UPDATE rack_firmware SET config = $2::jsonb, updated = NOW() WHERE id = $1 RETURNING *";
 
-    /// List all Rack firmware configurations
-    pub async fn list_all(
-        txn: &mut PgConnection,
-        only_available: bool,
-    ) -> DatabaseResult<Vec<Self>> {
-        let query = if only_available {
-            "SELECT * FROM rack_firmware WHERE available = true ORDER BY created DESC"
-        } else {
-            "SELECT * FROM rack_firmware ORDER BY created DESC"
-        };
+    sqlx::query_as(query)
+        .bind(id)
+        .bind(Json(config))
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new(query, e))
+}
 
-        sqlx::query_as(query)
-            .fetch_all(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))
-    }
+pub async fn set_available(
+    txn: &mut PgConnection,
+    id: &str,
+    available: bool,
+) -> DatabaseResult<RackFirmware> {
+    let query =
+        "UPDATE rack_firmware SET available = $2, updated = NOW() WHERE id = $1 RETURNING *";
 
-    /// Update the configuration
-    pub async fn update_config(
-        txn: &mut PgConnection,
-        id: &str,
-        config: serde_json::Value,
-    ) -> DatabaseResult<Self> {
-        let query = "UPDATE rack_firmware SET config = $2::jsonb, updated = NOW() WHERE id = $1 RETURNING *";
+    sqlx::query_as(query)
+        .bind(id)
+        .bind(available)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new(query, e))
+}
 
-        sqlx::query_as(query)
-            .bind(id)
-            .bind(Json(config))
-            .fetch_one(txn)
-            .await
-            .map_err(|e| DatabaseError::new(query, e))
-    }
+pub async fn delete(txn: &mut PgConnection, id: &str) -> DatabaseResult<()> {
+    let query = "DELETE FROM rack_firmware WHERE id = $1 RETURNING id";
 
-    /// Update the available flag
-    pub async fn set_available(
-        txn: &mut PgConnection,
-        id: &str,
-        available: bool,
-    ) -> DatabaseResult<Self> {
-        let query =
-            "UPDATE rack_firmware SET available = $2, updated = NOW() WHERE id = $1 RETURNING *";
+    sqlx::query_as::<_, (String,)>(query)
+        .bind(id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new(query, e))?;
 
-        sqlx::query_as(query)
-            .bind(id)
-            .bind(available)
-            .fetch_one(txn)
-            .await
-            .map_err(|e| DatabaseError::new(query, e))
-    }
-
-    /// Delete a Rack firmware configuration
-    pub async fn delete(txn: &mut PgConnection, id: &str) -> DatabaseResult<()> {
-        let query = "DELETE FROM rack_firmware WHERE id = $1 RETURNING id";
-
-        sqlx::query_as::<_, (String,)>(query)
-            .bind(id)
-            .fetch_one(txn)
-            .await
-            .map_err(|e| DatabaseError::new(query, e))?;
-
-        Ok(())
-    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -275,12 +225,10 @@ mod tests {
         let mut txn = pool.begin().await.unwrap();
 
         // Create a firmware config so we can verify the availability join
-        RackFirmware::create(&mut txn, "fw-001", json!({"Id": "fw-001"}), None)
+        create(&mut txn, "fw-001", json!({"Id": "fw-001"}), None)
             .await
             .unwrap();
-        RackFirmware::set_available(&mut txn, "fw-001", true)
-            .await
-            .unwrap();
+        set_available(&mut txn, "fw-001", true).await.unwrap();
 
         // Record two apply events for the same firmware
         record_apply_history(&mut txn, "fw-001", "rack-a", "prod")
@@ -330,12 +278,10 @@ mod tests {
         let mut txn = pool.begin().await.unwrap();
 
         // Create firmware and mark available
-        RackFirmware::create(&mut txn, "fw-002", json!({"Id": "fw-002"}), None)
+        create(&mut txn, "fw-002", json!({"Id": "fw-002"}), None)
             .await
             .unwrap();
-        RackFirmware::set_available(&mut txn, "fw-002", true)
-            .await
-            .unwrap();
+        set_available(&mut txn, "fw-002", true).await.unwrap();
 
         // Record an apply
         record_apply_history(&mut txn, "fw-002", "rack-a", "prod")
@@ -350,7 +296,7 @@ mod tests {
         assert!(before[0].firmware_available);
 
         // Delete the firmware
-        RackFirmware::delete(&mut txn, "fw-002").await.unwrap();
+        delete(&mut txn, "fw-002").await.unwrap();
 
         // History entry still exists but firmware_available is now false
         let after = list_apply_history(&mut txn, Some("fw-002"), &[])

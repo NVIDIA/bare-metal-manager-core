@@ -16,7 +16,6 @@
  */
 
 use common::api_fixtures::create_test_env;
-use db::rack_firmware::RackFirmware as DbRackFirmware;
 use rpc::forge::{
     RackFirmwareCreateRequest, RackFirmwareDeleteRequest, RackFirmwareGetRequest,
     RackFirmwareListRequest,
@@ -118,7 +117,7 @@ async fn test_create_rack_firmware(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     assert!(!firmware.updated.is_empty());
 
     // Verify database state
-    let db_firmware = DbRackFirmware::find_by_id(&env.pool, firmware_id).await?;
+    let db_firmware = db::rack_firmware::find_by_id(&env.pool, firmware_id).await?;
     assert_eq!(db_firmware.id, firmware_id);
     assert!(!db_firmware.available);
     assert!(db_firmware.parsed_components.is_some());
@@ -245,7 +244,7 @@ async fn test_delete_rack_firmware(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     env.api.create_rack_firmware(create_request).await?;
 
     // Verify it exists
-    let firmware = DbRackFirmware::find_by_id(&env.pool, firmware_id).await;
+    let firmware = db::rack_firmware::find_by_id(&env.pool, firmware_id).await;
     assert!(firmware.is_ok());
 
     // Delete it
@@ -255,7 +254,7 @@ async fn test_delete_rack_firmware(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     env.api.delete_rack_firmware(delete_request).await?;
 
     // Verify it's gone
-    let firmware = DbRackFirmware::find_by_id(&env.pool, firmware_id).await;
+    let firmware = db::rack_firmware::find_by_id(&env.pool, firmware_id).await;
     assert!(firmware.is_err());
 
     Ok(())
@@ -303,7 +302,7 @@ async fn test_rack_firmware_full_lifecycle(
 
     // 4. Update availability in database
     let mut txn = env.pool.begin().await?;
-    DbRackFirmware::set_available(&mut txn, firmware_id, true).await?;
+    db::rack_firmware::set_available(&mut txn, firmware_id, true).await?;
     txn.commit().await?;
 
     // 5. Verify availability changed
@@ -449,7 +448,7 @@ async fn test_rack_firmware_with_multiple_components(
     assert_eq!(firmware.id, firmware_id);
 
     // Verify parsed components
-    let db_firmware = DbRackFirmware::find_by_id(&env.pool, firmware_id).await?;
+    let db_firmware = db::rack_firmware::find_by_id(&env.pool, firmware_id).await?;
     assert!(db_firmware.parsed_components.is_some());
 
     let parsed = db_firmware.parsed_components.unwrap();
