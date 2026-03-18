@@ -11,6 +11,7 @@
 - [Redfish Workflow](architecture/redfish_workflow.md)
     - [Redfish Endpoints Reference](architecture/redfish/endpoints_reference.md)
 - [Reliable state handling](architecture/state_handling.md)
+- [Networking integrations](architecture/networking_integrations.md)
 - [DPU configuration](architecture/dpu_configuration.md)
 - [Health checks and health aggregation](architecture/health_aggregation.md)
     - [Health probe IDs](architecture/health/health_probe_ids.md)
