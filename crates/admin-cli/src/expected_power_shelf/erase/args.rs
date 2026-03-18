@@ -18,4 +18,7 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-pub struct Args;
+pub struct Args {
+    #[clap(long, help = "Confirm that you want to erase all records.")]
+    pub confirm: bool,
+}

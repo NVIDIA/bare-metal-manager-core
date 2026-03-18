@@ -362,6 +362,9 @@ impl From<CarbideError> for tonic::Status {
             CarbideError::NotFoundError { kind, id } => {
                 Status::not_found(format!("{kind} not found: {id}"))
             }
+            CarbideError::AlreadyFoundError { kind, id } => {
+                Status::already_exists(format!("{kind} already exists: {id}"))
+            }
             CarbideError::MaintenanceMode => {
                 Status::failed_precondition("MaintenanceMode".to_string())
             }

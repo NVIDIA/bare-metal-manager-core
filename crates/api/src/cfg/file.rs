@@ -413,6 +413,14 @@ pub struct CarbideConfig {
     // rms_api_url is the URL to the Rack Manager Service API.
     pub rms_api_url: Option<String>,
 
+    /// rack_types contains the rack type definitions. When expected racks
+    /// are created, they are given a rack_type name to reference. This maps
+    /// those names to the actual RackTypeConfig. This may eventually change,
+    /// and/or co-exist with a DCIM providing us an entire config as part of
+    /// the ingestion call.
+    #[serde(default)]
+    pub rack_types: model::rack_type::RackTypeConfig,
+
     /// Whether to use the host NIC instead of the DPUs on the compute trays.
     /// This is used to test the host NIC functionality.
     #[serde(

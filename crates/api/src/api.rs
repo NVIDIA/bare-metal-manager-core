@@ -1526,6 +1526,55 @@ impl Forge for Api {
         crate::handlers::expected_switch::delete_all_expected_switches(self, request).await
     }
 
+    async fn add_expected_rack(
+        &self,
+        request: Request<rpc::ExpectedRack>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::expected_rack::add_expected_rack(self, request).await
+    }
+
+    async fn delete_expected_rack(
+        &self,
+        request: Request<rpc::ExpectedRackRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::expected_rack::delete_expected_rack(self, request).await
+    }
+
+    async fn update_expected_rack(
+        &self,
+        request: Request<rpc::ExpectedRack>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::expected_rack::update_expected_rack(self, request).await
+    }
+
+    async fn get_expected_rack(
+        &self,
+        request: Request<rpc::ExpectedRackRequest>,
+    ) -> Result<Response<rpc::ExpectedRack>, Status> {
+        crate::handlers::expected_rack::get_expected_rack(self, request).await
+    }
+
+    async fn get_all_expected_racks(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<rpc::ExpectedRackList>, Status> {
+        crate::handlers::expected_rack::get_all_expected_racks(self, request).await
+    }
+
+    async fn replace_all_expected_racks(
+        &self,
+        request: Request<rpc::ExpectedRackList>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::expected_rack::replace_all_expected_racks(self, request).await
+    }
+
+    async fn delete_all_expected_racks(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::expected_rack::delete_all_expected_racks(self, request).await
+    }
+
     async fn find_connected_devices_by_dpu_machine_ids(
         &self,
         request: Request<::rpc::common::MachineIdList>,

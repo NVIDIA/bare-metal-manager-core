@@ -92,6 +92,7 @@ carbide-version = { path = "../version" }
 lazy_static = { workspace = true }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
 prost = { workspace = true }
+toml = { workspace = true }
 
 [lints]
 workspace = true

@@ -399,6 +399,22 @@ service Forge {
   // Expected switches connected to Explored Endpoints and switches
   rpc GetAllExpectedSwitchesLinked(google.protobuf.Empty) returns (LinkedExpectedSwitchList);
 
+  // Expected Rack Management
+  // Add expected rack
+  rpc AddExpectedRack(ExpectedRack) returns (google.protobuf.Empty);
+  // Delete expected rack
+  rpc DeleteExpectedRack(ExpectedRackRequest) returns (google.protobuf.Empty);
+  // Update an expected rack
+  rpc UpdateExpectedRack(ExpectedRack) returns (google.protobuf.Empty);
+  // Get a specific expected rack
+  rpc GetExpectedRack(ExpectedRackRequest) returns (ExpectedRack);
+  // Get all expected racks
+  rpc GetAllExpectedRacks(google.protobuf.Empty) returns (ExpectedRackList);
+  // Replace all expected racks in site
+  rpc ReplaceAllExpectedRacks(ExpectedRackList) returns (google.protobuf.Empty);
+  // Delete all expected racks in site
+  rpc DeleteAllExpectedRacks(google.protobuf.Empty) returns (google.protobuf.Empty);
+
   // Perform Attestation Procedure for Measured Boot
   rpc AttestQuote	(AttestQuoteRequest) returns (AttestQuoteResponse);
 
@@ -1882,6 +1898,23 @@ message LinkedExpectedSwitch {
   string bmc_mac_address = 2; // from expected_switches table
   optional common.SwitchId switch_id = 3; // The switch
   optional common.UUID expected_switch_id = 4;
+}
+
+message ExpectedRack {
+  // The rack identifier. Same rack_id referenced by expected machines, switches, and power shelves.
+  optional common.RackId rack_id = 1;
+  // The rack type name. Determines expected counts of compute trays, switches, and power shelves.
+  string rack_type = 2;
+  // Metadata that will be associated with the rack.
+  Metadata metadata = 3;
+}
+
+message ExpectedRackRequest {
+  string rack_id = 1;
+}
+
+message ExpectedRackList {
+  repeated ExpectedRack expected_racks = 1;
 }
 
 message IBFabricSearchFilter {

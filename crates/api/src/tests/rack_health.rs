@@ -246,7 +246,9 @@ async fn test_propagation_to_host_aggregate_health(
         compute_trays: vec![host_machine_id],
         power_shelves: vec![],
         expected_compute_trays: vec![],
+        expected_switches: vec![],
         expected_power_shelves: vec![],
+        rack_type: None,
     };
     db::rack::update(&mut txn, rack_id, &config).await?;
     drop(txn);
@@ -311,7 +313,9 @@ async fn test_host_allocatability_blocked_by_rack_override(
         compute_trays: vec![host_machine_id],
         power_shelves: vec![],
         expected_compute_trays: vec![],
+        expected_switches: vec![],
         expected_power_shelves: vec![],
+        rack_type: None,
     };
     db::rack::update(&mut txn, rack_id, &config).await?;
     drop(txn);
@@ -375,7 +379,9 @@ async fn test_host_replace_overrides_rack_alerts(
         compute_trays: vec![host_machine_id],
         power_shelves: vec![],
         expected_compute_trays: vec![],
+        expected_switches: vec![],
         expected_power_shelves: vec![],
+        rack_type: None,
     };
     db::rack::update(&mut txn, rack_id, &config).await?;
     drop(txn);
@@ -449,7 +455,9 @@ async fn test_host_replace_takes_full_precedence_over_rack_replace(
         compute_trays: vec![host_machine_id],
         power_shelves: vec![],
         expected_compute_trays: vec![],
+        expected_switches: vec![],
         expected_power_shelves: vec![],
+        rack_type: None,
     };
     db::rack::update(&mut txn, rack_id, &config).await?;
     drop(txn);

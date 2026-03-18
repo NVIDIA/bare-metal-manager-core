@@ -437,9 +437,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("ExpectedMachine", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedPowerShelf", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedSwitch", "#[derive(serde::Serialize)]")
+        .type_attribute("ExpectedRack", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedMachineList", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedPowerShelfList", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedSwitchList", "#[derive(serde::Serialize)]")
+        .type_attribute("ExpectedRackList", "#[derive(serde::Serialize)]")
         .type_attribute(
             "TpmCaCertDetail",
             "#[derive(serde::Deserialize, serde::Serialize)]",

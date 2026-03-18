@@ -1197,6 +1197,7 @@ pub fn get_config() -> CarbideConfig {
         rms_api_url: Some(
             SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080).to_string(),
         ),
+        rack_types: Default::default(),
         spdm_state_controller: SpdmStateControllerConfig {
             controller: StateControllerConfig::default(),
         },

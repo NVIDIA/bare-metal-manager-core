@@ -46,23 +46,15 @@ pub async fn add_expected_power_shelf(
         .map_err(|e| Status::internal(format!("Failed to create expected power shelf: {}", e)))?;
 
     if let Some(rack_id) = request_rack_id {
-        match db::rack::get(txn.as_mut(), rack_id).await {
-            Ok(rack) => {
-                let mut config = rack.config.clone();
-                if !config.expected_power_shelves.contains(&bmc_mac_address) {
-                    config.expected_power_shelves.push(bmc_mac_address);
-                    db::rack::update(&mut txn, rack_id, &config)
-                        .await
-                        .map_err(CarbideError::from)?;
-                }
-            }
-            Err(_) => {
-                let expected_power_shelves = vec![bmc_mac_address];
-                let _rack =
-                    db::rack::create(&mut txn, rack_id, vec![], vec![], expected_power_shelves)
-                        .await
-                        .map_err(CarbideError::from)?;
-            }
+        let adopted = db::rack::adopt_expected_power_shelf(&mut txn, rack_id, bmc_mac_address)
+            .await
+            .map_err(CarbideError::from)?;
+        if !adopted {
+            tracing::debug!(
+                "rack {} does not exist yet, power shelf {} will be adopted later.",
+                rack_id,
+                bmc_mac_address
+            );
         }
     }
 

@@ -1577,6 +1577,7 @@ dependencies = [
  "strum_macros 0.26.4",
  "thiserror 2.0.17",
  "tokio",
+ "toml 0.8.23",
  "tracing",
  "tss-esapi",
  "uuid",

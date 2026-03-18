@@ -31,6 +31,7 @@ pub mod dpu;
 pub mod dpu_remediation;
 pub mod expected_machine;
 pub mod expected_power_shelf;
+pub mod expected_rack;
 pub mod expected_switch;
 pub mod extension_service;
 pub mod finder;

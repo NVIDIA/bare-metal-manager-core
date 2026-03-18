@@ -16,6 +16,7 @@
  */
 use std::collections::{BTreeMap, HashMap};
 
+use carbide_uuid::rack::RackId;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineRequest, LinkedExpectedMachine};
@@ -127,6 +128,19 @@ FROM expected_machines em
 pub async fn find_all(txn: impl DbReader<'_>) -> DatabaseResult<Vec<ExpectedMachine>> {
     let sql = "SELECT * FROM expected_machines";
     sqlx::query_as(sql)
+        .fetch_all(txn)
+        .await
+        .map_err(|err| DatabaseError::query(sql, err))
+}
+
+/// find_all_by_rack_id returns all expected machines for a given rack_id.
+pub async fn find_all_by_rack_id(
+    txn: &mut PgConnection,
+    rack_id: RackId,
+) -> DatabaseResult<Vec<ExpectedMachine>> {
+    let sql = "SELECT * FROM expected_machines WHERE rack_id=$1";
+    sqlx::query_as(sql)
+        .bind(rack_id)
         .fetch_all(txn)
         .await
         .map_err(|err| DatabaseError::query(sql, err))
