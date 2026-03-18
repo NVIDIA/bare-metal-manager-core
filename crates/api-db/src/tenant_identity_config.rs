@@ -73,7 +73,7 @@ pub async fn set(
         INSERT INTO tenant_identity_config (
             organization_id, issuer, default_audience, allowed_audiences,
             token_ttl_sec, subject_prefix, enabled, created_at, updated_at,
-            encrypted_signing_key, signing_key_public, key_id, algorithm, master_key_id
+            encrypted_signing_key, signing_key_public, key_id, algorithm, encryption_key_id
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), $8, $9, $10, $11, $12)
         ON CONFLICT (organization_id) DO UPDATE SET
             issuer = EXCLUDED.issuer,
@@ -87,10 +87,10 @@ pub async fn set(
             signing_key_public = EXCLUDED.signing_key_public,
             key_id = EXCLUDED.key_id,
             algorithm = EXCLUDED.algorithm,
-            master_key_id = EXCLUDED.master_key_id
-        RETURNING issuer, default_audience, allowed_audiences, token_ttl_sec, subject_prefix,
+            encryption_key_id = EXCLUDED.encryption_key_id
+        RETURNING organization_id, issuer, default_audience, allowed_audiences, token_ttl_sec, subject_prefix,
             enabled, created_at, updated_at, encrypted_signing_key, signing_key_public, key_id,
-            algorithm, master_key_id, token_endpoint, auth_method, encrypted_auth_method_config,
+            algorithm, encryption_key_id, token_endpoint, auth_method, encrypted_auth_method_config,
             subject_token_audience, token_delegation_created_at
     "#;
 
@@ -106,7 +106,7 @@ pub async fn set(
         .bind(&public_key)
         .bind(&key_id)
         .bind(&config.algorithm)
-        .bind(&config.master_key_id)
+        .bind(&config.encryption_key_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
@@ -116,9 +116,9 @@ pub async fn find(
     org_id: &TenantOrganizationId,
     txn: &mut PgConnection,
 ) -> DatabaseResult<Option<TenantIdentityConfig>> {
-    let query = "SELECT issuer, default_audience, allowed_audiences, token_ttl_sec, subject_prefix, \
+    let query = "SELECT organization_id, issuer, default_audience, allowed_audiences, token_ttl_sec, subject_prefix, \
         enabled, created_at, updated_at, encrypted_signing_key, signing_key_public, key_id, algorithm, \
-        master_key_id, token_endpoint, auth_method, encrypted_auth_method_config, subject_token_audience, \
+        encryption_key_id, token_endpoint, auth_method, encrypted_auth_method_config, subject_token_audience, \
         token_delegation_created_at FROM tenant_identity_config WHERE organization_id = $1";
     sqlx::query_as(query)
         .bind(org_id.as_str())
@@ -140,9 +140,9 @@ pub async fn set_token_delegation(
             subject_token_audience = $5, updated_at = NOW(),
             token_delegation_created_at = COALESCE(token_delegation_created_at, NOW())
         WHERE organization_id = $1
-        RETURNING issuer, default_audience, allowed_audiences, token_ttl_sec, subject_prefix,
+        RETURNING organization_id, issuer, default_audience, allowed_audiences, token_ttl_sec, subject_prefix,
             enabled, created_at, updated_at, encrypted_signing_key, signing_key_public, key_id,
-            algorithm, master_key_id, token_endpoint, auth_method, encrypted_auth_method_config,
+            algorithm, encryption_key_id, token_endpoint, auth_method, encrypted_auth_method_config,
             subject_token_audience, token_delegation_created_at
     "#;
     let row = sqlx::query_as::<_, TenantIdentityConfig>(query)
@@ -180,9 +180,9 @@ pub async fn delete_token_delegation(
         SET token_endpoint = NULL, auth_method = NULL, encrypted_auth_method_config = NULL,
             subject_token_audience = NULL, token_delegation_created_at = NULL, updated_at = NOW()
         WHERE organization_id = $1
-        RETURNING issuer, default_audience, allowed_audiences, token_ttl_sec, subject_prefix,
+        RETURNING organization_id, issuer, default_audience, allowed_audiences, token_ttl_sec, subject_prefix,
             enabled, created_at, updated_at, encrypted_signing_key, signing_key_public, key_id,
-            algorithm, master_key_id, token_endpoint, auth_method, encrypted_auth_method_config,
+            algorithm, encryption_key_id, token_endpoint, auth_method, encrypted_auth_method_config,
             subject_token_audience, token_delegation_created_at
     "#;
     sqlx::query_as(query)
@@ -244,7 +244,7 @@ mod tests {
             enabled: true,
             rotate_key: false,
             algorithm: "ES256".to_string(),
-            master_key_id: "test-master".to_string(),
+            encryption_key_id: "test-master".to_string(),
         };
 
         let cfg = set(&org_id, &config, &mut txn).await.unwrap();
@@ -255,7 +255,7 @@ mod tests {
         assert_eq!(cfg.subject_prefix, "spiffe://example.com/org-x");
         assert!(cfg.enabled);
         assert_eq!(cfg.algorithm, "ES256");
-        assert_eq!(cfg.master_key_id, "test-master");
+        assert_eq!(cfg.encryption_key_id, "test-master");
         assert!(!cfg.key_id.is_empty());
 
         let found = find(&org_id, &mut txn).await.unwrap().unwrap();
@@ -266,7 +266,7 @@ mod tests {
         assert_eq!(found.subject_prefix, cfg.subject_prefix);
         assert_eq!(found.enabled, cfg.enabled);
         assert_eq!(found.algorithm, cfg.algorithm);
-        assert_eq!(found.master_key_id, cfg.master_key_id);
+        assert_eq!(found.encryption_key_id, cfg.encryption_key_id);
         assert_eq!(found.key_id, cfg.key_id);
 
         let deleted = delete(&org_id, &mut txn).await.unwrap();
@@ -291,7 +291,7 @@ mod tests {
             enabled: true,
             rotate_key: false,
             algorithm: "ES256".to_string(),
-            master_key_id: "test-master".to_string(),
+            encryption_key_id: "test-master".to_string(),
         };
         set(&org_id, &config, &mut txn).await.unwrap();
 

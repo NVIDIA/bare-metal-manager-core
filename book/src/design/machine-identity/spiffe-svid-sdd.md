@@ -291,7 +291,7 @@ A new table will be created to store tenant signing key pairs and optional token
 | `VARCHAR(255)` | `signing_key_public` | Public key |
 | `VARCHAR(255)` | `key_id` | Key identifier (e.g. for JWKS kid) |
 | `VARCHAR(255)` | `algorithm` | Signing algorithm |
-| `VARCHAR(255)` | `master_key_id` | To identify master key used for encrypting signing key |
+| `VARCHAR(255)` | `encryption_key_id` | To identify encryption key used for encrypting signing key |
 | `BOOLEAN` | `enabled` | Key signing enabled by default. Set enable=false to disable |
 | `TIMESTAMPTZ` | `created_at` | When identity config was first created |
 | `TIMESTAMPTZ` | `updated_at` | When identity config or token delegation was last updated |

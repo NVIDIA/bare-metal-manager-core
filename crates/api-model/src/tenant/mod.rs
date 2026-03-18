@@ -435,10 +435,33 @@ impl FromStr for TenantOrganizationId {
     }
 }
 
+impl sqlx::Type<sqlx::Postgres> for TenantOrganizationId {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <String as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+}
+
+impl sqlx::Encode<'_, sqlx::Postgres> for TenantOrganizationId {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'_>,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        <String as sqlx::Encode<'_, sqlx::Postgres>>::encode_by_ref(&self.0, buf)
+    }
+}
+
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for TenantOrganizationId {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        Self::try_from(s).map_err(|e| sqlx::Error::Decode(Box::new(e)).into())
+    }
+}
+
 /// Database row for tenant_identity_config table.
 /// Persisted identity config with signing keys and token delegation.
 #[derive(Debug, sqlx::FromRow)]
 pub struct TenantIdentityConfig {
+    pub organization_id: TenantOrganizationId,
     pub issuer: String,
     pub default_audience: String,
     pub allowed_audiences: Json<Vec<String>>,
@@ -451,7 +474,7 @@ pub struct TenantIdentityConfig {
     pub signing_key_public: String,
     pub key_id: String,
     pub algorithm: String,
-    pub master_key_id: String,
+    pub encryption_key_id: String,
     // Token delegation (optional)
     pub token_endpoint: Option<String>,
     pub auth_method: Option<TokenDelegationAuthMethod>,
@@ -473,7 +496,7 @@ pub struct IdentityConfig {
     pub enabled: bool,
     pub rotate_key: bool,
     pub algorithm: String,
-    pub master_key_id: String,
+    pub encryption_key_id: String,
 }
 
 /// Validation bounds for IdentityConfig. Passed from site config (machine_identity).
@@ -482,7 +505,7 @@ pub struct IdentityConfigValidationBounds {
     pub token_ttl_min_sec: u32,
     pub token_ttl_max_sec: u32,
     pub algorithm: String,
-    pub master_key_id: String,
+    pub encryption_key_id: String,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -533,7 +556,7 @@ impl IdentityConfig {
             enabled: value.enabled,
             rotate_key: value.rotate_key,
             algorithm: bounds.algorithm.clone(),
-            master_key_id: bounds.master_key_id.clone(),
+            encryption_key_id: bounds.encryption_key_id.clone(),
         })
     }
 }
@@ -579,6 +602,45 @@ impl TokenDelegationAuthMethod {
 pub fn compute_client_secret_hash(client_secret: &str) -> String {
     let h = sha2::Sha256::digest(client_secret.as_bytes());
     format!("sha256:{}", hex::encode(h))
+}
+
+/// Hex chars to show in get_token_delegation response (8 chars + ".." suffix).
+const HASH_DISPLAY_HEX_LEN: usize = 8;
+
+/// Truncates hash for display in get_token_delegation: algorithm-prefix:XXXXXXXX..
+pub fn truncate_hash_for_display(full_hash: &str) -> String {
+    full_hash
+        .split_once(':')
+        .map(|(prefix, rest)| {
+            format!(
+                "{}:{}..",
+                prefix,
+                rest.chars().take(HASH_DISPLAY_HEX_LEN).collect::<String>()
+            )
+        })
+        .unwrap_or_else(|| full_hash.to_string())
+}
+
+/// Converts stored config to response oneof. Truncates hashes for display.
+/// Only used when auth_method is ClientSecretBasic; for None the oneof is omitted.
+pub fn stored_to_response_auth_config(
+    auth_method: TokenDelegationAuthMethod,
+    stored: Option<rpc_forge::ClientSecretBasic>,
+) -> Option<rpc_forge::token_delegation_response::AuthMethodConfig> {
+    match auth_method {
+        TokenDelegationAuthMethod::ClientSecretBasic => {
+            stored.filter(|s| !s.client_secret.is_empty()).map(|s| {
+                let hash = compute_client_secret_hash(&s.client_secret);
+                rpc_forge::token_delegation_response::AuthMethodConfig::ClientSecretBasic(
+                    rpc_forge::ClientSecretBasicResponse {
+                        client_id: s.client_id,
+                        client_secret_hash: truncate_hash_for_display(&hash),
+                    },
+                )
+            })
+        }
+        TokenDelegationAuthMethod::None => None,
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -649,6 +711,46 @@ impl TryFrom<rpc_forge::TokenDelegation> for TokenDelegation {
     }
 }
 
+impl TryFrom<TenantIdentityConfig> for rpc_forge::TokenDelegationResponse {
+    type Error = RpcDataConversionError;
+
+    fn try_from(value: TenantIdentityConfig) -> Result<Self, Self::Error> {
+        let token_endpoint = value
+            .token_endpoint
+            .ok_or(RpcDataConversionError::MissingArgument("token_delegation"))?;
+        let auth_method = value
+            .auth_method
+            .ok_or(RpcDataConversionError::MissingArgument("token_delegation"))?;
+
+        let stored: Option<rpc_forge::ClientSecretBasic> = value
+            .encrypted_auth_method_config
+            .as_ref()
+            .and_then(|s| serde_json::from_str(s).ok());
+
+        let auth_method_config = match auth_method {
+            TokenDelegationAuthMethod::None => None,
+            TokenDelegationAuthMethod::ClientSecretBasic => Some(
+                stored_to_response_auth_config(auth_method, stored).ok_or_else(|| {
+                    RpcDataConversionError::InvalidArgument(
+                        "Stored auth_method_config does not match auth_method".to_string(),
+                    )
+                })?,
+            ),
+        };
+
+        let created_at = value.token_delegation_created_at.map(rpc::Timestamp::from);
+
+        Ok(rpc_forge::TokenDelegationResponse {
+            organization_id: value.organization_id.as_str().to_string(),
+            token_endpoint,
+            auth_method_config,
+            subject_token_audience: value.subject_token_audience.unwrap_or_default(),
+            created_at,
+            updated_at: Some(rpc::Timestamp::from(value.updated_at)),
+        })
+    }
+}
+
 pub struct TenantPublicKeyValidationRequest {
     pub instance_id: InstanceId,
     pub public_key: String,
@@ -686,8 +788,72 @@ impl TenantPublicKeyValidationRequest {
 #[cfg(test)]
 mod tests {
     use rpc::forge as rpc_forge;
+    use rpc::forge::token_delegation_response::AuthMethodConfig;
 
     use super::*;
+
+    #[test]
+    fn test_truncate_hash_for_display() {
+        assert_eq!(
+            truncate_hash_for_display("sha256:abcd1234567890abcdef"),
+            "sha256:abcd1234.."
+        );
+        assert_eq!(truncate_hash_for_display("sha512:xyz"), "sha512:xyz..");
+        assert_eq!(truncate_hash_for_display("no-colon"), "no-colon");
+    }
+
+    #[test]
+    fn test_stored_to_response_auth_config_none() {
+        assert!(stored_to_response_auth_config(TokenDelegationAuthMethod::None, None).is_none());
+    }
+
+    #[test]
+    fn test_stored_to_response_auth_config_client_secret_basic() {
+        let stored = rpc_forge::ClientSecretBasic {
+            client_id: "my-client".to_string(),
+            client_secret: "secret".to_string(),
+        };
+        let out = stored_to_response_auth_config(
+            TokenDelegationAuthMethod::ClientSecretBasic,
+            Some(stored),
+        )
+        .unwrap();
+        let AuthMethodConfig::ClientSecretBasic(c) = &out;
+        assert_eq!(c.client_id, "my-client");
+        assert!(c.client_secret_hash.starts_with("sha256:"));
+        assert!(c.client_secret_hash.ends_with(".."));
+    }
+
+    #[test]
+    fn test_stored_to_response_auth_config_omits_cleartext() {
+        let stored = rpc_forge::ClientSecretBasic {
+            client_id: "my-client".to_string(),
+            client_secret: "secret".to_string(),
+        };
+        let out = stored_to_response_auth_config(
+            TokenDelegationAuthMethod::ClientSecretBasic,
+            Some(stored),
+        )
+        .unwrap();
+        let AuthMethodConfig::ClientSecretBasic(c) = &out;
+        assert_eq!(c.client_id, "my-client");
+        assert!(!c.client_secret_hash.is_empty());
+    }
+
+    #[test]
+    fn test_stored_to_response_auth_config_client_secret_empty_returns_none() {
+        let stored = rpc_forge::ClientSecretBasic {
+            client_id: "x".to_string(),
+            client_secret: String::new(),
+        };
+        assert!(
+            stored_to_response_auth_config(
+                TokenDelegationAuthMethod::ClientSecretBasic,
+                Some(stored),
+            )
+            .is_none()
+        );
+    }
 
     #[test]
     fn parse_tenant_org() {
@@ -795,7 +961,7 @@ mod tests {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
             algorithm: "ES256".to_string(),
-            master_key_id: "test-master".to_string(),
+            encryption_key_id: "test-master".to_string(),
         };
         let config = IdentityConfig::try_from_proto(proto, &bounds).unwrap();
         assert_eq!(config.issuer, "https://issuer.example.com");
@@ -806,7 +972,7 @@ mod tests {
         assert!(config.enabled);
         assert!(!config.rotate_key);
         assert_eq!(config.algorithm, "ES256");
-        assert_eq!(config.master_key_id, "test-master");
+        assert_eq!(config.encryption_key_id, "test-master");
     }
 
     #[test]
@@ -824,7 +990,7 @@ mod tests {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
             algorithm: "ES256".to_string(),
-            master_key_id: "test".to_string(),
+            encryption_key_id: "test".to_string(),
         };
         let err = IdentityConfig::try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("issuer is required"));
@@ -845,7 +1011,7 @@ mod tests {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
             algorithm: "ES256".to_string(),
-            master_key_id: "test".to_string(),
+            encryption_key_id: "test".to_string(),
         };
         let err = IdentityConfig::try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("default_audience is required"));
@@ -866,7 +1032,7 @@ mod tests {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
             algorithm: "ES256".to_string(),
-            master_key_id: "test".to_string(),
+            encryption_key_id: "test".to_string(),
         };
         let err = IdentityConfig::try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("subject_prefix is required"));
@@ -887,7 +1053,7 @@ mod tests {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
             algorithm: "ES256".to_string(),
-            master_key_id: "test".to_string(),
+            encryption_key_id: "test".to_string(),
         };
         let err = IdentityConfig::try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("token_ttl_sec"));
@@ -908,7 +1074,7 @@ mod tests {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
             algorithm: "ES256".to_string(),
-            master_key_id: "test".to_string(),
+            encryption_key_id: "test".to_string(),
         };
         let err = IdentityConfig::try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("token_ttl_sec must be between"));
@@ -929,7 +1095,7 @@ mod tests {
             token_ttl_min_sec: 60,
             token_ttl_max_sec: 86400,
             algorithm: "ES256".to_string(),
-            master_key_id: "test".to_string(),
+            encryption_key_id: "test".to_string(),
         };
         let err = IdentityConfig::try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("token_ttl_sec must be between"));

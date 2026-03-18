@@ -569,7 +569,7 @@ impl From<MachineIdentityConfig> for model::tenant::IdentityConfigValidationBoun
             token_ttl_min_sec: mi.token_ttl_min_sec,
             token_ttl_max_sec: mi.token_ttl_max_sec,
             algorithm: mi.algorithm,
-            master_key_id: "placeholder-master-key".to_string(),
+            encryption_key_id: "placeholder-encryption-key".to_string(),
         }
     }
 }
