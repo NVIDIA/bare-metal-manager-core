@@ -27,7 +27,7 @@
 //! ## Example
 //!
 //! ```ignore
-//! let watcher = DpuWatcherBuilder::new(repo, "dpf-operator-system")
+//! let _watcher = DpuWatcherBuilder::new(repo, "dpf-operator-system")
 //!     .on_dpu_event(|event| async move {
 //!         println!("Phase: {:?}", event.phase);
 //!         Ok(())
@@ -36,11 +36,14 @@
 //!         enqueue_host_reboot(&event.host_bmc_ip).await?;
 //!         Ok(())
 //!     })
-//!     .start();
+//!     .start()?;
 //! ```
 
 use std::future::Future;
 use std::sync::Arc;
+
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 
 use crate::crds::dpus_generated::{DPU, DpuStatusPhase};
 use crate::error::DpfError;
@@ -77,19 +80,15 @@ struct Callbacks<DE, RB, RD, MN, ER> {
 /// The watcher only cares about how the events are translated into the callbacks,
 /// not the actual event gathering. The repository implementation handles procuring
 /// the events, as well as retries and requeuing when handlers return `Err`.
-pub struct DpuWatcher {
-    watcher_task: tokio::task::JoinHandle<()>,
-}
-
+///
 /// The watcher continues running until this struct is dropped.
-impl Drop for DpuWatcher {
-    fn drop(&mut self) {
-        self.watcher_task.abort();
-    }
+pub struct DpuWatcher {
+    _cancel_guard: tokio_util::sync::DropGuard,
 }
 
 /// Builder for creating a DPU watcher.
 pub struct DpuWatcherBuilder<
+    'a,
     R: DpuRepository,
     DE = NoopFn<DpuEvent>,
     RB = NoopFn<RebootRequiredEvent>,
@@ -100,15 +99,17 @@ pub struct DpuWatcherBuilder<
     repo: Arc<R>,
     namespace: String,
     label_selector: Option<String>,
+    join_set: Option<&'a mut JoinSet<()>>,
     cbs: Callbacks<DE, RB, RD, MN, ER>,
 }
 
-impl<R: DpuRepository> DpuWatcherBuilder<R> {
+impl<R: DpuRepository> DpuWatcherBuilder<'_, R> {
     pub fn new(repo: Arc<R>, namespace: impl Into<String>) -> Self {
         Self {
             repo,
             namespace: namespace.into(),
             label_selector: None,
+            join_set: None,
             cbs: Callbacks {
                 dpu_event: |_| std::future::ready(Ok(())),
                 reboot: |_| std::future::ready(Ok(())),
@@ -122,7 +123,15 @@ impl<R: DpuRepository> DpuWatcherBuilder<R> {
 
 /// This is a type state builder pattern. It's extra boilerplate, but we get generic
 /// function types for the callbacks instead of boxing and pinning the closures.
-impl<R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, ER> {
+impl<'a, R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<'a, R, DE, RB, RD, MN, ER> {
+    /// Spawn the watcher task into the provided `JoinSet` instead of an
+    /// internal one. Use this in production to join all background tasks
+    /// via a single `JoinSet` to catch panics.
+    pub fn with_join_set(mut self, join_set: &'a mut JoinSet<()>) -> Self {
+        self.join_set = Some(join_set);
+        self
+    }
+
     /// Restrict the watcher to DPU resources matching the given label selector.
     pub fn with_label_selector(mut self, selector: impl Into<String>) -> Self {
         self.label_selector = Some(selector.into());
@@ -133,7 +142,7 @@ impl<R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, 
     ///
     /// The callback is invoked on every observed update to a DPU, not only
     /// on phase transitions. The handler must be idempotent.
-    pub fn on_dpu_event<F, Fut>(self, callback: F) -> DpuWatcherBuilder<R, F, RB, RD, MN, ER>
+    pub fn on_dpu_event<F, Fut>(self, callback: F) -> DpuWatcherBuilder<'a, R, F, RB, RD, MN, ER>
     where
         F: Fn(DpuEvent) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<(), DpfError>> + Send + 'static,
@@ -142,6 +151,7 @@ impl<R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, 
             repo: self.repo,
             namespace: self.namespace,
             label_selector: self.label_selector,
+            join_set: self.join_set,
             cbs: Callbacks {
                 dpu_event: callback,
                 reboot: self.cbs.reboot,
@@ -159,7 +169,10 @@ impl<R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, 
     ///
     /// Return `Ok(())` to acknowledge the event. Return `Err` to have the
     /// repository implementation retry after a backoff period.
-    pub fn on_reboot_required<F, Fut>(self, callback: F) -> DpuWatcherBuilder<R, DE, F, RD, MN, ER>
+    pub fn on_reboot_required<F, Fut>(
+        self,
+        callback: F,
+    ) -> DpuWatcherBuilder<'a, R, DE, F, RD, MN, ER>
     where
         F: Fn(RebootRequiredEvent) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<(), DpfError>> + Send + 'static,
@@ -168,6 +181,7 @@ impl<R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, 
             repo: self.repo,
             namespace: self.namespace,
             label_selector: self.label_selector,
+            join_set: self.join_set,
             cbs: Callbacks {
                 dpu_event: self.cbs.dpu_event,
                 reboot: callback,
@@ -182,7 +196,7 @@ impl<R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, 
     ///
     /// Invoked on every update where the DPU is in the Ready phase, not
     /// only on transitions into that phase. The handler must be idempotent.
-    pub fn on_dpu_ready<F, Fut>(self, callback: F) -> DpuWatcherBuilder<R, DE, RB, F, MN, ER>
+    pub fn on_dpu_ready<F, Fut>(self, callback: F) -> DpuWatcherBuilder<'a, R, DE, RB, F, MN, ER>
     where
         F: Fn(DpuReadyEvent) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<(), DpfError>> + Send + 'static,
@@ -191,6 +205,7 @@ impl<R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, 
             repo: self.repo,
             namespace: self.namespace,
             label_selector: self.label_selector,
+            join_set: self.join_set,
             cbs: Callbacks {
                 dpu_event: self.cbs.dpu_event,
                 reboot: self.cbs.reboot,
@@ -211,7 +226,7 @@ impl<R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, 
     pub fn on_maintenance_needed<F, Fut>(
         self,
         callback: F,
-    ) -> DpuWatcherBuilder<R, DE, RB, RD, F, ER>
+    ) -> DpuWatcherBuilder<'a, R, DE, RB, RD, F, ER>
     where
         F: Fn(MaintenanceEvent) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<(), DpfError>> + Send + 'static,
@@ -220,6 +235,7 @@ impl<R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, 
             repo: self.repo,
             namespace: self.namespace,
             label_selector: self.label_selector,
+            join_set: self.join_set,
             cbs: Callbacks {
                 dpu_event: self.cbs.dpu_event,
                 reboot: self.cbs.reboot,
@@ -237,7 +253,7 @@ impl<R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, 
     ///
     /// Return `Ok(())` to acknowledge the event. Return `Err` to have the
     /// repository implementation retry after a backoff period.
-    pub fn on_error<F, Fut>(self, callback: F) -> DpuWatcherBuilder<R, DE, RB, RD, MN, F>
+    pub fn on_error<F, Fut>(self, callback: F) -> DpuWatcherBuilder<'a, R, DE, RB, RD, MN, F>
     where
         F: Fn(DpuErrorEvent) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<(), DpfError>> + Send + 'static,
@@ -246,6 +262,7 @@ impl<R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, 
             repo: self.repo,
             namespace: self.namespace,
             label_selector: self.label_selector,
+            join_set: self.join_set,
             cbs: Callbacks {
                 dpu_event: self.cbs.dpu_event,
                 reboot: self.cbs.reboot,
@@ -257,7 +274,7 @@ impl<R: DpuRepository, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, 
     }
 }
 
-impl<R, DE, RB, RD, MN, ER> DpuWatcherBuilder<R, DE, RB, RD, MN, ER>
+impl<R, DE, RB, RD, MN, ER> DpuWatcherBuilder<'_, R, DE, RB, RD, MN, ER>
 where
     R: DpuRepository,
     DE: DPUStateCallback<DpuEvent>,
@@ -268,77 +285,114 @@ where
 {
     /// Start watching for events.
     ///
-    /// Returns a handle that stops the watcher when dropped.
-    pub fn start(self) -> DpuWatcher {
-        let cbs = Arc::new(self.cbs);
+    /// Returns a handle that gracefully stops the watcher when dropped.
+    pub fn start(self) -> std::io::Result<DpuWatcher> {
+        spawn_watcher(
+            self.repo,
+            self.namespace,
+            self.label_selector,
+            self.cbs,
+            self.join_set,
+        )
+    }
+}
 
-        let handler = move |dpu: Arc<DPU>| {
-            let cbs = cbs.clone();
-            async move {
-                let Some(status) = &dpu.status else {
-                    return Ok(());
-                };
-                let Some(dpu_name) = &dpu.metadata.name else {
-                    return Ok(());
-                };
+// separate function to drop the 'a lifetime from the builder
+fn spawn_watcher<R, DE, RB, RD, MN, ER>(
+    repo: Arc<R>,
+    namespace: String,
+    label_selector: Option<String>,
+    cbs: Callbacks<DE, RB, RD, MN, ER>,
+    join_set: Option<&mut JoinSet<()>>,
+) -> std::io::Result<DpuWatcher>
+where
+    R: DpuRepository,
+    DE: DPUStateCallback<DpuEvent>,
+    RB: DPUStateCallback<RebootRequiredEvent>,
+    RD: DPUStateCallback<DpuReadyEvent>,
+    MN: DPUStateCallback<MaintenanceEvent>,
+    ER: DPUStateCallback<DpuErrorEvent>,
+{
+    let cancel_token = CancellationToken::new();
+    let guard = cancel_token.clone().drop_guard();
 
-                let device_name = dpu.spec.dpu_device_name.clone();
-                let phase = DpuPhase::from(status.phase.clone());
-                let node_name = dpu.spec.dpu_node_name.clone();
+    let cbs = Arc::new(cbs);
 
-                (cbs.dpu_event)(DpuEvent {
+    let handler = move |dpu: Arc<DPU>| {
+        let cbs = cbs.clone();
+        async move {
+            let Some(status) = &dpu.status else {
+                return Ok(());
+            };
+            let Some(dpu_name) = &dpu.metadata.name else {
+                return Ok(());
+            };
+
+            let device_name = dpu.spec.dpu_device_name.clone();
+            let phase = DpuPhase::from(status.phase.clone());
+            let node_name = dpu.spec.dpu_node_name.clone();
+
+            (cbs.dpu_event)(DpuEvent {
+                dpu_name: dpu_name.clone(),
+                device_name: device_name.clone(),
+                node_name: node_name.clone(),
+                phase,
+            })
+            .await?;
+
+            if matches!(status.phase, DpuStatusPhase::NodeEffect) {
+                (cbs.maintenance)(MaintenanceEvent {
+                    dpu_name: dpu_name.clone(),
+                    node_name: node_name.clone(),
+                })
+                .await?;
+            }
+
+            if matches!(status.phase, DpuStatusPhase::Ready) {
+                (cbs.ready)(DpuReadyEvent {
                     dpu_name: dpu_name.clone(),
                     device_name: device_name.clone(),
                     node_name: node_name.clone(),
-                    phase,
                 })
                 .await?;
-
-                if matches!(status.phase, DpuStatusPhase::NodeEffect) {
-                    (cbs.maintenance)(MaintenanceEvent {
-                        dpu_name: dpu_name.clone(),
-                        node_name: node_name.clone(),
-                    })
-                    .await?;
-                }
-
-                if matches!(status.phase, DpuStatusPhase::Ready) {
-                    (cbs.ready)(DpuReadyEvent {
-                        dpu_name: dpu_name.clone(),
-                        device_name: device_name.clone(),
-                        node_name: node_name.clone(),
-                    })
-                    .await?;
-                }
-
-                if matches!(status.phase, DpuStatusPhase::Error) {
-                    (cbs.error)(DpuErrorEvent {
-                        dpu_name: dpu_name.clone(),
-                        device_name: device_name.clone(),
-                        node_name: node_name.clone(),
-                    })
-                    .await?;
-                }
-
-                if matches!(status.phase, DpuStatusPhase::Rebooting) {
-                    (cbs.reboot)(RebootRequiredEvent {
-                        dpu_name: dpu_name.clone(),
-                        node_name: node_name.clone(),
-                        host_bmc_ip: dpu.spec.bmc_ip.clone().unwrap_or_default(),
-                    })
-                    .await?;
-                }
-
-                Ok(())
             }
-        };
 
-        DpuWatcher {
-            watcher_task: tokio::spawn(self.repo.watch(
-                &self.namespace,
-                self.label_selector.as_deref(),
-                handler,
-            )),
+            if matches!(status.phase, DpuStatusPhase::Error) {
+                (cbs.error)(DpuErrorEvent {
+                    dpu_name: dpu_name.clone(),
+                    device_name: device_name.clone(),
+                    node_name: node_name.clone(),
+                })
+                .await?;
+            }
+
+            if matches!(status.phase, DpuStatusPhase::Rebooting) {
+                (cbs.reboot)(RebootRequiredEvent {
+                    dpu_name: dpu_name.clone(),
+                    node_name: node_name.clone(),
+                    host_bmc_ip: dpu.spec.bmc_ip.clone().unwrap_or_default(),
+                })
+                .await?;
+            }
+
+            Ok(())
         }
+    };
+
+    let watch_future = repo.watch(&namespace, label_selector.as_deref(), handler);
+    let task = async move {
+        cancel_token.run_until_cancelled(watch_future).await;
+    };
+
+    if let Some(js) = join_set {
+        js.build_task().name("dpf_dpu_watcher").spawn(task)?;
+    } else {
+        tokio::task::Builder::new()
+            .name("dpf_dpu_watcher")
+            .spawn(task)?;
     }
+
+    Ok(DpuWatcher {
+        _cancel_guard: guard,
+    })
 }

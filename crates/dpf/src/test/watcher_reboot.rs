@@ -39,7 +39,8 @@ async fn test_reboot_invoked() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu_reboot(TEST_NS, "d1", "dev", "n1"));
     c.wait_for(1).await;
@@ -68,7 +69,8 @@ async fn test_reboot_not_invoked_no_flag() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu(TEST_NS, "d1", "dev", "n1", DpuStatusPhase::Ready));
     dpu_events.wait_for(1).await;
@@ -88,7 +90,8 @@ async fn test_reboot_bmc_ip() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     let mut dpu = make_dpu_reboot(TEST_NS, "d1", "dev", "n1");
     dpu.spec.bmc_ip = Some("10.0.0.42".into());

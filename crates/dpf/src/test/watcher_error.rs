@@ -39,7 +39,8 @@ async fn test_error_fires_on_error_phase() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu(TEST_NS, "d1", "dev1", "n1", DpuStatusPhase::Error));
     c.wait_for(1).await;
@@ -71,7 +72,8 @@ async fn test_error_does_not_fire_on_ready() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu(TEST_NS, "d1", "dev1", "n1", DpuStatusPhase::Ready));
     dpu_events.wait_for(1).await;
@@ -102,7 +104,8 @@ async fn test_error_and_dpu_event_both_fire() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu(TEST_NS, "d1", "dev1", "n1", DpuStatusPhase::Error));
     dpu_events.wait_for(1).await;

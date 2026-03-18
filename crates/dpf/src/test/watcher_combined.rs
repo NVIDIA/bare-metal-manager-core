@@ -48,7 +48,8 @@ async fn test_ready_and_dpu_event_both_fire() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu(TEST_NS, "d1", "dev", "n1", DpuStatusPhase::Ready));
     dpu_events.wait_for(1).await;
@@ -79,7 +80,8 @@ async fn test_dpu_event_and_reboot_both_fire() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu_reboot(TEST_NS, "d1", "dev", "n1"));
     dpu_events.wait_for(1).await;
@@ -101,7 +103,8 @@ async fn test_dpu_no_status_ignored() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     let mut dpu_no_status = make_dpu(TEST_NS, "d1", "dev", "n1", DpuStatusPhase::Ready);
     dpu_no_status.status = None;
@@ -139,7 +142,8 @@ async fn test_multiple_events() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     for i in 0..5 {
         let p = if i % 2 == 0 {

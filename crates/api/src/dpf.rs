@@ -26,6 +26,7 @@ use carbide_dpf::{
     KubeRepository, ResourceLabeler, node_id_from_dpu_node_cr_name,
 };
 use sqlx::PgPool;
+use tokio::task::JoinSet;
 
 use crate::cfg::file::CarbideConfig;
 use crate::state_controller::controller::Enqueuer;
@@ -236,7 +237,11 @@ pub struct DpfSdkOps {
 
 impl DpfSdkOps {
     /// Create a new DpfSdkOps using the DPF SDK and sets up watcher callbacks to trigger carbide state handling.
-    pub fn new(sdk: Arc<DpfSdk<KubeRepository, CarbideDPFLabeler>>, db_pool: PgPool) -> Self {
+    pub fn new(
+        sdk: Arc<DpfSdk<KubeRepository, CarbideDPFLabeler>>,
+        db_pool: PgPool,
+        join_set: &mut JoinSet<()>,
+    ) -> std::io::Result<Self> {
         let watcher = sdk
             .watcher()
             .on_dpu_event(|event| async move {
@@ -305,12 +310,13 @@ impl DpfSdkOps {
                     }
                 }
             })
-            .start();
+            .with_join_set(join_set)
+            .start()?;
 
-        Self {
+        Ok(Self {
             sdk,
             _watcher: watcher,
-        }
+        })
     }
 }
 

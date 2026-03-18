@@ -641,7 +641,7 @@ async fn monitor_until_ready(
                 }
             }
         })
-        .start();
+        .start()?;
     drop(tx);
 
     let start = Instant::now();
@@ -1064,7 +1064,7 @@ async fn run_watcher(sdk: Arc<DpfSdk<KubeRepository>>) -> Result<(), Box<dyn std
             tracing::error!(dpu = %event.dpu_name, device_name = %event.device_name, node = %event.node_name, "ERROR");
             Ok(())
         })
-        .start();
+        .start()?;
 
     tokio::signal::ctrl_c().await?;
     tracing::info!("Stopping watcher...");

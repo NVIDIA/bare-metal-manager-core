@@ -290,7 +290,8 @@ async fn test_node_effect_maintenance_then_ready() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
 
     mock.wait_for_watchers(1).await;
 
@@ -409,7 +410,8 @@ async fn test_reboot_then_node_effect_then_ready() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
 
     mock.wait_for_watchers(1).await;
 

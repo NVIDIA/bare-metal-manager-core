@@ -404,6 +404,7 @@ pub async fn start_api(
         let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
             .with_labeler(crate::dpf::CarbideDPFLabeler)
             .with_bmc_password_refresh_interval(std::time::Duration::from_secs(60))
+            .with_join_set(join_set)
             .initialize(&init_config)
             .await
             .map_err(|err| eyre::eyre!("Failed to initialize DPF SDK: {err}"))?;
@@ -411,7 +412,8 @@ pub async fn start_api(
         Some(Arc::new(crate::dpf::DpfSdkOps::new(
             Arc::new(sdk),
             db_pool.clone(),
-        )))
+            join_set,
+        )?))
     } else {
         None
     };

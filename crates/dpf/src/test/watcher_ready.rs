@@ -39,7 +39,8 @@ async fn test_ready_invoked() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu(TEST_NS, "d1", "dev", "n1", DpuStatusPhase::Ready));
     c.wait_for(1).await;
@@ -68,7 +69,8 @@ async fn test_ready_not_invoked_non_ready() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu(
         TEST_NS,

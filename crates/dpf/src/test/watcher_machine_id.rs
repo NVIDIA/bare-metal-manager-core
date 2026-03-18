@@ -39,7 +39,8 @@ async fn test_machine_id_from_label() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu_labeled(
         TEST_NS,
@@ -66,7 +67,8 @@ async fn test_machine_id_fallback() {
                 Ok(())
             }
         })
-        .start();
+        .start()
+        .unwrap();
     m.wait_for_watchers(1).await;
     m.emit_dpu(make_dpu(
         TEST_NS,
