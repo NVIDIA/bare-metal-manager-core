@@ -15,9 +15,8 @@
  * limitations under the License.
  */
 use carbide_uuid::infiniband::IBPartitionId;
-use db::ib_partition::{IBPartition, IBPartitionStatus};
 use model::ib::{DEFAULT_IB_FABRIC_NAME, IBQosConf};
-use model::ib_partition::IBPartitionControllerState;
+use model::ib_partition::{IBPartition, IBPartitionControllerState, IBPartitionStatus};
 
 use crate::CarbideError;
 use crate::ib::{GetPartitionOptions, IBFabricManagerConfig};

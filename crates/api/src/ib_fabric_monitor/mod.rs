@@ -26,7 +26,6 @@ use std::time::Duration;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::machine::MachineId;
 use chrono::Utc;
-use db::ib_partition::IBPartition;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{self, DatabaseError};
 use health_report::OverrideMode;
@@ -34,7 +33,7 @@ use metrics::{
     AppliedChange, FabricMetrics, IbFabricMonitorMetrics, UfmOperation, UfmOperationStatus,
 };
 use model::ib::{IBNetwork, IBPort, IBPortMembership, IBPortState};
-use model::ib_partition::{IbPartitionSearchFilter, PartitionKey};
+use model::ib_partition::{IBPartition, IbPartitionSearchFilter, PartitionKey};
 use model::machine::infiniband::{
     MachineIbInterfaceStatusObservation, MachineInfinibandStatusObservation,
 };

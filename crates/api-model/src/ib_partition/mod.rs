@@ -15,12 +15,22 @@
  * limitations under the License.
  */
 
+use std::collections::HashMap;
 use std::str::FromStr;
 
-use config_version::ConfigVersion;
+use ::rpc::forge as rpc_forge;
+use carbide_uuid::infiniband::IBPartitionId;
+use chrono::{DateTime, Utc};
+use config_version::{ConfigVersion, Versioned};
 use serde::{Deserialize, Serialize};
+use sqlx::postgres::PgRow;
+use sqlx::{FromRow, Row};
 
 use crate::StateSla;
+use crate::controller_outcome::PersistentStateHandlerOutcome;
+use crate::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
+use crate::metadata::Metadata;
+use crate::tenant::TenantOrganizationId;
 
 mod slas;
 
@@ -145,6 +155,256 @@ impl std::fmt::Display for PartitionKey {
 impl From<PartitionKey> for u16 {
     fn from(v: PartitionKey) -> u16 {
         v.0
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct NewIBPartition {
+    pub id: IBPartitionId,
+    pub config: IBPartitionConfig,
+    pub metadata: Metadata,
+}
+
+impl TryFrom<rpc_forge::IbPartitionCreationRequest> for NewIBPartition {
+    type Error = rpc::errors::RpcDataConversionError;
+    fn try_from(value: rpc_forge::IbPartitionCreationRequest) -> Result<Self, Self::Error> {
+        let conf = value.config.ok_or_else(|| {
+            rpc::errors::RpcDataConversionError::InvalidArgument(
+                "IBPartition configuration is empty".to_string(),
+            )
+        })?;
+
+        let id = value.id.unwrap_or(uuid::Uuid::new_v4().into());
+        let name = conf.name.clone();
+
+        Ok(NewIBPartition {
+            id,
+            config: IBPartitionConfig::try_from(conf)?,
+            metadata: match value.metadata {
+                Some(m) => Metadata::try_from(m)?,
+                // Deprecated field handling
+                None => Metadata {
+                    name,
+                    ..Default::default()
+                },
+            },
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IBPartitionConfig {
+    pub name: String,
+    pub pkey: Option<PartitionKey>,
+    pub tenant_organization_id: TenantOrganizationId,
+    pub mtu: Option<IBMtu>,
+    pub rate_limit: Option<IBRateLimit>,
+    pub service_level: Option<IBServiceLevel>,
+}
+
+impl From<IBPartitionConfig> for rpc_forge::IbPartitionConfig {
+    fn from(conf: IBPartitionConfig) -> Self {
+        rpc_forge::IbPartitionConfig {
+            name: conf.name, // Deprecated field
+            tenant_organization_id: conf.tenant_organization_id.to_string(),
+            pkey: conf.pkey.map(|k| k.to_string()),
+        }
+    }
+}
+
+impl TryFrom<rpc_forge::IbPartitionConfig> for IBPartitionConfig {
+    type Error = rpc::errors::RpcDataConversionError;
+
+    fn try_from(conf: rpc_forge::IbPartitionConfig) -> Result<Self, Self::Error> {
+        if conf.tenant_organization_id.is_empty() {
+            return Err(rpc::errors::RpcDataConversionError::InvalidArgument(
+                "IBPartition organization_id is empty".to_string(),
+            ));
+        }
+
+        let tenant_organization_id =
+            TenantOrganizationId::try_from(conf.tenant_organization_id.clone()).map_err(|_| {
+                rpc::errors::RpcDataConversionError::InvalidArgument(conf.tenant_organization_id)
+            })?;
+
+        Ok(IBPartitionConfig {
+            name: conf.name,
+            pkey: None,
+            tenant_organization_id,
+            mtu: None,
+            rate_limit: None,
+            service_level: None,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IBPartitionStatus {
+    pub partition: Option<String>,
+    pub mtu: Option<IBMtu>,
+    pub rate_limit: Option<IBRateLimit>,
+    pub service_level: Option<IBServiceLevel>,
+    pub pkey: Option<PartitionKey>,
+}
+
+#[derive(Debug, Clone)]
+pub struct IBPartition {
+    pub id: IBPartitionId,
+    pub version: ConfigVersion,
+
+    pub config: IBPartitionConfig,
+    pub status: Option<IBPartitionStatus>,
+
+    pub deleted: Option<DateTime<Utc>>,
+
+    pub controller_state: Versioned<IBPartitionControllerState>,
+
+    /// The result of the last attempt to change state
+    pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+    // Columns for these exist, but are unused in rust code
+    // pub created: DateTime<Utc>,
+    // pub updated: DateTime<Utc>,
+    pub metadata: Metadata,
+}
+
+impl IBPartition {
+    /// Returns whether the IB partition was deleted by the user
+    pub fn is_marked_as_deleted(&self) -> bool {
+        self.deleted.is_some()
+    }
+}
+
+impl From<&IBPartition> for IBNetwork {
+    fn from(ib: &IBPartition) -> IBNetwork {
+        Self {
+            name: ib.metadata.name.clone(),
+            pkey: ib
+                .status
+                .as_ref()
+                .and_then(|s| s.pkey)
+                .map(u16::from)
+                .unwrap_or(0u16),
+            ipoib: true,
+            associated_guids: None,
+            membership: None,
+            qos_conf: Some(IBQosConf {
+                mtu: ib.config.mtu.clone().unwrap_or_default(),
+                rate_limit: ib.config.rate_limit.clone().unwrap_or_default(),
+                service_level: ib.config.service_level.clone().unwrap_or_default(),
+            }),
+        }
+    }
+}
+
+impl<'r> FromRow<'r, PgRow> for IBPartition {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let controller_state: sqlx::types::Json<IBPartitionControllerState> =
+            row.try_get("controller_state")?;
+        let state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
+            row.try_get("controller_state_outcome")?;
+
+        let status: Option<sqlx::types::Json<IBPartitionStatus>> = row.try_get("status")?;
+        let status = status.map(|s| s.0);
+
+        let tenant_organization_id_str: &str = row.try_get("organization_id")?;
+        let tenant_organization_id =
+            TenantOrganizationId::try_from(tenant_organization_id_str.to_string())
+                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+
+        let pkey: Option<i32> = row.try_get("pkey")?;
+        let mtu: i32 = row.try_get("mtu")?;
+        let rate_limit: i32 = row.try_get("rate_limit")?;
+        let service_level: i32 = row.try_get("service_level")?;
+        let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
+        let description: String = row.try_get("description")?;
+        let name: String = row.try_get("name")?;
+
+        Ok(IBPartition {
+            id: row.try_get("id")?,
+            version: row.try_get("config_version")?,
+            config: IBPartitionConfig {
+                name: name.clone(), // Derprecated field
+                pkey: pkey
+                    .map(|p| PartitionKey::try_from(p as u16))
+                    .transpose()
+                    .map_err(|_| {
+                        let err = eyre::eyre!("Pkey {} is not valid", pkey.unwrap_or_default());
+                        sqlx::Error::Decode(err.into())
+                    })?,
+                tenant_organization_id,
+                mtu: IBMtu::try_from(mtu).ok(),
+                rate_limit: IBRateLimit::try_from(rate_limit).ok(),
+                service_level: IBServiceLevel::try_from(service_level).ok(),
+            },
+            status,
+            metadata: Metadata {
+                name,
+                labels: labels.0,
+                description,
+            },
+            deleted: row.try_get("deleted")?,
+
+            controller_state: Versioned::new(
+                controller_state.0,
+                row.try_get("controller_state_version")?,
+            ),
+            controller_state_outcome: state_outcome.map(|x| x.0),
+        })
+    }
+}
+
+impl TryFrom<IBPartition> for rpc_forge::IbPartition {
+    type Error = rpc::errors::RpcDataConversionError;
+    fn try_from(src: IBPartition) -> Result<Self, Self::Error> {
+        let mut state = match &src.controller_state.value {
+            IBPartitionControllerState::Provisioning => rpc_forge::TenantState::Provisioning,
+            IBPartitionControllerState::Ready => rpc_forge::TenantState::Ready,
+            IBPartitionControllerState::Error { cause: _cause } => rpc_forge::TenantState::Failed,
+            IBPartitionControllerState::Deleting => rpc_forge::TenantState::Terminating,
+        };
+
+        if src.is_marked_as_deleted() {
+            state = rpc_forge::TenantState::Terminating;
+        }
+
+        let pkey = src
+            .status
+            .as_ref()
+            .and_then(|s| s.pkey.map(|k| k.to_string()));
+
+        let (partition, rate_limit, mtu, service_level) = match src.status {
+            Some(s) => (
+                s.partition,
+                s.rate_limit.map(IBRateLimit::into),
+                s.mtu.map(IBMtu::into),
+                s.service_level.map(IBServiceLevel::into),
+            ),
+            None => (None, None, None, None),
+        };
+
+        let status = Some(rpc_forge::IbPartitionStatus {
+            state: state as i32,
+            state_reason: src.controller_state_outcome.map(|r| r.into()),
+            state_sla: Some(
+                state_sla(&src.controller_state.value, &src.controller_state.version).into(),
+            ),
+            enable_sharp: Some(false),
+            partition,
+            pkey,
+            rate_limit,
+            mtu,
+            service_level,
+        });
+
+        let meatadata = src.metadata.into();
+
+        Ok(rpc_forge::IbPartition {
+            id: Some(src.id),
+            config_version: src.version.version_string(),
+            config: Some(src.config.into()),
+            status,
+            metadata: Some(meatadata),
+        })
     }
 }
 

@@ -19,9 +19,9 @@ use std::collections::HashMap;
 
 use carbide_uuid::infiniband::IBPartitionId;
 use db::db_read::PgPoolReader;
-use db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionStatus, NewIBPartition};
 use db::{self, ObjectColumnFilter};
 use model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
+use model::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionStatus, NewIBPartition};
 use model::metadata::Metadata;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{Label, TenantState};

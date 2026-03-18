@@ -19,11 +19,10 @@
 
 use carbide_uuid::infiniband::IBPartitionId;
 use config_version::{ConfigVersion, Versioned};
-use db::ib_partition::IBPartition;
 use db::{self, DatabaseError, ObjectColumnFilter};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::ib_partition::{self, IBPartitionControllerState};
+use model::ib_partition::{self, IBPartition, IBPartitionControllerState};
 use sqlx::PgConnection;
 
 use crate::state_controller::ib_partition::context::IBPartitionStateHandlerContextObjects;

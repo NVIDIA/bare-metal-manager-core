@@ -15,11 +15,10 @@
  * limitations under the License.
  */
 use ::rpc::forge as rpc;
-use db::ObjectColumnFilter;
-use db::ib_partition::{self, IBPartitionStatus, NewIBPartition};
 use db::resource_pool::ResourcePoolDatabaseError;
+use db::{ObjectColumnFilter, ib_partition};
 use model::ib::DEFAULT_IB_FABRIC_NAME;
-use model::ib_partition::PartitionKey;
+use model::ib_partition::{IBPartitionStatus, NewIBPartition, PartitionKey};
 use model::resource_pool;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
