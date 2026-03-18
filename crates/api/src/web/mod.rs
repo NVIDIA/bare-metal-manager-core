@@ -716,7 +716,7 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
     {
         Ok(x) if x == Off as i32 => "Off",
         Ok(x) if x == UpOnly as i32 => "Upgrade only",
-        Ok(x) if x == UpDown as i32 => "Upgade and Downgrade",
+        Ok(x) if x == UpDown as i32 => "Upgrade and Downgrade",
         Ok(_) => "Unknown",
         Err(err) => {
             tracing::error!(%err, "dpu_agent_upgrade_policy_action");
