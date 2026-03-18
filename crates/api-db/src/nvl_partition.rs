@@ -15,12 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
-use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
-use chrono::prelude::*;
-use serde::{Deserialize, Serialize};
-use sqlx::postgres::PgRow;
-use sqlx::{FromRow, PgConnection, Row};
+use carbide_uuid::nvlink::NvLinkPartitionId;
+use model::nvl_partition::{NewNvlPartition, NvlPartition, NvlPartitionSnapshotPgJson};
+use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
 use crate::{
@@ -38,111 +35,11 @@ impl ColumnInfo<'_> for IdColumn {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct NewNvlPartition {
-    pub id: NvLinkPartitionId,
-    pub name: NvlPartitionName,
-    pub logical_partition_id: NvLinkLogicalPartitionId,
-    pub domain_uuid: NvLinkDomainId,
-    pub nmx_m_id: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NvlPartitionStatus {
-    pub partition: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, sqlx::Type, sqlx::FromRow)]
-pub struct NvlPartitionName(String);
-
-impl TryFrom<String> for NvlPartitionName {
-    type Error = DatabaseError;
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Ok(NvlPartitionName(value))
-    }
-}
-
-impl From<NvlPartitionName> for String {
-    fn from(value: NvlPartitionName) -> Self {
-        value.0
-    }
-}
-#[derive(Debug, Clone)]
-pub struct NvlPartition {
-    pub id: NvLinkPartitionId,
-    pub nmx_m_id: String,
-    pub domain_uuid: NvLinkDomainId,
-    pub name: NvlPartitionName,
-    pub created: DateTime<Utc>,
-    pub updated: DateTime<Utc>,
-    pub deleted: Option<DateTime<Utc>>,
-    pub logical_partition_id: Option<NvLinkLogicalPartitionId>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct NvlPartitionSnapshotPgJson {
-    id: NvLinkPartitionId,
-    nmx_m_id: String,
-    name: NvlPartitionName,
-    domain_uuid: NvLinkDomainId,
-    created: DateTime<Utc>,
-    updated: DateTime<Utc>,
-    deleted: Option<DateTime<Utc>>,
-
-    logical_partition_id: Option<NvLinkLogicalPartitionId>,
-}
-
-impl TryFrom<NvlPartitionSnapshotPgJson> for NvlPartition {
-    type Error = sqlx::Error;
-    fn try_from(value: NvlPartitionSnapshotPgJson) -> sqlx::Result<Self> {
-        Ok(Self {
-            id: value.id,
-            nmx_m_id: value.nmx_m_id,
-            domain_uuid: value.domain_uuid,
-            name: value.name,
-            created: value.created,
-            updated: value.updated,
-            deleted: value.deleted,
-            logical_partition_id: value.logical_partition_id,
-        })
-    }
-}
-
-impl<'r> FromRow<'r, PgRow> for NvlPartitionSnapshotPgJson {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let json: serde_json::value::Value = row.try_get(0)?;
-        NvlPartitionSnapshotPgJson::deserialize(json).map_err(|err| sqlx::Error::Decode(err.into()))
-    }
-}
-
-impl<'r> FromRow<'r, PgRow> for NvlPartition {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let json: serde_json::value::Value = row.try_get(0)?;
-        NvlPartitionSnapshotPgJson::deserialize(json)
-            .map_err(|err| sqlx::Error::Decode(err.into()))?
-            .try_into()
-    }
-}
-
-///
-/// Marshal a Data Object (NvlPartition) into an RPC NvlPartition
-///
-impl TryFrom<NvlPartition> for rpc::NvLinkPartition {
-    type Error = DatabaseError;
-    fn try_from(src: NvlPartition) -> Result<Self, Self::Error> {
-        Ok(rpc::NvLinkPartition {
-            id: Some(src.id),
-            name: src.name.clone().into(),
-            nmx_m_id: src.nmx_m_id,
-            domain_uuid: Some(src.domain_uuid),
-            logical_partition_id: src.logical_partition_id,
-        })
-    }
-}
-
-impl NewNvlPartition {
-    pub async fn create(&self, txn: &mut PgConnection) -> Result<NvlPartition, DatabaseError> {
-        let query = "INSERT INTO nvlink_partitions (
+pub async fn create(
+    value: &NewNvlPartition,
+    txn: &mut PgConnection,
+) -> Result<NvlPartition, DatabaseError> {
+    let query = "INSERT INTO nvlink_partitions (
                 id,
                 nmx_m_id,
                 name,
@@ -151,19 +48,18 @@ impl NewNvlPartition {
             VALUES ($1, $2, $3, $4, $5)
             RETURNING row_to_json(nvlink_partitions.*)";
 
-        let partition: NvlPartitionSnapshotPgJson = sqlx::query_as(query)
-            .bind(self.id)
-            .bind(&self.nmx_m_id)
-            .bind(&self.name.0)
-            .bind(self.domain_uuid)
-            .bind(self.logical_partition_id)
-            .fetch_one(txn)
-            .await
-            .map_err(|e| DatabaseError::new(query, e))?;
-        partition
-            .try_into()
-            .map_err(|e| DatabaseError::new(query, e))
-    }
+    let partition: NvlPartitionSnapshotPgJson = sqlx::query_as(query)
+        .bind(value.id)
+        .bind(&value.nmx_m_id)
+        .bind(value.name.as_str())
+        .bind(value.domain_uuid)
+        .bind(value.logical_partition_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new(query, e))?;
+    partition
+        .try_into()
+        .map_err(|e| DatabaseError::new(query, e))
 }
 
 /// Retrieves the IDs of all NvLink partitions
@@ -259,11 +155,6 @@ pub async fn mark_as_deleted(
     partition
         .try_into()
         .map_err(|e| DatabaseError::new(query, e))
-}
-
-/// Returns whether the NvLink partition was deleted
-pub fn is_marked_as_deleted(partition: &NvlPartition) -> bool {
-    partition.deleted.is_some()
 }
 
 pub async fn final_delete(
