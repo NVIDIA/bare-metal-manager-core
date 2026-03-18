@@ -7,7 +7,7 @@ use std::net::IpAddr;
 use mac_address::MacAddress;
 
 use crate::error::ComponentManagerError;
-use crate::types::{FirmwareState, PowerAction};
+use crate::types::{FirmwareState, PowerAction, PowerShelfComponent};
 
 /// Physical network identifiers for a power shelf, used to register with and
 /// operate against the backend service (PSM).
@@ -43,6 +43,13 @@ pub struct PowerShelfFirmwareUpdateStatus {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct PowerShelfFirmwareVersions {
+    pub pmc_mac: MacAddress,
+    pub versions: Vec<String>,
+    pub error: Option<String>,
+}
+
 /// Backend trait for power shelf management operations.
 ///
 /// Implementations receive physical endpoint information (PMC IP/MAC + vendor)
@@ -62,7 +69,7 @@ pub trait PowerShelfManager: Send + Sync + Debug + 'static {
         &self,
         endpoints: &[PowerShelfEndpoint],
         target_version: &str,
-        components: &[String],
+        components: &[PowerShelfComponent],
     ) -> Result<Vec<PowerShelfComponentResult>, ComponentManagerError>;
 
     async fn get_firmware_status(
@@ -73,5 +80,5 @@ pub trait PowerShelfManager: Send + Sync + Debug + 'static {
     async fn list_firmware(
         &self,
         endpoints: &[PowerShelfEndpoint],
-    ) -> Result<Vec<String>, ComponentManagerError>;
+    ) -> Result<Vec<PowerShelfFirmwareVersions>, ComponentManagerError>;
 }

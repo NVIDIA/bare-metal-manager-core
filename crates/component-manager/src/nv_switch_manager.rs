@@ -7,7 +7,7 @@ use std::net::IpAddr;
 use mac_address::MacAddress;
 
 use crate::error::ComponentManagerError;
-use crate::types::{FirmwareState, PowerAction};
+use crate::types::{FirmwareState, NvSwitchComponent, PowerAction};
 
 /// Physical network identifiers for an NV-Switch, used to register with and
 /// operate against the backend service (NSM).
@@ -54,7 +54,7 @@ pub trait NvSwitchManager: Send + Sync + Debug + 'static {
         &self,
         endpoints: &[SwitchEndpoint],
         bundle_version: &str,
-        components: &[String],
+        components: &[NvSwitchComponent],
     ) -> Result<Vec<SwitchComponentResult>, ComponentManagerError>;
 
     async fn get_firmware_status(

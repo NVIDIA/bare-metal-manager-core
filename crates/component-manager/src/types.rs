@@ -28,6 +28,22 @@ pub enum FirmwareState {
     Cancelled,
 }
 
+/// Updatable components of an NV-Switch tray.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NvSwitchComponent {
+    Bmc,
+    Cpld,
+    Bios,
+    Nvos,
+}
+
+/// Updatable components of a power shelf.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PowerShelfComponent {
+    Pmc,
+    Psu,
+}
+
 pub fn parse_mac(s: &str) -> Result<MacAddress, ComponentManagerError> {
     s.parse::<MacAddress>()
         .map_err(|e| ComponentManagerError::Internal(format!("invalid MAC from backend: {e}")))

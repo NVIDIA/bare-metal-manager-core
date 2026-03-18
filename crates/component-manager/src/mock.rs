@@ -7,9 +7,9 @@ use crate::nv_switch_manager::{
 };
 use crate::power_shelf_manager::{
     PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfFirmwareUpdateStatus,
-    PowerShelfManager,
+    PowerShelfFirmwareVersions, PowerShelfManager,
 };
-use crate::types::{FirmwareState, PowerAction};
+use crate::types::{FirmwareState, NvSwitchComponent, PowerAction, PowerShelfComponent};
 
 #[derive(Debug, Default)]
 pub struct MockNvSwitchManager;
@@ -39,7 +39,7 @@ impl NvSwitchManager for MockNvSwitchManager {
         &self,
         endpoints: &[SwitchEndpoint],
         _bundle_version: &str,
-        _components: &[String],
+        _components: &[NvSwitchComponent],
     ) -> Result<Vec<SwitchComponentResult>, ComponentManagerError> {
         Ok(endpoints
             .iter()
@@ -99,7 +99,7 @@ impl PowerShelfManager for MockPowerShelfManager {
         &self,
         endpoints: &[PowerShelfEndpoint],
         _target_version: &str,
-        _components: &[String],
+        _components: &[PowerShelfComponent],
     ) -> Result<Vec<PowerShelfComponentResult>, ComponentManagerError> {
         Ok(endpoints
             .iter()
@@ -128,8 +128,15 @@ impl PowerShelfManager for MockPowerShelfManager {
 
     async fn list_firmware(
         &self,
-        _endpoints: &[PowerShelfEndpoint],
-    ) -> Result<Vec<String>, ComponentManagerError> {
-        Ok(vec!["mock-1.0.0".into(), "mock-2.0.0".into()])
+        endpoints: &[PowerShelfEndpoint],
+    ) -> Result<Vec<PowerShelfFirmwareVersions>, ComponentManagerError> {
+        Ok(endpoints
+            .iter()
+            .map(|ep| PowerShelfFirmwareVersions {
+                pmc_mac: ep.pmc_mac,
+                versions: vec!["mock-1.0.0".into(), "mock-2.0.0".into()],
+                error: None,
+            })
+            .collect())
     }
 }

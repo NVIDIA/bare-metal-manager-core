@@ -6947,14 +6947,48 @@ message FirmwareUpdateStatus {
   google.protobuf.Timestamp updated_at = 4;
 }
 
+enum NvSwitchComponent {
+  NV_SWITCH_COMPONENT_UNKNOWN = 0;
+  NV_SWITCH_COMPONENT_BMC = 1;
+  NV_SWITCH_COMPONENT_CPLD = 2;
+  NV_SWITCH_COMPONENT_BIOS = 3;
+  NV_SWITCH_COMPONENT_NVOS = 4;
+}
+
+enum PowerShelfComponent {
+  POWER_SHELF_COMPONENT_UNKNOWN = 0;
+  POWER_SHELF_COMPONENT_PMC = 1;
+  POWER_SHELF_COMPONENT_PSU = 2;
+}
+
+enum ComputeTrayComponent {
+  COMPUTE_TRAY_COMPONENT_UNKNOWN = 0;
+  COMPUTE_TRAY_COMPONENT_BMC = 1;
+  COMPUTE_TRAY_COMPONENT_BIOS = 2;
+}
+
+message UpdateComputeTrayFirmwareTarget {
+  common.MachineIdList machine_ids = 1;
+  repeated ComputeTrayComponent components = 2;
+}
+
+message UpdateSwitchFirmwareTarget {
+  SwitchIdList switch_ids = 1;
+  repeated NvSwitchComponent components = 2;
+}
+
+message UpdatePowerShelfFirmwareTarget {
+  PowerShelfIdList power_shelf_ids = 1;
+  repeated PowerShelfComponent components = 2;
+}
+
 message UpdateComponentFirmwareRequest {
   oneof target {
-    common.MachineIdList machine_ids = 1;
-    SwitchIdList switch_ids = 2;
-    PowerShelfIdList power_shelf_ids = 3;
+    UpdateComputeTrayFirmwareTarget compute_trays = 1;
+    UpdateSwitchFirmwareTarget switches = 2;
+    UpdatePowerShelfFirmwareTarget power_shelves = 3;
   }
   string target_version = 4;
-  repeated string components = 5;
 }
 
 message UpdateComponentFirmwareResponse {
@@ -6981,7 +7015,11 @@ message ListComponentFirmwareVersionsRequest {
   }
 }
 
-message ListComponentFirmwareVersionsResponse {
+message DeviceFirmwareVersions {
   ComponentResult result = 1;
   repeated string versions = 2;
+}
+
+message ListComponentFirmwareVersionsResponse {
+  repeated DeviceFirmwareVersions devices = 1;
 }

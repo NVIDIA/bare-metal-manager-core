@@ -13,7 +13,7 @@ use crate::nv_switch_manager::{
     NvSwitchManager, SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus,
 };
 use crate::proto::nsm;
-use crate::types::{FirmwareState, PowerAction, parse_mac};
+use crate::types::{FirmwareState, NvSwitchComponent, PowerAction, parse_mac};
 
 #[derive(Debug)]
 pub struct NsmSwitchBackend {
@@ -29,6 +29,15 @@ impl NsmSwitchBackend {
         Ok(Self {
             client: nsm::nv_switch_manager_client::NvSwitchManagerClient::new(channel),
         })
+    }
+}
+
+fn to_nsm_component(c: &NvSwitchComponent) -> nsm::NvSwitchComponent {
+    match c {
+        NvSwitchComponent::Bmc => nsm::NvSwitchComponent::NvswitchComponentBmc,
+        NvSwitchComponent::Cpld => nsm::NvSwitchComponent::NvswitchComponentCpld,
+        NvSwitchComponent::Bios => nsm::NvSwitchComponent::NvswitchComponentBios,
+        NvSwitchComponent::Nvos => nsm::NvSwitchComponent::NvswitchComponentNvos,
     }
 }
 
@@ -49,48 +58,54 @@ fn map_nsm_update_state(state: i32) -> FirmwareState {
     }
 }
 
-/// Builds registration requests from endpoints.
-fn build_registration(endpoints: &[SwitchEndpoint]) -> Vec<nsm::RegisterNvSwitchRequest> {
-    endpoints
-        .iter()
-        .map(|ep| nsm::RegisterNvSwitchRequest {
-            vendor: nsm::Vendor::Nvidia as i32,
-            bmc: Some(nsm::Subsystem {
-                mac_address: ep.bmc_mac.to_string(),
-                ip_address: ep.bmc_ip.to_string(),
-                credentials: None,
-                port: 0,
-            }),
-            nvos: Some(nsm::Subsystem {
-                mac_address: ep.nvos_mac.to_string(),
-                ip_address: ep.nvos_ip.to_string(),
-                credentials: None,
-                port: 0,
-            }),
-            rack_id: String::new(),
-        })
-        .collect()
+/// Builds a single registration request for an endpoint.
+fn build_registration(ep: &SwitchEndpoint) -> nsm::RegisterNvSwitchRequest {
+    nsm::RegisterNvSwitchRequest {
+        vendor: nsm::Vendor::Nvidia as i32,
+        bmc: Some(nsm::Subsystem {
+            mac_address: ep.bmc_mac.to_string(),
+            ip_address: ep.bmc_ip.to_string(),
+            credentials: None,
+            port: 0,
+        }),
+        nvos: Some(nsm::Subsystem {
+            mac_address: ep.nvos_mac.to_string(),
+            ip_address: ep.nvos_ip.to_string(),
+            credentials: None,
+            port: 0,
+        }),
+        rack_id: String::new(),
+    }
 }
 
-/// Registers endpoints with NSM and returns bidirectional maps between
-/// BMC MAC and NSM-generated UUID.
+/// Registers endpoints with NSM one at a time and returns bidirectional
+/// maps between BMC MAC and NSM-generated UUID.
+///
+/// Each endpoint is registered individually to avoid relying on response
+/// ordering from the batch API. This can be switched back to batch
+/// registration once NSM includes a correlation key (e.g. BMC MAC) in
+/// RegisterNVSwitchResponse.
 async fn register_and_map(
     client: &mut nsm::nv_switch_manager_client::NvSwitchManagerClient<Channel>,
     endpoints: &[SwitchEndpoint],
 ) -> Result<(HashMap<MacAddress, String>, HashMap<String, MacAddress>), ComponentManagerError> {
-    let reqs = build_registration(endpoints);
-
-    let response = client
-        .register_nv_switches(nsm::RegisterNvSwitchesRequest {
-            registration_requests: reqs,
-        })
-        .await?
-        .into_inner();
-
     let mut mac_to_uuid: HashMap<MacAddress, String> = HashMap::new();
     let mut uuid_to_mac: HashMap<String, MacAddress> = HashMap::new();
 
-    for (ep, reg_resp) in endpoints.iter().zip(response.responses.iter()) {
+    for ep in endpoints {
+        let req = build_registration(ep);
+        let response = client
+            .register_nv_switches(nsm::RegisterNvSwitchesRequest {
+                registration_requests: vec![req],
+            })
+            .await?
+            .into_inner();
+
+        let Some(reg_resp) = response.responses.into_iter().next() else {
+            tracing::warn!(bmc_mac = %ep.bmc_mac, "NSM returned empty response for switch");
+            continue;
+        };
+
         if reg_resp.status != nsm::StatusCode::Success as i32 {
             tracing::warn!(
                 bmc_mac = %ep.bmc_mac,
@@ -99,6 +114,7 @@ async fn register_and_map(
             );
             continue;
         }
+
         mac_to_uuid.insert(ep.bmc_mac, reg_resp.uuid.clone());
         uuid_to_mac.insert(reg_resp.uuid.clone(), ep.bmc_mac);
     }
@@ -127,6 +143,20 @@ impl NvSwitchManager for NsmSwitchBackend {
         let (mac_to_uuid, uuid_to_mac) =
             register_and_map(&mut self.client.clone(), endpoints).await?;
 
+        let mut results: Vec<SwitchComponentResult> = Vec::new();
+        let mut uuids: Vec<String> = Vec::new();
+
+        for ep in endpoints {
+            match mac_to_uuid.get(&ep.bmc_mac) {
+                Some(uuid) => uuids.push(uuid.clone()),
+                None => results.push(SwitchComponentResult {
+                    bmc_mac: ep.bmc_mac,
+                    success: false,
+                    error: Some("NSM registration failed for switch".into()),
+                }),
+            }
+        }
+
         let nsm_action = match action {
             PowerAction::On => nsm::PowerAction::On,
             PowerAction::GracefulShutdown => nsm::PowerAction::GracefulShutdown,
@@ -136,33 +166,26 @@ impl NvSwitchManager for NsmSwitchBackend {
             PowerAction::AcPowercycle => nsm::PowerAction::PowerCycle,
         };
 
-        let uuids: Vec<String> = endpoints
-            .iter()
-            .filter_map(|ep| mac_to_uuid.get(&ep.bmc_mac).cloned())
-            .collect();
+        if !uuids.is_empty() {
+            let request = nsm::PowerControlRequest {
+                uuids,
+                action: nsm_action as i32,
+            };
 
-        let request = nsm::PowerControlRequest {
-            uuids,
-            action: nsm_action as i32,
-        };
+            let response = self
+                .client
+                .clone()
+                .power_control(request)
+                .await?
+                .into_inner();
 
-        let response = self
-            .client
-            .clone()
-            .power_control(request)
-            .await?
-            .into_inner();
-
-        response
-            .responses
-            .into_iter()
-            .map(|r| {
+            for r in response.responses {
                 let bmc_mac = uuid_to_mac
                     .get(&r.uuid)
                     .copied()
                     .map(Ok)
                     .unwrap_or_else(|| parse_mac(&r.uuid))?;
-                Ok(SwitchComponentResult {
+                results.push(SwitchComponentResult {
                     bmc_mac,
                     success: r.status == nsm::StatusCode::Success as i32,
                     error: if r.error.is_empty() {
@@ -170,9 +193,11 @@ impl NvSwitchManager for NsmSwitchBackend {
                     } else {
                         Some(r.error)
                     },
-                })
-            })
-            .collect()
+                });
+            }
+        }
+
+        Ok(results)
     }
 
     #[instrument(skip(self), fields(backend = "nsm"))]
@@ -180,39 +205,51 @@ impl NvSwitchManager for NsmSwitchBackend {
         &self,
         endpoints: &[SwitchEndpoint],
         bundle_version: &str,
-        _components: &[String],
+        components: &[NvSwitchComponent],
     ) -> Result<Vec<SwitchComponentResult>, ComponentManagerError> {
         let (mac_to_uuid, uuid_to_mac) =
             register_and_map(&mut self.client.clone(), endpoints).await?;
 
-        let uuids: Vec<String> = endpoints
-            .iter()
-            .filter_map(|ep| mac_to_uuid.get(&ep.bmc_mac).cloned())
-            .collect();
+        let mut results: Vec<SwitchComponentResult> = Vec::new();
+        let mut uuids: Vec<String> = Vec::new();
 
-        let request = nsm::QueueUpdatesRequest {
-            switch_uuids: uuids,
-            bundle_version: bundle_version.to_owned(),
-            components: vec![],
-        };
+        for ep in endpoints {
+            match mac_to_uuid.get(&ep.bmc_mac) {
+                Some(uuid) => uuids.push(uuid.clone()),
+                None => results.push(SwitchComponentResult {
+                    bmc_mac: ep.bmc_mac,
+                    success: false,
+                    error: Some("NSM registration failed for switch".into()),
+                }),
+            }
+        }
 
-        let response = self
-            .client
-            .clone()
-            .queue_updates(request)
-            .await?
-            .into_inner();
+        if !uuids.is_empty() {
+            let nsm_components: Vec<i32> = components
+                .iter()
+                .map(|c| to_nsm_component(c) as i32)
+                .collect();
 
-        response
-            .results
-            .into_iter()
-            .map(|r| {
+            let request = nsm::QueueUpdatesRequest {
+                switch_uuids: uuids,
+                bundle_version: bundle_version.to_owned(),
+                components: nsm_components,
+            };
+
+            let response = self
+                .client
+                .clone()
+                .queue_updates(request)
+                .await?
+                .into_inner();
+
+            for r in response.results {
                 let bmc_mac = uuid_to_mac
                     .get(&r.switch_uuid)
                     .copied()
                     .map(Ok)
                     .unwrap_or_else(|| parse_mac(&r.switch_uuid))?;
-                Ok(SwitchComponentResult {
+                results.push(SwitchComponentResult {
                     bmc_mac,
                     success: r.status == nsm::StatusCode::Success as i32,
                     error: if r.error.is_empty() {
@@ -220,9 +257,11 @@ impl NvSwitchManager for NsmSwitchBackend {
                     } else {
                         Some(r.error)
                     },
-                })
-            })
-            .collect()
+                });
+            }
+        }
+
+        Ok(results)
     }
 
     #[instrument(skip(self), fields(backend = "nsm"))]
@@ -234,10 +273,18 @@ impl NvSwitchManager for NsmSwitchBackend {
             register_and_map(&mut self.client.clone(), endpoints).await?;
 
         let mut statuses = Vec::new();
+
         for ep in endpoints {
             let Some(uuid) = mac_to_uuid.get(&ep.bmc_mac) else {
+                statuses.push(SwitchFirmwareUpdateStatus {
+                    bmc_mac: ep.bmc_mac,
+                    state: FirmwareState::Unknown,
+                    target_version: String::new(),
+                    error: Some("NSM registration failed for switch".into()),
+                });
                 continue;
             };
+
             let request = nsm::GetUpdatesForSwitchRequest {
                 switch_uuid: uuid.clone(),
             };
@@ -347,12 +394,6 @@ mod tests {
     }
 
     #[test]
-    fn build_registration_empty() {
-        let reqs = build_registration(&[]);
-        assert!(reqs.is_empty());
-    }
-
-    #[test]
     fn build_registration_populates_fields() {
         let ep = SwitchEndpoint {
             bmc_ip: "10.0.0.1".parse().unwrap(),
@@ -360,10 +401,7 @@ mod tests {
             nvos_ip: "10.0.0.2".parse().unwrap(),
             nvos_mac: "AA:BB:CC:DD:EE:02".parse().unwrap(),
         };
-        let reqs = build_registration(&[ep]);
-        assert_eq!(reqs.len(), 1);
-
-        let req = &reqs[0];
+        let req = build_registration(&ep);
         assert_eq!(req.vendor, nsm::Vendor::Nvidia as i32);
 
         let bmc = req.bmc.as_ref().unwrap();
@@ -373,5 +411,25 @@ mod tests {
         let nvos = req.nvos.as_ref().unwrap();
         assert_eq!(nvos.ip_address, "10.0.0.2");
         assert_eq!(nvos.mac_address, "AA:BB:CC:DD:EE:02");
+    }
+
+    #[test]
+    fn to_nsm_component_all_variants() {
+        assert_eq!(
+            to_nsm_component(&NvSwitchComponent::Bmc),
+            nsm::NvSwitchComponent::NvswitchComponentBmc
+        );
+        assert_eq!(
+            to_nsm_component(&NvSwitchComponent::Cpld),
+            nsm::NvSwitchComponent::NvswitchComponentCpld
+        );
+        assert_eq!(
+            to_nsm_component(&NvSwitchComponent::Bios),
+            nsm::NvSwitchComponent::NvswitchComponentBios
+        );
+        assert_eq!(
+            to_nsm_component(&NvSwitchComponent::Nvos),
+            nsm::NvSwitchComponent::NvswitchComponentNvos
+        );
     }
 }

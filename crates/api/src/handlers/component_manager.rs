@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 
 use ::rpc::common::SystemPowerControl;
@@ -26,7 +26,7 @@ use component_manager::component_manager::ComponentManager;
 use component_manager::error::ComponentManagerError;
 use component_manager::nv_switch_manager::SwitchEndpoint;
 use component_manager::power_shelf_manager::{PowerShelfEndpoint, PowerShelfVendor};
-use component_manager::types::PowerAction;
+use component_manager::types::{NvSwitchComponent, PowerAction, PowerShelfComponent};
 use db;
 use mac_address::MacAddress;
 use tonic::{Request, Response, Status};
@@ -109,30 +109,64 @@ fn map_power_action(raw: i32) -> Result<PowerAction, Status> {
         Ok(SystemPowerControl::GracefulRestart) => Ok(PowerAction::GracefulRestart),
         Ok(SystemPowerControl::ForceRestart) => Ok(PowerAction::ForceRestart),
         Ok(SystemPowerControl::AcPowercycle) => Ok(PowerAction::AcPowercycle),
-        Err(_) => Err(Status::invalid_argument(format!(
+        Ok(SystemPowerControl::Unknown) | Err(_) => Err(Status::invalid_argument(format!(
             "unknown power action: {raw}"
         ))),
     }
 }
 
+fn map_nv_switch_components(raw: &[i32]) -> Result<Vec<NvSwitchComponent>, Status> {
+    raw.iter()
+        .filter(|&&v| v != rpc::NvSwitchComponent::Unknown as i32)
+        .map(|&v| match rpc::NvSwitchComponent::try_from(v) {
+            Ok(rpc::NvSwitchComponent::Bmc) => Ok(NvSwitchComponent::Bmc),
+            Ok(rpc::NvSwitchComponent::Cpld) => Ok(NvSwitchComponent::Cpld),
+            Ok(rpc::NvSwitchComponent::Bios) => Ok(NvSwitchComponent::Bios),
+            Ok(rpc::NvSwitchComponent::Nvos) => Ok(NvSwitchComponent::Nvos),
+            _ => Err(Status::invalid_argument(format!(
+                "unknown NV-Switch component: {v}"
+            ))),
+        })
+        .collect()
+}
+
+fn map_power_shelf_components(raw: &[i32]) -> Result<Vec<PowerShelfComponent>, Status> {
+    raw.iter()
+        .filter(|&&v| v != rpc::PowerShelfComponent::Unknown as i32)
+        .map(|&v| match rpc::PowerShelfComponent::try_from(v) {
+            Ok(rpc::PowerShelfComponent::Pmc) => Ok(PowerShelfComponent::Pmc),
+            Ok(rpc::PowerShelfComponent::Psu) => Ok(PowerShelfComponent::Psu),
+            _ => Err(Status::invalid_argument(format!(
+                "unknown power shelf component: {v}"
+            ))),
+        })
+        .collect()
+}
+
 // ---- Endpoint resolution helpers ----
 
-struct ResolvedSwitches {
+struct ResolvedSwitchEndpoints {
     endpoints: Vec<SwitchEndpoint>,
     mac_to_id: HashMap<MacAddress, SwitchId>,
+}
+
+struct SwitchEndpoints {
+    resolved: ResolvedSwitchEndpoints,
+    unresolved: Vec<SwitchId>,
 }
 
 async fn resolve_switch_endpoints(
     api: &Api,
     switch_ids: &[SwitchId],
-) -> Result<ResolvedSwitches, Status> {
+) -> Result<SwitchEndpoints, Status> {
     let rows = db::switch::find_switch_endpoints_by_ids(&mut api.db_reader(), switch_ids)
         .await
         .map_err(|e| Status::internal(format!("db error resolving switch endpoints: {e}")))?;
 
     let mut endpoints = Vec::with_capacity(rows.len());
     let mut mac_to_id = HashMap::with_capacity(rows.len());
-    let mut skipped = Vec::new();
+    let mut unresolved = Vec::new();
+    let mut resolved_ids = HashSet::with_capacity(rows.len());
 
     for row in rows {
         let (Some(nvos_mac), Some(nvos_ip)) = (row.nvos_mac, row.nvos_ip) else {
@@ -140,9 +174,11 @@ async fn resolve_switch_endpoints(
                 switch_id = %row.switch_id,
                 "skipping switch: NVOS MAC or IP not available"
             );
-            skipped.push(row.switch_id);
+            unresolved.push(row.switch_id);
+            resolved_ids.insert(row.switch_id);
             continue;
         };
+        resolved_ids.insert(row.switch_id);
         mac_to_id.insert(row.bmc_mac, row.switch_id);
         endpoints.push(SwitchEndpoint {
             bmc_ip: row.bmc_ip,
@@ -152,28 +188,43 @@ async fn resolve_switch_endpoints(
         });
     }
 
-    if !skipped.is_empty() {
+    for id in switch_ids {
+        if !resolved_ids.contains(id) {
+            tracing::warn!(switch_id = %id, "switch not found in expected_switches");
+            unresolved.push(*id);
+        }
+    }
+
+    if !unresolved.is_empty() {
         tracing::warn!(
-            count = skipped.len(),
-            "some switches were skipped due to missing NVOS info"
+            count = unresolved.len(),
+            "some switches could not be resolved to endpoints"
         );
     }
 
-    Ok(ResolvedSwitches {
-        endpoints,
-        mac_to_id,
+    Ok(SwitchEndpoints {
+        resolved: ResolvedSwitchEndpoints {
+            endpoints,
+            mac_to_id,
+        },
+        unresolved,
     })
 }
 
-struct ResolvedPowerShelves {
+struct ResolvedPowerShelfEndpoints {
     endpoints: Vec<PowerShelfEndpoint>,
     mac_to_id: HashMap<MacAddress, PowerShelfId>,
+}
+
+struct PowerShelfEndpoints {
+    resolved: ResolvedPowerShelfEndpoints,
+    unresolved: Vec<PowerShelfId>,
 }
 
 async fn resolve_power_shelf_endpoints(
     api: &Api,
     power_shelf_ids: &[PowerShelfId],
-) -> Result<ResolvedPowerShelves, Status> {
+) -> Result<PowerShelfEndpoints, Status> {
     let rows =
         db::power_shelf::find_power_shelf_endpoints_by_ids(&mut api.db_reader(), power_shelf_ids)
             .await
@@ -183,8 +234,10 @@ async fn resolve_power_shelf_endpoints(
 
     let mut endpoints = Vec::with_capacity(rows.len());
     let mut mac_to_id = HashMap::with_capacity(rows.len());
+    let mut resolved_ids = HashSet::with_capacity(rows.len());
 
     for row in rows {
+        resolved_ids.insert(row.power_shelf_id);
         mac_to_id.insert(row.pmc_mac, row.power_shelf_id);
         endpoints.push(PowerShelfEndpoint {
             pmc_ip: row.pmc_ip,
@@ -194,9 +247,27 @@ async fn resolve_power_shelf_endpoints(
         });
     }
 
-    Ok(ResolvedPowerShelves {
-        endpoints,
-        mac_to_id,
+    let mut unresolved = Vec::new();
+    for id in power_shelf_ids {
+        if !resolved_ids.contains(id) {
+            tracing::warn!(power_shelf_id = %id, "power shelf not found in expected_power_shelves");
+            unresolved.push(*id);
+        }
+    }
+
+    if !unresolved.is_empty() {
+        tracing::warn!(
+            count = unresolved.len(),
+            "some power shelves could not be resolved to endpoints"
+        );
+    }
+
+    Ok(PowerShelfEndpoints {
+        resolved: ResolvedPowerShelfEndpoints {
+            endpoints,
+            mac_to_id,
+        },
+        unresolved,
     })
 }
 
@@ -245,54 +316,74 @@ pub(crate) async fn component_power_control(
 
     let results = match target {
         rpc::component_power_control_request::Target::SwitchIds(list) => {
-            let resolved = resolve_switch_endpoints(api, &list.ids).await?;
+            let endpoints = resolve_switch_endpoints(api, &list.ids).await?;
+
+            let mut results: Vec<_> = endpoints
+                .unresolved
+                .iter()
+                .map(|id| {
+                    error_result(
+                        &id.to_string(),
+                        "could not resolve endpoint for switch".into(),
+                    )
+                })
+                .collect();
+
             tracing::info!(
                 backend = cm.nv_switch.name(),
-                count = resolved.endpoints.len(),
+                count = endpoints.resolved.endpoints.len(),
                 ?action,
                 "power control for switches"
             );
             let backend_results = cm
                 .nv_switch
-                .power_control(&resolved.endpoints, action)
+                .power_control(&endpoints.resolved.endpoints, action)
                 .await
                 .map_err(component_manager_error_to_status)?;
-            backend_results
-                .into_iter()
-                .map(|r| {
-                    let id = switch_mac_to_id_str(&r.bmc_mac, &resolved.mac_to_id);
-                    if r.success {
-                        success_result(&id)
-                    } else {
-                        error_result(&id, r.error.unwrap_or_default())
-                    }
-                })
-                .collect()
+            results.extend(backend_results.into_iter().map(|r| {
+                let id = switch_mac_to_id_str(&r.bmc_mac, &endpoints.resolved.mac_to_id);
+                if r.success {
+                    success_result(&id)
+                } else {
+                    error_result(&id, r.error.unwrap_or_default())
+                }
+            }));
+            results
         }
         rpc::component_power_control_request::Target::PowerShelfIds(list) => {
-            let resolved = resolve_power_shelf_endpoints(api, &list.ids).await?;
+            let endpoints = resolve_power_shelf_endpoints(api, &list.ids).await?;
+
+            let mut results: Vec<_> = endpoints
+                .unresolved
+                .iter()
+                .map(|id| {
+                    error_result(
+                        &id.to_string(),
+                        "could not resolve endpoint for power shelf".into(),
+                    )
+                })
+                .collect();
+
             tracing::info!(
                 backend = cm.power_shelf.name(),
-                count = resolved.endpoints.len(),
+                count = endpoints.resolved.endpoints.len(),
                 ?action,
                 "power control for power shelves"
             );
             let backend_results = cm
                 .power_shelf
-                .power_control(&resolved.endpoints, action)
+                .power_control(&endpoints.resolved.endpoints, action)
                 .await
                 .map_err(component_manager_error_to_status)?;
-            backend_results
-                .into_iter()
-                .map(|r| {
-                    let id = ps_mac_to_id_str(&r.pmc_mac, &resolved.mac_to_id);
-                    if r.success {
-                        success_result(&id)
-                    } else {
-                        error_result(&id, r.error.unwrap_or_default())
-                    }
-                })
-                .collect()
+            results.extend(backend_results.into_iter().map(|r| {
+                let id = ps_mac_to_id_str(&r.pmc_mac, &endpoints.resolved.mac_to_id);
+                if r.success {
+                    success_result(&id)
+                } else {
+                    error_result(&id, r.error.unwrap_or_default())
+                }
+            }));
+            results
         }
         rpc::component_power_control_request::Target::MachineIds(_list) => {
             return Err(Status::unimplemented(
@@ -439,47 +530,83 @@ pub(crate) async fn update_component_firmware(
         .ok_or_else(|| Status::invalid_argument("target is required"))?;
 
     let results = match target {
-        rpc::update_component_firmware_request::Target::SwitchIds(list) => {
-            let resolved = resolve_switch_endpoints(api, &list.ids).await?;
+        rpc::update_component_firmware_request::Target::Switches(t) => {
+            let list = t
+                .switch_ids
+                .ok_or_else(|| Status::invalid_argument("switch_ids is required"))?;
+            let components = map_nv_switch_components(&t.components)?;
+            let endpoints = resolve_switch_endpoints(api, &list.ids).await?;
+
+            let mut results: Vec<_> = endpoints
+                .unresolved
+                .iter()
+                .map(|id| {
+                    error_result(
+                        &id.to_string(),
+                        "could not resolve endpoint for switch".into(),
+                    )
+                })
+                .collect();
+
             let backend_results = cm
                 .nv_switch
-                .queue_firmware_updates(&resolved.endpoints, &req.target_version, &req.components)
+                .queue_firmware_updates(
+                    &endpoints.resolved.endpoints,
+                    &req.target_version,
+                    &components,
+                )
                 .await
                 .map_err(component_manager_error_to_status)?;
-            backend_results
-                .into_iter()
-                .map(|r| {
-                    let id = switch_mac_to_id_str(&r.bmc_mac, &resolved.mac_to_id);
-                    if r.success {
-                        success_result(&id)
-                    } else {
-                        error_result(&id, r.error.unwrap_or_default())
-                    }
-                })
-                .collect()
+            results.extend(backend_results.into_iter().map(|r| {
+                let id = switch_mac_to_id_str(&r.bmc_mac, &endpoints.resolved.mac_to_id);
+                if r.success {
+                    success_result(&id)
+                } else {
+                    error_result(&id, r.error.unwrap_or_default())
+                }
+            }));
+            results
         }
-        rpc::update_component_firmware_request::Target::PowerShelfIds(list) => {
-            let resolved = resolve_power_shelf_endpoints(api, &list.ids).await?;
+        rpc::update_component_firmware_request::Target::PowerShelves(t) => {
+            let list = t
+                .power_shelf_ids
+                .ok_or_else(|| Status::invalid_argument("power_shelf_ids is required"))?;
+            let components = map_power_shelf_components(&t.components)?;
+            let endpoints = resolve_power_shelf_endpoints(api, &list.ids).await?;
+
+            let mut results: Vec<_> = endpoints
+                .unresolved
+                .iter()
+                .map(|id| {
+                    error_result(
+                        &id.to_string(),
+                        "could not resolve endpoint for power shelf".into(),
+                    )
+                })
+                .collect();
+
             let backend_results = cm
                 .power_shelf
-                .update_firmware(&resolved.endpoints, &req.target_version, &req.components)
+                .update_firmware(
+                    &endpoints.resolved.endpoints,
+                    &req.target_version,
+                    &components,
+                )
                 .await
                 .map_err(component_manager_error_to_status)?;
-            backend_results
-                .into_iter()
-                .map(|r| {
-                    let id = ps_mac_to_id_str(&r.pmc_mac, &resolved.mac_to_id);
-                    if r.success {
-                        success_result(&id)
-                    } else {
-                        error_result(&id, r.error.unwrap_or_default())
-                    }
-                })
-                .collect()
+            results.extend(backend_results.into_iter().map(|r| {
+                let id = ps_mac_to_id_str(&r.pmc_mac, &endpoints.resolved.mac_to_id);
+                if r.success {
+                    success_result(&id)
+                } else {
+                    error_result(&id, r.error.unwrap_or_default())
+                }
+            }));
+            results
         }
-        rpc::update_component_firmware_request::Target::MachineIds(_) => {
+        rpc::update_component_firmware_request::Target::ComputeTrays(_) => {
             return Err(Status::unimplemented(
-                "machine firmware updates are not supported via this RPC",
+                "compute tray firmware updates are not yet supported",
             ));
         }
     };
@@ -505,52 +632,78 @@ pub(crate) async fn get_component_firmware_status(
 
     let statuses = match target {
         rpc::get_component_firmware_status_request::Target::SwitchIds(list) => {
-            let resolved = resolve_switch_endpoints(api, &list.ids).await?;
+            let endpoints = resolve_switch_endpoints(api, &list.ids).await?;
+
+            let mut statuses: Vec<_> = endpoints
+                .unresolved
+                .iter()
+                .map(|id| rpc::FirmwareUpdateStatus {
+                    result: Some(error_result(
+                        &id.to_string(),
+                        "could not resolve endpoint for switch".into(),
+                    )),
+                    state: rpc::FirmwareUpdateState::FwStateUnknown as i32,
+                    target_version: String::new(),
+                    updated_at: None,
+                })
+                .collect();
+
             let backend_statuses = cm
                 .nv_switch
-                .get_firmware_status(&resolved.endpoints)
+                .get_firmware_status(&endpoints.resolved.endpoints)
                 .await
                 .map_err(component_manager_error_to_status)?;
-            backend_statuses
-                .into_iter()
-                .map(|s| {
-                    let id = switch_mac_to_id_str(&s.bmc_mac, &resolved.mac_to_id);
-                    rpc::FirmwareUpdateStatus {
-                        result: Some(if s.error.is_none() {
-                            success_result(&id)
-                        } else {
-                            error_result(&id, s.error.unwrap_or_default())
-                        }),
-                        state: map_fw_state(s.state),
-                        target_version: s.target_version,
-                        updated_at: None,
-                    }
-                })
-                .collect()
+            statuses.extend(backend_statuses.into_iter().map(|s| {
+                let id = switch_mac_to_id_str(&s.bmc_mac, &endpoints.resolved.mac_to_id);
+                rpc::FirmwareUpdateStatus {
+                    result: Some(if s.error.is_none() {
+                        success_result(&id)
+                    } else {
+                        error_result(&id, s.error.unwrap_or_default())
+                    }),
+                    state: map_fw_state(s.state),
+                    target_version: s.target_version,
+                    updated_at: None,
+                }
+            }));
+            statuses
         }
         rpc::get_component_firmware_status_request::Target::PowerShelfIds(list) => {
-            let resolved = resolve_power_shelf_endpoints(api, &list.ids).await?;
+            let endpoints = resolve_power_shelf_endpoints(api, &list.ids).await?;
+
+            let mut statuses: Vec<_> = endpoints
+                .unresolved
+                .iter()
+                .map(|id| rpc::FirmwareUpdateStatus {
+                    result: Some(error_result(
+                        &id.to_string(),
+                        "could not resolve endpoint for power shelf".into(),
+                    )),
+                    state: rpc::FirmwareUpdateState::FwStateUnknown as i32,
+                    target_version: String::new(),
+                    updated_at: None,
+                })
+                .collect();
+
             let backend_statuses = cm
                 .power_shelf
-                .get_firmware_status(&resolved.endpoints)
+                .get_firmware_status(&endpoints.resolved.endpoints)
                 .await
                 .map_err(component_manager_error_to_status)?;
-            backend_statuses
-                .into_iter()
-                .map(|s| {
-                    let id = ps_mac_to_id_str(&s.pmc_mac, &resolved.mac_to_id);
-                    rpc::FirmwareUpdateStatus {
-                        result: Some(if s.error.is_none() {
-                            success_result(&id)
-                        } else {
-                            error_result(&id, s.error.unwrap_or_default())
-                        }),
-                        state: map_fw_state(s.state),
-                        target_version: s.target_version,
-                        updated_at: None,
-                    }
-                })
-                .collect()
+            statuses.extend(backend_statuses.into_iter().map(|s| {
+                let id = ps_mac_to_id_str(&s.pmc_mac, &endpoints.resolved.mac_to_id);
+                rpc::FirmwareUpdateStatus {
+                    result: Some(if s.error.is_none() {
+                        success_result(&id)
+                    } else {
+                        error_result(&id, s.error.unwrap_or_default())
+                    }),
+                    state: map_fw_state(s.state),
+                    target_version: s.target_version,
+                    updated_at: None,
+                }
+            }));
+            statuses
         }
         rpc::get_component_firmware_status_request::Target::MachineIds(_) => {
             return Err(Status::unimplemented(
@@ -579,27 +732,85 @@ pub(crate) async fn list_component_firmware_versions(
         .ok_or_else(|| Status::invalid_argument("target is required"))?;
 
     match target {
-        rpc::list_component_firmware_versions_request::Target::SwitchIds(_) => {
+        rpc::list_component_firmware_versions_request::Target::SwitchIds(list) => {
+            let endpoints = resolve_switch_endpoints(api, &list.ids).await?;
+
+            let mut devices: Vec<rpc::DeviceFirmwareVersions> = endpoints
+                .unresolved
+                .iter()
+                .map(|id| rpc::DeviceFirmwareVersions {
+                    result: Some(error_result(
+                        &id.to_string(),
+                        "could not resolve endpoint for switch".into(),
+                    )),
+                    versions: vec![],
+                })
+                .collect();
+
             let versions = cm
                 .nv_switch
                 .list_firmware_bundles()
                 .await
                 .map_err(component_manager_error_to_status)?;
+
+            for ep in &endpoints.resolved.endpoints {
+                let id = endpoints
+                    .resolved
+                    .mac_to_id
+                    .get(&ep.bmc_mac)
+                    .map(|id| id.to_string())
+                    .unwrap_or_default();
+                devices.push(rpc::DeviceFirmwareVersions {
+                    result: Some(success_result(&id)),
+                    versions: versions.clone(),
+                });
+            }
+
             Ok(Response::new(rpc::ListComponentFirmwareVersionsResponse {
-                result: Some(success_result("switches")),
-                versions,
+                devices,
             }))
         }
         rpc::list_component_firmware_versions_request::Target::PowerShelfIds(list) => {
-            let resolved = resolve_power_shelf_endpoints(api, &list.ids).await?;
-            let versions = cm
+            let endpoints = resolve_power_shelf_endpoints(api, &list.ids).await?;
+
+            let mut devices: Vec<rpc::DeviceFirmwareVersions> = endpoints
+                .unresolved
+                .iter()
+                .map(|id| rpc::DeviceFirmwareVersions {
+                    result: Some(error_result(
+                        &id.to_string(),
+                        "could not resolve endpoint for power shelf".into(),
+                    )),
+                    versions: vec![],
+                })
+                .collect();
+
+            let fw_results = cm
                 .power_shelf
-                .list_firmware(&resolved.endpoints)
+                .list_firmware(&endpoints.resolved.endpoints)
                 .await
                 .map_err(component_manager_error_to_status)?;
+
+            for fv in fw_results {
+                let id = endpoints
+                    .resolved
+                    .mac_to_id
+                    .get(&fv.pmc_mac)
+                    .map(|id| id.to_string())
+                    .unwrap_or_default();
+                let result = if let Some(err) = fv.error {
+                    error_result(&id, err)
+                } else {
+                    success_result(&id)
+                };
+                devices.push(rpc::DeviceFirmwareVersions {
+                    result: Some(result),
+                    versions: fv.versions,
+                });
+            }
+
             Ok(Response::new(rpc::ListComponentFirmwareVersionsResponse {
-                result: Some(success_result("power_shelves")),
-                versions,
+                devices,
             }))
         }
         rpc::list_component_firmware_versions_request::Target::MachineIds(_) => Err(
@@ -684,6 +895,20 @@ mod tests {
     fn power_action_ac_powercycle() {
         let action = map_power_action(SystemPowerControl::AcPowercycle as i32).unwrap();
         assert!(matches!(action, PowerAction::AcPowercycle));
+    }
+
+    #[test]
+    fn power_action_unknown_rejected() {
+        let err = map_power_action(SystemPowerControl::Unknown as i32).unwrap_err();
+        assert_eq!(err.code(), Code::InvalidArgument);
+    }
+
+    #[test]
+    fn power_action_unset_defaults_to_zero_and_is_rejected() {
+        let req = rpc::ComponentPowerControlRequest::default();
+        assert_eq!(req.action, 0);
+        let err = map_power_action(req.action).unwrap_err();
+        assert_eq!(err.code(), Code::InvalidArgument);
     }
 
     #[test]
@@ -803,5 +1028,35 @@ mod tests {
         let mac: MacAddress = "AA:BB:CC:DD:EE:02".parse().unwrap();
         let map = HashMap::new();
         assert_eq!(ps_mac_to_id_str(&mac, &map), mac.to_string());
+    }
+
+    #[test]
+    fn unresolved_switch_produces_error_result() {
+        let id = test_switch_id();
+        let r = error_result(
+            &id.to_string(),
+            "could not resolve endpoint for switch".into(),
+        );
+        assert_eq!(r.component_id, id.to_string());
+        assert_eq!(
+            r.status,
+            rpc::ComponentManagerStatusCode::InternalError as i32,
+        );
+        assert!(r.error.contains("could not resolve endpoint"));
+    }
+
+    #[test]
+    fn unresolved_power_shelf_produces_error_result() {
+        let id = test_power_shelf_id();
+        let r = error_result(
+            &id.to_string(),
+            "could not resolve endpoint for power shelf".into(),
+        );
+        assert_eq!(r.component_id, id.to_string());
+        assert_eq!(
+            r.status,
+            rpc::ComponentManagerStatusCode::InternalError as i32,
+        );
+        assert!(r.error.contains("could not resolve endpoint"));
     }
 }

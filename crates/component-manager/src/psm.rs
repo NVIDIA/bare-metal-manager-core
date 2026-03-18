@@ -8,10 +8,10 @@ use crate::config::BackendTlsConfig;
 use crate::error::ComponentManagerError;
 use crate::power_shelf_manager::{
     PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfFirmwareUpdateStatus,
-    PowerShelfManager, PowerShelfVendor,
+    PowerShelfFirmwareVersions, PowerShelfManager, PowerShelfVendor,
 };
 use crate::proto::psm;
-use crate::types::{FirmwareState, PowerAction, parse_mac};
+use crate::types::{FirmwareState, PowerAction, PowerShelfComponent, parse_mac};
 
 #[derive(Debug)]
 pub struct PsmPowerShelfBackend {
@@ -44,6 +44,13 @@ fn map_vendor(v: &PowerShelfVendor) -> i32 {
     match v {
         PowerShelfVendor::Unknown => psm::PmcVendor::PmcTypeUnknown as i32,
         PowerShelfVendor::Liteon => psm::PmcVendor::PmcTypeLiteon as i32,
+    }
+}
+
+fn to_psm_component(c: &PowerShelfComponent) -> psm::PowershelfComponent {
+    match c {
+        PowerShelfComponent::Pmc => psm::PowershelfComponent::Pmc,
+        PowerShelfComponent::Psu => psm::PowershelfComponent::Psu,
     }
 }
 
@@ -136,33 +143,49 @@ impl PowerShelfManager for PsmPowerShelfBackend {
                     .await?
                     .into_inner();
 
-                let any_off_failure = off
-                    .responses
-                    .iter()
-                    .any(|r| r.status != psm::StatusCode::Success as i32);
-                if any_off_failure {
-                    return off
-                        .responses
-                        .into_iter()
-                        .map(|r| {
-                            Ok(PowerShelfComponentResult {
-                                pmc_mac: parse_mac(&r.pmc_mac_address)?,
-                                success: r.status == psm::StatusCode::Success as i32,
-                                error: if r.error.is_empty() {
-                                    None
-                                } else {
-                                    Some(r.error)
-                                },
-                            })
-                        })
-                        .collect();
+                let mut results: Vec<PowerShelfComponentResult> = Vec::new();
+                let mut powered_off_macs: Vec<String> = Vec::new();
+
+                for r in off.responses {
+                    if r.status == psm::StatusCode::Success as i32 {
+                        powered_off_macs.push(r.pmc_mac_address);
+                    } else {
+                        results.push(PowerShelfComponentResult {
+                            pmc_mac: parse_mac(&r.pmc_mac_address)?,
+                            success: false,
+                            error: if r.error.is_empty() {
+                                None
+                            } else {
+                                Some(r.error)
+                            },
+                        });
+                    }
                 }
 
-                self.client
-                    .clone()
-                    .power_on(psm::PowershelfRequest { pmc_macs })
-                    .await?
-                    .into_inner()
+                if !powered_off_macs.is_empty() {
+                    let on = self
+                        .client
+                        .clone()
+                        .power_on(psm::PowershelfRequest {
+                            pmc_macs: powered_off_macs,
+                        })
+                        .await?
+                        .into_inner();
+
+                    for r in on.responses {
+                        results.push(PowerShelfComponentResult {
+                            pmc_mac: parse_mac(&r.pmc_mac_address)?,
+                            success: r.status == psm::StatusCode::Success as i32,
+                            error: if r.error.is_empty() {
+                                None
+                            } else {
+                                Some(r.error)
+                            },
+                        });
+                    }
+                }
+
+                return Ok(results);
             }
         };
 
@@ -188,50 +211,29 @@ impl PowerShelfManager for PsmPowerShelfBackend {
         &self,
         endpoints: &[PowerShelfEndpoint],
         target_version: &str,
-        components: &[String],
+        components: &[PowerShelfComponent],
     ) -> Result<Vec<PowerShelfComponentResult>, ComponentManagerError> {
         register_with_psm(&mut self.client.clone(), endpoints).await?;
 
-        let upgrades = endpoints
+        let psm_components: Vec<i32> = components
+            .iter()
+            .map(|c| to_psm_component(c) as i32)
+            .collect();
+
+        let upgrades: Vec<psm::UpdatePowershelfFirmwareRequest> = endpoints
             .iter()
             .map(|ep| {
-                let mac = ep.pmc_mac.to_string();
-                let component_reqs: Vec<psm::UpdateComponentFirmwareRequest> =
-                    if components.is_empty() {
-                        vec![
-                            psm::UpdateComponentFirmwareRequest {
-                                component: psm::PowershelfComponent::Pmc as i32,
-                                upgrade_to: Some(psm::FirmwareVersion {
-                                    version: target_version.to_owned(),
-                                }),
-                            },
-                            psm::UpdateComponentFirmwareRequest {
-                                component: psm::PowershelfComponent::Psu as i32,
-                                upgrade_to: Some(psm::FirmwareVersion {
-                                    version: target_version.to_owned(),
-                                }),
-                            },
-                        ]
-                    } else {
-                        components
-                            .iter()
-                            .filter_map(|c| {
-                                let comp = match c.to_lowercase().as_str() {
-                                    "pmc" => psm::PowershelfComponent::Pmc as i32,
-                                    "psu" => psm::PowershelfComponent::Psu as i32,
-                                    _ => return None,
-                                };
-                                Some(psm::UpdateComponentFirmwareRequest {
-                                    component: comp,
-                                    upgrade_to: Some(psm::FirmwareVersion {
-                                        version: target_version.to_owned(),
-                                    }),
-                                })
-                            })
-                            .collect()
-                    };
+                let component_reqs = psm_components
+                    .iter()
+                    .map(|&comp| psm::UpdateComponentFirmwareRequest {
+                        component: comp,
+                        upgrade_to: Some(psm::FirmwareVersion {
+                            version: target_version.to_owned(),
+                        }),
+                    })
+                    .collect();
                 psm::UpdatePowershelfFirmwareRequest {
-                    pmc_mac_address: mac,
+                    pmc_mac_address: ep.pmc_mac.to_string(),
                     components: component_reqs,
                 }
             })
@@ -329,7 +331,7 @@ impl PowerShelfManager for PsmPowerShelfBackend {
     async fn list_firmware(
         &self,
         endpoints: &[PowerShelfEndpoint],
-    ) -> Result<Vec<String>, ComponentManagerError> {
+    ) -> Result<Vec<PowerShelfFirmwareVersions>, ComponentManagerError> {
         register_with_psm(&mut self.client.clone(), endpoints).await?;
 
         let request = psm::PowershelfRequest {
@@ -343,17 +345,23 @@ impl PowerShelfManager for PsmPowerShelfBackend {
             .await?
             .into_inner();
 
-        let versions: Vec<String> = response
+        response
             .upgrades
             .into_iter()
-            .flat_map(|af| {
-                af.upgrades
+            .map(|af| {
+                let pmc_mac = parse_mac(&af.pmc_mac_address)?;
+                let versions = af
+                    .upgrades
                     .into_iter()
                     .flat_map(|cu| cu.upgrades.into_iter().map(|fv| fv.version))
+                    .collect();
+                Ok(PowerShelfFirmwareVersions {
+                    pmc_mac,
+                    versions,
+                    error: None,
+                })
             })
-            .collect();
-
-        Ok(versions)
+            .collect()
     }
 }
 
