@@ -122,7 +122,7 @@ pub(crate) async fn mark_machine_validation_complete(
     };
 
     let result =
-        match db::machine_validation_result::validate_current_context(&mut txn, rpc_id).await? {
+        match db::machine_validation_result::validate_current_context(&mut txn, &uuid).await? {
             Some(error_message) => {
                 db::machine::update_failure_details_by_machine_id(
                     &machine_id,

@@ -292,7 +292,6 @@ impl From<DatabaseError> for CarbideError {
             DatabaseError::OnePrimaryInterface => OnePrimaryInterface,
             DatabaseError::ResourceExhausted(e) => ResourceExhausted(e),
             DatabaseError::ResourcePoolError(e) => ResourcePoolError(e),
-            DatabaseError::RpcDataConversionError(e) => RpcDataConversionError(e),
             DatabaseError::RpcUuidConversionError(e) => RpcUuidConversionError(e),
             DatabaseError::Sqlx(e) => DBError(e),
             DatabaseError::TenantError(e) => TenantError(e),

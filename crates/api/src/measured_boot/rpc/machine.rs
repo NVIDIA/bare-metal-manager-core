@@ -119,7 +119,12 @@ pub async fn handle_list_candidate_machines(
                 message: format!("failed to read records: {e}"),
             })?
             .into_iter()
-            .map(|record| record.into())
+            .map(
+                |record| rpc::protos::measured_boot::CandidateMachineSummaryPb {
+                    machine_id: record.machine_id.to_string(),
+                    ts: Some(record.created.into()),
+                },
+            )
             .collect(),
     })
 }

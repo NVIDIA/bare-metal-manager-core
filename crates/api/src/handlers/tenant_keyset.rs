@@ -102,6 +102,11 @@ pub(crate) async fn find_by_ids(
         );
     }
 
+    let keyset_ids: Vec<model::tenant::TenantKeysetIdentifier> = keyset_ids
+        .into_iter()
+        .map(|id| id.try_into())
+        .collect::<Result<_, _>>()?;
+
     let keysets =
         db::tenant_keyset::find_by_ids(&api.database_connection, keyset_ids, include_key_data)
             .await;

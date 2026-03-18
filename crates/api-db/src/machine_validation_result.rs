@@ -181,7 +181,7 @@ pub async fn create(value: MachineValidationResult, txn: &mut PgConnection) -> D
 
 pub async fn validate_current_context(
     txn: &mut PgConnection,
-    id: &rpc::Uuid,
+    id: &uuid::Uuid,
 ) -> DatabaseResult<Option<String>> {
     let db_results = find_by(
         txn,
