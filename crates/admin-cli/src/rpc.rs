@@ -1053,6 +1053,7 @@ impl ApiClient {
                     device: Some(device.to_string()),
                     device_instance,
                     virtual_function_id: None,
+                    ip_address: None,
                 });
 
                 if let Some(vf_network_segment_chunks) = vf_chunk_iter.next() {
@@ -1066,6 +1067,7 @@ impl ApiClient {
                             device: Some(device.to_string()),
                             device_instance,
                             virtual_function_id: Some(vf_function_id),
+                            ip_address: None,
                         });
                         vf_function_id += 1;
                     }
@@ -1127,6 +1129,7 @@ impl ApiClient {
                         device: Some(pci_properties.device.clone()),
                         device_instance,
                         virtual_function_id: None,
+                        ip_address: None,
                     };
                     tracing::debug!("Adding interface: {:?}", new_interface);
 
@@ -1143,6 +1146,7 @@ impl ApiClient {
                                 device: Some(pci_properties.device.clone()),
                                 device_instance,
                                 virtual_function_id: Some(vf_function_id),
+                                ip_address: None,
                             };
                             vf_function_id += 1;
                             tracing::debug!("Adding interface: {:?}", new_interface);

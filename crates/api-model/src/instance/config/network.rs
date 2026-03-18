@@ -153,6 +153,7 @@ impl InstanceNetworkConfig {
                         network_segment_ids.first().copied().unwrap(),
                     )),
                     ip_addrs: HashMap::default(),
+                    requested_ip_addr: None,
                     interface_prefixes: HashMap::default(),
                     network_segment_gateways: HashMap::default(),
                     host_inband_mac_address: None,
@@ -172,6 +173,7 @@ impl InstanceNetworkConfig {
                             network_segment_ids[dl_index],
                         )),
                         ip_addrs: HashMap::default(),
+                        requested_ip_addr: None,
                         interface_prefixes: HashMap::default(),
                         network_segment_gateways: HashMap::default(),
                         host_inband_mac_address: None,
@@ -194,6 +196,7 @@ impl InstanceNetworkConfig {
                 network_segment_id: None,
                 network_details: Some(NetworkDetails::VpcPrefixId(vpc_prefix_id)),
                 ip_addrs: HashMap::default(),
+                requested_ip_addr: None,
                 interface_prefixes: HashMap::default(),
                 network_segment_gateways: HashMap::default(),
                 host_inband_mac_address: None,
@@ -326,6 +329,13 @@ impl InstanceNetworkConfig {
         for interface in &mut self.interfaces {
             let existing_interface = current_config.interfaces.iter().find(|x| {
                 let is_network_same = if interface.network_details.is_some() {
+                    // TODO:  && x.requested_ip_addr == interface.requested_ip_addr
+                    // There's originally a gap here where it wasn't possible to change
+                    // IPs without switching to a different prefix.  It's technically
+                    // possible to test requested_ip_addr so that explicit IP changes
+                    // could trigger the update, even for the same VPC prefix, but it appears
+                    // to trigger postgres table constraints.  For now, the existing implementation
+                    // gap is being maintained, and both will need to be resolved together.
                     x.network_details == interface.network_details
                 } else if interface.network_segment_id.is_some() {
                     x.network_segment_id == interface.network_segment_id
@@ -346,6 +356,7 @@ impl InstanceNetworkConfig {
                 // Copy all allocated resources
                 // TODO: Zero DPU changes.
                 interface.ip_addrs = existing_interface.ip_addrs.clone();
+                interface.requested_ip_addr = existing_interface.requested_ip_addr;
                 interface.interface_prefixes = existing_interface.interface_prefixes.clone();
                 interface.network_segment_gateways =
                     existing_interface.network_segment_gateways.clone();
@@ -521,6 +532,14 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                 (Some(NetworkDetails::NetworkSegment(ns_id)), Some(ns_id))
             };
 
+            if iface.ip_address.is_some()
+                && matches!(network_details, Some(NetworkDetails::NetworkSegment(..)))
+            {
+                return Err(RpcDataConversionError::InvalidArgument(
+                    "explicit IP requests are only supported for VPC prefixes".to_string(),
+                ));
+            };
+
             let device_locator = iface.device.map(|device| DeviceLocator {
                 device,
                 device_instance: iface.device_instance as usize,
@@ -531,6 +550,11 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                 network_segment_id,
                 network_details,
                 ip_addrs: HashMap::default(),
+                requested_ip_addr: iface
+                    .ip_address
+                    .map(|i| i.parse::<IpAddr>())
+                    .transpose()
+                    .map_err(|e| RpcDataConversionError::InvalidIpAddress(e.to_string()))?,
                 interface_prefixes: HashMap::default(),
                 network_segment_gateways: HashMap::new(),
                 host_inband_mac_address: None,
@@ -573,6 +597,7 @@ impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
                 device,
                 device_instance,
                 virtual_function_id,
+                ip_address: iface.requested_ip_addr.map(|i| i.to_string()),
             });
         }
 
@@ -725,9 +750,14 @@ pub struct InstanceInterfaceConfig {
         serialize_with = "serialize_network_prefix_id_ipaddr_map"
     )]
     pub ip_addrs: HashMap<NetworkPrefixId, IpAddr>,
+
+    /// IP address allocation that was explicitly requested by a caller
+    /// from the VPC prefix of the interface.
+    pub requested_ip_addr: Option<IpAddr>,
+
     /// The interface-specific prefix allocation we carved out from each
     /// network prefix for this interface (e.g. in FNN we might carve out
-    /// a /30 for an interface, whereas in ETV we just allocate a /32).
+    /// a /31 for an interface, whereas in ETV we just allocate a /32).
     ///
     /// There should be a 1:1 correlation between this and the `ip_addrs`,
     /// as in, for each network prefix ID entry in the `ip_addrs` map, there
@@ -888,6 +918,7 @@ mod tests {
         let network_prefix_1 =
             NetworkPrefixId::from(uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1201"));
         let ip_addrs = HashMap::from([(network_prefix_1, "192.168.1.2".parse().unwrap())]);
+        let requested_ip_addr = Some("192.168.1.2".parse().unwrap());
         let interface_prefixes =
             HashMap::from([(network_prefix_1, "192.168.1.2/32".parse().unwrap())]);
         let network_segment_gateways = HashMap::default();
@@ -897,6 +928,7 @@ mod tests {
             function_id,
             network_segment_id: Some(network_segment_id),
             ip_addrs,
+            requested_ip_addr,
             interface_prefixes,
             network_segment_gateways,
             host_inband_mac_address: None,
@@ -907,7 +939,7 @@ mod tests {
         let serialized = serde_json::to_string(&interface).unwrap();
         assert_eq!(
             serialized,
-            r#"{"function_id":{"type":"physical"},"network_details":null,"network_segment_id":"91609f10-c91d-470d-a260-6293ea0c1200","ip_addrs":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2"},"interface_prefixes":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2/32"},"network_segment_gateways":{},"host_inband_mac_address":null,"device_locator":null,"internal_uuid":"37c3dc65-9aef-4439-b7ca-d532a0a41d7f"}"#
+            r#"{"function_id":{"type":"physical"},"network_details":null,"network_segment_id":"91609f10-c91d-470d-a260-6293ea0c1200","ip_addrs":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2"},"requested_ip_addr":"192.168.1.2","interface_prefixes":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2/32"},"network_segment_gateways":{},"host_inband_mac_address":null,"device_locator":null,"internal_uuid":"37c3dc65-9aef-4439-b7ca-d532a0a41d7f"}"#
         );
 
         assert_eq!(
@@ -932,6 +964,7 @@ mod tests {
                     function_id,
                     network_segment_id: Some(network_segment_id),
                     ip_addrs: HashMap::default(),
+                    requested_ip_addr: None,
                     interface_prefixes: HashMap::default(),
                     network_segment_gateways: HashMap::default(),
                     host_inband_mac_address: None,
@@ -955,6 +988,7 @@ mod tests {
                 device: None,
                 device_instance: 0u32,
                 virtual_function_id: None,
+                ip_address: None,
             }],
         };
 
@@ -965,6 +999,7 @@ mod tests {
                 function_id: InterfaceFunctionId::Physical {},
                 network_segment_id: Some(BASE_SEGMENT_ID.into()),
                 ip_addrs: HashMap::new(),
+                requested_ip_addr: None,
                 interface_prefixes: HashMap::new(),
                 network_segment_gateways: HashMap::new(),
                 host_inband_mac_address: None,
@@ -984,6 +1019,7 @@ mod tests {
             device: None,
             device_instance: 0u32,
             virtual_function_id: None,
+            ip_address: None,
         }];
         for vfid in INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX {
             interfaces.push(rpc::InstanceInterfaceConfig {
@@ -993,6 +1029,7 @@ mod tests {
                 device: None,
                 device_instance: 0u32,
                 virtual_function_id: None,
+                ip_address: None,
             });
         }
 
@@ -1004,6 +1041,7 @@ mod tests {
             function_id: InterfaceFunctionId::Physical {},
             network_segment_id: Some(BASE_SEGMENT_ID.into()),
             ip_addrs: HashMap::new(),
+            requested_ip_addr: None,
             interface_prefixes: HashMap::new(),
             network_segment_gateways: HashMap::new(),
             host_inband_mac_address: None,
@@ -1018,6 +1056,7 @@ mod tests {
                 function_id: InterfaceFunctionId::Virtual { id: vfid },
                 network_segment_id: Some(segment_id),
                 ip_addrs: HashMap::new(),
+                requested_ip_addr: None,
                 interface_prefixes: HashMap::new(),
                 network_segment_gateways: HashMap::new(),
                 host_inband_mac_address: None,
@@ -1082,6 +1121,7 @@ mod tests {
                 ),
                 device: None,
                 device_instance: 0u32,
+                ip_address: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -1094,6 +1134,7 @@ mod tests {
                 ),
                 device: None,
                 device_instance: 0u32,
+                ip_address: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -1106,6 +1147,7 @@ mod tests {
                 ),
                 device: None,
                 device_instance: 0u32,
+                ip_address: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -1118,6 +1160,7 @@ mod tests {
                 ),
                 device: None,
                 device_instance: 0u32,
+                ip_address: None,
             },
         ]
     }

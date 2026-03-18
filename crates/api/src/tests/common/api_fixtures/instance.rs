@@ -200,6 +200,7 @@ pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::Ins
             device: None,
             device_instance: 0,
             virtual_function_id: None,
+            ip_address: None,
         }],
     }
 }
@@ -216,6 +217,7 @@ pub fn single_interface_network_config_with_vfs(
         device: None,
         device_instance: 0,
         virtual_function_id: None,
+        ip_address: None,
     }];
 
     interfaces.extend(
@@ -226,6 +228,7 @@ pub fn single_interface_network_config_with_vfs(
             device: None,
             device_instance: 0,
             virtual_function_id: Some(function_id as u32),
+            ip_address: None,
         }),
     );
 
@@ -246,6 +249,7 @@ pub fn interface_network_config_with_devices(
             device: Some(dl.device.clone()),
             device_instance: dl.device_instance as u32,
             virtual_function_id: None,
+            ip_address: None,
         })
         .collect();
     rpc::InstanceNetworkConfig { interfaces }
@@ -262,6 +266,7 @@ pub fn single_interface_network_config_with_vpc_prefix(
             device: None,
             device_instance: 0u32,
             virtual_function_id: None,
+            ip_address: None,
         }],
     }
 }

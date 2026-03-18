@@ -29,6 +29,7 @@ use db::{
     self, ObjectColumnFilter, ObjectFilter, compute_allocation, extension_service, ib_partition,
     network_security_group,
 };
+use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::ConfigValidationError;
 use model::hardware_info::InfinibandInterface;
@@ -178,10 +179,12 @@ pub async fn allocate_network(
     // get all used prefixes under this vpc_prefix.
     for interface in &mut network_config.interfaces {
         // If IP address is already allocated, ignore.
-        // // This is the case of updating network config (adding/removing a VF)
+        // This is the case of updating network config when some
+        // interfaces already exist (adding/removing a VF).
         if !interface.ip_addrs.is_empty() {
             continue;
         }
+
         if let Some(network_details) = &mut interface.network_details {
             match network_details {
                 NetworkDetails::NetworkSegment(_) => {}
@@ -201,13 +204,35 @@ pub async fn allocate_network(
                     // IPv4: /31 (RFC 3021), IPv6: /127 (RFC 6164).
                     let linknet_prefix = if vpc_prefix.is_ipv4() { 31 } else { 127 };
 
+                    let requested_prefix = interface
+                        .requested_ip_addr
+                        .map(|ipaddr| {
+                            // Verify that no requested IPs are trying to use the "lower" end of a p2p prefix.
+                            if match ipaddr {
+                                std::net::IpAddr::V4(ip) => ip.to_bits() & 1 == 0,
+                                std::net::IpAddr::V6(ip) => ip.to_bits() & 1 == 0,
+                            } {
+                                return Err(CarbideError::InvalidConfiguration(
+                                    ConfigValidationError::InvalidValue(format!(
+                                        "requested IP address must not have final host bit of 0: {ipaddr}",
+                                    )),
+                                ));
+                            }
+
+                            let ipaddr = ipaddr.to_canonical();
+                            IpNetwork::new(ipaddr, linknet_prefix).map_err(|e| CarbideError::Internal {
+                                message: format!("unable to create IP network for {}: {e}", ipaddr),
+                            })
+                        })
+                        .transpose()?;
+
                     let (ns_id, prefix) = PrefixAllocator::new(
                         *vpc_prefix_id,
                         vpc_prefix,
                         last_used_prefix,
                         linknet_prefix,
                     )?
-                    .allocate_network_segment(txn, vpc_id)
+                    .allocate_network_segment(txn, vpc_id, requested_prefix)
                     .await?;
                     interface.network_segment_id = Some(ns_id);
                     vpc_prefixes.entry(*vpc_prefix_id).and_modify(|x| {

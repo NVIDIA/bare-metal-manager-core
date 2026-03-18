@@ -24,7 +24,9 @@ use rpc::forge::instance_interface_config::NetworkDetails;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tonic::Request;
 
+use crate::tests::common::api_fixtures::instance::advance_created_instance_into_ready_state;
 use crate::tests::common::api_fixtures::{create_managed_host_multi_dpu, get_vpc_fixture_id};
+use crate::tests::common::rpc_builder::{InstanceAllocationRequest, InstanceConfigUpdateRequest};
 use crate::tests::common::{self};
 
 /// Compares an expected instance configuration with the actual instance configuration
@@ -420,6 +422,40 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         "Configuration value cannot be modified: TenantConfig::tenant_organization_id"
     );
 
+    // Requesting IPs is not allowed with network segments.
+    let mut config_with_bad_updated_interfaces = valid_config.clone();
+    config_with_bad_updated_interfaces
+        .network
+        .as_mut()
+        .unwrap()
+        .interfaces = vec![rpc::forge::InstanceInterfaceConfig {
+        function_type: rpc::forge::InterfaceFunctionType::Physical as _,
+        network_segment_id: Some(NetworkSegmentId::new()),
+        network_details: None,
+        device: None,
+        device_instance: 0u32,
+        virtual_function_id: None,
+        ip_address: Some("192.168.0.1".to_string()),
+    }];
+
+    let err = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                instance_id: Some(tinstance.id),
+                if_version_match: None,
+                config: Some(config_with_bad_updated_interfaces),
+                metadata: Some(initial_metadata.clone()),
+            },
+        ))
+        .await
+        .expect_err("IP request with network segment should not be allowed");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(
+        err.message()
+            .contains("explicit IP requests are only supported for VPC prefixes")
+    );
+
     // The network configuration of an instance can not be updated
     let mut config_with_updated_network = valid_config.clone();
     config_with_updated_network
@@ -442,6 +478,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
             device: None,
             device_instance: 0u32,
             virtual_function_id: None,
+            ip_address: None,
         });
     let err = env
         .api
@@ -737,6 +774,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             device: None,
             device_instance: 0,
             virtual_function_id: None,
+            ip_address: None,
         }],
     };
 
@@ -786,6 +824,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
+                ip_address: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -794,6 +833,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
+                ip_address: None,
             },
         ],
     };
@@ -848,6 +888,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             device: None,
             device_instance: 0,
             virtual_function_id: None,
+            ip_address: None,
         }],
     };
     let mut updated_config_1 = initial_config.clone();
@@ -931,6 +972,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
             device: None,
             device_instance: 0,
             virtual_function_id: None,
+            ip_address: None,
         }],
     };
 
@@ -985,6 +1027,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
+                ip_address: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -993,6 +1036,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
+                ip_address: None,
             },
         ],
     };
@@ -1078,6 +1122,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
             device: Some("DPU1".to_string()),
             device_instance: 0,
             virtual_function_id: None,
+            ip_address: None,
         }],
     };
 
@@ -1127,6 +1172,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
                 device: Some("DPU1".to_string()),
                 device_instance: 0,
                 virtual_function_id: None,
+                ip_address: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -1135,6 +1181,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
                 device: Some("DPU1".to_string()),
                 device_instance: 1,
                 virtual_function_id: None,
+                ip_address: None,
             },
         ],
     };
@@ -1202,6 +1249,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
             },
         )),
     };
+
     let ip_prefix = "192.1.4.0/25";
     let vpc_id = get_vpc_fixture_id(&env).await;
     let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
@@ -1263,6 +1311,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
             device: Some("DPU1".to_string()),
             device_instance: 0,
             virtual_function_id: None,
+            ip_address: None,
         }],
     };
 
@@ -1312,6 +1361,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
                 device: Some("DPU1".to_string()),
                 device_instance: 0,
                 virtual_function_id: None,
+                ip_address: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -1320,6 +1370,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
                 device: Some("DPU1".to_string()),
                 device_instance: 1,
                 virtual_function_id: None,
+                ip_address: None,
             },
         ],
     };
@@ -1363,5 +1414,489 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
     assert_eq!(
         instance.status().network().configs_synced(),
         rpc::forge::SyncState::Pending
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_explicit_ip(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let _segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host_multi_dpu(&env, 2).await;
+
+    let initial_os = rpc::forge::OperatingSystem {
+        phone_home_enabled: false,
+        run_provisioning_instructions_on_every_boot: false,
+        user_data: Some("SomeRandomData1".to_string()),
+        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+            rpc::forge::InlineIpxe {
+                ipxe_script: "SomeRandomiPxe1".to_string(),
+                user_data: Some("SomeRandomData1".to_string()),
+            },
+        )),
+    };
+
+    // Create a VPC prefix
+    let ip_prefix = "192.1.4.0/25";
+    let vpc_id = get_vpc_fixture_id(&env).await;
+    let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
+        id: None,
+        prefix: String::new(),
+        name: String::new(),
+        vpc_id: Some(vpc_id),
+        config: Some(rpc::forge::VpcPrefixConfig {
+            prefix: ip_prefix.into(),
+        }),
+        metadata: Some(rpc::forge::Metadata {
+            name: "Test VPC prefix".into(),
+            description: String::from("some description"),
+            labels: vec![rpc::forge::Label {
+                key: "example_key".into(),
+                value: Some("example_value".into()),
+            }],
+        }),
+    };
+    let request = Request::new(new_vpc_prefix);
+    let vpc_prefix_1 = env
+        .api
+        .create_vpc_prefix(request)
+        .await
+        .unwrap()
+        .into_inner();
+
+    // Create an instance with the first VPC prefix
+    // but request some random IP.
+    // This should fail.
+    env.api
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.id)
+                .config(rpc::InstanceConfig {
+                    tenant: Some(default_tenant_config()),
+                    os: Some(initial_os.clone()),
+                    network: Some(rpc::InstanceNetworkConfig {
+                        interfaces: vec![rpc::InstanceInterfaceConfig {
+                            function_type: rpc::InterfaceFunctionType::Physical as i32,
+                            network_segment_id: None,
+                            network_details: vpc_prefix_1.id.map(NetworkDetails::VpcPrefixId),
+                            device: Some("DPU1".to_string()),
+                            device_instance: 0,
+                            virtual_function_id: None,
+                            ip_address: Some("5.5.5.1".to_string()),
+                        }],
+                    }),
+                    infiniband: None,
+                    network_security_group_id: None,
+                    dpu_extension_services: None,
+                    nvlink: None,
+                })
+                .metadata(rpc::Metadata {
+                    name: "test_instance".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
+        .await
+        .unwrap_err();
+
+    // Create an instance with the first VPC prefix
+    // but request the DPU side of a /31
+    // This should fail.
+    env.api
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.id)
+                .config(rpc::InstanceConfig {
+                    tenant: Some(default_tenant_config()),
+                    os: Some(initial_os.clone()),
+                    network: Some(rpc::InstanceNetworkConfig {
+                        interfaces: vec![rpc::InstanceInterfaceConfig {
+                            function_type: rpc::InterfaceFunctionType::Physical as i32,
+                            network_segment_id: None,
+                            network_details: vpc_prefix_1.id.map(NetworkDetails::VpcPrefixId),
+                            device: Some("DPU1".to_string()),
+                            device_instance: 0,
+                            virtual_function_id: None,
+                            ip_address: Some("192.1.4.0".to_string()),
+                        }],
+                    }),
+                    infiniband: None,
+                    network_security_group_id: None,
+                    dpu_extension_services: None,
+                    nvlink: None,
+                })
+                .metadata(rpc::Metadata {
+                    name: "test_instance".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
+        .await
+        .unwrap_err();
+
+    let expected_ip = "192.1.4.1";
+    // Create an instance with the first VPC prefix
+    // and request the host side of a /31
+    // This should pass.
+    let instance = env
+        .api
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.id)
+                .config(rpc::InstanceConfig {
+                    tenant: Some(default_tenant_config()),
+                    os: Some(initial_os.clone()),
+                    network: Some(rpc::InstanceNetworkConfig {
+                        interfaces: vec![rpc::InstanceInterfaceConfig {
+                            function_type: rpc::InterfaceFunctionType::Physical as i32,
+                            network_segment_id: None,
+                            network_details: vpc_prefix_1.id.map(NetworkDetails::VpcPrefixId),
+                            device: Some("DPU1".to_string()),
+                            device_instance: 0,
+                            virtual_function_id: None,
+                            ip_address: Some(expected_ip.to_string()),
+                        }],
+                    }),
+                    infiniband: None,
+                    network_security_group_id: None,
+                    dpu_extension_services: None,
+                    nvlink: None,
+                })
+                .metadata(rpc::Metadata {
+                    name: "test_instance".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+
+    // Move the instance to ready state
+    advance_created_instance_into_ready_state(&env, &mh).await;
+
+    // Look up our instance again to get a fresh snapshot.
+    let instance = env
+        .api
+        .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+            instance_ids: vec![instance.id.unwrap()],
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .instances
+        .pop()
+        .unwrap();
+
+    // Check that we're fully synced and ready.
+    assert_eq!(
+        instance
+            .status
+            .as_ref()
+            .map(|s| s.configs_synced())
+            .unwrap(),
+        rpc::forge::SyncState::Synced
+    );
+
+    let state = instance
+        .status
+        .as_ref()
+        .and_then(|s| s.clone().tenant.as_ref().map(|t| t.state))
+        .unwrap();
+
+    assert_eq!(state, rpc::forge::TenantState::Ready as i32);
+
+    // Check that we actually stored the requested IP.
+    assert_eq!(
+        instance
+            .config
+            .and_then(|c| c
+                .network
+                .and_then(|n| n.interfaces.first().and_then(|i| i.ip_address.clone())))
+            .unwrap(),
+        expected_ip.to_string()
+    );
+
+    // Check that we allocated and pretended to configure the requested IP on the DPU.
+    assert_eq!(
+        instance.status.unwrap().network.unwrap().interfaces[0].addresses[0],
+        expected_ip.to_string()
+    );
+
+    // Create an additional VPC prefix
+
+    let ip_prefix1 = "192.0.5.0/25";
+    let new_vpc_prefix1 = rpc::forge::VpcPrefixCreationRequest {
+        id: None,
+        prefix: String::new(),
+        name: String::new(),
+        vpc_id: Some(vpc_id),
+        config: Some(rpc::forge::VpcPrefixConfig {
+            prefix: ip_prefix1.into(),
+        }),
+        metadata: Some(rpc::forge::Metadata {
+            name: "Test VPC prefix1".into(),
+            description: String::from("some description"),
+            labels: vec![rpc::forge::Label {
+                key: "example_key".into(),
+                value: Some("example_value".into()),
+            }],
+        }),
+    };
+
+    let request = Request::new(new_vpc_prefix1);
+    let vpc_prefix_2 = env
+        .api
+        .create_vpc_prefix(request)
+        .await
+        .unwrap()
+        .into_inner();
+
+    let instance_id = instance.id.unwrap();
+
+    // Update the instance to add a new interface config for the second DPU
+    // but try to request some random IPs for both interfaces.
+    // This should fail.
+    let err = env
+        .api
+        .update_instance_config(
+            InstanceConfigUpdateRequest::builder()
+                .instance_id(instance_id)
+                .config(rpc::InstanceConfig {
+                    tenant: Some(default_tenant_config()),
+                    os: Some(initial_os.clone()),
+                    network: Some(rpc::InstanceNetworkConfig {
+                        interfaces: vec![
+                            rpc::InstanceInterfaceConfig {
+                                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                                network_segment_id: None,
+                                network_details: vpc_prefix_2.id.map(NetworkDetails::VpcPrefixId),
+                                device: Some("DPU1".to_string()),
+                                device_instance: 0,
+                                virtual_function_id: None,
+                                ip_address: Some("5.5.5.5".to_string()),
+                            },
+                            rpc::InstanceInterfaceConfig {
+                                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                                network_segment_id: None,
+                                network_details: vpc_prefix_2.id.map(NetworkDetails::VpcPrefixId),
+                                device: Some("DPU1".to_string()),
+                                device_instance: 1,
+                                virtual_function_id: None,
+                                ip_address: Some("6.6.6.6".to_string()),
+                            },
+                        ],
+                    }),
+                    infiniband: None,
+                    network_security_group_id: None,
+                    dpu_extension_services: None,
+                    nvlink: None,
+                })
+                .metadata(rpc::Metadata {
+                    name: "test_instance".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
+        .await
+        .unwrap_err();
+    assert!(err.message().contains("is not contained within"));
+
+    let expected_ip = "192.0.5.11";
+    let expected_ip2 = "192.0.5.1";
+
+    // Update the instance to add a new interface config for the second DPU
+    // but try to request the same IP for both interfaces.
+    // This should fail.
+    let err = env
+        .api
+        .update_instance_config(
+            InstanceConfigUpdateRequest::builder()
+                .instance_id(instance_id)
+                .config(rpc::InstanceConfig {
+                    tenant: Some(default_tenant_config()),
+                    os: Some(initial_os.clone()),
+                    network: Some(rpc::InstanceNetworkConfig {
+                        interfaces: vec![
+                            rpc::InstanceInterfaceConfig {
+                                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                                network_segment_id: None,
+                                network_details: vpc_prefix_2.id.map(NetworkDetails::VpcPrefixId),
+                                device: Some("DPU1".to_string()),
+                                device_instance: 0,
+                                virtual_function_id: None,
+                                ip_address: Some(expected_ip.to_string()),
+                            },
+                            rpc::InstanceInterfaceConfig {
+                                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                                network_segment_id: None,
+                                network_details: vpc_prefix_2.id.map(NetworkDetails::VpcPrefixId),
+                                device: Some("DPU1".to_string()),
+                                device_instance: 1,
+                                virtual_function_id: None,
+                                ip_address: Some(expected_ip.to_string()),
+                            },
+                        ],
+                    }),
+                    infiniband: None,
+                    network_security_group_id: None,
+                    dpu_extension_services: None,
+                    nvlink: None,
+                })
+                .metadata(rpc::Metadata {
+                    name: "test_instance".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
+        .await
+        .unwrap_err();
+
+    assert!(err.message().contains("prefix already exists"));
+
+    // Update the instance to add a new interface config for the second DPU
+    // and try to send in a new IP for the first DPU.
+    // This should pass.
+    // TODO:  Ideally, this should test the first interface getting a new IP from the
+    //        prefix it originally had, but an issue prevents it.  See copy_existing_resources
+    //        in crates/api-model/src/instance/config/network.rs
+    env.api
+        .update_instance_config(
+            InstanceConfigUpdateRequest::builder()
+                .instance_id(instance_id)
+                .config(rpc::InstanceConfig {
+                    tenant: Some(default_tenant_config()),
+                    os: Some(initial_os.clone()),
+                    network: Some(rpc::InstanceNetworkConfig {
+                        interfaces: vec![
+                            rpc::InstanceInterfaceConfig {
+                                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                                network_segment_id: None,
+                                network_details: vpc_prefix_2.id.map(NetworkDetails::VpcPrefixId),
+                                device: Some("DPU1".to_string()),
+                                device_instance: 0,
+                                virtual_function_id: None,
+                                ip_address: Some(expected_ip.to_string()),
+                            },
+                            rpc::InstanceInterfaceConfig {
+                                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                                network_segment_id: None,
+                                network_details: vpc_prefix_2.id.map(NetworkDetails::VpcPrefixId),
+                                device: Some("DPU1".to_string()),
+                                device_instance: 1,
+                                virtual_function_id: None,
+                                ip_address: Some(expected_ip2.to_string()),
+                            },
+                        ],
+                    }),
+                    infiniband: None,
+                    network_security_group_id: None,
+                    dpu_extension_services: None,
+                    nvlink: None,
+                })
+                .metadata(rpc::Metadata {
+                    name: "test_instance".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+
+    // Move the instance to ready state after the network config update.
+    env.run_machine_state_controller_iteration_network_config_return_to_ready(&mh, true)
+        .await;
+
+    // Look up our instance again to get a fresh snapshot.
+    let instance = env
+        .api
+        .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+            instance_ids: vec![instance_id],
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .instances
+        .pop()
+        .unwrap();
+
+    // Check that we're fully synced and ready.
+    assert_eq!(
+        instance
+            .status
+            .as_ref()
+            .map(|s| s.configs_synced())
+            .unwrap(),
+        rpc::forge::SyncState::Synced
+    );
+
+    let state = instance
+        .status
+        .as_ref()
+        .and_then(|s| s.clone().tenant.as_ref().map(|t| t.state))
+        .unwrap();
+
+    assert_eq!(state, rpc::forge::TenantState::Ready as i32);
+
+    // Check that we still correctly stored the requested IP for the first interface
+    assert_eq!(
+        instance
+            .config
+            .as_ref()
+            .and_then(|c| c
+                .network
+                .as_ref()
+                .and_then(|n| n.interfaces.first().and_then(|i| i.ip_address.clone())))
+            .unwrap(),
+        expected_ip.to_string()
+    );
+
+    // Check that we actually stored the requested IP for the second interface
+    assert_eq!(
+        instance
+            .config
+            .as_ref()
+            .and_then(|c| c
+                .network
+                .as_ref()
+                .and_then(|n| n.interfaces.last().and_then(|i| i.ip_address.clone())))
+            .unwrap(),
+        expected_ip2.to_string()
+    );
+
+    // Check that we still have the IP we expect for the first interface.
+    assert_eq!(
+        instance
+            .status
+            .as_ref()
+            .and_then(|s| s
+                .network
+                .as_ref()
+                .and_then(|n| n.interfaces.first().map(|i| i.addresses[0].clone())))
+            .unwrap(),
+        expected_ip.to_string()
+    );
+
+    // Check that we actually _received_ the requested IP on the second interface.
+    assert_eq!(
+        instance
+            .status
+            .as_ref()
+            .and_then(|s| s
+                .network
+                .as_ref()
+                .and_then(|n| n.interfaces.last().map(|i| i.addresses[0].clone())))
+            .unwrap(),
+        expected_ip2.to_string()
     );
 }

@@ -665,6 +665,46 @@ impl TestEnv {
             .unwrap();
     }
 
+    /// Runs the necessary iterations to return an instance back to an Assigned/Ready
+    /// state after a network config update has added/removed an interface.
+    pub async fn run_machine_state_controller_iteration_network_config_return_to_ready(
+        &self,
+        mh: &TestManagedHost,
+        interfaces_added: bool,
+    ) {
+        if interfaces_added {
+            // Move the network segment along
+            self.run_network_segment_controller_iteration().await;
+        }
+
+        // Ticks for WaitingForConfigSynced
+        self.run_machine_state_controller_iteration_until_state_matches(
+            &mh.host().id,
+            10,
+            ManagedHostState::Assigned {
+                instance_state: model::machine::InstanceState::NetworkConfigUpdate {
+                    network_config_update_state:
+                        model::machine::NetworkConfigUpdateState::WaitingForConfigSynced,
+                },
+            },
+        )
+        .await;
+
+        // Simulate the DPU calling in, getting a response,
+        // configuring itself, and reporting back.
+        mh.network_configured(self).await;
+
+        // Ticks to get us back to assigned ready after releasing old resources
+        self.run_machine_state_controller_iteration_until_state_matches(
+            &mh.host().id,
+            10,
+            ManagedHostState::Assigned {
+                instance_state: model::machine::InstanceState::Ready,
+            },
+        )
+        .await;
+    }
+
     pub async fn override_machine_state_controller_handler(&self, handler: MachineStateHandler) {
         *self.machine_state_handler.inner.lock().await = handler;
     }

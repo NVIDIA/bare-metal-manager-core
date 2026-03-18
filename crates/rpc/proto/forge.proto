@@ -2501,6 +2501,11 @@ message InstanceInterfaceConfig {
   // then this value is set and specifies the virtual function ID that is configured
   // for this network interface.
   optional uint32 virtual_function_id = 9;
+
+  // Explicit _host_ IP address requested for the interface.
+  // Only allowed when VPC prefix is used.
+  // Must match VPC prefix defined for the interface.
+  optional string ip_address = 10;
 }
 
 // The configuration that a customer desires for an instances IB interface

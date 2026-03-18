@@ -645,6 +645,7 @@ mod tests {
                     host_inband_mac_address: None,
                     device_locator: None,
                     internal_uuid: uuid::Uuid::new_v4(),
+                    requested_ip_addr: None,
                 }
             })
             .collect();

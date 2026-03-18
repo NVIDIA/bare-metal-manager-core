@@ -758,6 +758,7 @@ mod tests {
                     network_details: None,
                     device_locator: None,
                     internal_uuid: uuid::Uuid::new_v4(),
+                    requested_ip_addr: None,
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
@@ -778,6 +779,7 @@ mod tests {
                     network_details: None,
                     device_locator: None,
                     internal_uuid: uuid::Uuid::new_v4(),
+                    requested_ip_addr: None,
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
@@ -798,6 +800,7 @@ mod tests {
                     network_details: None,
                     device_locator: None,
                     internal_uuid: uuid::Uuid::new_v4(),
+                    requested_ip_addr: None,
                 },
             ],
         }
@@ -830,6 +833,7 @@ mod tests {
                     network_details: None,
                     device_locator: None,
                     internal_uuid: internal_uuid1,
+                    requested_ip_addr: None,
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
@@ -850,6 +854,7 @@ mod tests {
                     network_details: None,
                     device_locator: None,
                     internal_uuid: internal_uuid2,
+                    requested_ip_addr: None,
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
@@ -870,6 +875,7 @@ mod tests {
                     network_details: None,
                     device_locator: None,
                     internal_uuid: internal_uuid3,
+                    requested_ip_addr: None,
                 },
             ],
         }
