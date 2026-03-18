@@ -71,6 +71,7 @@ pub fn machine_router(
     let update_service_config = machine_info.update_service_config();
     let bmc_vendor = machine_info.bmc_vendor();
     let bmc_product = machine_info.bmc_product();
+    let bmc_redfish_version = machine_info.bmc_redfish_version();
     let oem_state = machine_info.oem_state();
     let router = Router::new()
         // Couple routes for bug injection.
@@ -105,6 +106,7 @@ pub fn machine_router(
     let router = router.with_state(BmcState {
         bmc_vendor,
         bmc_product,
+        bmc_redfish_version,
         oem_state,
         manager,
         system_state,

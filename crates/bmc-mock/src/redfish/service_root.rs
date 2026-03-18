@@ -51,7 +51,7 @@ pub fn builder(resource: &redfish::Resource) -> ServiceRootBuilder {
 
 async fn get_service_root(State(state): State<BmcState>) -> Response {
     builder(&resource())
-        .redfish_version("1.13.1")
+        .redfish_version(state.bmc_redfish_version)
         .maybe_with(
             ServiceRootBuilder::vendor,
             &state.bmc_vendor.service_root_value(),

@@ -108,9 +108,11 @@ impl DpuMachineInfo {
 
     fn bluefield3(&self) -> hw::bluefield3::Bluefield3<'_> {
         let mode = match self.hw_type {
-            HostHardwareType::DellPowerEdgeR750 => hw::bluefield3::Mode::SuperNIC {
-                nic_mode: self.settings.nic_mode,
-            },
+            HostHardwareType::DellPowerEdgeR750 | HostHardwareType::NvidiaDgxH100 => {
+                hw::bluefield3::Mode::SuperNIC {
+                    nic_mode: self.settings.nic_mode,
+                }
+            }
             HostHardwareType::WiwynnGB200Nvl => hw::bluefield3::Mode::B3240ColdAisle,
             HostHardwareType::LiteOnPowerShelf | HostHardwareType::NvidiaSwitchNd5200Ld => {
                 panic!("Bluefield3 DPU is defined for {}", self.hw_type)
@@ -166,6 +168,7 @@ impl HostMachineInfo {
             }
             HostHardwareType::WiwynnGB200Nvl
             | HostHardwareType::LiteOnPowerShelf
+            | HostHardwareType::NvidiaDgxH100
             | HostHardwareType::NvidiaSwitchNd5200Ld => redfish::oem::State::Other,
         }
     }
@@ -178,6 +181,7 @@ impl HostMachineInfo {
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 redfish::oem::BmcVendor::Nvidia(redfish::oem::NvidiaNamestyle::Uppercase)
             }
+            HostHardwareType::NvidiaDgxH100 => redfish::oem::BmcVendor::Ami,
         }
     }
 
@@ -187,6 +191,17 @@ impl HostMachineInfo {
             HostHardwareType::WiwynnGB200Nvl => Some("GB200 NVL"),
             HostHardwareType::LiteOnPowerShelf => None,
             HostHardwareType::NvidiaSwitchNd5200Ld => Some("P3809"),
+            HostHardwareType::NvidiaDgxH100 => Some("AMI Redfish Server"),
+        }
+    }
+
+    pub fn bmc_redfish_version(&self) -> &'static str {
+        match self.hw_type {
+            HostHardwareType::DellPowerEdgeR750 => "1.18.0",
+            HostHardwareType::WiwynnGB200Nvl => "1.17.0",
+            HostHardwareType::LiteOnPowerShelf => "1.9.0",
+            HostHardwareType::NvidiaSwitchNd5200Ld => "1.17.0",
+            HostHardwareType::NvidiaDgxH100 => "1.11.0",
         }
     }
 
@@ -198,6 +213,7 @@ impl HostMachineInfo {
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().manager_config()
             }
+            HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().manager_config(),
         }
     }
 
@@ -216,6 +232,7 @@ impl HostMachineInfo {
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().system_config()
             }
+            HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().system_config(power_control),
         }
     }
 
@@ -227,6 +244,7 @@ impl HostMachineInfo {
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().chassis_config()
             }
+            HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().chassis_config(),
         }
     }
 
@@ -240,6 +258,7 @@ impl HostMachineInfo {
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().update_service_config()
             }
+            HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().update_service_config(),
         }
     }
 
@@ -247,6 +266,7 @@ impl HostMachineInfo {
         match self.hw_type {
             HostHardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().discovery_info(),
             HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().discovery_info(),
+            HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().discovery_info(),
             HostHardwareType::LiteOnPowerShelf | HostHardwareType::NvidiaSwitchNd5200Ld => {
                 panic!("discovery_info requested for {}", self.hw_type)
             }
@@ -310,6 +330,53 @@ impl HostMachineInfo {
             switch_serial_number: format!("MT{}", next_mac().to_string().replace(':', "")).into(),
         }
     }
+
+    fn nvidia_dgx_h100(&self) -> hw::nvidia_dgx_h100::NvidiaDgxH100<'_> {
+        let storage_nic0_p0_mac = next_mac();
+        let storage_nic0_serial = format!("MT{}", storage_nic0_p0_mac.to_string().replace(":", ""));
+        hw::nvidia_dgx_h100::NvidiaDgxH100 {
+            dgx_system_serial_number: Cow::Borrowed(&self.serial),
+            dgx_chassis_serial_number: Cow::Borrowed("1663223000002"),
+            ib_nics: [
+                hw::nic_nvidia_cx7::NicNvidiaCx7B {
+                    serial_number: "MT2307X00001".into(),
+                    mac_addresses: [(); _].map(|_| next_mac()),
+                },
+                hw::nic_nvidia_cx7::NicNvidiaCx7B {
+                    serial_number: "MT2307X00002".into(),
+                    mac_addresses: [(); _].map(|_| next_mac()),
+                },
+            ],
+            mgmt_nic: hw::nic_intel_x550::NicIntelX550 {
+                mac_address: next_mac(),
+            },
+            storage_nic0: hw::nic_nvidia_cx7::NicNvidiaCx7A {
+                serial_number: storage_nic0_serial.into(),
+                mac_addresses: [(); _].map(|_| next_mac()),
+            },
+            storage_nic1: hw::nic_intel_e810::NicIntelE810 {
+                mac_addresses: [(); _].map(|_| next_mac()),
+            },
+            dpu: self
+                .dpus
+                .first()
+                .expect("Single DPUs must present for H100")
+                .bluefield3(),
+            gpu_serial: [
+                "1652900000001".into(),
+                "1652900000002".into(),
+                "1652900000003".into(),
+                "1652900000004".into(),
+                "1652900000005".into(),
+                "1652900000006".into(),
+                "1652900000007".into(),
+                "1652900000008".into(),
+            ],
+            bmc_mac_address_eth0: next_mac(),
+            bmc_mac_address_usb0: next_mac(),
+            hgx_bmc_mac_address_usb0: next_mac(),
+        }
+    }
 }
 
 impl MachineInfo {
@@ -338,6 +405,13 @@ impl MachineInfo {
             MachineInfo::Dpu(_) => {
                 redfish::oem::BmcVendor::Nvidia(redfish::oem::NvidiaNamestyle::Capitalized)
             }
+        }
+    }
+
+    pub fn bmc_redfish_version(&self) -> &'static str {
+        match self {
+            MachineInfo::Host(h) => h.bmc_redfish_version(),
+            MachineInfo::Dpu(_) => "1.17.0",
         }
     }
 

@@ -26,6 +26,7 @@ pub enum BmcVendor {
     Nvidia(NvidiaNamestyle),
     Wiwynn,
     LiteOn,
+    Ami,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -42,6 +43,7 @@ impl BmcVendor {
             BmcVendor::Dell => Some("Dell"),
             BmcVendor::Wiwynn => Some("WIWYNN"),
             BmcVendor::LiteOn => None,
+            BmcVendor::Ami => Some("AMI"),
         }
     }
     // This function creates settings of the resource from the resource
@@ -50,6 +52,9 @@ impl BmcVendor {
         match self {
             BmcVendor::Nvidia(_) | BmcVendor::Dell | BmcVendor::Wiwynn | BmcVendor::LiteOn => {
                 format!("{}/Settings", resource.odata_id)
+            }
+            BmcVendor::Ami => {
+                format!("{}/SD", resource.odata_id)
             }
         }
     }

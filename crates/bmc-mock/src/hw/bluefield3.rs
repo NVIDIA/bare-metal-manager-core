@@ -20,6 +20,7 @@ use std::sync::Arc;
 
 use mac_address::MacAddress;
 use rpc::machine_discovery::{BlockDevice, CpuInfo, DiscoveryInfo, DmiData, DpuData};
+use rpc::{NetworkInterface, PciDeviceProperties};
 use serde_json::json;
 use utils::models::arch::CpuArchitecture;
 
@@ -201,15 +202,15 @@ impl Bluefield3<'_> {
         redfish::manager::Config {
             managers: vec![redfish::manager::SingleConfig {
                 id: "Bluefield_BMC",
-                eth_interfaces: vec![
+                eth_interfaces: Some(vec![
                     redfish::ethernet_interface::builder(
                         &redfish::ethernet_interface::manager_resource("Bluefield_BMC", "eth0"),
                     )
                     .mac_address(self.bmc_mac_address)
                     .interface_enabled(true)
                     .build(),
-                ],
-                firmware_version: "BF-23.10-4",
+                ]),
+                firmware_version: Some("BF-23.10-4"),
                 oem: None,
             }],
         }
@@ -244,18 +245,33 @@ impl Bluefield3<'_> {
         }
     }
 
-    pub fn host_nic(&self) -> hw::nic::Nic {
+    pub fn host_nic(&self) -> hw::nic::Nic<'static> {
         hw::nic::Nic {
             mac_address: self.host_mac_address,
             // This how it represented on host with number of trailing
             // whitespaces.
-            serial_number: format!("{}                 ", self.product_serial_number),
+            serial_number: Some(format!("{}                 ", self.product_serial_number).into()),
             manufacturer: Some("Mellanox Technologies".into()),
             model: Some("BlueField-3 SmartNIC Main Card".into()),
             description: Some(
                 "MT43244 BlueField-3 integrated ConnectX-7 network controller".into(),
             ),
             part_number: Some(self.part_number().into()),
+            firmware_version: Some(self.firmware_versions.dpu_nic.clone().into()),
+            is_mat_dpu: true,
+        }
+    }
+
+    pub fn host_nic_h100_variant(&self) -> hw::nic::Nic<'static> {
+        hw::nic::Nic {
+            mac_address: self.host_mac_address,
+            // This how it represented on host with number of trailing
+            // whitespaces.
+            serial_number: Some(format!("{}                 ", self.product_serial_number).into()),
+            manufacturer: Some("MLNX".into()),
+            model: Some("D3B6           ".into()),
+            description: None,
+            part_number: Some(format!("{}       ", self.part_number()).into()),
             firmware_version: Some(self.firmware_versions.dpu_nic.clone().into()),
             is_mat_dpu: true,
         }
@@ -313,6 +329,27 @@ impl Bluefield3<'_> {
             tpm_ek_certificate: None,
             tpm_description: None,
             ..Default::default()
+        }
+    }
+
+    pub fn host_nic_discovery_info(
+        &self,
+        path: &str,
+        slot: &str,
+        numa_node: i32,
+    ) -> NetworkInterface {
+        NetworkInterface {
+            mac_address: self.host_mac_address.to_string(),
+            pci_properties: Some(PciDeviceProperties {
+                vendor: "Mellanox Technologies".into(),
+                device: "MT43244 BlueField-3 integrated ConnectX-7 network controller".into(),
+                path: path.into(),
+                numa_node,
+                description: Some(
+                    "MT43244 BlueField-3 integrated ConnectX-7 network controller".into(),
+                ),
+                slot: Some(slot.into()),
+            }),
         }
     }
 

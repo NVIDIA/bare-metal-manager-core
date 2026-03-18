@@ -21,20 +21,20 @@ use mac_address::MacAddress;
 use rpc::machine_discovery::{NetworkInterface, PciDeviceProperties};
 pub type SlotNumber = usize;
 
-pub struct Nic {
+pub struct Nic<'a> {
     pub mac_address: MacAddress,
-    pub serial_number: String,
-    pub manufacturer: Option<Cow<'static, str>>,
-    pub model: Option<Cow<'static, str>>,
-    pub description: Option<Cow<'static, str>>,
-    pub part_number: Option<Cow<'static, str>>,
-    pub firmware_version: Option<Cow<'static, str>>,
+    pub serial_number: Option<Cow<'a, str>>,
+    pub manufacturer: Option<Cow<'a, str>>,
+    pub model: Option<Cow<'a, str>>,
+    pub description: Option<Cow<'a, str>>,
+    pub part_number: Option<Cow<'a, str>>,
+    pub firmware_version: Option<Cow<'a, str>>,
     pub is_mat_dpu: bool,
 }
 
-impl Nic {
-    pub fn rooftop(mac: MacAddress) -> Self {
-        let serial_number = format!("RT{}", mac.to_string().replace(':', ""));
+impl Nic<'_> {
+    pub fn rooftop(mac: MacAddress) -> Nic<'static> {
+        let serial_number = Some(format!("RT{}", mac.to_string().replace(':', "")).into());
         Nic {
             manufacturer: Some("Rooftop Technologies".into()),
             model: Some("Rooftop 10 Kilobit Ethernet Adapter".into()),

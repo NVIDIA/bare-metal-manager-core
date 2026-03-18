@@ -54,9 +54,10 @@ pub fn builder(resource: &redfish::Resource) -> PcieDeviceBuilder {
 }
 
 pub fn builder_from_nic(resource: &redfish::Resource, nic: &hw::nic::Nic) -> PcieDeviceBuilder {
-    let b = builder(resource).serial_number(&nic.serial_number);
+    let b = builder(resource);
     let b = if nic.is_mat_dpu { b.mat_dpu() } else { b };
-    b.maybe_with(PcieDeviceBuilder::description, &nic.description)
+    b.maybe_with(PcieDeviceBuilder::serial_number, &nic.serial_number)
+        .maybe_with(PcieDeviceBuilder::description, &nic.description)
         .maybe_with(PcieDeviceBuilder::manufacturer, &nic.manufacturer)
         .maybe_with(PcieDeviceBuilder::model, &nic.model)
         .maybe_with(PcieDeviceBuilder::part_number, &nic.part_number)

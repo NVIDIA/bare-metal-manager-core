@@ -258,7 +258,7 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
                     .boot_options
                     .iter()
                     .flatten()
-                    .map(|v| v.id.as_ref())
+                    .map(|v| v.boot_reference())
                     .collect::<Vec<_>>(),
             );
         }
@@ -689,7 +689,7 @@ async fn patch_bios_settings(
                 &mut system_state.bios_overrides.lock().expect("mutex poisoned"),
                 patch_bios_request,
             );
-            json!({}).into_ok_response()
+            http::ok_no_content()
         }
     }
 }

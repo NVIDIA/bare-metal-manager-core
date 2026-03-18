@@ -50,14 +50,14 @@ impl WiwynnGB200Nvl<'_> {
             managers: vec![
                 redfish::manager::SingleConfig {
                     id: "BMC_0",
-                    eth_interfaces: vec![], // TODO: eth0 / eth1 / hmcusb0 / hostusb0
-                    firmware_version: "25.06-2_NV_WW_02",
+                    eth_interfaces: Some(vec![]), // TODO: eth0 / eth1 / hmcusb0 / hostusb0
+                    firmware_version: Some("25.06-2_NV_WW_02"),
                     oem: None,
                 },
                 redfish::manager::SingleConfig {
                     id: "HGX_BMC_0",
-                    eth_interfaces: vec![], // TODO: usb0
-                    firmware_version: "GB200Nvl-25.06-A",
+                    eth_interfaces: Some(vec![]), // TODO: usb0
+                    firmware_version: Some("GB200Nvl-25.06-A"),
                     oem: None,
                 },
             ],

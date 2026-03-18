@@ -29,7 +29,7 @@ use crate::{PowerControl, hw, redfish};
 pub struct DellPowerEdgeR750<'a> {
     pub bmc_mac_address: MacAddress,
     pub product_serial_number: Cow<'a, str>,
-    pub nics: Vec<(hw::nic::SlotNumber, hw::nic::Nic)>,
+    pub nics: Vec<(hw::nic::SlotNumber, hw::nic::Nic<'a>)>,
     pub embedded_nic: EmbeddedNic,
 }
 
@@ -53,15 +53,15 @@ impl DellPowerEdgeR750<'_> {
         redfish::manager::Config {
             managers: vec![redfish::manager::SingleConfig {
                 id: "iDRAC.Embedded.1",
-                eth_interfaces: vec![
+                eth_interfaces: Some(vec![
                     redfish::ethernet_interface::builder(
                         &redfish::ethernet_interface::manager_resource("iDRAC.Embedded.1", "NIC.1"),
                     )
                     .mac_address(self.bmc_mac_address)
                     .interface_enabled(true)
                     .build(),
-                ],
-                firmware_version: "6.00.30.00",
+                ]),
+                firmware_version: Some("6.00.30.00"),
                 oem: Some(redfish::manager::Oem::Dell),
             }],
         }
@@ -184,7 +184,9 @@ impl DellPowerEdgeR750<'_> {
                 .oem(redfish::oem::dell::network_device_function::dell_nic_info(
                     &function_id,
                     *slot,
-                    &nic.serial_number,
+                    nic.serial_number
+                        .as_ref()
+                        .unwrap_or(&Cow::Borrowed("unknown")),
                 ))
                 .build();
             redfish::network_adapter::builder_from_nic(

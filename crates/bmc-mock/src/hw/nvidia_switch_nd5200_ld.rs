@@ -40,7 +40,7 @@ impl NvidiaSwitchNd5200Ld<'_> {
         redfish::manager::Config {
             managers: vec![redfish::manager::SingleConfig {
                 id: "BMC_0",
-                eth_interfaces: vec![
+                eth_interfaces: Some(vec![
                     eth_builder("eth0")
                         .mac_address(self.bmc_mac_address_eth0)
                         .interface_enabled(true)
@@ -53,8 +53,8 @@ impl NvidiaSwitchNd5200Ld<'_> {
                         .mac_address(self.bmc_mac_address_usb0)
                         .interface_enabled(true)
                         .build(),
-                ],
-                firmware_version: "88.0002.1333",
+                ]),
+                firmware_version: Some("88.0002.1333"),
                 oem: None,
             }],
         }

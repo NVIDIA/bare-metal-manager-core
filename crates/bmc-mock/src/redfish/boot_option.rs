@@ -47,15 +47,20 @@ pub fn builder(resource: &redfish::Resource) -> BootOptionBuilder {
     BootOptionBuilder {
         id: Cow::Owned(resource.id.to_string()),
         value: resource.json_patch(),
+        reference: None,
     }
 }
 
 pub struct BootOption {
     pub id: Cow<'static, str>,
+    pub reference: Option<String>,
     value: serde_json::Value,
 }
 
 impl BootOption {
+    pub fn boot_reference(&self) -> &str {
+        self.reference.as_deref().unwrap_or(&self.id)
+    }
     pub fn to_json(&self) -> serde_json::Value {
         self.value.clone()
     }
@@ -63,6 +68,7 @@ impl BootOption {
 
 pub struct BootOptionBuilder {
     id: Cow<'static, str>,
+    reference: Option<String>,
     value: serde_json::Value,
 }
 
@@ -71,6 +77,7 @@ impl Builder for BootOptionBuilder {
         Self {
             value: self.value.patch(patch),
             id: self.id,
+            reference: self.reference,
         }
     }
 }
@@ -81,7 +88,9 @@ impl BootOptionBuilder {
     }
 
     pub fn boot_option_reference(self, value: &str) -> Self {
-        self.add_str_field("BootOptionReference", value)
+        let mut result = self.add_str_field("BootOptionReference", value);
+        result.reference = Some(value.to_string());
+        result
     }
 
     pub fn uefi_device_path(self, value: &str) -> Self {
@@ -91,6 +100,7 @@ impl BootOptionBuilder {
     pub fn build(self) -> BootOption {
         BootOption {
             id: self.id,
+            reference: self.reference,
             value: self.value,
         }
     }

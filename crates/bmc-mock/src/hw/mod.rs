@@ -36,6 +36,18 @@ pub mod liteon_power_shelf;
 /// Support of NVIDIA Switch ND5200_LD.
 pub mod nvidia_switch_nd5200_ld;
 
+/// Support of NVIDIA DGX H100.
+pub mod nvidia_dgx_h100;
+
+/// Intel E810 NIC.
+pub mod nic_intel_e810;
+
+/// Intel X550 NIC.
+pub mod nic_intel_x550;
+
+/// NVIDIA ConnectX-7.
+pub mod nic_nvidia_cx7;
+
 use bmc_vendor::BMCVendor;
 
 pub fn bmc_vendor_to_udev_dmi(v: BMCVendor) -> &'static str {
