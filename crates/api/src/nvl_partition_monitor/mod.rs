@@ -25,8 +25,8 @@ use chrono::Utc;
 use config_version::Versioned;
 use db::machine::find_machine_ids;
 use db::managed_host::load_by_machine_ids;
-use db::nvl_logical_partition::{IdColumn as LpIdColumn, LogicalPartition};
-use db::nvl_partition::{IdColumn, NvlPartition, NvlPartitionName};
+use db::nvl_logical_partition::IdColumn as LpIdColumn;
+use db::nvl_partition::IdColumn;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{self, ObjectColumnFilter, machine};
 use metrics::{AppliedChange, NmxmPartitionOperationStatus, NvlPartitionMonitorMetrics};
@@ -36,6 +36,8 @@ use model::instance::status::nvlink::InstanceNvLinkStatus;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::nvlink::{MachineNvLinkGpuStatusObservation, MachineNvLinkStatusObservation};
 use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
+use model::nvl_logical_partition::LogicalPartition;
+use model::nvl_partition::{NvlPartition, NvlPartitionName};
 use sqlx::PgPool;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -160,7 +162,7 @@ impl PartitionProcessingContext {
         if let Some(matching_logical_partition) =
             self.db_nvl_logical_partitions.get(logical_partition_id)
         {
-            if db::nvl_logical_partition::is_marked_as_deleted(matching_logical_partition) {
+            if model::nvl_logical_partition::is_marked_as_deleted(matching_logical_partition) {
                 tracing::error!(
                     "logical partition already marked as deleted, cannot modify physical partition"
                 );
@@ -858,12 +860,12 @@ impl NvlPartitionMonitor {
         &self,
         machine_nvlink_info: HashMap<MachineId, Option<MachineNvLinkInfo>>,
         nmx_m_gpus: &[libnmxm::nmxm_model::Gpu],
-        db_nvl_partitions: Vec<db::nvl_partition::NvlPartition>,
+        db_nvl_partitions: Vec<NvlPartition>,
         nmx_m_partitions: &[libnmxm::nmxm_model::Partition],
         metrics: &mut NvlPartitionMonitorMetrics,
     ) -> CarbideResult<(
         HashMap<MachineId, Option<MachineNvLinkInfo>>,
-        Vec<db::nvl_partition::NvlPartition>,
+        Vec<NvlPartition>,
     )> {
         // Only run once every 15 minutes.
         {
@@ -1847,7 +1849,7 @@ impl NvlPartitionMonitor {
                 match operation.operation_type {
                     NmxmPartitionOperationType::Create => {
                         // Create the nvl partition in the database
-                        let new_partition = db::nvl_partition::NewNvlPartition {
+                        let new_partition = model::nvl_partition::NewNvlPartition {
                             id: NvLinkPartitionId::new(),
                             logical_partition_id,
                             name: NvlPartitionName::try_from(operation.name.clone())?,
@@ -1871,7 +1873,7 @@ impl NvlPartitionMonitor {
                                 }
                             },
                         };
-                        let _partition = new_partition.create(txn).await?;
+                        let _partition = db::nvl_partition::create(&new_partition, txn).await?;
                     }
                     NmxmPartitionOperationType::Remove(_) => {
                         db::nvl_partition::final_delete(
@@ -1897,7 +1899,7 @@ impl NvlPartitionMonitor {
 
         // walk the logical partition list and check if any logical partitions need to be cleaned up
         for lp in db_nvl_logical_partitions {
-            if db::nvl_logical_partition::is_marked_as_deleted(lp) {
+            if model::nvl_logical_partition::is_marked_as_deleted(lp) {
                 tracing::info!(logical_partition_id = %lp.id, "Deleting logical partition");
                 db::nvl_logical_partition::final_delete(lp.id, txn).await?;
             }
