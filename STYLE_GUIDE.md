@@ -225,6 +225,67 @@ be cloned and re-used to cancel sub-tasks.
 A note on function naming: `start` or `spawn` should mean "spawns work in the background". `run` should mean "run
 forever".
 
+### Cancelling background tasks
+
+If your background task is a "service" with a handle that clients can use to talk to it (like sending it commands over a
+tokio channel), prefer using RAII-style primitives to automatically cancel your task when the last handle is dropped.
+Avoid explicit cancellation, which could cause your task to cancel even while there are still consumers.
+
+Example:
+
+```rust
+impl MyService {
+    // Returns a Handle that callers can use to interact with the background
+    // task. We don't need a cancel token passed to us, instead just stop once
+    // all handles have dropped.
+    pub fn start(self, join_set: &mut JoinSet<()>) -> Handle {
+        let (cmd_tx, cmd_rx) = mpsc::channel(BUF_SIZE);
+        join_set.spawn(self.run(cmd_rx));
+        // When the cmd_tx refcount drops to zero, work will stop
+        Handle { cmd_tx }
+    }
+
+    async fn run(self, cmd_rx: mpsc::Receiver<Command>) {
+        while let Some(cmd) = cmd_rx.recv().await {
+            // handle command...
+        }
+        tracing::info!("All handles dropped, MyService shutting down");
+    }
+}
+
+pub struct Handle {
+    cmd_tx: mpsc::Sender<Command>,
+}
+```
+
+For background tasks that have no clients, but instead run forever at some interval until the container is terminated,
+the RAII style is less useful, since there are no clients to keep track of. In this case, prefer accepting an explicit
+cancellation token from the toplevel `initialize_and_start_controllers` method, and stop your work when that token is
+cancelled.
+
+Example:
+
+```rust
+impl ClientlessBackgroundJob {
+    // Returns nothing, since callers don't interact with it. We need a cancel_token to know when to stop.
+    pub fn start(self, join_set: &mut JoinSet<()>, cancel_token: CancellationToken) {
+        join_set.spawn(self.run(cancel_token)));
+    }
+
+    async fn run(self, cancel_token: CancellationToken) {
+        let mut interval = tokio::time::interval(INTERVAL_DURATION);
+        while let Some(()) = cancel_token.run_until_cancelled(interval.tick()).await {
+            // do periodic work
+        }
+    }
+}
+```
+
+Avoid mixing the approaches and returning an RAII handle for "client-less" background tasks, if it only exists to stop
+the task when dropped. In carbide-api, there are many such client-less background jobs, and storing each of their
+handles for the correct lifetime is awkward and error-prone. Propagating a single top-level CancellationToken to each of
+them is the preferred approach.
+
 ## General Rust Coding Standards
 
 ### Mutability
