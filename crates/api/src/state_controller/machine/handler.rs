@@ -5434,9 +5434,25 @@ impl StateHandler for InstanceStateHandler {
                         return Ok(StateHandlerOutcome::transition(next_state));
                     }
 
-                    let mut txn = ctx.services.db_pool.begin().await?;
-                    let extension_services_status =
-                        get_extension_services_status(mh_snapshot, instance, &mut txn).await?;
+                    let mut extension_services_status =
+                        get_extension_services_status(mh_snapshot, instance);
+                    let txn = if extension_services_status.configs_synced == SyncState::Synced
+                        && !extension_services_status
+                            .get_terminated_service_ids()
+                            .is_empty()
+                    {
+                        let mut txn = ctx.services.db_pool.begin().await?;
+                        cleanup_terminated_extension_services(
+                            instance,
+                            &mut extension_services_status,
+                            txn.as_mut(),
+                        )
+                        .await?;
+
+                        Some(txn)
+                    } else {
+                        None
+                    };
                     let outcome = match extension_service::compute_extension_services_readiness(&extension_services_status) {
                                 ExtensionServicesReadiness::Ready => {
                                     let next_state = ManagedHostState::Assigned {
@@ -5461,7 +5477,10 @@ impl StateHandler for InstanceStateHandler {
                                     )
                                 }
                             };
-                    Ok(outcome.with_txn(txn))
+                    Ok(match txn {
+                        Some(txn) => outcome.with_txn(txn),
+                        None => outcome,
+                    })
                 }
                 InstanceState::WaitingForRebootToReady => {
                     // If custom_pxe_reboot_requested is set, this reboot was triggered by
@@ -5505,6 +5524,33 @@ impl StateHandler for InstanceStateHandler {
                             },
                         };
                         return Ok(StateHandlerOutcome::transition(next_state));
+                    }
+
+                    // Run cleanup here so fully terminated extension services are
+                    // removed from persisted instance config.
+                    let mut txn_opt = None;
+                    if !instance
+                        .config
+                        .extension_services
+                        .service_configs
+                        .is_empty()
+                    {
+                        let mut extension_services_status =
+                            get_extension_services_status(mh_snapshot, instance);
+                        if extension_services_status.configs_synced == SyncState::Synced
+                            && !extension_services_status
+                                .get_terminated_service_ids()
+                                .is_empty()
+                        {
+                            let mut txn = ctx.services.db_pool.begin().await?;
+                            cleanup_terminated_extension_services(
+                                instance,
+                                &mut extension_services_status,
+                                txn.as_mut(),
+                            )
+                            .await?;
+                            txn_opt = Some(txn);
+                        }
                     }
 
                     let reprov_can_be_started =
@@ -5606,7 +5652,11 @@ impl StateHandler for InstanceStateHandler {
                             }
                         };
 
-                        let mut txn = ctx.services.db_pool.begin().await?;
+                        let mut txn = if let Some(txn) = txn_opt.take() {
+                            txn
+                        } else {
+                            ctx.services.db_pool.begin().await?
+                        };
 
                         if host_firmware_requested {
                             let health_override =
@@ -5638,6 +5688,8 @@ impl StateHandler for InstanceStateHandler {
                         }
 
                         Ok(StateHandlerOutcome::transition(next_state).with_txn(txn))
+                    } else if let Some(txn) = txn_opt {
+                        Ok(StateHandlerOutcome::do_nothing().with_txn(txn))
                     } else {
                         Ok(StateHandlerOutcome::do_nothing())
                     }
@@ -6133,56 +6185,63 @@ impl StateHandler for InstanceStateHandler {
 
 // Gets extension services status from DB, checks if any removed services are fully terminated
 // across all DPUs, if so, remove them from the instance config in the DB(without updating the version).
-async fn get_extension_services_status(
+fn get_extension_services_status(
     mh_snapshot: &ManagedHostStateSnapshot,
     instance: &InstanceSnapshot,
-    txn: &mut PgConnection,
-) -> Result<InstanceExtensionServicesStatus, StateHandlerError> {
+) -> InstanceExtensionServicesStatus {
     let (_, dpu_id_to_device_map) = mh_snapshot
         .host_snapshot
         .get_dpu_device_and_id_mappings()
         .unwrap_or_else(|_| (HashMap::default(), HashMap::default()));
 
     // Gather instance extension services status from all DPU observations
-    let mut extension_services_status =
-        InstanceExtensionServicesStatus::from_config_and_observations(
-            &dpu_id_to_device_map,
-            Versioned::new(
-                &instance.config.extension_services,
-                instance.extension_services_config_version,
-            ),
-            &instance.observations.extension_services,
-        );
+    InstanceExtensionServicesStatus::from_config_and_observations(
+        &dpu_id_to_device_map,
+        Versioned::new(
+            &instance.config.extension_services,
+            instance.extension_services_config_version,
+        ),
+        &instance.observations.extension_services,
+    )
+}
 
-    if extension_services_status.configs_synced == SyncState::Synced {
-        let terminated_service_ids = extension_services_status.get_terminated_service_ids();
-        if !terminated_service_ids.is_empty() {
-            tracing::info!(
-                instance_id = %instance.id,
-                service_ids = ?terminated_service_ids,
-                "Cleaning up fully terminated extension services from instance config"
-            );
-            let new_config = instance
-                .config
-                .extension_services
-                .remove_terminated_services(&terminated_service_ids);
-
-            db::instance::update_extension_services_config(
-                txn,
-                instance.id,
-                instance.extension_services_config_version,
-                &new_config,
-                false,
-            )
-            .await?;
-
-            extension_services_status
-                .extension_services
-                .retain(|svc| !terminated_service_ids.contains(&svc.service_id));
-        }
+async fn cleanup_terminated_extension_services(
+    instance: &InstanceSnapshot,
+    extension_services_status: &mut InstanceExtensionServicesStatus,
+    txn: &mut PgConnection,
+) -> Result<(), StateHandlerError> {
+    if extension_services_status.configs_synced != SyncState::Synced {
+        return Ok(());
     }
 
-    Ok(extension_services_status)
+    let terminated_service_ids = extension_services_status.get_terminated_service_ids();
+    if terminated_service_ids.is_empty() {
+        return Ok(());
+    }
+
+    tracing::info!(
+        instance_id = %instance.id,
+        service_ids = ?terminated_service_ids,
+        "Cleaning up fully terminated extension services from instance config"
+    );
+    let new_config = instance
+        .config
+        .extension_services
+        .remove_terminated_services(&terminated_service_ids);
+
+    db::instance::update_extension_services_config(
+        txn,
+        instance.id,
+        instance.extension_services_config_version,
+        &new_config,
+        false,
+    )
+    .await?;
+
+    extension_services_status
+        .extension_services
+        .retain(|svc| !terminated_service_ids.contains(&svc.service_id));
+    Ok(())
 }
 
 async fn handle_instance_network_config_update_request(

@@ -36,7 +36,8 @@ use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZ
 use common::api_fixtures::{
     TestEnvOverrides, create_managed_host, create_test_env, create_test_env_with_overrides, dpu,
     get_config, get_vpc_fixture_id, inject_machine_measurements, network_configured_with_health,
-    persist_machine_validation_result, populate_network_security_groups, site_explorer,
+    network_configured_with_health_and_ext_services, persist_machine_validation_result,
+    populate_network_security_groups, site_explorer,
 };
 use config_version::ConfigVersion;
 use db::instance_address::UsedOverlayNetworkIpResolver;
@@ -5869,6 +5870,172 @@ async fn test_update_instance_with_extension_services(
     assert!(
         err.message()
             .starts_with("Duplicate extension services in configuration. Only one version of each service is allowed.")
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_extension_service_removed_after_all_dpus_report_terminated(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+
+    let (_, service2, _) = create_dpu_extension_services(&env).await?;
+    let service2_version = service2
+        .latest_version_info
+        .as_ref()
+        .unwrap()
+        .version
+        .clone();
+
+    let config = rpc::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(default_os_config()),
+        network: Some(single_interface_network_config(segment_id)),
+        infiniband: None,
+        network_security_group_id: None,
+        nvlink: None,
+        dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
+            service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
+                service_id: service2.service_id.clone(),
+                version: service2_version,
+            }],
+        }),
+    };
+
+    let tinstance = mh.instance_builer(&env).config(config).build().await;
+    let instance_id = tinstance.id;
+
+    // Explicitly mock healthy/running extension-service status from the DPU.
+    network_configured_with_health_and_ext_services(&env, &mh.dpu().id, None, None).await;
+
+    // Remove all extension services from desired config.
+    env.api
+        .update_instance_config(Request::new(rpc::forge::InstanceConfigUpdateRequest {
+            if_version_match: None,
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(single_interface_network_config(segment_id)),
+                infiniband: None,
+                network_security_group_id: None,
+                nvlink: None,
+                dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
+                    service_configs: vec![],
+                }),
+            }),
+            instance_id: Some(instance_id),
+            metadata: Some(rpc::forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await?;
+
+    // Update instance config should not change the instance state from Ready
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        10,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        },
+    )
+    .await;
+
+    let rpc_instance = tinstance.rpc_instance().await.into_inner();
+
+    // Since the extension services are removed from the instance config, the config should be empty.
+    assert!(
+        rpc_instance
+            .config
+            .unwrap()
+            .dpu_extension_services
+            .is_none()
+    );
+
+    // At this point, since DPUs have not reported any extension services, the tenant state should
+    // be in Configuring state.
+    let rpc_status = rpc_instance.status.unwrap();
+    assert_eq!(
+        rpc_status.tenant.unwrap().state,
+        rpc::TenantState::Configuring as i32
+    );
+
+    // The extension services status should still be tracked until fully terminated.
+    let dpu_extension_services_status = rpc_status.dpu_extension_services.unwrap();
+    assert_eq!(
+        dpu_extension_services_status.dpu_extension_services.len(),
+        1
+    );
+    assert_eq!(
+        dpu_extension_services_status.configs_synced,
+        rpc::forge::SyncState::Pending as i32
+    );
+    // The status should be Unknown until the DPU reports the status.
+    assert_eq!(
+        dpu_extension_services_status.dpu_extension_services[0].deployment_status,
+        rpc::forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceUnknown as i32
+    );
+
+    // Mock DPU reporting removed services as fully terminated.
+    // Instance should be in Ready state after this.
+    // Tenant state should be Ready.
+    // Instance config and status should no long have the extension services.
+    network_configured_with_health_and_ext_services(
+        &env,
+        &mh.dpu().id,
+        None,
+        Some(rpc::forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated),
+    )
+    .await;
+
+    // Let state handler process cleanup and persist instance extension-services config.
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let snapshot = mh.snapshot(&mut txn).await;
+    let instance_snapshot = snapshot.instance.unwrap();
+
+    // The extension services should be removed from the instance config.
+    assert!(
+        instance_snapshot
+            .config
+            .extension_services
+            .service_configs
+            .is_empty(),
+        "Instance config should not have extension services"
+    );
+
+    // However, the observations should still be in record.
+    assert!(!instance_snapshot.observations.extension_services.is_empty(),);
+
+    let rpc_instance = tinstance.rpc_instance().await.into_inner();
+    assert!(
+        rpc_instance
+            .config
+            .unwrap()
+            .dpu_extension_services
+            .is_none()
+    );
+
+    // The tenant status should now be Ready.
+    let rpc_status = rpc_instance.status.unwrap();
+    assert_eq!(
+        rpc_status.tenant.unwrap().state,
+        rpc::TenantState::Ready as i32
+    );
+    assert!(
+        rpc_status
+            .dpu_extension_services
+            .unwrap()
+            .dpu_extension_services
+            .is_empty()
     );
 
     Ok(())
