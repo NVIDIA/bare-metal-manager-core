@@ -18,7 +18,7 @@ to fast-track building next-generation AI Cloud offerings.
 - Hardware inventory management and orchestration
 - Redfish-based hardware management
 - Hardware testing and firmware updates
-- IPv4 address allocation and DNS services
+- IP address allocation and DNS services
 - Power control (on/off/reset)
 - Provisioning, wiping, and node-release orchestration
 - Machine trust enforcement during tenant switching
@@ -27,17 +27,10 @@ to fast-track building next-generation AI Cloud offerings.
 
 ```
 ncx-infra-controller-core/
-├── crates/              # All Rust crate implementations (60 crates)
-│   ├── api/             # Main gRPC API service
-│   ├── agent/           # Background orchestration agent
-│   ├── admin-cli/       # Administrator CLI tool
-│   ├── scout/           # Machine validation and burn-in
-│   ├── api-model/       # Shared API data models
-│   ├── api-db/          # Database abstraction layer
-│   ├── dhcp*/           # DHCP service implementation
-│   ├── dns*/            # DNS services
-│   ├── pxe/             # PXE boot image delivery
-│   └── ...              # Additional service and utility crates
+├── crates/              # Rust crate implementations. To discover all crates
+│                        # and their purpose, run `ls crates/` or see the
+│                        # [workspace] members list in `Cargo.toml` — each
+│                        # crate's own `Cargo.toml` has a `description` field.
 ├── book/                # mdBook documentation
 ├── deploy/              # Kubernetes deployment configs and Kustomization overlays
 ├── dev/                 # Local dev tools (Dockerfiles, test configs, certs)
