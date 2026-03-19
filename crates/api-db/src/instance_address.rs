@@ -94,6 +94,18 @@ pub async fn find_by_prefix(
         .map_err(|e| DatabaseError::query(query.sql(), e))
 }
 
+pub async fn find_by_segment_id(
+    txn: impl DbReader<'_>,
+    segment_id: &NetworkSegmentId,
+) -> Result<Vec<InstanceAddress>, DatabaseError> {
+    let query = "SELECT * FROM instance_addresses WHERE segment_id = $1::uuid ORDER BY address";
+    sqlx::query_as(query)
+        .bind(segment_id)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 pub async fn delete(txn: &mut PgConnection, instance_id: InstanceId) -> Result<(), DatabaseError> {
     // Lock MUST be taken by calling function.
     let query = "DELETE FROM instance_addresses WHERE instance_id=$1 RETURNING id";
