@@ -325,7 +325,6 @@ pub async fn setup_and_run(
         service_addrs,
         close_sender,
         network_monitor_handle,
-        interface_state: None,
         extension_service_manager: extension_services::ExtensionServiceManager::default(),
     };
 
@@ -357,7 +356,6 @@ struct MainLoop {
     service_addrs: ServiceAddresses,
     network_monitor_handle: Option<JoinHandle<()>>,
     close_sender: watch::Sender<bool>,
-    interface_state: Option<ethernet_virtualization::InterfaceState>,
     extension_service_manager: extension_services::ExtensionServiceManager,
 }
 
@@ -446,25 +444,28 @@ impl MainLoop {
             dpu_extension_services: vec![],
         };
 
-        let mut last_dhcp_requests = vec![];
-        let mut dhcp_timestamps = DhcpTimestamps::new(DhcpTimestampsFilePath::Dpu);
-        if let Err(e) = dhcp_timestamps.read() {
-            tracing::warn!(
-                "Failed to read from {}: {e}",
-                DhcpTimestampsFilePath::Dpu.path_str()
-            );
-        }
-        for (host_interface_id, timestamp) in dhcp_timestamps.into_iter() {
-            last_dhcp_requests.push(rpc::LastDhcpRequest {
-                host_interface_id: Some(host_interface_id),
-                timestamp: timestamp.to_string(),
-            });
-        }
-        status_out.last_dhcp_requests = last_dhcp_requests;
-
         // `read` does not block
         match self.periodic_config_reader.net_conf_read() {
             Some(conf) => {
+                // DHCP server only runs on the primary dpu or when using the tenant network
+                if !conf.use_admin_network || conf.is_primary_dpu {
+                    let mut last_dhcp_requests = vec![];
+                    let mut dhcp_timestamps = DhcpTimestamps::new(DhcpTimestampsFilePath::Dpu);
+                    if let Err(e) = dhcp_timestamps.read() {
+                        tracing::warn!(
+                            "Failed to read from {}: {e}",
+                            DhcpTimestampsFilePath::Dpu.path_str()
+                        );
+                    }
+                    for (host_interface_id, timestamp) in dhcp_timestamps.into_iter() {
+                        last_dhcp_requests.push(rpc::LastDhcpRequest {
+                            host_interface_id: Some(host_interface_id),
+                            timestamp: timestamp.to_string(),
+                        });
+                    }
+                    status_out.last_dhcp_requests = last_dhcp_requests;
+                }
+
                 let instance_data = self.periodic_config_reader.meta_data_conf_reader();
 
                 let proposed_routes: Vec<_> = conf
@@ -692,26 +693,11 @@ impl MainLoop {
                         }
                     }
 
-                    // In case of secondary DPU, physical interface must be disabled if on admin
-                    // network, else enabled.
-                    match ethernet_virtualization::update_interface_state(
-                        &conf,
-                        self.agent_config.hbn.skip_reload,
-                        &self.hbn_device_names,
-                        &self.interface_state,
-                    )
-                    .await
-                    {
-                        Ok(new_state) => {
-                            self.interface_state = new_state;
-                        }
-                        Err(err) => {
-                            tracing::error!(
-                                error = format!("{err:#}"),
-                                "Updating interface state."
-                            );
-                        }
-                    };
+                    // In case of secondary DPU, the interface must be disabled if on admin network, else enabled.
+                    // Note that the nvue config handles the blocking of traffic on the interface.  This is only so that the host link reflects the correct state.
+                    if let Err(err) = ethernet_virtualization::update_interface_state(&conf).await {
+                        tracing::error!(error = format!("{err:#}"), "Updating interface state.");
+                    }
                 }
 
                 // Feed the latest instance metadata to FMDS and acknowledge it
@@ -738,6 +724,7 @@ impl MainLoop {
                     min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(2),
                     route_servers: &conf.route_servers,
                     hbn_device_names: self.hbn_device_names.clone(),
+                    include_dhcp_server: !conf.use_admin_network || conf.is_primary_dpu,
                     run_restricted_mode_check: false,
                 })
                 .await;

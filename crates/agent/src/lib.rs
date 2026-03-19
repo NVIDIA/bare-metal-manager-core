@@ -173,6 +173,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 min_healthy_links: 2,
                 route_servers: &[],
                 hbn_device_names: HBNDeviceNames::hbn_23(),
+                include_dhcp_server: false,
                 run_restricted_mode_check: true,
             })
             .await;
