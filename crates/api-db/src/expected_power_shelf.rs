@@ -16,14 +16,15 @@
  */
 
 use std::collections::{BTreeMap, HashMap};
-use std::net::IpAddr;
 
 use carbide_uuid::rack::RackId;
 use itertools::Itertools;
 use mac_address::MacAddress;
-use model::expected_power_shelf::{ExpectedPowerShelf, LinkedExpectedPowerShelf};
-use model::metadata::Metadata;
+use model::expected_power_shelf::{
+    ExpectedPowerShelf, ExpectedPowerShelfRequest, LinkedExpectedPowerShelf,
+};
 use sqlx::PgConnection;
+use uuid::Uuid;
 
 use crate::{DatabaseError, DatabaseResult};
 
@@ -36,6 +37,18 @@ pub async fn find_by_bmc_mac_address(
     let sql = "SELECT * FROM expected_power_shelves WHERE bmc_mac_address=$1";
     sqlx::query_as(sql)
         .bind(bmc_mac_address)
+        .fetch_optional(txn)
+        .await
+        .map_err(|err| DatabaseError::query(sql, err))
+}
+
+pub async fn find_by_id(
+    txn: &mut PgConnection,
+    id: Uuid,
+) -> Result<Option<ExpectedPowerShelf>, DatabaseError> {
+    let sql = "SELECT * FROM expected_power_shelves WHERE expected_power_shelf_id=$1";
+    sqlx::query_as(sql)
+        .bind(id)
         .fetch_optional(txn)
         .await
         .map_err(|err| DatabaseError::query(sql, err))
@@ -80,6 +93,19 @@ pub async fn find_all(txn: &mut PgConnection) -> DatabaseResult<Vec<ExpectedPowe
         .map_err(|err| DatabaseError::query(sql, err))
 }
 
+/// find_all_by_rack_id returns all expected power shelves for a given rack_id.
+pub async fn find_all_by_rack_id(
+    txn: &mut PgConnection,
+    rack_id: RackId,
+) -> DatabaseResult<Vec<ExpectedPowerShelf>> {
+    let sql = "SELECT * FROM expected_power_shelves WHERE rack_id=$1";
+    sqlx::query_as(sql)
+        .bind(rack_id)
+        .fetch_all(txn)
+        .await
+        .map_err(|err| DatabaseError::query(sql, err))
+}
+
 pub async fn find_all_linked(
     txn: &mut PgConnection,
 ) -> DatabaseResult<Vec<LinkedExpectedPowerShelf>> {
@@ -87,9 +113,15 @@ pub async fn find_all_linked(
  SELECT
  eps.serial_number,
  eps.bmc_mac_address,
- ps.id AS power_shelf_id
+ ps.id AS power_shelf_id,
+ eps.expected_power_shelf_id,
+ host(ee.address) AS address,
+ eps.rack_id
 FROM expected_power_shelves eps
  LEFT JOIN power_shelves ps ON eps.serial_number = ps.config->>'name'
+ LEFT JOIN machine_interfaces mi ON eps.bmc_mac_address = mi.mac_address
+ LEFT JOIN machine_interface_addresses mia ON mi.id = mia.interface_id
+ LEFT JOIN explored_endpoints ee ON mia.address = ee.address
  ORDER BY eps.bmc_mac_address
  "#;
     sqlx::query_as(sql)
@@ -98,45 +130,78 @@ FROM expected_power_shelves eps
         .map_err(|err| DatabaseError::query(sql, err))
 }
 
-#[allow(clippy::too_many_arguments)]
+/// create inserts a new expected power shelf record. If the id field is None,
+/// a new UUID is generated.
 pub async fn create(
     txn: &mut PgConnection,
-    bmc_mac_address: MacAddress,
-    bmc_username: String,
-    bmc_password: String,
-    serial_number: String,
-    ip_address: Option<IpAddr>,
-    metadata: Metadata,
-    rack_id: Option<RackId>,
+    power_shelf: ExpectedPowerShelf,
 ) -> DatabaseResult<ExpectedPowerShelf> {
+    let id = power_shelf
+        .expected_power_shelf_id
+        .unwrap_or_else(Uuid::new_v4);
     let query = "INSERT INTO expected_power_shelves
-            (bmc_mac_address, bmc_username, bmc_password, serial_number, ip_address, metadata_name, metadata_description, metadata_labels, rack_id)
+            (expected_power_shelf_id, bmc_mac_address, bmc_username, bmc_password, serial_number, ip_address, metadata_name, metadata_description, metadata_labels, rack_id)
             VALUES
-            ($1::macaddr, $2::varchar, $3::varchar, $4::varchar, $5::inet, $6, $7, $8::jsonb, $9) RETURNING *";
+            ($1::uuid, $2::macaddr, $3::varchar, $4::varchar, $5::varchar, $6::inet, $7, $8, $9::jsonb, $10) RETURNING *";
 
     sqlx::query_as(query)
-        .bind(bmc_mac_address)
-        .bind(bmc_username)
-        .bind(bmc_password)
-        .bind(serial_number)
-        .bind(ip_address)
-        .bind(metadata.name)
-        .bind(metadata.description)
-        .bind(sqlx::types::Json(metadata.labels))
-        .bind(rack_id)
+        .bind(id)
+        .bind(power_shelf.bmc_mac_address)
+        .bind(&power_shelf.bmc_username)
+        .bind(&power_shelf.bmc_password)
+        .bind(&power_shelf.serial_number)
+        .bind(power_shelf.ip_address)
+        .bind(&power_shelf.metadata.name)
+        .bind(&power_shelf.metadata.description)
+        .bind(sqlx::types::Json(&power_shelf.metadata.labels))
+        .bind(power_shelf.rack_id)
         .fetch_one(txn)
         .await
         .map_err(|err: sqlx::Error| match err {
             sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => {
-                DatabaseError::ExpectedHostDuplicateMacAddress(bmc_mac_address)
+                DatabaseError::ExpectedHostDuplicateMacAddress(power_shelf.bmc_mac_address)
             }
             _ => DatabaseError::query(query, err),
         })
 }
 
-pub async fn delete(bmc_mac_address: MacAddress, txn: &mut PgConnection) -> DatabaseResult<()> {
-    let query = "DELETE FROM expected_power_shelves WHERE bmc_mac_address=$1";
+/// find returns an expected power shelf by expected_power_shelf_id if
+/// provided, otherwise by bmc_mac_address.
+pub async fn find(
+    txn: &mut PgConnection,
+    req: &ExpectedPowerShelfRequest,
+) -> DatabaseResult<Option<ExpectedPowerShelf>> {
+    if let Some(id) = req.expected_power_shelf_id {
+        find_by_id(txn, id).await
+    } else if let Some(mac) = req.bmc_mac_address {
+        find_by_bmc_mac_address(txn, mac).await
+    } else {
+        Err(DatabaseError::InvalidArgument(
+            "either expected_power_shelf_id or bmc_mac_address must be provided".into(),
+        ))
+    }
+}
 
+/// delete deletes an expected power shelf by expected_power_shelf_id if
+/// provided, otherwise by bmc_mac_address.
+pub async fn delete(txn: &mut PgConnection, req: &ExpectedPowerShelfRequest) -> DatabaseResult<()> {
+    if let Some(id) = req.expected_power_shelf_id {
+        delete_by_id(txn, id).await
+    } else if let Some(mac) = req.bmc_mac_address {
+        delete_by_mac(txn, mac).await
+    } else {
+        Err(DatabaseError::InvalidArgument(
+            "either expected_power_shelf_id or bmc_mac_address must be provided".into(),
+        ))
+    }
+}
+
+/// delete_by_mac deletes an expected power shelf by bmc_mac_address.
+pub async fn delete_by_mac(
+    txn: &mut PgConnection,
+    bmc_mac_address: MacAddress,
+) -> DatabaseResult<()> {
+    let query = "DELETE FROM expected_power_shelves WHERE bmc_mac_address=$1";
     let result = sqlx::query(query)
         .bind(bmc_mac_address)
         .execute(txn)
@@ -149,7 +214,24 @@ pub async fn delete(bmc_mac_address: MacAddress, txn: &mut PgConnection) -> Data
             id: bmc_mac_address.to_string(),
         });
     }
+    Ok(())
+}
 
+/// delete_by_id deletes an expected power shelf by expected_power_shelf_id.
+pub async fn delete_by_id(txn: &mut PgConnection, id: Uuid) -> DatabaseResult<()> {
+    let query = "DELETE FROM expected_power_shelves WHERE expected_power_shelf_id=$1";
+    let result = sqlx::query(query)
+        .bind(id)
+        .execute(txn)
+        .await
+        .map_err(|err| DatabaseError::query(query, err))?;
+
+    if result.rows_affected() == 0 {
+        return Err(DatabaseError::NotFoundError {
+            kind: "expected_power_shelf",
+            id: id.to_string(),
+        });
+    }
     Ok(())
 }
 
@@ -163,46 +245,48 @@ pub async fn clear(txn: &mut PgConnection) -> DatabaseResult<()> {
         .map_err(|err| DatabaseError::query(query, err))
 }
 
-#[allow(clippy::too_many_arguments)]
-pub async fn update<'a>(
-    expected_power_shelf: &'a mut ExpectedPowerShelf,
+/// update updates an existing expected power shelf. If expected_power_shelf_id
+/// is set, matches by ID; otherwise matches by bmc_mac_address.
+pub async fn update(
     txn: &mut PgConnection,
-    bmc_username: String,
-    bmc_password: String,
-    serial_number: String,
-    ip_address: Option<IpAddr>,
-    metadata: Metadata,
-    rack_id: Option<RackId>,
-) -> DatabaseResult<&'a mut ExpectedPowerShelf> {
-    let query = "UPDATE expected_power_shelves SET bmc_username=$1, bmc_password=$2, serial_number=$3, ip_address=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7, rack_id=$8 WHERE bmc_mac_address=$9 RETURNING bmc_mac_address";
+    power_shelf: &ExpectedPowerShelf,
+) -> DatabaseResult<()> {
+    let (where_clause, target_id) = match power_shelf.expected_power_shelf_id {
+        Some(id) => ("expected_power_shelf_id=$9::uuid", id.to_string()),
+        None => (
+            "bmc_mac_address=$9::macaddr",
+            power_shelf.bmc_mac_address.to_string(),
+        ),
+    };
 
-    let _: () = sqlx::query_as(query)
-        .bind(&bmc_username)
-        .bind(&bmc_password)
-        .bind(&serial_number)
-        .bind(ip_address)
-        .bind(&metadata.name)
-        .bind(&metadata.description)
-        .bind(sqlx::types::Json(&metadata.labels))
-        .bind(rack_id)
-        .bind(expected_power_shelf.bmc_mac_address)
-        .fetch_one(txn)
+    let query = format!(
+        "UPDATE expected_power_shelves \
+         SET bmc_username=$1, bmc_password=$2, serial_number=$3, ip_address=$4, \
+             metadata_name=$5, metadata_description=$6, metadata_labels=$7, rack_id=$8 \
+         WHERE {where_clause}"
+    );
+
+    let result = sqlx::query(&query)
+        .bind(&power_shelf.bmc_username)
+        .bind(&power_shelf.bmc_password)
+        .bind(&power_shelf.serial_number)
+        .bind(power_shelf.ip_address)
+        .bind(&power_shelf.metadata.name)
+        .bind(&power_shelf.metadata.description)
+        .bind(sqlx::types::Json(&power_shelf.metadata.labels))
+        .bind(power_shelf.rack_id)
+        .bind(&target_id)
+        .execute(&mut *txn)
         .await
-        .map_err(|err: sqlx::Error| match err {
-            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
-                kind: "expected_power_shelf",
-                id: expected_power_shelf.bmc_mac_address.to_string(),
-            },
-            _ => DatabaseError::query(query, err),
-        })?;
+        .map_err(|err| DatabaseError::query(&query, err))?;
 
-    expected_power_shelf.serial_number = serial_number;
-    expected_power_shelf.bmc_username = bmc_username;
-    expected_power_shelf.bmc_password = bmc_password;
-    expected_power_shelf.ip_address = ip_address;
-    expected_power_shelf.metadata = metadata;
-    expected_power_shelf.rack_id = rack_id;
-    Ok(expected_power_shelf)
+    if result.rows_affected() == 0 {
+        return Err(DatabaseError::NotFoundError {
+            kind: "expected_power_shelf",
+            id: target_id,
+        });
+    }
+    Ok(())
 }
 
 /// fn will insert rows that are not currently present in DB for each expected_power_shelf arg in list,
@@ -226,18 +310,7 @@ pub async fn create_missing_from(
             continue;
         }
 
-        let expected_power_shelf = expected_power_shelf.clone();
-        create(
-            txn,
-            expected_power_shelf.bmc_mac_address,
-            expected_power_shelf.bmc_username,
-            expected_power_shelf.bmc_password,
-            expected_power_shelf.serial_number,
-            expected_power_shelf.ip_address,
-            expected_power_shelf.metadata,
-            expected_power_shelf.rack_id,
-        )
-        .await?;
+        create(txn, expected_power_shelf.clone()).await?;
     }
 
     Ok(())

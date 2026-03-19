@@ -482,10 +482,11 @@ pub(crate) async fn delete(
     // lock on the extension service.
     let is_in_use = extension_service::is_service_in_use(&mut txn, service_id, &versions).await?;
     if is_in_use {
-        return Err(Status::from(CarbideError::FailedPrecondition(
+        return Err(CarbideError::FailedPrecondition(
             "One or more extension service version is in use by instances; detach before deleting"
                 .into(),
-        )));
+        )
+        .into());
     }
 
     // Find service versions with credentials
@@ -562,7 +563,7 @@ pub(crate) async fn find_ids(
         None => None,
         Some(v) => {
             let service_type_rpc = rpc::DpuExtensionServiceType::try_from(v)
-                .map_err(|_| CarbideError::InvalidArgument("Invalid service_type".into()))?;
+                .map_err(|_| CarbideError::InvalidArgument("Invalid service_type".to_string()))?;
             Some(ExtensionServiceType::from(service_type_rpc))
         }
     };

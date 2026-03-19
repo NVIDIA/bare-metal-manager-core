@@ -117,7 +117,7 @@ impl From<DbExploredEndpoint> for ExploredEndpoint {
 pub async fn find_ips(
     txn: impl DbReader<'_>,
     // filter is currently is empty, so it is a placeholder for the future
-    _filter: ::rpc::site_explorer::ExploredEndpointSearchFilter,
+    _filter: model::site_explorer::ExploredEndpointSearchFilter,
 ) -> Result<Vec<IpAddr>, DatabaseError> {
     #[derive(Debug, Clone, Copy, FromRow)]
     pub struct ExploredEndpointIp(IpAddr);
@@ -147,7 +147,7 @@ pub async fn find_by_ips(
 }
 
 /// find_all returns all explored endpoints that site explorer has been able to probe
-pub async fn find_all(txn: &mut PgConnection) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
+pub async fn find_all(txn: impl DbReader<'_>) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
     let query = "SELECT * FROM explored_endpoints";
 
     sqlx::query_as::<_, DbExploredEndpoint>(query)
@@ -213,6 +213,22 @@ pub async fn find_all_by_ip(
         .await
         .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
         .map_err(|e| DatabaseError::new("explored_endpoints find_all_by_ip", e))
+}
+
+pub async fn lookup_vendor_by_ip(
+    address: IpAddr,
+    db_reader: impl DbReader<'_>,
+) -> Result<Option<String>, DatabaseError> {
+    let query = "SELECT exploration_report ->> 'Vendor' AS vendor FROM explored_endpoints WHERE address = $1";
+
+    // exploration_report is JSONB and technically the Vendor field can be set to NULL, so we need 2 levels of Option<T>
+    let vendor: Option<Option<String>> = sqlx::query_scalar(query)
+        .bind(address)
+        .fetch_optional(db_reader)
+        .await
+        .map_err(|e| DatabaseError::new("explored_endpoints lookup_vendor_by_ip", e))?;
+
+    Ok(vendor.flatten())
 }
 
 /// Updates the explored information about a node
@@ -498,7 +514,7 @@ pub async fn delete_many(
 /// explored_endpoints_mac_addresses_idx, to avoid a full scan of all endpoint reports. Do NOT
 /// change this query without changing the index to match!
 pub async fn find_by_mac_address(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     mac: MacAddress,
 ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
     let query = r#"

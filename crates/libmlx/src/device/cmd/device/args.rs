@@ -141,7 +141,11 @@ pub fn parse_filter_expression(expression: &str) -> Result<DeviceFilter, String>
         MatchMode::Regex
     };
 
-    Ok(DeviceFilter::new(field, values, match_mode))
+    Ok(DeviceFilter {
+        field,
+        values,
+        match_mode,
+    })
 }
 
 // parse_device_field converts a string to a DeviceField enum.

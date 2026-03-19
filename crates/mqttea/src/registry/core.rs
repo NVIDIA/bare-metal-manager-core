@@ -77,7 +77,11 @@ impl MqttRegistry {
         };
 
         // Create registry entry with all components.
-        let entry = MqttRegistryEntry::new(info, serialize_handler, deserialize_handler);
+        let entry = MqttRegistryEntry {
+            message_type_info: info,
+            serialize_handler,
+            deserialize_handler,
+        };
 
         // Store complete entry.
         self.entries.insert(type_name.to_string(), entry);

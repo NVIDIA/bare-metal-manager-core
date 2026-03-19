@@ -19,6 +19,7 @@ use carbide_uuid::machine::MachineInterfaceId;
 use model::machine_boot_override::MachineBootOverride;
 use sqlx::PgConnection;
 
+use crate::db_read::DbReader;
 use crate::{
     ColumnInfo, DatabaseError, DatabaseResult, FilterableQueryBuilder, ObjectColumnFilter,
 };
@@ -55,7 +56,7 @@ pub async fn update_or_insert(
     value: &MachineBootOverride,
     txn: &mut PgConnection,
 ) -> DatabaseResult<()> {
-    match find_optional(txn, value.machine_interface_id).await? {
+    match find_optional(&mut *txn, value.machine_interface_id).await? {
         Some(existing_mbo) => {
             let custom_pxe = if value.custom_pxe.is_some() {
                 value.custom_pxe.clone()
@@ -107,7 +108,7 @@ pub async fn clear(
 }
 
 pub async fn find_optional(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     machine_interface_id: MachineInterfaceId,
 ) -> DatabaseResult<Option<MachineBootOverride>> {
     let mut interfaces = find_by(
@@ -125,7 +126,7 @@ pub async fn find_optional(
 }
 
 async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineBootOverride>>(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     filter: ObjectColumnFilter<'a, C>,
 ) -> Result<Vec<MachineBootOverride>, DatabaseError> {
     let mut query =

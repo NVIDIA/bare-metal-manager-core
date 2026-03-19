@@ -24,20 +24,14 @@ use crate::rpc::ApiClient;
 use crate::vpc_peering::convert_vpc_peerings_to_table;
 
 pub async fn create(
-    args: &Args,
+    args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
+    let req: VpcPeeringCreationRequest = args.into();
 
-    let vpc_peering = api_client
-        .0
-        .create_vpc_peering(VpcPeeringCreationRequest {
-            vpc_id: Some(args.vpc1_id),
-            peer_vpc_id: Some(args.vpc2_id),
-            id: args.id,
-        })
-        .await?;
+    let vpc_peering = api_client.0.create_vpc_peering(req).await?;
 
     if is_json {
         println!(

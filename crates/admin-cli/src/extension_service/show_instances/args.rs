@@ -25,3 +25,12 @@ pub struct Args {
     #[clap(short = 'v', long, help = "Version string to filter by (optional)")]
     pub version: Option<String>,
 }
+
+impl From<Args> for ::rpc::forge::FindInstancesByDpuExtensionServiceRequest {
+    fn from(args: Args) -> Self {
+        Self {
+            service_id: args.service_id,
+            version: args.version,
+        }
+    }
+}

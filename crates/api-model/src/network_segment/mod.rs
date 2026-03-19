@@ -37,6 +37,21 @@ use crate::network_segment_state_history::NetworkSegmentStateHistory;
 
 mod slas;
 
+#[derive(Clone, Debug, Default)]
+pub struct NetworkSegmentSearchFilter {
+    pub name: Option<String>,
+    pub tenant_org_id: Option<String>,
+}
+
+impl From<rpc::forge::NetworkSegmentSearchFilter> for NetworkSegmentSearchFilter {
+    fn from(filter: rpc::forge::NetworkSegmentSearchFilter) -> Self {
+        NetworkSegmentSearchFilter {
+            name: filter.name,
+            tenant_org_id: filter.tenant_org_id,
+        }
+    }
+}
+
 /// State of a network segment as tracked by the controller
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]

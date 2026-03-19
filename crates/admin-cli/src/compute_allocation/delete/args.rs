@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use ::rpc::forge::DeleteComputeAllocationRequest;
 use carbide_uuid::compute_allocation::ComputeAllocationId;
 use clap::Parser;
 
@@ -29,4 +30,13 @@ pub struct Args {
         help = "Tenant organization ID for the compute allocation"
     )]
     pub tenant_organization_id: String,
+}
+
+impl From<Args> for DeleteComputeAllocationRequest {
+    fn from(args: Args) -> Self {
+        DeleteComputeAllocationRequest {
+            id: Some(args.id),
+            tenant_organization_id: args.tenant_organization_id,
+        }
+    }
 }

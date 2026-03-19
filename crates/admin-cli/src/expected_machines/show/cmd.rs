@@ -20,6 +20,7 @@ use std::pin::Pin;
 use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use mac_address::MacAddress;
 use prettytable::{Table, row};
+use rpc::forge::ExpectedMachineRequest;
 
 use super::args::Args;
 use crate::async_write;
@@ -31,11 +32,9 @@ pub async fn show_expected_machines(
     output_format: OutputFormat,
     output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
 ) -> CarbideCliResult<()> {
-    if let Some(bmc_mac_address) = expected_machine_query.bmc_mac_address {
-        let req = ::rpc::forge::ExpectedMachineRequest {
-            bmc_mac_address: bmc_mac_address.to_string(),
-            id: None,
-        };
+    let req: Option<ExpectedMachineRequest> = expected_machine_query.try_into()?;
+
+    if let Some(req) = req {
         let expected_machine = api_client.0.get_expected_machine(req).await?;
         if output_format == OutputFormat::Json {
             async_write!(

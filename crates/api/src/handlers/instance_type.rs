@@ -171,9 +171,7 @@ pub(crate) async fn find_by_ids(
             req.tenant_organization_id
                 .map(|t| {
                     t.parse().map_err(|e: InvalidTenantOrg| {
-                        Status::from(CarbideError::from(
-                            RpcDataConversionError::InvalidTenantOrg(e.to_string()),
-                        ))
+                        CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
                     })
                 })
                 .transpose()?

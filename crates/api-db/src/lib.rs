@@ -35,6 +35,7 @@ pub mod dpu_machine_update;
 pub mod dpu_remediation;
 pub mod expected_machine;
 pub mod expected_power_shelf;
+pub mod expected_rack;
 pub mod expected_switch;
 pub mod explored_endpoints;
 pub mod explored_managed_host;
@@ -106,7 +107,6 @@ use mac_address::MacAddress;
 use model::ConfigValidationError;
 use model::hardware_info::HardwareInfoError;
 use model::tenant::TenantError;
-use rpc::errors::RpcDataConversionError;
 use sqlx::{Acquire, PgPool, PgTransaction, Postgres};
 use tonic::Status;
 
@@ -339,8 +339,6 @@ pub enum DatabaseError {
     },
     #[error("Argument is invalid: {0}")]
     InvalidArgument(String),
-    #[error("Can not convert between RPC data model and internal data model - {0}")]
-    RpcDataConversionError(#[from] RpcDataConversionError),
     #[error("Duplicate MAC address for expected host BMC interface: {0}")]
     ExpectedHostDuplicateMacAddress(MacAddress),
     #[error("Argument is missing in input: {0}")]
@@ -561,7 +559,6 @@ impl From<DatabaseError> for tonic::Status {
                 Status::not_found(format!("{kind} not found: {id}"))
             }
             DatabaseError::ResourceExhausted(kind) => Status::resource_exhausted(kind),
-            DatabaseError::RpcDataConversionError(e) => Status::invalid_argument(e.to_string()),
             error @ DatabaseError::RpcUuidConversionError(_) => {
                 Status::invalid_argument(error.to_string())
             }

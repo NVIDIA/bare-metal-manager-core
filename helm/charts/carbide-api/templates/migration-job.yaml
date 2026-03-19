@@ -7,7 +7,8 @@ metadata:
     {{- include "carbide-api.labels" . | nindent 4 }}
     app: carbide-api-migrate
   annotations:
-    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/sync-wave: "-5"
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
     helm.sh/hook: pre-install,pre-upgrade
     helm.sh/hook-delete-policy: before-hook-creation

@@ -15,25 +15,18 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::admin_cli::CarbideCliResult;
 use rpc::forge::AssociateMachinesWithInstanceTypeRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn create_association(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    if args.machine_ids.is_empty() {
-        return Err(CarbideCliError::GenericError(
-            "Machine ids can not be empty.".to_string(),
-        ));
-    }
+    let req: AssociateMachinesWithInstanceTypeRequest = args.try_into()?;
 
     api_client
         .0
-        .associate_machines_with_instance_type(AssociateMachinesWithInstanceTypeRequest {
-            instance_type_id: args.instance_type_id,
-            machine_ids: args.machine_ids,
-        })
+        .associate_machines_with_instance_type(req)
         .await?;
 
     println!("Association is created successfully!!");

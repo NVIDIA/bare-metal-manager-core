@@ -79,6 +79,21 @@ pub mod nvlink;
 pub mod topology;
 pub mod upgrade_policy;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DpuInfo {
+    pub id: String,
+    pub loopback_ip: String,
+}
+
+impl From<DpuInfo> for rpc::forge::DpuInfo {
+    fn from(info: DpuInfo) -> Self {
+        rpc::forge::DpuInfo {
+            id: info.id,
+            loopback_ip: info.loopback_ip,
+        }
+    }
+}
+
 type DpuDeviceMappings = (HashMap<MachineId, String>, HashMap<String, Vec<MachineId>>);
 
 pub fn get_display_ids(machines: &[Machine]) -> String {
@@ -327,6 +342,8 @@ impl ManagedHostStateSnapshot {
                         "".to_string(),
                         target,
                         "".to_string(),
+                        true,
+                        false,
                     ));
                 }
             };
@@ -415,7 +432,18 @@ impl ManagedHostStateSnapshot {
         match dpu_machine_id {
             None => {
                 let mut rpc_machine: rpc::forge::Machine = self.host_snapshot.clone().into();
+                let state = &self.host_snapshot.state.value;
+                let version = &self.host_snapshot.state.version;
                 rpc_machine.health = Some(self.aggregate_health.clone().into());
+                rpc_machine.state_sla = Some(
+                    state_sla(
+                        &self.host_snapshot.id,
+                        state,
+                        version,
+                        &self.aggregate_health,
+                    )
+                    .into(),
+                );
                 Some(rpc_machine)
             }
             Some(dpu_machine_id) => {
@@ -1047,6 +1075,8 @@ impl From<Machine> for rpc::forge::Machine {
                         "forge-dpu-agent".to_string(),
                         "forge-dpu-agent".to_string(),
                         "No health data was received from DPU".to_string(),
+                        true,
+                        false,
                     )
                 });
                 if let Some(hr) = machine.site_explorer_health_report.as_ref() {
@@ -1092,7 +1122,15 @@ impl From<Machine> for rpc::forge::Machine {
             }),
             instance_type_id: machine.instance_type_id.map(|i| i.to_string()),
             state_version: machine.state.version.version_string(),
-            state_sla: Some(state_sla(&machine.state.value, &machine.state.version).into()),
+            state_sla: Some(
+                state_sla(
+                    &machine.id,
+                    &machine.state.value,
+                    &machine.state.version,
+                    &health,
+                )
+                .into(),
+            ),
             machine_type: *RpcMachineTypeWrapper::from(machine.id.machine_type()) as _,
             metadata: Some(machine.metadata.into()),
             version: machine.version.version_string(),
@@ -1948,6 +1986,9 @@ pub enum InstanceState {
 pub enum HostPlatformConfigurationState {
     PowerCycle {
         power_on: bool,
+        /// Number of times we have sent power-on and are still waiting for the host to come up.
+        #[serde(default)]
+        power_on_retry_count: u32,
     },
     UnlockHost {
         #[serde(default)]
@@ -2439,8 +2480,30 @@ impl From<MachineHealthHistoryRecord> for rpc::forge::MachineHealthHistoryRecord
     }
 }
 
-/// Returns the SLA for the current state
-pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> StateSla {
+/// Returns the SLA for the current state.
+///
+/// If any alert in `aggregate_health` carries the `ExcludeFromStateMachineSla` classification,
+/// no SLA applies regardless of the current state. This allows operators to suppress
+/// SLA violations during manual operations without stopping the state machine.
+pub fn state_sla(
+    machine_id: &MachineId,
+    state: &ManagedHostState,
+    state_version: &ConfigVersion,
+    aggregate_health: &health_report::HealthReport,
+) -> StateSla {
+    let exclude = health_report::HealthAlertClassification::exclude_from_state_machine_sla();
+    if aggregate_health
+        .alerts
+        .iter()
+        .any(|a| a.classifications.contains(&exclude))
+    {
+        tracing::debug!(
+            machine_id = %machine_id,
+            "Skipping state machine SLA for machine due to {exclude} classification"
+        );
+        return StateSla::no_sla();
+    }
+
     let time_in_state = chrono::Utc::now()
         .signed_duration_since(state_version.timestamp())
         .to_std()
@@ -2860,6 +2923,195 @@ mod tests {
             assert_eq!(parsed, DpfState::Unknown);
         }
     }
+
+    fn alert_with_classifications(
+        classifications: Vec<health_report::HealthAlertClassification>,
+    ) -> health_report::HealthProbeAlert {
+        health_report::HealthProbeAlert {
+            id: health_report::HealthProbeId::heartbeat_timeout(),
+            target: None,
+            in_alert_since: Some(chrono::Utc::now()),
+            message: "test alert".to_string(),
+            tenant_message: None,
+            classifications,
+        }
+    }
+
+    fn health_report_with_alerts(
+        alerts: Vec<health_report::HealthProbeAlert>,
+    ) -> health_report::HealthReport {
+        health_report::HealthReport {
+            source: "test".to_string(),
+            triggered_by: None,
+            observed_at: Some(chrono::Utc::now()),
+            successes: vec![],
+            alerts,
+        }
+    }
+
+    /// State with a non-zero SLA returns no_sla when ExcludeFromStateMachineSla
+    /// classification is present on the single alert.
+    #[test]
+    fn test_state_sla_exclude_classification_overrides_sla() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let state = ManagedHostState::Created;
+        let state_version = ConfigVersion::initial();
+        let health = health_report_with_alerts(vec![alert_with_classifications(vec![
+            health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
+        ])]);
+
+        let sla = state_sla(&machine_id, &state, &state_version, &health);
+
+        assert!(sla.sla.is_none(), "SLA should be absent when excluded");
+        assert!(
+            !sla.time_in_state_above_sla,
+            "time_in_state_above_sla should be false when excluded"
+        );
+    }
+
+    /// When there are multiple alerts and only one carries the
+    /// ExcludeFromStateMachineSla classification, the SLA is still suppressed.
+    #[test]
+    fn test_state_sla_exclude_classification_on_one_of_multiple_alerts_suppresses_sla() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let state = ManagedHostState::Created;
+        let state_version = ConfigVersion::initial();
+        let health = health_report_with_alerts(vec![
+            // Alert without the exclusion classification
+            alert_with_classifications(vec![
+                health_report::HealthAlertClassification::prevent_allocations(),
+            ]),
+            // Alert with the exclusion classification
+            alert_with_classifications(vec![
+                health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
+            ]),
+        ]);
+
+        let sla = state_sla(&machine_id, &state, &state_version, &health);
+
+        assert!(
+            sla.sla.is_none(),
+            "SLA should be absent even if only one alert carries the exclusion classification"
+        );
+        assert!(!sla.time_in_state_above_sla);
+    }
+
+    /// Without the ExcludeFromStateMachineSla classification, the normal SLA
+    /// applies to states that have one defined.
+    #[test]
+    fn test_state_sla_without_exclude_classification_normal_sla_applies() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let state = ManagedHostState::Created;
+        let state_version = ConfigVersion::initial();
+        let health = health_report_with_alerts(vec![alert_with_classifications(vec![
+            health_report::HealthAlertClassification::prevent_allocations(),
+        ])]);
+
+        let sla = state_sla(&machine_id, &state, &state_version, &health);
+
+        assert!(
+            sla.sla.is_some(),
+            "SLA should be present when exclusion classification is absent"
+        );
+    }
+
+    /// An empty health report (no alerts) does not trigger the exclusion —
+    /// normal SLA logic applies.
+    #[test]
+    fn test_state_sla_empty_health_report_normal_sla_applies() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let state = ManagedHostState::Created;
+        let state_version = ConfigVersion::initial();
+        let health = health_report_with_alerts(vec![]);
+
+        let sla = state_sla(&machine_id, &state, &state_version, &health);
+
+        assert!(
+            sla.sla.is_some(),
+            "SLA should be present when there are no alerts"
+        );
+    }
+
+    /// The ExcludeFromStateMachineSla classification suppresses the SLA even
+    /// for the Failed state, which ordinarily has an always-violated SLA (duration 0).
+    #[test]
+    fn test_state_sla_exclude_classification_overrides_failed_state_sla() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let state = ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: FailureCause::NoError,
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::NoError,
+            },
+            machine_id,
+            retry_count: 1,
+        };
+        let state_version = ConfigVersion::initial();
+        let health = health_report_with_alerts(vec![alert_with_classifications(vec![
+            health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
+        ])]);
+
+        let sla = state_sla(&machine_id, &state, &state_version, &health);
+
+        assert!(
+            sla.sla.is_none(),
+            "SLA should be suppressed for Failed state when excluded"
+        );
+        assert!(!sla.time_in_state_above_sla);
+    }
+
+    /// Without the exclusion classification on a Failed machine, the SLA is
+    /// immediately violated (duration 0).
+    #[test]
+    fn test_state_sla_failed_state_without_exclude_classification_is_above_sla() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let state = ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: FailureCause::NoError,
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::NoError,
+            },
+            machine_id,
+            retry_count: 1,
+        };
+        let state_version = ConfigVersion::initial();
+        let health = health_report_with_alerts(vec![]);
+
+        let sla = state_sla(&machine_id, &state, &state_version, &health);
+
+        assert_eq!(
+            sla.sla,
+            Some(std::time::Duration::ZERO),
+            "Failed state should have a zero-duration SLA"
+        );
+        assert!(
+            sla.time_in_state_above_sla,
+            "Failed state should always be above SLA"
+        );
+    }
+
+    #[test]
+    fn dpu_info_to_rpc() {
+        let info = DpuInfo {
+            id: "dpu-123".to_string(),
+            loopback_ip: "10.0.0.1".to_string(),
+        };
+        let rpc_info: rpc::forge::DpuInfo = info.into();
+        assert_eq!(rpc_info.id, "dpu-123");
+        assert_eq!(rpc_info.loopback_ip, "10.0.0.1");
+    }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
@@ -2879,6 +3131,14 @@ pub struct HostHealthConfig {
     /// Whether to fail health checks if a DPU agent version is stale
     #[serde(default)]
     pub prevent_allocations_on_stale_dpu_agent_version: bool,
+
+    /// Whether the scout heartbeat timeout alert should prevent allocations
+    #[serde(default)]
+    pub prevent_allocations_on_scout_heartbeat_timeout: bool,
+
+    /// Whether the scout heartbeat timeout alert should suppress external alerting
+    #[serde(default = "HostHealthConfig::default_suppress_ext_alert_on_scout_heartbeat")]
+    pub suppress_external_alerting_on_scout_heartbeat_timeout: bool,
 }
 
 /// As of now, chrono::Duration does not support Serialization, so we have to handle it manually.
@@ -2896,6 +3156,9 @@ impl Default for HostHealthConfig {
             dpu_agent_version_staleness_threshold:
                 Self::dpu_agent_version_staleness_threshold_default(),
             prevent_allocations_on_stale_dpu_agent_version: false,
+            prevent_allocations_on_scout_heartbeat_timeout: false,
+            suppress_external_alerting_on_scout_heartbeat_timeout:
+                Self::default_suppress_ext_alert_on_scout_heartbeat(),
         }
     }
 }
@@ -2903,6 +3166,10 @@ impl Default for HostHealthConfig {
 impl HostHealthConfig {
     pub fn dpu_agent_version_staleness_threshold_default() -> Duration {
         Duration::days(1)
+    }
+
+    fn default_suppress_ext_alert_on_scout_heartbeat() -> bool {
+        true
     }
 }
 

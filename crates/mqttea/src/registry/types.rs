@@ -89,21 +89,6 @@ pub type DeserializeHandler =
     Box<dyn Fn(&[u8]) -> Result<Box<dyn std::any::Any + Send>, MqtteaClientError> + Send + Sync>;
 
 impl MessageTypeInfo {
-    // new creates a new MessageTypeInfo with specified configuration.
-    pub fn new(
-        type_name: String,
-        patterns: Vec<String>,
-        publish_options: Option<PublishOptions>,
-        format: SerializationFormat,
-    ) -> Self {
-        Self {
-            type_name,
-            patterns,
-            publish_options,
-            format,
-        }
-    }
-
     // has_pattern checks if this message type is registered
     // for a specific pattern. Useful for validating registration state
     // and debugging pattern conflicts.

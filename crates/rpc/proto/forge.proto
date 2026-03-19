@@ -399,6 +399,22 @@ service Forge {
   // Expected switches connected to Explored Endpoints and switches
   rpc GetAllExpectedSwitchesLinked(google.protobuf.Empty) returns (LinkedExpectedSwitchList);
 
+  // Expected Rack Management
+  // Add expected rack
+  rpc AddExpectedRack(ExpectedRack) returns (google.protobuf.Empty);
+  // Delete expected rack
+  rpc DeleteExpectedRack(ExpectedRackRequest) returns (google.protobuf.Empty);
+  // Update an expected rack
+  rpc UpdateExpectedRack(ExpectedRack) returns (google.protobuf.Empty);
+  // Get a specific expected rack
+  rpc GetExpectedRack(ExpectedRackRequest) returns (ExpectedRack);
+  // Get all expected racks
+  rpc GetAllExpectedRacks(google.protobuf.Empty) returns (ExpectedRackList);
+  // Replace all expected racks in site
+  rpc ReplaceAllExpectedRacks(ExpectedRackList) returns (google.protobuf.Empty);
+  // Delete all expected racks in site
+  rpc DeleteAllExpectedRacks(google.protobuf.Empty) returns (google.protobuf.Empty);
+
   // Perform Attestation Procedure for Measured Boot
   rpc AttestQuote	(AttestQuoteRequest) returns (AttestQuoteResponse);
 
@@ -808,6 +824,13 @@ service Forge {
 
   rpc ModifyDPFState(ModifyDPFStateRequest) returns (google.protobuf.Empty);
   rpc GetDPFState(GetDPFStateRequest) returns (DPFStateResponse);
+
+  // --- Component management (unified switch + power shelf operations) ---
+  rpc ComponentPowerControl(ComponentPowerControlRequest) returns (ComponentPowerControlResponse);
+  rpc GetComponentInventory(GetComponentInventoryRequest) returns (GetComponentInventoryResponse);
+  rpc UpdateComponentFirmware(UpdateComponentFirmwareRequest) returns (UpdateComponentFirmwareResponse);
+  rpc GetComponentFirmwareStatus(GetComponentFirmwareStatusRequest) returns (GetComponentFirmwareStatusResponse);
+  rpc ListComponentFirmwareVersions(ListComponentFirmwareVersionsRequest) returns (ListComponentFirmwareVersionsResponse);
 }
 
 message AttestationIdsRequest {
@@ -1732,10 +1755,15 @@ message ExpectedPowerShelf {
   // Metadata that will automatically get associated with a newly created PowerShelf
   Metadata metadata = 6;
   optional common.RackId rack_id = 7;
+  // Unique identifier for the expected power shelf. When omitted, server generates one.
+  optional common.UUID expected_power_shelf_id = 8;
 }
 
 message ExpectedPowerShelfRequest {
   string bmc_mac_address = 1;
+  // Optional unique identifier for selecting an expected power shelf.
+  // If provided, server will use this to select the record.
+  optional common.UUID expected_power_shelf_id = 2;
 }
 
 message ExpectedPowerShelfList {
@@ -1750,6 +1778,9 @@ message LinkedExpectedPowerShelf {
   string shelf_serial_number = 1;
   string bmc_mac_address = 2; // from expected_power_shelves table
   optional common.PowerShelfId power_shelf_id = 3; // The power shelf
+  optional common.UUID expected_power_shelf_id = 4;
+  optional string explored_endpoint_address = 5; // The explored BMC IP
+  optional common.RackId rack_id = 6;
 }
 
 // Describe the desired configuration of a Switch
@@ -1852,10 +1883,15 @@ message ExpectedSwitch {
   optional common.RackId rack_id = 6;
   optional string nvos_username = 7;
   optional string nvos_password = 8;
+  // Unique identifier for the expected switch. When omitted, server generates one.
+  optional common.UUID expected_switch_id = 9;
 }
 
 message ExpectedSwitchRequest {
   string bmc_mac_address = 1;
+  // Optional unique identifier for selecting an expected switch.
+  // If provided, server will use this to select the record.
+  optional common.UUID expected_switch_id = 2;
 }
 
 message ExpectedSwitchList {
@@ -1870,6 +1906,26 @@ message LinkedExpectedSwitch {
   string switch_serial_number = 1;
   string bmc_mac_address = 2; // from expected_switches table
   optional common.SwitchId switch_id = 3; // The switch
+  optional common.UUID expected_switch_id = 4;
+  optional string explored_endpoint_address = 5; // The explored BMC IP
+  optional common.RackId rack_id = 6;
+}
+
+message ExpectedRack {
+  // The rack identifier. Same rack_id referenced by expected machines, switches, and power shelves.
+  optional common.RackId rack_id = 1;
+  // The rack type name. Determines expected counts of compute trays, switches, and power shelves.
+  string rack_type = 2;
+  // Metadata that will be associated with the rack.
+  Metadata metadata = 3;
+}
+
+message ExpectedRackRequest {
+  string rack_id = 1;
+}
+
+message ExpectedRackList {
+  repeated ExpectedRack expected_racks = 1;
 }
 
 message IBFabricSearchFilter {
@@ -2489,6 +2545,11 @@ message InstanceInterfaceConfig {
   // then this value is set and specifies the virtual function ID that is configured
   // for this network interface.
   optional uint32 virtual_function_id = 9;
+
+  // Explicit _host_ IP address requested for the interface.
+  // Only allowed when VPC prefix is used.
+  // Must match VPC prefix defined for the interface.
+  optional string ip_address = 10;
 }
 
 // The configuration that a customer desires for an instances IB interface
@@ -3745,6 +3806,7 @@ message BMCMetaDataGetResponse {
   optional uint32 port = 5;
   optional uint32 ssh_port = 6;
   optional uint32 ipmi_port = 7;
+  optional string vendor = 8;
 }
 
 message MachineCredentialsUpdateRequest {
@@ -5719,6 +5781,17 @@ message DpaInterface {
 
   string underlay_ip = 17;
   string overlay_ip = 18;
+
+  // mlxconfig_profile is the optional profile of mlxconfig
+  // parameters to sync to the device. This is specifically
+  // the name of the profile to sync down. The actual config
+  // is defined in the Carbide API site config. If this is
+  // empty, no mlxconfig parameters will be synced during
+  // [re]provisioning, and instead an mlxconfig parameter
+  // reset will be performed, ensuring the device is reset
+  // back to its default values before allocating to the
+  // next tenant.
+  optional string mlxconfig_profile = 19;
 }
 
 
@@ -6805,4 +6878,161 @@ message DPFStateResponse {
 
 message GetDPFStateRequest {
   repeated common.MachineId machine_ids = 1;
+}
+
+// ============================================================================
+// Component dispatch types
+// ============================================================================
+
+enum ComponentManagerStatusCode {
+  COMPONENT_MANAGER_STATUS_CODE_SUCCESS = 0;
+  COMPONENT_MANAGER_STATUS_CODE_INVALID_ARGUMENT = 1;
+  COMPONENT_MANAGER_STATUS_CODE_INTERNAL_ERROR = 2;
+  COMPONENT_MANAGER_STATUS_CODE_NOT_FOUND = 3;
+  COMPONENT_MANAGER_STATUS_CODE_ALREADY_EXISTS = 4;
+  COMPONENT_MANAGER_STATUS_CODE_UNAVAILABLE = 5;
+}
+
+message ComponentResult {
+  string component_id = 1;
+  ComponentManagerStatusCode status = 2;
+  string error = 3;
+}
+
+message SwitchIdList {
+  repeated common.SwitchId ids = 1;
+}
+
+message PowerShelfIdList {
+  repeated common.PowerShelfId ids = 1;
+}
+
+// --- Component inventory ---
+
+message GetComponentInventoryRequest {
+  oneof target {
+    common.MachineIdList machine_ids = 1;
+    SwitchIdList switch_ids = 2;
+    PowerShelfIdList power_shelf_ids = 3;
+  }
+}
+
+message ComponentInventoryEntry {
+  ComponentResult result = 1;
+  optional site_explorer.EndpointExplorationReport report = 2;
+}
+
+message GetComponentInventoryResponse {
+  repeated ComponentInventoryEntry entries = 1;
+}
+
+// --- Component power control ---
+
+message ComponentPowerControlRequest {
+  oneof target {
+    common.MachineIdList machine_ids = 1;
+    SwitchIdList switch_ids = 2;
+    PowerShelfIdList power_shelf_ids = 3;
+  }
+  common.SystemPowerControl action = 4;
+}
+
+message ComponentPowerControlResponse {
+  repeated ComponentResult results = 1;
+}
+
+// --- Component firmware ---
+
+enum FirmwareUpdateState {
+  FW_STATE_UNKNOWN = 0;
+  FW_STATE_QUEUED = 1;
+  FW_STATE_IN_PROGRESS = 2;
+  FW_STATE_VERIFYING = 3;
+  FW_STATE_COMPLETED = 4;
+  FW_STATE_FAILED = 5;
+  FW_STATE_CANCELLED = 6;
+}
+
+message FirmwareUpdateStatus {
+  ComponentResult result = 1;
+  FirmwareUpdateState state = 2;
+  string target_version = 3;
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+enum NvSwitchComponent {
+  NV_SWITCH_COMPONENT_UNKNOWN = 0;
+  NV_SWITCH_COMPONENT_BMC = 1;
+  NV_SWITCH_COMPONENT_CPLD = 2;
+  NV_SWITCH_COMPONENT_BIOS = 3;
+  NV_SWITCH_COMPONENT_NVOS = 4;
+}
+
+enum PowerShelfComponent {
+  POWER_SHELF_COMPONENT_UNKNOWN = 0;
+  POWER_SHELF_COMPONENT_PMC = 1;
+  POWER_SHELF_COMPONENT_PSU = 2;
+}
+
+enum ComputeTrayComponent {
+  COMPUTE_TRAY_COMPONENT_UNKNOWN = 0;
+  COMPUTE_TRAY_COMPONENT_BMC = 1;
+  COMPUTE_TRAY_COMPONENT_BIOS = 2;
+}
+
+message UpdateComputeTrayFirmwareTarget {
+  common.MachineIdList machine_ids = 1;
+  repeated ComputeTrayComponent components = 2;
+}
+
+message UpdateSwitchFirmwareTarget {
+  SwitchIdList switch_ids = 1;
+  repeated NvSwitchComponent components = 2;
+}
+
+message UpdatePowerShelfFirmwareTarget {
+  PowerShelfIdList power_shelf_ids = 1;
+  repeated PowerShelfComponent components = 2;
+}
+
+message UpdateComponentFirmwareRequest {
+  oneof target {
+    UpdateComputeTrayFirmwareTarget compute_trays = 1;
+    UpdateSwitchFirmwareTarget switches = 2;
+    UpdatePowerShelfFirmwareTarget power_shelves = 3;
+  }
+  string target_version = 4;
+}
+
+message UpdateComponentFirmwareResponse {
+  repeated ComponentResult results = 1;
+}
+
+message GetComponentFirmwareStatusRequest {
+  oneof target {
+    common.MachineIdList machine_ids = 1;
+    SwitchIdList switch_ids = 2;
+    PowerShelfIdList power_shelf_ids = 3;
+  }
+}
+
+message GetComponentFirmwareStatusResponse {
+  repeated FirmwareUpdateStatus statuses = 1;
+}
+
+message ListComponentFirmwareVersionsRequest {
+  oneof target {
+    common.MachineIdList machine_ids = 1;
+    SwitchIdList switch_ids = 2;
+    PowerShelfIdList power_shelf_ids = 3;
+  }
+}
+
+message DeviceFirmwareVersions {
+  ComponentResult result = 1;
+  repeated string versions = 2;
+}
+
+message ListComponentFirmwareVersionsResponse {
+  repeated DeviceFirmwareVersions devices = 1;
 }

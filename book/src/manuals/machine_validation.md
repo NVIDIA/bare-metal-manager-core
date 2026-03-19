@@ -54,15 +54,15 @@ Table of Contents
 
 **Overview**
 
-This page provides a workflow for machine validation in NVIDIA Bare Metal Manager (BMM).
+This page provides a workflow for machine validation in NCX Infra Controller (NICo).
 
-Machine validation is a process of testing and verifying the hardware components and peripherals of a machine before handing it over to a tenant. The purpose of machine validation is to avoid disruption of tenant usage and ensure that the machine meets the expected benchmarks and performance. Machine validation involves running a series of regression tests and burn-in tests to stress the machine to its maximum capability and identify any potential issues or failures. Machine validation provides several benefits for the tenant. By performing machine validation, BMM ensures that machine is in optimal condition and ready for tenant usage. Machine validation helps to detect and resolve any hardware issues or failures before they affect the tenant's workloads
+Machine validation is a process of testing and verifying the hardware components and peripherals of a machine before handing it over to a tenant. The purpose of machine validation is to avoid disruption of tenant usage and ensure that the machine meets the expected benchmarks and performance. Machine validation involves running a series of regression tests and burn-in tests to stress the machine to its maximum capability and identify any potential issues or failures. Machine validation provides several benefits for the tenant. By performing machine validation, NICo ensures that machine is in optimal condition and ready for tenant usage. Machine validation helps to detect and resolve any hardware issues or failures before they affect the tenant's workloads
 
 Machine validation is performed using a different tool, these are available in the discovery image. Most of these tools require root privileges and are non-interactive. The tool(s) runs tests and sends result to Site controller
 
 **Purpose**
 
-End to end user guide for usage of machine validation feature in BMM
+End to end user guide for usage of machine validation feature in NICo
 
 **Audience**
 
@@ -70,7 +70,7 @@ SRE, Provider admin, Developer
 
 **Prerequisites**
 
-1) Access to BMM sites
+1) Access to NICo sites
 
 #####
 
@@ -80,13 +80,13 @@ SRE, Provider admin, Developer
 
 #### Feature gate {#feature-gate}
 
-The BMM site controller has site settings. These settings provide mechanisms to enable and disable features. Machine Validation feature controlled using these settings.  The feature gate enables or disables machine validation features at deploy time.
+The NICo site controller has site settings. These settings provide mechanisms to enable and disable features. Machine Validation feature controlled using these settings.  The feature gate enables or disables machine validation features at deploy time.
 
 #### Test case management {#test-case-management}
 
 Test Case Management is the process of  adding, updating test cases. There are two types of test cases
 
-1) Test cases added during deploy- These are common across all the sites and these are read-only test cases. Test cases are added through BMM DB migration.
+1) Test cases added during deploy- These are common across all the sites and these are read-only test cases. Test cases are added through NICo DB migration.
 2) Site specific test case - Added by site admin
 
 #### Enable disable test {#enable-disable-test}
@@ -95,7 +95,7 @@ If the test case is enabled then forge-scout selects the test case for running.
 
 #### Verify tests {#verify-tests}
 
-If site admin adds a test case, by default the test case verified flag will be set to false. The term verify means test case added to BMM datastore but not actually verified on hardware. By default the forge-scout never runs unverified test cases. Using on-demand machine validation, admin can run unverified test cases.
+If site admin adds a test case, by default the test case verified flag will be set to false. The term verify means test case added to NICo datastore but not actually verified on hardware. By default the forge-scout never runs unverified test cases. Using on-demand machine validation, admin can run unverified test cases.
 
 #### View tests results {#view-tests-results}
 
@@ -200,7 +200,7 @@ If the machine is not allocated for long and the machine remains in ready state,
 
 ### Initial setup {#initial-setup}
 
-BMM has a Machine validation feature gate. By default the feature is disabled.
+NICo has a Machine validation feature gate. By default the feature is disabled.
 
 To enable add below section in api site config toml [forged/](https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/envs/)<name>/site/site-controller/files/carbide-api/carbide-api-site-config.toml
 

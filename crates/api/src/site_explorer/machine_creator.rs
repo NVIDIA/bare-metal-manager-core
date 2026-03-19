@@ -242,7 +242,7 @@ impl MachineCreator {
         tracing::info!(%machine_id, "Minted predicted host ID for zero-DPU machine");
 
         let existing_machine = db::machine::find_one(
-            txn,
+            &mut *txn,
             machine_id,
             MachineSearchConfig {
                 include_predicted_host: true,
@@ -283,7 +283,7 @@ impl MachineCreator {
         // the exploration report
         for mac_address in mac_addresses {
             if let Some(machine_interface) =
-                db::machine_interface::find_by_mac_address(txn, mac_address)
+                db::machine_interface::find_by_mac_address(&mut *txn, mac_address)
                     .await?
                     .into_iter()
                     .next()
@@ -410,7 +410,7 @@ impl MachineCreator {
 
         // If machine_interface exists for the DPU and machine_id is not updated, do it now.
         if let Some(oob_net0_mac) = oob_net0_mac {
-            let mi = db::machine_interface::find_by_mac_address(txn, oob_net0_mac).await?;
+            let mi = db::machine_interface::find_by_mac_address(&mut *txn, oob_net0_mac).await?;
 
             if let Some(interface) = mi.first()
                 && interface.machine_id.is_none()
@@ -448,7 +448,9 @@ impl MachineCreator {
         dpf_enabled: bool,
     ) -> CarbideResult<Option<Machine>> {
         let dpu_machine_id = explored_dpu.report.machine_id.as_ref().unwrap();
-        match db::machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default()).await? {
+        match db::machine::find_one(&mut *txn, dpu_machine_id, MachineSearchConfig::default())
+            .await?
+        {
             // Do nothing if machine exists. It'll be reprovisioned via redfish
             Some(_existing_machine) => Ok(None),
             None => match db::machine::create(

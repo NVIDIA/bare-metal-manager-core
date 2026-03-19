@@ -75,7 +75,9 @@ impl MlxConfigApplier {
             .arg("apply")
             .arg(config_file.to_string_lossy().to_string());
 
-        let executor = CommandExecutor::new(&self.options);
+        let executor = CommandExecutor {
+            options: &self.options,
+        };
 
         if self.options.verbose {
             println!("[applier] {spec}");
@@ -101,7 +103,9 @@ impl MlxConfigApplier {
             .arg("--yes")
             .arg("reset");
 
-        let executor = CommandExecutor::new(&self.options);
+        let executor = CommandExecutor {
+            options: &self.options,
+        };
 
         if self.options.verbose {
             println!("[applier] {spec}");

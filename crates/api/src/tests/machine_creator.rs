@@ -239,7 +239,7 @@ async fn test_site_explorer_creates_managed_host(
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine = db::machine::find_one(
-        &mut txn,
+        txn.as_mut(),
         dpu_report.machine_id.as_ref().unwrap(),
         MachineSearchConfig {
             include_predicted_host: true,
@@ -342,11 +342,14 @@ async fn test_site_explorer_creates_managed_host(
     env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
 
-    let dpu_machine =
-        db::machine::find_one(&mut txn, &dpu_machine.id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert_eq!(
         dpu_machine.current_state(),
@@ -359,11 +362,14 @@ async fn test_site_explorer_creates_managed_host(
 
     env.run_machine_state_controller_iteration().await;
 
-    let dpu_machine =
-        db::machine::find_one(&mut txn, &dpu_machine.id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert_eq!(
         dpu_machine.current_state(),
@@ -376,11 +382,14 @@ async fn test_site_explorer_creates_managed_host(
 
     env.run_machine_state_controller_iteration().await;
 
-    let dpu_machine =
-        db::machine::find_one(&mut txn, &dpu_machine.id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert_eq!(
         dpu_machine.current_state(),
@@ -399,11 +408,14 @@ async fn test_site_explorer_creates_managed_host(
 
     env.run_machine_state_controller_iteration().await;
 
-    let dpu_machine =
-        db::machine::find_one(&mut txn, &dpu_machine.id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert_eq!(
         dpu_machine.current_state(),
@@ -426,11 +438,14 @@ async fn test_site_explorer_creates_managed_host(
     // CheckSecureBootStatus:
     env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
-    let dpu_machine =
-        db::machine::find_one(&mut txn, &dpu_machine.id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert_eq!(
         dpu_machine.current_state(),
@@ -450,11 +465,14 @@ async fn test_site_explorer_creates_managed_host(
     // Wait for installComplete
     env.run_machine_state_controller_iteration().await;
 
-    let dpu_machine =
-        db::machine::find_one(&mut txn, &dpu_machine.id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert_eq!(
         dpu_machine.current_state(),
@@ -465,7 +483,8 @@ async fn test_site_explorer_creates_managed_host(
         },
     );
 
-    let machine_interfaces = db::machine_interface::find_by_mac_address(&mut txn, oob_mac).await?;
+    let machine_interfaces =
+        db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
     assert!(!machine_interfaces.is_empty());
     let topologies = db::machine_topology::find_by_machine_ids(&mut txn, &[dpu_machine.id]).await?;
     assert!(topologies.contains_key(&dpu_machine.id));
@@ -501,15 +520,19 @@ async fn test_site_explorer_creates_managed_host(
     assert!(response.machine_id.is_some());
 
     // Now let's check that DPU and host updated states and updated hardware information.
-    let dpu_machine =
-        db::machine::find_one(&mut txn, &dpu_machine.id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert!(dpu_machine.network_config.loopback_ip.is_some());
 
-    let machine_interfaces = db::machine_interface::find_by_mac_address(&mut txn, oob_mac).await?;
+    let machine_interfaces =
+        db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
     assert!(
         machine_interfaces[0]
             .machine_id
@@ -517,11 +540,14 @@ async fn test_site_explorer_creates_managed_host(
             .is_some_and(|id| id == &dpu_machine.id)
     );
 
-    let host_machine =
-        db::machine::find_one(&mut txn, &host_machine.id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let host_machine = db::machine::find_one(
+        txn.as_mut(),
+        &host_machine.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert_eq!(
         host_machine.current_state(),
@@ -607,7 +633,8 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
             .into_inner();
 
         assert!(!response.address.is_empty());
-        let oob_interface = db::machine_interface::find_by_mac_address(&mut txn, oob_mac).await?;
+        let oob_interface =
+            db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
         assert!(oob_interface[0].primary_interface);
         oob_interfaces.push(oob_interface[0].clone());
 
@@ -698,7 +725,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
 
     for dpu in explored_dpus.iter() {
         let dpu_machine = db::machine::find_one(
-            &mut txn,
+            txn.as_mut(),
             dpu.report.machine_id.as_ref().unwrap(),
             MachineSearchConfig {
                 include_predicted_host: true,
@@ -923,7 +950,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
 
     // Machine interface should not have any machine id associated with it right now.
     let mut txn = env.pool.begin().await?;
-    let mi = db::machine_interface::find_by_mac_address(&mut txn, oob_mac).await?;
+    let mi = db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
     assert!(mi[0].attached_dpu_machine_id.is_none());
     assert!(mi[0].machine_id.is_none());
     txn.rollback().await?;
@@ -942,7 +969,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
     // At this point, create_managed_host must have updated the associated machine id in
     // machine_interfaces table.
     let mut txn = env.pool.begin().await?;
-    let mi = db::machine_interface::find_by_mac_address(&mut txn, oob_mac).await?;
+    let mi = db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
     assert!(mi[0].attached_dpu_machine_id.is_some());
     assert!(mi[0].machine_id.is_some());
     txn.rollback().await?;
@@ -1046,7 +1073,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     // any interface as interface does not exist.
     let mut txn = env.pool.begin().await?;
     let machine = db::machine::find_one(
-        &mut txn,
+        txn.as_mut(),
         &dpu_machine_id,
         MachineSearchConfig {
             include_dpus: true,
@@ -1472,10 +1499,13 @@ async fn test_rms_registration_with_rack_id(
     let mut txn = env.pool.begin().await.unwrap();
     db::expected_machine::create(
         &mut txn,
-        mock_host.bmc_mac_address,
-        model::expected_machine::ExpectedMachineData {
-            rack_id: Some(rack_id),
-            ..Default::default()
+        model::expected_machine::ExpectedMachine {
+            id: None,
+            bmc_mac_address: mock_host.bmc_mac_address,
+            data: model::expected_machine::ExpectedMachineData {
+                rack_id: Some(rack_id),
+                ..Default::default()
+            },
         },
     )
     .await?;
@@ -1516,11 +1546,14 @@ async fn test_rms_registration_with_rack_id(
     // Iteration 1: VerifyRmsMembership -> RegisterRmsMembership
     // (node not found in inventory — needs registration)
     env.run_machine_state_controller_iteration().await;
-    let host_machine =
-        db::machine::find_one(&mut txn, &host_machine.id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let host_machine = db::machine::find_one(
+        txn.as_mut(),
+        &host_machine.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(
         host_machine.current_state(),
         &ManagedHostState::RegisterRmsMembership,
@@ -1529,11 +1562,14 @@ async fn test_rms_registration_with_rack_id(
     // Iteration 2: RegisterRmsMembership -> DpuDiscoveringState
     // (add_node succeeds)
     env.run_machine_state_controller_iteration().await;
-    let host_machine =
-        db::machine::find_one(&mut txn, &host_machine.id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let host_machine = db::machine::find_one(
+        txn.as_mut(),
+        &host_machine.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert!(
         matches!(
             host_machine.current_state(),
@@ -1636,10 +1672,13 @@ async fn test_rms_registration_retries_on_failure(
     let mut txn = env.pool.begin().await.unwrap();
     db::expected_machine::create(
         &mut txn,
-        mock_host.bmc_mac_address,
-        model::expected_machine::ExpectedMachineData {
-            rack_id: Some(rack_id),
-            ..Default::default()
+        model::expected_machine::ExpectedMachine {
+            id: None,
+            bmc_mac_address: mock_host.bmc_mac_address,
+            data: model::expected_machine::ExpectedMachineData {
+                rack_id: Some(rack_id),
+                ..Default::default()
+            },
         },
     )
     .await?;
@@ -1674,11 +1713,14 @@ async fn test_rms_registration_retries_on_failure(
 
     // Iteration 1: VerifyRmsMembership -> RegisterRmsMembership (not found)
     env.run_machine_state_controller_iteration().await;
-    let host_machine =
-        db::machine::find_one(&mut txn, &host_machine.id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let host_machine = db::machine::find_one(
+        txn.as_mut(),
+        &host_machine.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(
         host_machine.current_state(),
         &ManagedHostState::RegisterRmsMembership,
@@ -1689,11 +1731,14 @@ async fn test_rms_registration_retries_on_failure(
 
     // Iteration 2: RegisterRmsMembership stays (add_node fails)
     env.run_machine_state_controller_iteration().await;
-    let host_machine =
-        db::machine::find_one(&mut txn, &host_machine.id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let host_machine = db::machine::find_one(
+        txn.as_mut(),
+        &host_machine.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(
         host_machine.current_state(),
         &ManagedHostState::RegisterRmsMembership,
@@ -1706,11 +1751,14 @@ async fn test_rms_registration_retries_on_failure(
 
     // Iteration 3: RegisterRmsMembership -> DpuDiscoveringState (succeeds)
     env.run_machine_state_controller_iteration().await;
-    let host_machine =
-        db::machine::find_one(&mut txn, &host_machine.id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let host_machine = db::machine::find_one(
+        txn.as_mut(),
+        &host_machine.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert!(
         matches!(
             host_machine.current_state(),
@@ -1814,10 +1862,13 @@ async fn test_rms_verification_failure_paths(
     let mut txn = env.pool.begin().await.unwrap();
     db::expected_machine::create(
         &mut txn,
-        mock_host.bmc_mac_address,
-        model::expected_machine::ExpectedMachineData {
-            rack_id: Some(rack_id),
-            ..Default::default()
+        model::expected_machine::ExpectedMachine {
+            id: None,
+            bmc_mac_address: mock_host.bmc_mac_address,
+            data: model::expected_machine::ExpectedMachineData {
+                rack_id: Some(rack_id),
+                ..Default::default()
+            },
         },
     )
     .await?;
@@ -1855,11 +1906,14 @@ async fn test_rms_verification_failure_paths(
 
     // Iteration 1: VerifyRmsMembership stays (inventory_get API error)
     env.run_machine_state_controller_iteration().await;
-    let host_machine =
-        db::machine::find_one(&mut txn, &host_machine.id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let host_machine = db::machine::find_one(
+        txn.as_mut(),
+        &host_machine.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(
         host_machine.current_state(),
         &ManagedHostState::VerifyRmsMembership,
@@ -1872,11 +1926,14 @@ async fn test_rms_verification_failure_paths(
 
     // Iteration 2: VerifyRmsMembership -> RegisterRmsMembership (not found)
     env.run_machine_state_controller_iteration().await;
-    let host_machine =
-        db::machine::find_one(&mut txn, &host_machine.id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let host_machine = db::machine::find_one(
+        txn.as_mut(),
+        &host_machine.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(
         host_machine.current_state(),
         &ManagedHostState::RegisterRmsMembership,
@@ -1884,11 +1941,14 @@ async fn test_rms_verification_failure_paths(
 
     // Iteration 3: RegisterRmsMembership -> DpuDiscoveringState (succeeds)
     env.run_machine_state_controller_iteration().await;
-    let host_machine =
-        db::machine::find_one(&mut txn, &host_machine.id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let host_machine = db::machine::find_one(
+        txn.as_mut(),
+        &host_machine.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert!(
         matches!(
             host_machine.current_state(),

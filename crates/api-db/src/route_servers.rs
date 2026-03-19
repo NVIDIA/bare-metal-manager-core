@@ -77,7 +77,7 @@ pub async fn get(txn: impl DbReader<'_>) -> DatabaseResult<Vec<RouteServer>> {
 // find_by_address returns a RouteServer entry matching
 // the provided address, if it exists.
 pub async fn find_by_address(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     address: IpAddr,
 ) -> DatabaseResult<Option<RouteServer>> {
     let query = r#"SELECT * FROM route_servers where address=$1;"#;

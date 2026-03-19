@@ -83,6 +83,7 @@ use tokio::sync::Semaphore;
 use tracing::instrument;
 use version_compare::Cmp;
 
+use crate::CarbideError;
 use crate::cfg::file::{
     BomValidationConfig, CarbideConfig, FirmwareConfig, MachineValidationConfig,
     PowerManagerOptions, TimePeriod,
@@ -558,6 +559,20 @@ impl MachineStateHandler {
         Ok(())
     }
 
+    async fn clear_scout_timeout_alert(
+        txn: &mut PgConnection,
+        host_machine_id: &MachineId,
+    ) -> Result<(), StateHandlerError> {
+        db::machine::remove_health_report_override(
+            txn,
+            host_machine_id,
+            health_report::OverrideMode::Merge,
+            "scout",
+        )
+        .await?;
+        Ok(())
+    }
+
     async fn clear_host_reprovision(
         mh_snaphost: &ManagedHostStateSnapshot,
         txn: &mut PgConnection,
@@ -607,6 +622,8 @@ impl MachineStateHandler {
                             "forge-dpu-agent".to_string(),
                             "forge-dpu-agent".to_string(),
                             message,
+                            true,
+                            false,
                         );
 
                         let mut txn = ctx.services.db_pool.begin().await?;
@@ -937,16 +954,11 @@ impl MachineStateHandler {
             }
 
             ManagedHostState::Ready => {
-                // Check if scout is running. If not, emit metric.
-                if let Some(last_scout_contact) = mh_snapshot.host_snapshot.last_scout_contact_time
+                if let Some(outcome) = self
+                    .handle_scout_heartbeat_timeout(mh_snapshot, ctx)
+                    .await?
                 {
-                    let since_last_contact = Utc::now().signed_duration_since(last_scout_contact);
-                    let timeout_threshold = self.reachability_params.scout_reporting_timeout;
-
-                    if since_last_contact > timeout_threshold {
-                        ctx.metrics.host_with_scout_heartbeat_timeout =
-                            Some(host_machine_id.to_string());
-                    }
+                    return Ok(outcome);
                 }
 
                 // Check if instance to be created.
@@ -1697,6 +1709,72 @@ impl MachineStateHandler {
         }
     }
 
+    async fn handle_scout_heartbeat_timeout(
+        &self,
+        mh_snapshot: &ManagedHostStateSnapshot,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    ) -> Result<Option<StateHandlerOutcome<ManagedHostState>>, StateHandlerError> {
+        let host_machine_id = &mh_snapshot.host_snapshot.id;
+        let Some(last_scout_contact) = mh_snapshot.host_snapshot.last_scout_contact_time else {
+            return Ok(None);
+        };
+
+        let since_last_contact = Utc::now().signed_duration_since(last_scout_contact);
+        let timeout_threshold = self.reachability_params.scout_reporting_timeout;
+        let scout_timeout_alert_exists = mh_snapshot
+            .host_snapshot
+            .health_report_overrides
+            .merges
+            .contains_key("scout");
+
+        if since_last_contact >= timeout_threshold {
+            ctx.metrics.host_with_scout_heartbeat_timeout = Some(host_machine_id.to_string());
+        }
+
+        if since_last_contact >= timeout_threshold && !scout_timeout_alert_exists {
+            let message = format!("Last scout heartbeat over {timeout_threshold} ago");
+            let host_health = &ctx.services.site_config.host_health;
+            let health_report = HealthReport::heartbeat_timeout(
+                "scout".to_string(),
+                "scout".to_string(),
+                message,
+                host_health.prevent_allocations_on_scout_heartbeat_timeout,
+                host_health.suppress_external_alerting_on_scout_heartbeat_timeout,
+            );
+
+            let mut txn = ctx.services.db_pool.begin().await?;
+            db::machine::insert_health_report_override(
+                &mut txn,
+                host_machine_id,
+                OverrideMode::Merge,
+                &health_report,
+                false,
+            )
+            .await?;
+            tracing::warn!(
+                host_machine_id = %host_machine_id,
+                last_scout_contact = %last_scout_contact,
+                timeout_threshold = %timeout_threshold,
+                "Scout heartbeat timeout detected, adding health alert"
+            );
+            return Ok(Some(StateHandlerOutcome::do_nothing().with_txn(txn)));
+        }
+
+        if since_last_contact < timeout_threshold && scout_timeout_alert_exists {
+            let mut txn = ctx.services.db_pool.begin().await?;
+            Self::clear_scout_timeout_alert(&mut txn, host_machine_id).await?;
+            tracing::info!(
+                host_machine_id = %host_machine_id,
+                last_scout_contact = %last_scout_contact,
+                timeout_threshold = %timeout_threshold,
+                "Scout heartbeat recovered, removing health alert"
+            );
+            return Ok(Some(StateHandlerOutcome::do_nothing().with_txn(txn)));
+        }
+
+        Ok(None)
+    }
+
     async fn handle_restart_dpu_reprovision_assigned_state(
         &self,
         state: &ManagedHostStateSnapshot,
@@ -2215,7 +2293,9 @@ impl StateHandler for MachineStateHandler {
         // Clone the pool before we borrow ctx mutably
         let power_options_pool = ctx.services.db_pool.clone();
 
-        let result = if continue_state_machine {
+        let was_ready = matches!(mh_snapshot.managed_state, ManagedHostState::Ready);
+
+        let mut result = if continue_state_machine {
             self.attempt_state_transition(host_machine_id, mh_snapshot, ctx)
                 .await
         } else {
@@ -2224,6 +2304,23 @@ impl StateHandler for MachineStateHandler {
                 msg.unwrap_or_default()
             )))
         };
+
+        if was_ready && let Ok(outcome) = result {
+            if matches!(&outcome, StateHandlerOutcome::Transition { .. }) {
+                let host_machine_id = *host_machine_id;
+                result = Ok(outcome
+                    .in_transaction(&ctx.services.db_pool, move |txn| {
+                        async move {
+                            Self::clear_scout_timeout_alert(txn, &host_machine_id).await?;
+                            Ok::<(), StateHandlerError>(())
+                        }
+                        .boxed()
+                    })
+                    .await??);
+            } else {
+                result = Ok(outcome);
+            }
+        }
 
         // Persist power options before returning
         // They are persisted in an individual DB transaction in order to be unaffected
@@ -5494,6 +5591,7 @@ impl StateHandler for InstanceStateHandler {
                                     platform_config_state:
                                         HostPlatformConfigurationState::PowerCycle {
                                             power_on: power_state == libredfish::PowerState::Off,
+                                            power_on_retry_count: 0,
                                         },
                                 },
                             }
@@ -5577,6 +5675,18 @@ impl StateHandler for InstanceStateHandler {
                     // Otherwise, follow the normal termination/reprovision flow through
                     // BootingWithDiscoveryImage.
                     if instance.custom_pxe_reboot_requested {
+                        if !instance
+                            .config
+                            .os
+                            .run_provisioning_instructions_on_every_boot
+                        {
+                            ctx.pending_db_writes
+                                .push(MachineWriteOp::UseCustomIpxeOnNextBoot {
+                                    machine_id: mh_snapshot.host_snapshot.id,
+                                    boot_with_custom_ipxe: true,
+                                });
+                        }
+
                         let next_state = ManagedHostState::Assigned {
                             instance_state: InstanceState::WaitingForRebootToReady,
                         };
@@ -9004,7 +9114,10 @@ async fn handle_instance_host_platform_config(
         .await?;
 
     let instance_state = match platform_config_state {
-        HostPlatformConfigurationState::PowerCycle { power_on } => {
+        HostPlatformConfigurationState::PowerCycle {
+            power_on,
+            power_on_retry_count,
+        } => {
             let power_state = redfish_client.get_power_state().await.map_err(|e| {
                 StateHandlerError::RedfishError {
                     operation: "get_power_state",
@@ -9021,6 +9134,7 @@ async fn handle_instance_host_platform_config(
                             instance_state: InstanceState::HostPlatformConfiguration {
                                 platform_config_state: HostPlatformConfigurationState::PowerCycle {
                                     power_on: true,
+                                    power_on_retry_count: 0,
                                 },
                             },
                         },
@@ -9075,7 +9189,41 @@ async fn handle_instance_host_platform_config(
                 ));
             }
 
-            // Host is still off, issue power on command
+            // Host is still off. Every 5th retry use AC power cycle instead of On.
+            let next_retry = power_on_retry_count + 1;
+            if next_retry % 5 == 0 {
+                match host_power_control(
+                    redfish_client.as_ref(),
+                    &mh_snapshot.host_snapshot,
+                    SystemPowerControl::ACPowercycle,
+                    ctx,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        return Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::Assigned {
+                                instance_state: InstanceState::HostPlatformConfiguration {
+                                    platform_config_state:
+                                        HostPlatformConfigurationState::PowerCycle {
+                                            power_on: true,
+                                            power_on_retry_count: next_retry,
+                                        },
+                                },
+                            },
+                        ));
+                    }
+                    Err(CarbideError::RedfishError(RedfishError::NotSupported(_))) => {
+                        // if not supported, just power on
+                        tracing::info!("AC Powercycle not supported, skipping to power on");
+                    }
+                    Err(e) => {
+                        // TODO: Dell's return a generic error if in lockdown which needs to be changed in Redfish SDK
+                        tracing::warn!("Failed to AC Powercycle host, skipping to power on: {e}");
+                    }
+                };
+            }
+
             host_power_control(
                 redfish_client.as_ref(),
                 &mh_snapshot.host_snapshot,
@@ -9083,14 +9231,24 @@ async fn handle_instance_host_platform_config(
                 ctx,
             )
             .await
-            .map_err(|e| {
-                StateHandlerError::GenericError(eyre!("failed to power on host: {}", e))
-            })?;
+            .map_err(|e| StateHandlerError::GenericError(eyre!("failed to power on host: {e}")))?;
 
-            return Ok(StateHandlerOutcome::wait(format!(
-                "waiting for {} to power ON; current power state: {}",
-                mh_snapshot.host_snapshot.id, power_state
-            )));
+            tracing::info!(
+                host_id = %mh_snapshot.host_snapshot.id,
+                power_on_retry_count = next_retry,
+                %power_state,
+                "waiting for host to power ON"
+            );
+            return Ok(StateHandlerOutcome::transition(
+                ManagedHostState::Assigned {
+                    instance_state: InstanceState::HostPlatformConfiguration {
+                        platform_config_state: HostPlatformConfigurationState::PowerCycle {
+                            power_on: true,
+                            power_on_retry_count: next_retry,
+                        },
+                    },
+                },
+            ));
         }
         HostPlatformConfigurationState::UnlockHost { unlock_host_state } => {
             match unlock_host_state {
@@ -9211,17 +9369,17 @@ async fn handle_instance_host_platform_config(
                     })?)
                 {
                     tracing::warn!(
-                        "Tenant has released {} but the {} does not have its boot order configured properly",
-                        mh_snapshot.host_snapshot.id,
-                        vendor.to_string()
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        bmc_vendor = %vendor,
+                        "Host boot order is not configured properly"
                     );
 
                     true
                 } else {
                     tracing::info!(
-                        "Tenant has released {} and the {} has its boot order configured properly",
-                        mh_snapshot.host_snapshot.id,
-                        vendor.to_string()
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        bmc_vendor = %vendor,
+                        "Host boot order is configured properly"
                     );
 
                     false

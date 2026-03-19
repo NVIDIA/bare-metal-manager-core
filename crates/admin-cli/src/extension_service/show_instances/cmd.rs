@@ -30,12 +30,10 @@ pub async fn handle_show_instances(
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
+    let req: FindInstancesByDpuExtensionServiceRequest = args.into();
     let response = api_client
         .0
-        .find_instances_by_dpu_extension_service(FindInstancesByDpuExtensionServiceRequest {
-            service_id: args.service_id,
-            version: args.version,
-        })
+        .find_instances_by_dpu_extension_service(req)
         .await?;
 
     if is_json {

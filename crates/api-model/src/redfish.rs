@@ -80,6 +80,55 @@ impl<'r> FromRow<'r, PgRow> for ActionRequest {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct RedfishActionId {
+    pub request_id: i64,
+}
+
+impl From<rpc::forge::RedfishActionId> for RedfishActionId {
+    fn from(id: rpc::forge::RedfishActionId) -> Self {
+        RedfishActionId {
+            request_id: id.request_id,
+        }
+    }
+}
+
+impl From<i64> for RedfishActionId {
+    fn from(request_id: i64) -> Self {
+        RedfishActionId { request_id }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RedfishListActionsFilter {
+    pub machine_ip: Option<String>,
+}
+
+impl From<rpc::forge::RedfishListActionsRequest> for RedfishListActionsFilter {
+    fn from(req: rpc::forge::RedfishListActionsRequest) -> Self {
+        RedfishListActionsFilter {
+            machine_ip: req.machine_ip,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct RedfishCreateAction {
+    pub target: String,
+    pub action: String,
+    pub parameters: String,
+}
+
+impl From<rpc::forge::RedfishCreateActionRequest> for RedfishCreateAction {
+    fn from(req: rpc::forge::RedfishCreateActionRequest) -> Self {
+        RedfishCreateAction {
+            target: req.target,
+            action: req.action,
+            parameters: req.parameters,
+        }
+    }
+}
+
 impl From<ActionRequest> for rpc::forge::RedfishAction {
     fn from(value: ActionRequest) -> Self {
         Self {
@@ -107,5 +156,53 @@ impl From<ActionRequest> for rpc::forge::RedfishAction {
                 })
                 .collect(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redfish_action_id_from_rpc() {
+        let rpc_id = rpc::forge::RedfishActionId { request_id: 42 };
+        let id = RedfishActionId::from(rpc_id);
+        assert_eq!(id.request_id, 42);
+    }
+
+    #[test]
+    fn redfish_action_id_from_i64() {
+        let id = RedfishActionId::from(99i64);
+        assert_eq!(id.request_id, 99);
+    }
+
+    #[test]
+    fn redfish_action_id_is_copy() {
+        let id = RedfishActionId { request_id: 1 };
+        let id2 = id;
+        assert_eq!(id.request_id, id2.request_id);
+    }
+
+    #[test]
+    fn redfish_list_actions_filter_from_rpc() {
+        let rpc_req = rpc::forge::RedfishListActionsRequest {
+            machine_ip: Some("10.0.0.1".to_string()),
+        };
+        let filter = RedfishListActionsFilter::from(rpc_req);
+        assert_eq!(filter.machine_ip, Some("10.0.0.1".to_string()));
+    }
+
+    #[test]
+    fn redfish_create_action_from_rpc() {
+        let rpc_req = rpc::forge::RedfishCreateActionRequest {
+            ips: vec!["10.0.0.1".to_string()],
+            action: "Reset".to_string(),
+            target: "/redfish/v1/Systems/1/Actions".to_string(),
+            parameters: r#"{"ResetType":"ForceRestart"}"#.to_string(),
+        };
+        let action = RedfishCreateAction::from(rpc_req);
+        assert_eq!(action.action, "Reset");
+        assert_eq!(action.target, "/redfish/v1/Systems/1/Actions");
+        assert_eq!(action.parameters, r#"{"ResetType":"ForceRestart"}"#);
     }
 }

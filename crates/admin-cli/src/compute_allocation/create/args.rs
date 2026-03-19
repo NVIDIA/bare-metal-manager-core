@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use ::rpc::admin_cli::CarbideCliError;
+use ::rpc::forge::{self as forgerpc, CreateComputeAllocationRequest};
 use carbide_uuid::compute_allocation::ComputeAllocationId;
 use clap::Parser;
 
@@ -52,4 +54,33 @@ pub struct Args {
         help = "JSON map of simple key:value pairs to be applied as labels to the compute allocation"
     )]
     pub labels: Option<String>,
+}
+
+impl TryFrom<Args> for CreateComputeAllocationRequest {
+    type Error = CarbideCliError;
+
+    fn try_from(args: Args) -> Result<Self, Self::Error> {
+        let labels = if let Some(labels_json) = args.labels {
+            serde_json::from_str(&labels_json)?
+        } else {
+            vec![]
+        };
+
+        let metadata = forgerpc::Metadata {
+            name: args.name.unwrap_or_default(),
+            description: args.description.unwrap_or_default(),
+            labels,
+        };
+
+        Ok(CreateComputeAllocationRequest {
+            id: args.id,
+            tenant_organization_id: args.tenant_organization_id,
+            metadata: Some(metadata),
+            attributes: Some(forgerpc::ComputeAllocationAttributes {
+                instance_type_id: args.instance_type_id,
+                count: args.count,
+            }),
+            created_by: None,
+        })
+    }
 }

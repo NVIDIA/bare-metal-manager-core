@@ -1,0 +1,71 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+use ::rpc::admin_cli::CarbideCliError;
+use carbide_uuid::rack::RackId;
+use clap::Parser;
+use serde::{Deserialize, Serialize};
+
+#[derive(Parser, Debug, Serialize, Deserialize)]
+pub struct Args {
+    #[clap(help = "Rack ID of the expected rack")]
+    pub rack_id: RackId,
+    #[clap(long, help = "Rack type of the expected rack")]
+    pub rack_type: Option<String>,
+
+    #[clap(
+        long = "meta-name",
+        value_name = "META_NAME",
+        help = "The name that should be used as part of the Metadata for newly created Rack. If empty, the Rack Id will be used"
+    )]
+    pub meta_name: Option<String>,
+
+    #[clap(
+        long = "meta-description",
+        value_name = "META_DESCRIPTION",
+        help = "The description that should be used as part of the Metadata for newly created Rack"
+    )]
+    pub meta_description: Option<String>,
+
+    #[clap(
+        long = "label",
+        value_name = "LABEL",
+        help = "A label that will be added as metadata for the newly created Rack. The labels key and value must be separated by a : character",
+        action = clap::ArgAction::Append
+    )]
+    pub labels: Option<Vec<String>>,
+}
+
+impl TryFrom<Args> for rpc::forge::ExpectedRack {
+    type Error = CarbideCliError;
+
+    fn try_from(args: Args) -> Result<Self, Self::Error> {
+        // rack_type is required for update.
+        let rack_type = args
+            .rack_type
+            .ok_or_else(|| CarbideCliError::GenericError("rack_type is required".to_string()))?;
+        Ok(rpc::forge::ExpectedRack {
+            rack_id: Some(args.rack_id),
+            rack_type,
+            metadata: Some(rpc::forge::Metadata {
+                name: args.meta_name.unwrap_or_default(),
+                description: args.meta_description.unwrap_or_default(),
+                labels: crate::metadata::parse_rpc_labels(args.labels.unwrap_or_default()),
+            }),
+        })
+    }
+}

@@ -40,7 +40,8 @@ pub(crate) async fn get(
         crate::api::log_machine_id(&machine_id);
     }
 
-    let mbo = match db::machine_boot_override::find_optional(&mut txn, machine_interface_id).await?
+    let mbo = match db::machine_boot_override::find_optional(txn.as_pgconn(), machine_interface_id)
+        .await?
     {
         Some(mbo) => mbo,
         None => MachineBootOverride {

@@ -29,7 +29,7 @@ name = "model"
 # [local-dependencies]
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 bmc-vendor = { path = "../bmc-vendor" }
-carbide-dpf-beta = { path = "../dpf-beta" }
+carbide-dpf = { path = "../dpf" }
 config-version = { path = "../config-version", features = ["sqlx"] }
 carbide-host-support = { path = "../host-support", default-features = false }
 carbide-libmlx = { path = "../libmlx" }
@@ -92,6 +92,7 @@ carbide-version = { path = "../version" }
 lazy_static = { workspace = true }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
 prost = { workspace = true }
+toml = { workspace = true }
 
 [lints]
 workspace = true

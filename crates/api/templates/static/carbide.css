@@ -623,7 +623,7 @@ input[type="submit"]:hover:not(.disabled) {
 }
 
 /* Notification banner for restart reminders */
-.notification-banner {
+.action-restart-notification-reminder {
   display: none;
   min-height: 30px;
   padding: 8px 12px;
@@ -1313,6 +1313,35 @@ pre:not(div[style*="overflow: auto"] > pre):not(td > div > pre) {
   overflow: auto;
 }
 
+/* Style for spinner in UI */
+.action-spinner {
+  display: inline-block;
+  visibility: hidden;
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  min-width: 16px;
+  margin: 5px;
+  border: 2px solid #ccc;
+  border-top-color: #333;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+a.disabled,
+input.disabled,
+select.disabled {
+  background-color: rgba(113, 128, 150, 0.1) !important;
+  color: var(--text-muted) !important;
+  border-color: var(--text-muted) !important;
+  cursor: not-allowed;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
 
 /* ------------------------------------------------------------------------
    Tab System

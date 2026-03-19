@@ -124,7 +124,10 @@ impl StateControllerIO for RackStateControllerIO {
         }
     }
 
-    fn state_sla(state: &Versioned<Self::ControllerState>) -> StateSla {
+    fn state_sla(
+        state: &Versioned<Self::ControllerState>,
+        _object_state: &Self::State,
+    ) -> StateSla {
         state_sla(&state.value, &state.version)
     }
 }

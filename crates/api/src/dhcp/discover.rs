@@ -138,7 +138,7 @@ async fn handle_dhcp_from_dpa(
         return Ok(None);
     }
 
-    let mut dpa_ifs = db::dpa_interface::find_by_mac_addr(txn, &macaddr).await?;
+    let mut dpa_ifs = db::dpa_interface::find_by_mac_addr(&mut *txn, &macaddr).await?;
 
     if dpa_ifs.len() != 1 {
         // If the MAC address does not belong to any DPA object, len will be 0.

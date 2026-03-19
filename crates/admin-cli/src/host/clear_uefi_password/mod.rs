@@ -26,6 +26,6 @@ use crate::cfg::runtime::RuntimeContext;
 
 impl Run for Args {
     async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
-        cmd::clear_uefi_password(self.inner, &ctx.api_client).await
+        cmd::clear_uefi_password(self, &ctx.api_client).await
     }
 }

@@ -73,9 +73,7 @@ pub(crate) async fn create(
         req.tenant_organization_id
             .parse()
             .map_err(|e: InvalidTenantOrg| {
-                Status::from(CarbideError::from(
-                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
-                ))
+                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
             })?;
 
     // Prepare the metadata
@@ -190,9 +188,7 @@ pub(crate) async fn find_ids(
         .map(|i| i.parse::<InstanceTypeId>())
         .transpose()
         .map_err(|e| {
-            Status::from(CarbideError::from(
-                RpcDataConversionError::InvalidInstanceTypeId(e.to_string()),
-            ))
+            CarbideError::from(RpcDataConversionError::InvalidInstanceTypeId(e.to_string()))
         })?
         .map(|i| vec![i]);
 
@@ -203,9 +199,7 @@ pub(crate) async fn find_ids(
             .map(|t| t.parse::<TenantOrganizationId>())
             .transpose()
             .map_err(|e: InvalidTenantOrg| {
-                Status::from(CarbideError::from(
-                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
-                ))
+                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
             })?
             .as_ref(),
         instance_type_ids.as_deref(),
@@ -329,9 +323,7 @@ pub(crate) async fn update(
         req.tenant_organization_id
             .parse()
             .map_err(|e: InvalidTenantOrg| {
-                Status::from(CarbideError::from(
-                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
-                ))
+                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
             })?;
 
     // Look up the ComputeAllocation.  We'll need to check the current
@@ -452,7 +444,7 @@ pub(crate) async fn update(
         // Now we need to grab the count of instances for the tenant for this instance type.
         // We will need to compare the count against the new allocation total to make sure the
         // total isn't dropping below the count of already-created instances.
-        let filter = rpc::InstanceSearchFilter {
+        let filter = model::instance::InstanceSearchFilter {
             label: None,
             tenant_org_id: Some(req.tenant_organization_id),
             vpc_id: None,
@@ -542,9 +534,7 @@ pub(crate) async fn delete(
         req.tenant_organization_id
             .parse()
             .map_err(|e: InvalidTenantOrg| {
-                Status::from(CarbideError::from(
-                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
-                ))
+                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
             })?;
 
     // Make our DB query for the ComputeAllocation.
@@ -597,7 +587,7 @@ pub(crate) async fn delete(
         // Now we need to grab the count of instances for the tenant for this instance type.
         // We will need to compare the count against the new allocation total to make sure the
         // total isn't dropping below the count of already-created instances.
-        let filter = rpc::InstanceSearchFilter {
+        let filter = model::instance::InstanceSearchFilter {
             label: None,
             tenant_org_id: Some(req.tenant_organization_id),
             vpc_id: None,

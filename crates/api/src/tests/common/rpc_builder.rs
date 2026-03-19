@@ -86,6 +86,17 @@ pub struct InstanceAllocationRequest {
     pub allow_unhealthy_machine: bool,
 }
 
+// Reflection of rpc::forge::InstanceConfigUpdateRequest. It should contain exactly
+// the same fields as rpc::forge::InstanceAllocationRequest. Otherwise it will
+// produce error on carbide_prost_builder::Builder derivation.
+#[derive(carbide_prost_builder::Builder)]
+pub struct InstanceConfigUpdateRequest {
+    pub config: ::core::option::Option<::rpc::forge::InstanceConfig>,
+    pub instance_id: ::core::option::Option<::carbide_uuid::instance::InstanceId>,
+    pub metadata: ::core::option::Option<::rpc::forge::Metadata>,
+    pub if_version_match: ::core::option::Option<::prost::alloc::string::String>,
+}
+
 // Reflection of rpc::forge::InstanceConfig. It should contain exactly
 // the same fields as rpc::forge::InstanceConfig. Otherwise it will
 // produce error on carbide_prost_builder::Builder derivation.

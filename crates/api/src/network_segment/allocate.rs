@@ -152,8 +152,14 @@ impl PrefixAllocator {
         &self,
         txn: &mut PgConnection,
         vpc_id: VpcId,
+        requested_prefix: Option<IpNetwork>,
     ) -> CarbideResult<(NetworkSegmentId, IpNetwork)> {
-        let prefix = self.next_free_prefix(txn).await?;
+        let prefix = if let Some(requested_prefix) = requested_prefix {
+            self.validate_desired_prefix(txn, requested_prefix).await?;
+            requested_prefix
+        } else {
+            self.next_free_prefix(txn).await?
+        };
 
         let name = format!("vpc_prefix_{}", prefix.network());
         let segment_id = NetworkSegmentId::new();
@@ -232,6 +238,38 @@ impl PrefixAllocator {
             }
             current_iteration += 1;
         }
+    }
+
+    pub async fn validate_desired_prefix(
+        &self,
+        txn: &mut PgConnection,
+        prefix: IpNetwork,
+    ) -> CarbideResult<()> {
+        let vpc_str = self.vpc_prefix.to_string();
+
+        // Reject if what's being asked for is bigger than the prefix
+        // expected to contain it or simply not contained within it at all.
+        // (i.e. an IP from a totally different prefix)
+        if !self.vpc_prefix.contains(prefix.network()) {
+            return Err(CarbideError::InvalidArgument(format!(
+                "{prefix} is not contained within {}",
+                self.vpc_prefix
+            )));
+        }
+
+        // Reject if already in use.
+        if db::network_prefix::containing_prefix(txn, vpc_str.as_str())
+            .await?
+            .iter()
+            .any(|x| networks_overlap(x.prefix, prefix))
+        {
+            return Err(CarbideError::AlreadyFoundError {
+                kind: "prefix",
+                id: prefix.to_string(),
+            });
+        }
+
+        Ok(())
     }
 }
 

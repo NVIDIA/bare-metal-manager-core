@@ -336,7 +336,9 @@ pub(crate) async fn set_dpu_first_boot_order(
         .boot_interface_mac
         .as_ref()
         .filter(|mac| !mac.trim().is_empty())
-        .ok_or_else(|| Status::invalid_argument("boot_interface_mac is required"))?;
+        .ok_or_else(|| {
+            CarbideError::InvalidArgument("boot_interface_mac is required".to_string())
+        })?;
 
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
@@ -592,10 +594,11 @@ async fn resolve_bmc_interface(
 
     let mut addrs = lookup_host(address).await?;
     let Some(bmc_addr) = addrs.next() else {
-        return Err(Status::invalid_argument(format!(
+        return Err(CarbideError::InvalidArgument(format!(
             "Could not resolve {}. Must be hostname[:port] or IPv4[:port]",
             request.ip_address
-        )));
+        ))
+        .into());
     };
 
     let bmc_mac_address: MacAddress;
@@ -606,9 +609,10 @@ async fn resolve_bmc_interface(
     {
         bmc_mac_address = bmc_machine_interface.mac_address;
     } else {
-        return Err(Status::invalid_argument(format!(
+        return Err(CarbideError::InvalidArgument(format!(
             "could not find a mac address for the specified IP: {request:#?}"
-        )));
+        ))
+        .into());
     };
 
     Ok((bmc_addr, bmc_mac_address))

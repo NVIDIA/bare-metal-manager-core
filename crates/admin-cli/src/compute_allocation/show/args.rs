@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use ::rpc::forge::FindComputeAllocationIdsRequest;
 use carbide_uuid::compute_allocation::ComputeAllocationId;
 use clap::Parser;
 
@@ -39,4 +40,14 @@ pub struct Args {
 
     #[clap(long, help = "Optional, instance type ID used to filter results")]
     pub instance_type_id: Option<String>,
+}
+
+impl From<Args> for FindComputeAllocationIdsRequest {
+    fn from(args: Args) -> Self {
+        FindComputeAllocationIdsRequest {
+            name: args.name,
+            tenant_organization_id: args.tenant_organization_id,
+            instance_type_id: args.instance_type_id,
+        }
+    }
 }

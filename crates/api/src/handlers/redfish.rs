@@ -104,9 +104,9 @@ pub async fn redfish_list_actions(
 ) -> Result<tonic::Response<::rpc::forge::RedfishListActionsResponse>, tonic::Status> {
     log_request_data(&request);
 
-    let request = request.into_inner();
+    let filter: model::redfish::RedfishListActionsFilter = request.into_inner().into();
 
-    let result = list_requests(request, &api.database_connection).await?;
+    let result = list_requests(filter, &api.database_connection).await?;
 
     Ok(tonic::Response::new(
         rpc::forge::RedfishListActionsResponse {
@@ -125,11 +125,13 @@ pub async fn redfish_create_action(
         CarbideError::ClientCertificateMissingInformation("external user name".to_string()),
     )?;
 
-    let request = request.into_inner();
+    let rpc_request = request.into_inner();
+    let ips = rpc_request.ips.clone();
+    let create_action: model::redfish::RedfishCreateAction = rpc_request.into();
 
     let mut txn = api.txn_begin().await?;
 
-    let ip_to_serial = find_serials(&request.ips, &mut txn).await?;
+    let ip_to_serial = find_serials(&ips, &mut txn).await?;
     let machine_ips: Vec<_> = ip_to_serial.keys().cloned().collect();
     // this is the neatest way I could think of splitting the iterator/map into two vecs
     // explicitly in the same order. could be a for loop instead.
@@ -138,7 +140,8 @@ pub async fn redfish_create_action(
         .map(|ip| ip_to_serial.get(ip).unwrap())
         .collect();
 
-    let request_id = insert_request(authored_by, request, &mut txn, machine_ips, serials).await?;
+    let request_id =
+        insert_request(authored_by, create_action, &mut txn, machine_ips, serials).await?;
 
     txn.commit().await?;
 
@@ -157,7 +160,7 @@ pub async fn redfish_approve_action(
         CarbideError::ClientCertificateMissingInformation("external user name".to_string()),
     )?;
 
-    let request = request.into_inner();
+    let request: model::redfish::RedfishActionId = request.into_inner().into();
 
     let mut txn = api.txn_begin().await?;
     let action_request = fetch_request(request, &mut txn).await?;
@@ -190,7 +193,7 @@ pub async fn redfish_apply_action(
         CarbideError::ClientCertificateMissingInformation("external user name".to_string()),
     )?;
 
-    let request = request.into_inner();
+    let request: model::redfish::RedfishActionId = request.into_inner().into();
 
     let mut txn = api.txn_begin().await?;
 
@@ -283,7 +286,7 @@ pub async fn redfish_apply_action(
 
 async fn update_response_in_tx(
     pool: &PgPool,
-    request: rpc::forge::RedfishActionId,
+    request: model::redfish::RedfishActionId,
     index: usize,
     response: BMCResponse,
 ) -> Result<(), tonic::Status> {
@@ -466,7 +469,7 @@ pub async fn redfish_cancel_action(
 ) -> Result<tonic::Response<::rpc::forge::RedfishCancelActionResponse>, tonic::Status> {
     log_request_data(&request);
 
-    let request = request.into_inner();
+    let request: model::redfish::RedfishActionId = request.into_inner().into();
 
     let mut txn = api.txn_begin().await?;
 

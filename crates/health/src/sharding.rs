@@ -18,18 +18,11 @@
 use crate::endpoint::BmcAddr;
 
 pub struct ShardManager {
-    shard: usize,
-    shards_count: usize,
+    pub shard: usize,
+    pub shards_count: usize,
 }
 
 impl ShardManager {
-    pub fn new(shard: usize, shards_count: usize) -> Self {
-        Self {
-            shard,
-            shards_count,
-        }
-    }
-
     /// Check if this shard should monitor a BMC endpoint.
     pub fn should_monitor(&self, endpoint: &BmcAddr) -> bool {
         self.should_monitor_key(&endpoint.hash_key())
@@ -70,7 +63,10 @@ mod tests {
 
     #[test]
     fn test_single_shard() {
-        let manager = ShardManager::new(0, 1);
+        let manager = ShardManager {
+            shard: 0,
+            shards_count: 1,
+        };
         let endpoint = BmcAddr {
             ip: "10.0.0.1".parse().unwrap(),
             port: Some(443),
@@ -92,9 +88,18 @@ mod tests {
             mac: MacAddress::from_str("42:9e:b2:bd:9d:dd").unwrap(),
         };
 
-        let manager0 = ShardManager::new(0, 3);
-        let manager1 = ShardManager::new(1, 3);
-        let manager2 = ShardManager::new(2, 3);
+        let manager0 = ShardManager {
+            shard: 0,
+            shards_count: 3,
+        };
+        let manager1 = ShardManager {
+            shard: 1,
+            shards_count: 3,
+        };
+        let manager2 = ShardManager {
+            shard: 2,
+            shards_count: 3,
+        };
 
         // Each endpoint should be assigned to exactly one pod
         let mut count1 = 0;
@@ -137,7 +142,10 @@ mod tests {
         for key in [key1, key2] {
             let mut count = 0;
             for shard in 0..3 {
-                let manager = ShardManager::new(shard, 3);
+                let manager = ShardManager {
+                    shard,
+                    shards_count: 3,
+                };
                 if manager.should_monitor_key(key) {
                     count += 1;
                 }
@@ -152,7 +160,10 @@ mod tests {
 
     #[test]
     fn test_should_monitor_key_consistency() {
-        let manager = ShardManager::new(0, 3);
+        let manager = ShardManager {
+            shard: 0,
+            shards_count: 3,
+        };
         let key = "AA:BB:CC:DD:EE:FF";
         assert_eq!(
             manager.should_monitor_key(key),

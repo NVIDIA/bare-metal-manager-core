@@ -172,8 +172,10 @@ impl From<ManagedHostStateSnapshot> for ManagedHostRowDisplay {
             state: host_snapshot.state.value.to_string(),
             time_in_state: host_snapshot.state.version.since_state_change_humanized(),
             time_in_state_above_sla: machine::state_sla(
+                &host_snapshot.id,
                 &host_snapshot.state.value,
                 &host_snapshot.state.version,
+                &aggregate_health,
             )
             .time_in_state_above_sla,
             state_reason: host_snapshot

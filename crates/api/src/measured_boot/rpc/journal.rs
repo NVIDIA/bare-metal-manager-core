@@ -50,8 +50,13 @@ pub async fn handle_delete_measurement_journal(
             .ok_or(CarbideError::MissingArgument("journal_id"))?,
     )
     .await
-    .map_err(|e| Status::internal(format!("failed to delete journal: {e}")))?
-    .ok_or(Status::not_found("no journal found with that ID"))?;
+    .map_err(|e| CarbideError::Internal {
+        message: format!("failed to delete journal: {e}"),
+    })?
+    .ok_or(CarbideError::NotFoundError {
+        kind: "journal",
+        id: "unknown".into(),
+    })?;
 
     txn.commit().await?;
     Ok(DeleteMeasurementJournalResponse {
@@ -71,18 +76,21 @@ pub async fn handle_show_measurement_journal(
             show_measurement_journal_request::Selector::JournalId(journal_id) => {
                 db::measured_boot::journal::from_id(&mut txn, journal_id)
                     .await
-                    .map_err(|e| Status::internal(format!("{e}")))?
+                    .map_err(|e| CarbideError::Internal {
+                        message: format!("{e}"),
+                    })?
             }
             show_measurement_journal_request::Selector::LatestForMachineId(machine_id) => {
                 match db::measured_boot::journal::get_latest_journal_for_id(
                     &mut txn,
                     MachineId::from_str(&machine_id).map_err(|e| {
-                        Status::invalid_argument(format!("Could not parse MachineId: {e}"))
+                        CarbideError::InvalidArgument(format!("Could not parse MachineId: {e}"))
                     })?,
                 )
                 .await
-                .map_err(|e| Status::internal(format!("{e}")))?
-                {
+                .map_err(|e| CarbideError::Internal {
+                    message: format!("{e}"),
+                })? {
                     Some(journal) => journal,
                     None => {
                         return Ok(ShowMeasurementJournalResponse { journal: None });
@@ -90,7 +98,11 @@ pub async fn handle_show_measurement_journal(
                 }
             }
         },
-        None => return Err(Status::invalid_argument("selector must be provided")),
+        None => {
+            return Err(
+                CarbideError::InvalidArgument("selector must be provided".to_string()).into(),
+            );
+        }
     };
 
     txn.commit().await?;
@@ -109,7 +121,9 @@ pub async fn handle_show_measurement_journals(
     Ok(ShowMeasurementJournalsResponse {
         journals: db::measured_boot::journal::get_all(&api.database_connection)
             .await
-            .map_err(|e| Status::internal(format!("failed to fetch journals: {e}")))?
+            .map_err(|e| CarbideError::Internal {
+                message: format!("failed to fetch journals: {e}"),
+            })?
             .drain(..)
             .map(|journal| journal.into())
             .collect(),
@@ -126,14 +140,15 @@ pub async fn handle_list_measurement_journal(
 
     let journals: Vec<MeasurementJournalRecordPb> = match &req.selector {
         Some(list_measurement_journal_request::Selector::MachineId(machine_id)) => {
-            let machine_id = MachineId::from_str(machine_id).map_err(|e| {
-                Status::internal(format!("failed to fetch journals for machine: {e}"))
-            })?;
+            let machine_id =
+                MachineId::from_str(machine_id).map_err(|e| CarbideError::Internal {
+                    message: format!("failed to fetch journals for machine: {e}"),
+                })?;
 
             get_measurement_journal_records_for_machine_id(&mut txn, machine_id)
                 .await
-                .map_err(|e| {
-                    Status::internal(format!("failed to fetch journals for machine: {e}"))
+                .map_err(|e| CarbideError::Internal {
+                    message: format!("failed to fetch journals for machine: {e}"),
                 })?
                 .drain(..)
                 .map(|journal| journal.into())
@@ -141,7 +156,9 @@ pub async fn handle_list_measurement_journal(
         }
         None => get_measurement_journal_records(&mut txn)
             .await
-            .map_err(|e| Status::internal(format!("failed to fetch journals: {e}")))?
+            .map_err(|e| CarbideError::Internal {
+                message: format!("failed to fetch journals: {e}"),
+            })?
             .drain(..)
             .map(|journal| journal.into())
             .collect(),

@@ -29,7 +29,6 @@ use model::network_security_group::{
 use model::network_segment::NetworkSegment;
 use model::resource_pool::common::CommonPools;
 use sqlx::PgConnection;
-use tonic::Status;
 
 use crate::CarbideError;
 use crate::cfg::file::VpcPeeringPolicy;
@@ -92,16 +91,19 @@ pub async fn admin_network(
     let prefix = match admin_segment.prefixes.first() {
         Some(p) => p,
         None => {
-            return Err(Status::internal(format!(
-                "Admin network segment '{}' has no network_prefix, expected 1",
-                admin_segment.id,
-            )));
+            return Err(CarbideError::Internal {
+                message: format!(
+                    "Admin network segment '{}' has no network_prefix, expected 1",
+                    admin_segment.id,
+                ),
+            }
+            .into());
         }
     };
 
     let domain = match admin_segment.subdomain_id {
         Some(domain_id) => {
-            db::dns::domain::find_by_uuid(txn, domain_id)
+            db::dns::domain::find_by_uuid(&mut *txn, domain_id)
                 .await
                 .map_err(CarbideError::from)?
                 .ok_or_else(|| CarbideError::NotFoundError {
@@ -137,12 +139,13 @@ pub async fn admin_network(
     // On the admin network, the interface_prefix is always
     // just going to be a /32 derived from the machine interface
     // address.
-    let address_prefix = IpNetwork::new(address.address, 32).map_err(|e| {
-        Status::internal(format!(
-            "failed to build default admin address prefix for {}/32: {}",
-            address.address, e
-        ))
-    })?;
+    let address_prefix =
+        IpNetwork::new(address.address, 32).map_err(|e| CarbideError::Internal {
+            message: format!(
+                "failed to build default admin address prefix for {}/32: {}",
+                address.address, e
+            ),
+        })?;
 
     let svi_ip = if !fnn_enabled_on_admin {
         None
@@ -153,10 +156,8 @@ pub async fn admin_network(
             true,
             prefix.prefix.prefix(),
         )
-        .map_err(|e| {
-            Status::internal(format!(
-                "failed to configure FlatInterfaceConfig.svi_ip: {e}"
-            ))
+        .map_err(|e| CarbideError::Internal {
+            message: format!("failed to configure FlatInterfaceConfig.svi_ip: {e}"),
         })?
         .map(|ip| ip.to_string())
     };
@@ -260,19 +261,22 @@ pub async fn tenant_network(
         .prefixes
         .iter()
         .find(|prefix| prefix.prefix.is_ipv4())
-        .ok_or_else(|| {
-            Status::internal(format!(
+        .ok_or_else(|| CarbideError::Internal {
+            message: format!(
                 "No IPv4 prefix is available for instance {} on segment {}",
                 instance_id, segment.id
-            ))
+            ),
         })?;
 
-    let address = iface.ip_addrs.get(&v4_prefix.id).ok_or_else(|| {
-        Status::internal(format!(
-            "No IPv4 address is available for instance {} on segment {}",
-            instance_id, segment.id
-        ))
-    })?;
+    let address = iface
+        .ip_addrs
+        .get(&v4_prefix.id)
+        .ok_or_else(|| CarbideError::Internal {
+            message: format!(
+                "No IPv4 address is available for instance {} on segment {}",
+                instance_id, segment.id
+            ),
+        })?;
 
     // Assuming an `address` was found above, look to see if a prefix
     // is explicitly configured here. If not, default to a /32, which
@@ -281,10 +285,8 @@ pub async fn tenant_network(
     //
     // TODO(chet): This can eventually be phased out once all of the
     // InstanceInterfaceConfigs stored contain the prefix.
-    let default_prefix = IpNetwork::new(*address, 32).map_err(|e| {
-        Status::internal(format!(
-            "failed to build default interface_prefix for {address}/32: {e}"
-        ))
+    let default_prefix = IpNetwork::new(*address, 32).map_err(|e| CarbideError::Internal {
+        message: format!("failed to build default interface_prefix for {address}/32: {e}"),
     })?;
 
     let interface_prefix = iface
@@ -385,10 +387,8 @@ pub async fn tenant_network(
         is_l2_segment,
         v4_prefix.prefix.prefix(),
     )
-    .map_err(|e| {
-        Status::internal(format!(
-            "failed to configure FlatInterfaceConfig.svi_ip: {e}"
-        ))
+    .map_err(|e| CarbideError::Internal {
+        message: format!("failed to configure FlatInterfaceConfig.svi_ip: {e}"),
     })?
     .map(|ip| ip.to_string());
 
@@ -409,11 +409,11 @@ pub async fn tenant_network(
                     let network_security_group = network_security_group::find_by_ids(
                         txn,
                         &[vpc_nsg_id.to_owned()],
-                        Some(
-                            &v.tenant_organization_id
-                                .parse()
-                                .map_err(|_| Status::internal("invalid tenant org in VPC data"))?,
-                        ),
+                        Some(&v.tenant_organization_id.parse().map_err(|_| {
+                            CarbideError::Internal {
+                                message: "invalid tenant org in VPC data".to_string(),
+                            }
+                        })?),
                         false,
                     )
                     .await?
@@ -482,10 +482,10 @@ pub async fn tenant_network(
                     )
             })
             .transpose()
-            .map_err(|e: CarbideError| {
-                Status::internal(format!(
+            .map_err(|e: CarbideError| CarbideError::Internal {
+                message: format!(
                     "failed to configure FlatInterfaceConfig.network_security_group: {e}"
-                ))
+                ),
             })?,
         internal_uuid: Some(iface.internal_uuid.into()),
         mtu: u32::try_from(segment.mtu).ok(),

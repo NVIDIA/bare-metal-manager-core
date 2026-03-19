@@ -34,7 +34,7 @@ pub async fn get_rack(
     let req = request.into_inner();
     let rack = if let Some(id) = req.id {
         let rack_id = RackId::from_str(&id)
-            .map_err(|e| Status::invalid_argument(format!("Invalid rack ID: {}", e)))?;
+            .map_err(|e| CarbideError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
         let r = db_rack::get(&api.database_connection, rack_id)
             .await
             .map_err(CarbideError::from)?;
@@ -98,13 +98,18 @@ pub async fn delete_rack(
     api.with_txn(|txn| {
         async move {
             let rack_id = RackId::from_str(&req.id)
-                .map_err(|e| Status::invalid_argument(format!("Invalid rack ID: {}", e)))?;
-            let rack = db_rack::get(txn.as_mut(), rack_id)
-                .await
-                .map_err(|e| Status::internal(format!("Getting rack {}", e)))?;
+                .map_err(|e| CarbideError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
+            let rack =
+                db_rack::get(txn.as_mut(), rack_id)
+                    .await
+                    .map_err(|e| CarbideError::Internal {
+                        message: format!("Getting rack {}", e),
+                    })?;
             db_rack::mark_as_deleted(&rack, txn)
                 .await
-                .map_err(|e| Status::internal(format!("Marking rack deleted {}", e)))?;
+                .map_err(|e| CarbideError::Internal {
+                    message: format!("Marking rack deleted {}", e),
+                })?;
             Ok::<_, Status>(())
         }
         .boxed()

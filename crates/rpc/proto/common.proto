@@ -93,3 +93,19 @@ message NVLinkDomainId {
 message ComputeAllocationId {
   string value = 1;
 }
+
+enum SystemPowerControl {
+  SYSTEM_POWER_CONTROL_UNKNOWN = 0;
+  // Power on a machine
+  SYSTEM_POWER_CONTROL_ON = 1;
+  // Graceful host shutdown
+  SYSTEM_POWER_CONTROL_GRACEFUL_SHUTDOWN = 2;
+  // Forcefully powers a machine off
+  SYSTEM_POWER_CONTROL_FORCE_OFF = 3;
+  // Graceful restart. Asks the OS to restart via ACPI
+  SYSTEM_POWER_CONTROL_GRACEFUL_RESTART = 4;
+  // Force restart. This is equivalent to pressing the reset button on the front panel.
+  SYSTEM_POWER_CONTROL_FORCE_RESTART = 5;
+  // AC powercycle. This is equivalent to unplugging and reconnecting power cables. Not supported on Vikings.
+  SYSTEM_POWER_CONTROL_AC_POWERCYCLE = 6;
+}

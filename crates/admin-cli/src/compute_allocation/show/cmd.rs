@@ -39,15 +39,8 @@ pub async fn show(
             .await?
             .allocations
     } else {
-        let all_ids = api_client
-            .0
-            .find_compute_allocation_ids(FindComputeAllocationIdsRequest {
-                name: args.name,
-                tenant_organization_id: args.tenant_organization_id,
-                instance_type_id: args.instance_type_id,
-            })
-            .await?
-            .ids;
+        let req: FindComputeAllocationIdsRequest = args.into();
+        let all_ids = api_client.0.find_compute_allocation_ids(req).await?.ids;
 
         let mut allocations = Vec::with_capacity(all_ids.len());
 

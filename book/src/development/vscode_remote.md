@@ -1,6 +1,6 @@
 ## Visual Studio Code Remote Docker Workflow
 
-This page describes a workflow on how to build and test NVIDIA Bare Metal Manager (BMM) inside a remotely
+This page describes a workflow on how to build and test NCX Infra Controller (NICo) inside a remotely
 running docker container. The advantage of this workflow is that it requires no tools
 to be installed on your native Machine, but still can provide you a similar
 development feeling.
@@ -40,7 +40,7 @@ Start `VS Code` using the `code` command in the same shell after running `nvinit
 Click the remote button on the lower left of the IDE window:
 ![](../static/remote_button.png).
 Select "Connect to Host", choose the remote hostname define in [Prerequisites](#Prerequisites), and connect. A new Visual Studio Code window should open, which is now on that host.
-Inside that window, open the folder which contains the BMM project.
+Inside that window, open the folder which contains the NICo project.
 
 Assuming that remote machine already has all dev tools installed, and you want to
 work directly on the machine instead of inside a container, you could open up
@@ -68,7 +68,7 @@ contains all dev tools. The container can either run locally (if you work on a L
 or on a remote Linux machine.
 
 To work inside the remote container, the following steps are performed:
-- Inside the BMM directory on the Linux host you are working on, place a
+- Inside the NICo directory on the Linux host you are working on, place a
     `.devcontainer/devcontainer.json` file with the following details
     ```json
     // For format details, see https://aka.ms/devcontainer.json. For config options, see the README at:

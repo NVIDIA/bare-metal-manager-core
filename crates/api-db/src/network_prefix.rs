@@ -25,6 +25,7 @@ use model::network_prefix::{NetworkPrefix, NewNetworkPrefix};
 use sqlx::PgConnection;
 
 use super::DatabaseError;
+use crate::db_read::DbReader;
 
 #[derive(Clone, Copy)]
 pub struct SegmentIdColumn;
@@ -40,7 +41,7 @@ impl super::ColumnInfo<'_> for SegmentIdColumn {
 
 /// Fetch the prefix that matches, is a subnet of, or contains the given one.
 pub async fn containing_prefix(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     prefix: &str,
 ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
     let query = "select * from network_prefixes where prefix && $1::inet";

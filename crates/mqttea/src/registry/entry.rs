@@ -55,19 +55,6 @@ impl std::fmt::Debug for MqttRegistryEntry {
 }
 
 impl MqttRegistryEntry {
-    // new creates a new registry entry with all required components.
-    pub fn new(
-        message_type_info: MessageTypeInfo,
-        serialize_handler: SerializeHandler,
-        deserialize_handler: DeserializeHandler,
-    ) -> Self {
-        Self {
-            message_type_info,
-            serialize_handler,
-            deserialize_handler,
-        }
-    }
-
     // type_name returns the human-readable type name for this entry.
     pub fn type_name(&self) -> &str {
         &self.message_type_info.type_name

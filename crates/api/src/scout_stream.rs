@@ -30,6 +30,8 @@ use carbide_uuid::machine::MachineId;
 use tokio::sync::{RwLock, mpsc, oneshot};
 use tonic::Status;
 
+use crate::CarbideError;
+
 // AgentConnection represents an active streaming connection to
 // a scout agent. It contains the corresponding machine_id, the
 // channels used to pass messages, and any additional metadata
@@ -150,27 +152,35 @@ impl ConnectionRegistry {
         request: ScoutStreamScoutBoundMessage,
     ) -> Result<ScoutStreamApiBoundMessage, Status> {
         let Some(flow_uuid_pb) = request.flow_uuid.as_ref() else {
-            return Err(Status::internal(format!(
-                "flow_uuid empty for flow with {machine_id}, unable to build flow",
-            )));
+            return Err(CarbideError::Internal {
+                message: format!(
+                    "flow_uuid empty for flow with {machine_id}, unable to build flow",
+                ),
+            }
+            .into());
         };
 
         let flow_uuid: uuid::Uuid = match flow_uuid_pb.clone().try_into() {
             Ok(flow_uuid) => flow_uuid,
             Err(e) => {
-                return Err(Status::internal(format!(
-                    "failed to decode flow_uuid (machine_id={machine_id}): {flow_uuid_pb:?}: {e:?}",
-                )));
+                return Err(CarbideError::Internal {
+                    message: format!(
+                        "failed to decode flow_uuid (machine_id={machine_id}): {flow_uuid_pb:?}: {e:?}",
+                    ),
+                }
+                .into());
             }
         };
 
         let (connection_tx, connection_flows) = {
             let connections = self.connections.read().await;
-            let connection = connections.get(&machine_id).ok_or_else(|| {
-                Status::not_found(format!(
-                    "machine not connected to a scout stream: {machine_id}"
-                ))
-            })?;
+            let connection =
+                connections
+                    .get(&machine_id)
+                    .ok_or_else(|| CarbideError::NotFoundError {
+                        kind: "scout stream connection",
+                        id: machine_id.to_string(),
+                    })?;
             (connection.tx.clone(), Arc::clone(&connection.flows))
         };
 
@@ -192,18 +202,21 @@ impl ConnectionRegistry {
             "sending request to scout agent (machine_id={machine_id}, flow_uuid={flow_uuid})"
         );
 
-        connection_tx.send(Ok(request)).await.map_err(|e| {
-            Status::internal(format!(
-                "failed to send request to scout agent (machine_id={machine_id}, flow_uuid={flow_uuid}): {e}"
-            ))
+        connection_tx.send(Ok(request)).await.map_err(|e| CarbideError::Internal {
+                message: format!(
+                    "failed to send request to scout agent (machine_id={machine_id}, flow_uuid={flow_uuid}): {e}"
+                ),
         })?;
 
         // And now we wait for a response from the agent.
         // TODO(chet): This is where we'd put timeout handling.
-        response_rx.await.map_err(|e| {
-            Status::internal(format!(
-                "response channel error (machine_id={machine_id}, flow_uuid={flow_uuid}): {e}",
-            ))
+        response_rx.await.map_err(|e| -> Status {
+            CarbideError::Internal {
+                message: format!(
+                    "response channel error (machine_id={machine_id}, flow_uuid={flow_uuid}): {e}",
+                ),
+            }
+            .into()
         })
     }
 

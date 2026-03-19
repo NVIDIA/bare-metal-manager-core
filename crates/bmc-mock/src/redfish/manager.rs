@@ -21,7 +21,7 @@ use std::sync::{Arc, atomic};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::Response;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde_json::json;
@@ -165,6 +165,7 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
             &redfish::ethernet_interface::manager_resource(MGR_ID, ETH_ID).odata_id,
             get(get_ethernet_interface),
         )
+        .route(&reset_target(MGR_ID), post(post_reset_manager))
         .route(
             &redfish::manager_network_protocol::manager_resource(MGR_ID).odata_id,
             get(get_network_protocol).patch(patch_network_protocol),
@@ -333,6 +334,17 @@ async fn patch_network_protocol(
         this.ipmi_enabled.store(v, atomic::Ordering::Relaxed)
     }
     json!({}).into_ok_response()
+}
+
+async fn post_reset_manager(
+    State(state): State<BmcState>,
+    Path(manager_id): Path<String>,
+) -> Response {
+    state
+        .manager
+        .find(&manager_id)
+        .map(|_| json!({}).into_ok_response())
+        .unwrap_or_else(http::not_found)
 }
 
 async fn get_log_services() -> Response {

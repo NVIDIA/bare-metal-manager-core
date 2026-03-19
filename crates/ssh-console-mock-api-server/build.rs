@@ -24,7 +24,6 @@ static KEEP_RPCS: &[&str] = &[
     "ValidateTenantPublicKey",
     "FindInstancesByIds",
     "FindMachineIds",
-    "FindMachinesByIds",
     "GetBMCMetaData",
 ];
 

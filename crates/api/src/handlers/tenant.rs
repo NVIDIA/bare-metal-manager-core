@@ -189,7 +189,7 @@ pub(crate) async fn update(
     if current_tenant.routing_profile_type != routing_profile_type
         && !db::vpc::find_ids(
             &mut txn,
-            rpc::VpcSearchFilter {
+            model::vpc::VpcSearchFilter {
                 tenant_org_id: Some(organization_id.clone()),
                 ..Default::default()
             },
@@ -266,7 +266,7 @@ pub(crate) async fn find_tenant_organization_ids(
     request: Request<rpc::TenantSearchFilter>,
 ) -> Result<Response<rpc::TenantOrganizationIdList>, Status> {
     crate::api::log_request_data(&request);
-    let search_config = request.into_inner();
+    let search_config: model::tenant::TenantSearchFilter = request.into_inner().into();
     let tenant_org_ids =
         db::tenant::find_tenant_organization_ids(&api.database_connection, search_config).await?;
     Ok(tonic::Response::new(rpc::TenantOrganizationIdList {

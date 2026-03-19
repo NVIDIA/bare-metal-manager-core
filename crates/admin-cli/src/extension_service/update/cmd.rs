@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
+use ::rpc::admin_cli::CarbideCliResult;
 use ::rpc::admin_cli::output::OutputFormat;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::dpu_extension_service_credential::Type;
+use ::rpc::forge::UpdateDpuExtensionServiceRequest;
 
 use super::super::show::cmd::convert_extension_services_to_table;
 use super::args::Args;
@@ -30,43 +30,8 @@ pub async fn handle_update(
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
-    let credential =
-        if args.username.is_some() || args.password.is_some() || args.registry_url.is_some() {
-            if args.username.is_none() || args.password.is_none() || args.registry_url.is_none() {
-                return Err(CarbideCliError::GenericError(
-                    "All of username, password and registry URL are required to create credential"
-                        .to_string(),
-                ));
-            }
-
-            Some(::rpc::forge::DpuExtensionServiceCredential {
-                registry_url: args.registry_url.unwrap(),
-                r#type: Some(Type::UsernamePassword(rpc::forge::UsernamePassword {
-                    username: args.username.unwrap(),
-                    password: args.password.unwrap(),
-                })),
-            })
-        } else {
-            None
-        };
-
-    let observability = if let Some(r) = args.observability {
-        serde_json::from_str(&r)?
-    } else {
-        vec![]
-    };
-
-    let extension_service = api_client
-        .update_extension_service(
-            args.service_id,
-            args.service_name,
-            args.description,
-            args.data,
-            credential,
-            observability,
-            args.if_version_ctr_match,
-        )
-        .await?;
+    let req: UpdateDpuExtensionServiceRequest = args.try_into()?;
+    let extension_service = api_client.0.update_dpu_extension_service(req).await?;
 
     if is_json {
         println!("{}", serde_json::to_string_pretty(&extension_service)?);

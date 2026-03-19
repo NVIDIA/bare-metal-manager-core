@@ -141,7 +141,10 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         }
     }
 
-    fn state_sla(state: &Versioned<Self::ControllerState>) -> StateSla {
+    fn state_sla(
+        state: &Versioned<Self::ControllerState>,
+        _object_state: &Self::State,
+    ) -> StateSla {
         network_segment::state_sla(&state.value, &state.version)
     }
 }

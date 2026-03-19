@@ -59,9 +59,10 @@ pub(crate) async fn clear_host_uefi_password(
     };
 
     if !machine_id.machine_type().is_host() {
-        return Err(Status::invalid_argument(
-            "Carbide only supports clearing the UEFI password on discovered hosts",
-        ));
+        return Err(CarbideError::InvalidArgument(
+            "Carbide only supports clearing the UEFI password on discovered hosts".into(),
+        )
+        .into());
     }
 
     let snapshot = db::managed_host::load_snapshot(
@@ -88,9 +89,11 @@ pub(crate) async fn clear_host_uefi_password(
         .await
         .map_err(|e| {
             tracing::error!("unable to create redfish client: {}", e);
-            Status::internal(format!(
-                "Could not create connection to Redfish API to {machine_id}, check logs"
-            ))
+            CarbideError::Internal {
+                message: format!(
+                    "Could not create connection to Redfish API to {machine_id}, check logs"
+                ),
+            }
         })?;
 
     let job_id: Option<String> =
@@ -135,9 +138,10 @@ pub(crate) async fn set_host_uefi_password(
     };
 
     if !machine_id.machine_type().is_host() {
-        return Err(Status::invalid_argument(
-            "Carbide only supports setting the UEFI password on discovered hosts",
-        ));
+        return Err(CarbideError::InvalidArgument(
+            "Carbide only supports setting the UEFI password on discovered hosts".into(),
+        )
+        .into());
     }
 
     let snapshot = db::managed_host::load_snapshot(
@@ -177,7 +181,9 @@ pub(crate) async fn set_host_uefi_password(
         .await?
         .map_err(|e| {
             tracing::error!("Failed to update bios_password_set_time: {}", e);
-            Status::internal(format!("Failed to update BIOS password timestamp: {e}"))
+            CarbideError::Internal {
+                message: format!("Failed to update BIOS password timestamp: {e}"),
+            }
         })?;
 
     Ok(Response::new(rpc::SetHostUefiPasswordResponse { job_id }))

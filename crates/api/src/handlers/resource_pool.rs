@@ -36,11 +36,11 @@ pub(crate) async fn grow(
     let mut pools = HashMap::new();
     let table: toml::Table = toml_text
         .parse()
-        .map_err(|e: toml::de::Error| tonic::Status::invalid_argument(e.to_string()))?;
+        .map_err(|e: toml::de::Error| CarbideError::InvalidArgument(e.to_string()))?;
     for (name, def) in table {
         let d: model::resource_pool::ResourcePoolDef = def
             .try_into()
-            .map_err(|e: toml::de::Error| tonic::Status::invalid_argument(e.to_string()))?;
+            .map_err(|e: toml::de::Error| CarbideError::InvalidArgument(e.to_string()))?;
         pools.insert(name, d);
     }
     use db::resource_pool::DefineResourcePoolError as DE;
@@ -49,10 +49,16 @@ pub(crate) async fn grow(
             txn.commit().await?;
             Ok(Response::new(rpc::GrowResourcePoolResponse {}))
         }
-        Err(DE::InvalidArgument(msg)) => Err(tonic::Status::invalid_argument(msg)),
-        Err(DE::InvalidToml(err)) => Err(tonic::Status::invalid_argument(err.to_string())),
-        Err(DE::ResourcePoolError(msg)) => Err(tonic::Status::internal(msg.to_string())),
-        Err(DE::DatabaseError(err)) => Err(tonic::Status::internal(err.to_string())),
+        Err(DE::InvalidArgument(msg)) => Err(CarbideError::InvalidArgument(msg).into()),
+        Err(DE::InvalidToml(err)) => Err(CarbideError::InvalidArgument(err.to_string()).into()),
+        Err(DE::ResourcePoolError(msg)) => Err(CarbideError::Internal {
+            message: msg.to_string(),
+        }
+        .into()),
+        Err(DE::DatabaseError(err)) => Err(CarbideError::Internal {
+            message: err.to_string(),
+        }
+        .into()),
         Err(err @ DE::TooBig(_, _)) => Err(tonic::Status::out_of_range(err.to_string())),
     }
 }

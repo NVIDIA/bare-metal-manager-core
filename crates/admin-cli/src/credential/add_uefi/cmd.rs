@@ -16,26 +16,13 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::{CredentialType, forge as forgerpc};
-use forge_secrets::credentials::Credentials;
+use ::rpc::forge as forgerpc;
 
 use super::args::Args;
-use crate::credential::common::password_validator;
 use crate::rpc::ApiClient;
 
-pub async fn add_uefi(c: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let mut password = password_validator(c.password)?;
-    if password.is_empty() {
-        password = Credentials::generate_password_no_special_char();
-    }
-
-    let req = forgerpc::CredentialCreationRequest {
-        credential_type: CredentialType::from(c.kind).into(),
-        username: None,
-        password,
-        mac_address: None,
-        vendor: None,
-    };
+pub async fn add_uefi(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+    let req: forgerpc::CredentialCreationRequest = data.try_into()?;
     api_client.0.create_credential(req).await?;
     Ok(())
 }

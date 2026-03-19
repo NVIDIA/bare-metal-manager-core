@@ -16,19 +16,13 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::{CredentialType, forge as forgerpc};
+use ::rpc::forge as forgerpc;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn add_host_factory_default(c: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let req = forgerpc::CredentialCreationRequest {
-        credential_type: CredentialType::HostBmcFactoryDefault.into(),
-        username: Some(c.username),
-        password: c.password,
-        mac_address: None,
-        vendor: Some(c.vendor.to_string()),
-    };
+pub async fn add_host_factory_default(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+    let req: forgerpc::CredentialCreationRequest = data.into();
     api_client.0.create_credential(req).await?;
     Ok(())
 }

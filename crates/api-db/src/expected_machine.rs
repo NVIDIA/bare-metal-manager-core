@@ -16,9 +16,10 @@
  */
 use std::collections::{BTreeMap, HashMap};
 
+use carbide_uuid::rack::RackId;
 use itertools::Itertools;
 use mac_address::MacAddress;
-use model::expected_machine::{ExpectedMachine, ExpectedMachineData, LinkedExpectedMachine};
+use model::expected_machine::{ExpectedMachine, ExpectedMachineRequest, LinkedExpectedMachine};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
@@ -40,7 +41,7 @@ pub async fn find_by_bmc_mac_address(
 }
 
 pub async fn find_by_id(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     id: Uuid,
 ) -> Result<Option<ExpectedMachine>, DatabaseError> {
     let sql = "SELECT * FROM expected_machines WHERE id=$1";
@@ -132,6 +133,19 @@ pub async fn find_all(txn: impl DbReader<'_>) -> DatabaseResult<Vec<ExpectedMach
         .map_err(|err| DatabaseError::query(sql, err))
 }
 
+/// find_all_by_rack_id returns all expected machines for a given rack_id.
+pub async fn find_all_by_rack_id(
+    txn: &mut PgConnection,
+    rack_id: RackId,
+) -> DatabaseResult<Vec<ExpectedMachine>> {
+    let sql = "SELECT * FROM expected_machines WHERE rack_id=$1";
+    sqlx::query_as(sql)
+        .bind(rack_id)
+        .fetch_all(txn)
+        .await
+        .map_err(|err| DatabaseError::query(sql, err))
+}
+
 pub async fn find_all_linked(txn: impl DbReader<'_>) -> DatabaseResult<Vec<LinkedExpectedMachine>> {
     let sql = r#"
  SELECT
@@ -162,7 +176,7 @@ pub async fn update_bmc_credentials<'a>(
 ) -> DatabaseResult<&'a mut ExpectedMachine> {
     let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2 WHERE bmc_mac_address=$3 RETURNING bmc_mac_address";
 
-    let _: () = sqlx::query_as(query)
+    sqlx::query_as::<_, ()>(query)
         .bind(&bmc_username)
         .bind(&bmc_password)
         .bind(value.bmc_mac_address)
@@ -182,72 +196,82 @@ pub async fn update_bmc_credentials<'a>(
     Ok(value)
 }
 
+/// create inserts a new expected machine record. If the id field is None,
+/// a new UUID is generated.
 pub async fn create(
     txn: &mut PgConnection,
-    bmc_mac_address: MacAddress,
-    data: ExpectedMachineData,
+    machine: ExpectedMachine,
 ) -> DatabaseResult<ExpectedMachine> {
-    // If an id was provided in the RPC, we want to use it
-    let query_with_id = "INSERT INTO expected_machines
+    let id = machine.id.unwrap_or_else(Uuid::new_v4);
+    let query = "INSERT INTO expected_machines
             (id, bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers, metadata_name, metadata_description, metadata_labels, sku_id, host_nics, rack_id, default_pause_ingestion_and_poweron, dpf_enabled)
             VALUES
             ($1::uuid, $2::macaddr, $3::varchar, $4::varchar, $5::varchar, $6::text[], $7, $8, $9::jsonb, $10::varchar, $11::jsonb, $12, $13, $14) RETURNING *";
-    let query_without_id = "INSERT INTO expected_machines
-            (bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers, metadata_name, metadata_description, metadata_labels, sku_id, host_nics, rack_id, default_pause_ingestion_and_poweron, dpf_enabled)
-            VALUES
-            ($1::macaddr, $2::varchar, $3::varchar, $4::varchar, $5::text[], $6, $7, $8::jsonb, $9::varchar, $10::jsonb, $11, $12, $13) RETURNING *";
 
-    if let Some(id) = data.override_id {
-        sqlx::query_as(query_with_id)
-            .bind(id)
-            .bind(bmc_mac_address)
-            .bind(data.bmc_username)
-            .bind(data.bmc_password)
-            .bind(data.serial_number)
-            .bind(data.fallback_dpu_serial_numbers)
-            .bind(data.metadata.name)
-            .bind(data.metadata.description)
-            .bind(sqlx::types::Json(data.metadata.labels))
-            .bind(data.sku_id)
-            .bind(sqlx::types::Json(data.host_nics))
-            .bind(data.rack_id)
-            .bind(data.default_pause_ingestion_and_poweron.unwrap_or(false))
-            .bind(data.dpf_enabled.unwrap_or_default())
-            .fetch_one(txn)
-            .await
-            .map_err(|err: sqlx::Error| match err {
-                sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => {
-                    DatabaseError::ExpectedHostDuplicateMacAddress(bmc_mac_address)
-                }
-                _ => DatabaseError::query(query_with_id, err),
-            })
+    sqlx::query_as(query)
+        .bind(id)
+        .bind(machine.bmc_mac_address)
+        .bind(&machine.data.bmc_username)
+        .bind(&machine.data.bmc_password)
+        .bind(&machine.data.serial_number)
+        .bind(&machine.data.fallback_dpu_serial_numbers)
+        .bind(&machine.data.metadata.name)
+        .bind(&machine.data.metadata.description)
+        .bind(sqlx::types::Json(&machine.data.metadata.labels))
+        .bind(&machine.data.sku_id)
+        .bind(sqlx::types::Json(&machine.data.host_nics))
+        .bind(machine.data.rack_id)
+        .bind(
+            machine
+                .data
+                .default_pause_ingestion_and_poweron
+                .unwrap_or(false),
+        )
+        .bind(machine.data.dpf_enabled.unwrap_or_default())
+        .fetch_one(txn)
+        .await
+        .map_err(|err: sqlx::Error| match err {
+            sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => {
+                DatabaseError::ExpectedHostDuplicateMacAddress(machine.bmc_mac_address)
+            }
+            _ => DatabaseError::query(query, err),
+        })
+}
+
+/// find returns an expected machine by id if provided, otherwise by bmc_mac_address.
+pub async fn find(
+    txn: impl DbReader<'_>,
+    req: &ExpectedMachineRequest,
+) -> DatabaseResult<Option<ExpectedMachine>> {
+    if let Some(id) = req.id {
+        find_by_id(txn, id).await
+    } else if let Some(mac) = req.bmc_mac_address {
+        find_by_bmc_mac_address(txn, mac).await
     } else {
-        sqlx::query_as(query_without_id)
-            .bind(bmc_mac_address)
-            .bind(data.bmc_username)
-            .bind(data.bmc_password)
-            .bind(data.serial_number)
-            .bind(data.fallback_dpu_serial_numbers)
-            .bind(data.metadata.name)
-            .bind(data.metadata.description)
-            .bind(sqlx::types::Json(data.metadata.labels))
-            .bind(data.sku_id)
-            .bind(sqlx::types::Json(data.host_nics))
-            .bind(data.rack_id)
-            .bind(data.default_pause_ingestion_and_poweron.unwrap_or(false))
-            .bind(data.dpf_enabled.unwrap_or_default())
-            .fetch_one(txn)
-            .await
-            .map_err(|err: sqlx::Error| match err {
-                sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => {
-                    DatabaseError::ExpectedHostDuplicateMacAddress(bmc_mac_address)
-                }
-                _ => DatabaseError::query(query_without_id, err),
-            })
+        Err(DatabaseError::InvalidArgument(
+            "either id or bmc_mac_address must be provided".into(),
+        ))
     }
 }
 
-pub async fn delete(bmc_mac_address: MacAddress, txn: &mut PgConnection) -> DatabaseResult<()> {
+/// delete deletes an expected machine by id if provided, otherwise by bmc_mac_address.
+pub async fn delete(txn: &mut PgConnection, req: &ExpectedMachineRequest) -> DatabaseResult<()> {
+    if let Some(id) = req.id {
+        delete_by_id(txn, id).await
+    } else if let Some(mac) = req.bmc_mac_address {
+        delete_by_mac(txn, mac).await
+    } else {
+        Err(DatabaseError::InvalidArgument(
+            "either id or bmc_mac_address must be provided".into(),
+        ))
+    }
+}
+
+/// delete_by_mac deletes an expected machine by bmc_mac_address.
+pub async fn delete_by_mac(
+    txn: &mut PgConnection,
+    bmc_mac_address: MacAddress,
+) -> DatabaseResult<()> {
     let query = "DELETE FROM expected_machines WHERE bmc_mac_address=$1";
 
     let result = sqlx::query(query)
@@ -266,7 +290,7 @@ pub async fn delete(bmc_mac_address: MacAddress, txn: &mut PgConnection) -> Data
     Ok(())
 }
 
-pub async fn delete_by_id(id: Uuid, txn: &mut PgConnection) -> DatabaseResult<()> {
+pub async fn delete_by_id(txn: &mut PgConnection, id: Uuid) -> DatabaseResult<()> {
     let query = "DELETE FROM expected_machines WHERE id=$1";
 
     let result = sqlx::query(query)
@@ -295,72 +319,51 @@ pub async fn clear(txn: &mut PgConnection) -> Result<(), DatabaseError> {
         .map_err(|e| DatabaseError::query(query, e))
 }
 
-pub async fn update<'a>(
-    value: &'a mut ExpectedMachine,
-    txn: &mut PgConnection,
-    data: ExpectedMachineData,
-) -> DatabaseResult<&'a mut ExpectedMachine> {
-    let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2, serial_number=$3, fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7, sku_id=$8, host_nics=$9::jsonb, rack_id=$10, default_pause_ingestion_and_poweron=COALESCE($11, default_pause_ingestion_and_poweron), dpf_enabled=COALESCE($12, dpf_enabled) WHERE bmc_mac_address=$13 RETURNING bmc_mac_address";
+/// update updates an existing expected machine. If id is set, matches by ID;
+/// otherwise matches by bmc_mac_address.
+pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> DatabaseResult<()> {
+    let (where_clause, target_id) = match machine.id {
+        Some(id) => ("id=$13::uuid", id.to_string()),
+        None => (
+            "bmc_mac_address=$13::macaddr",
+            machine.bmc_mac_address.to_string(),
+        ),
+    };
 
-    let _: () = sqlx::query_as(query)
-        .bind(&data.bmc_username)
-        .bind(&data.bmc_password)
-        .bind(&data.serial_number)
-        .bind(&data.fallback_dpu_serial_numbers)
-        .bind(&data.metadata.name)
-        .bind(&data.metadata.description)
-        .bind(sqlx::types::Json(&data.metadata.labels))
-        .bind(&data.sku_id)
-        .bind(sqlx::types::Json(&data.host_nics))
-        .bind(data.rack_id)
-        .bind(data.default_pause_ingestion_and_poweron)
-        .bind(data.dpf_enabled)
-        .bind(value.bmc_mac_address)
-        .fetch_one(txn)
+    let query = format!(
+        "UPDATE expected_machines \
+         SET bmc_username=$1, bmc_password=$2, serial_number=$3, \
+             fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, \
+             metadata_labels=$7, sku_id=$8, host_nics=$9::jsonb, rack_id=$10, \
+             default_pause_ingestion_and_poweron=COALESCE($11, default_pause_ingestion_and_poweron), \
+             dpf_enabled=COALESCE($12, dpf_enabled) \
+         WHERE {where_clause}"
+    );
+
+    let result = sqlx::query(&query)
+        .bind(&machine.data.bmc_username)
+        .bind(&machine.data.bmc_password)
+        .bind(&machine.data.serial_number)
+        .bind(&machine.data.fallback_dpu_serial_numbers)
+        .bind(&machine.data.metadata.name)
+        .bind(&machine.data.metadata.description)
+        .bind(sqlx::types::Json(&machine.data.metadata.labels))
+        .bind(&machine.data.sku_id)
+        .bind(sqlx::types::Json(&machine.data.host_nics))
+        .bind(machine.data.rack_id)
+        .bind(machine.data.default_pause_ingestion_and_poweron)
+        .bind(machine.data.dpf_enabled)
+        .bind(&target_id)
+        .execute(&mut *txn)
         .await
-        .map_err(|err: sqlx::Error| match err {
-            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
-                kind: "expected_machine",
-                id: value.bmc_mac_address.to_string(),
-            },
-            _ => DatabaseError::query(query, err),
-        })?;
+        .map_err(|err| DatabaseError::query(&query, err))?;
 
-    value.data = data;
-    Ok(value)
-}
-
-pub async fn update_by_id(
-    txn: &mut PgConnection,
-    id: Uuid,
-    data: ExpectedMachineData,
-) -> DatabaseResult<()> {
-    let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2, serial_number=$3, fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, metadata_labels=$7, sku_id=$8, host_nics=$9::jsonb, rack_id=$10, default_pause_ingestion_and_poweron=COALESCE($11, default_pause_ingestion_and_poweron), dpf_enabled=COALESCE($12, dpf_enabled) WHERE id=$13 RETURNING id";
-
-    let _: () = sqlx::query_as(query)
-        .bind(&data.bmc_username)
-        .bind(&data.bmc_password)
-        .bind(&data.serial_number)
-        .bind(&data.fallback_dpu_serial_numbers)
-        .bind(&data.metadata.name)
-        .bind(&data.metadata.description)
-        .bind(sqlx::types::Json(&data.metadata.labels))
-        .bind(&data.sku_id)
-        .bind(sqlx::types::Json(&data.host_nics))
-        .bind(data.rack_id)
-        .bind(data.default_pause_ingestion_and_poweron)
-        .bind(data.dpf_enabled)
-        .bind(id)
-        .fetch_one(txn)
-        .await
-        .map_err(|err: sqlx::Error| match err {
-            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
-                kind: "expected_machine",
-                id: id.to_string(),
-            },
-            _ => DatabaseError::query(query, err),
-        })?;
-
+    if result.rows_affected() == 0 {
+        return Err(DatabaseError::NotFoundError {
+            kind: "expected_machine",
+            id: target_id,
+        });
+    }
     Ok(())
 }
 
@@ -385,8 +388,7 @@ pub async fn create_missing_from(
             continue;
         }
 
-        let expected_machine = expected_machine.clone();
-        create(txn, expected_machine.bmc_mac_address, expected_machine.data).await?;
+        create(txn, expected_machine.clone()).await?;
     }
 
     Ok(())

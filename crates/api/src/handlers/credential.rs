@@ -54,9 +54,9 @@ pub(crate) async fn create_credential(
 
     match credential_type {
         rpc::CredentialType::HostBmc | rpc::CredentialType::Dpubmc => {
-            return Err(tonic::Status::invalid_argument(
-                "Forge no longer maintains separate paths for Host and DPU site-wide BMC root credentials. This has been unified.",
-            ));
+            return Err(CarbideError::InvalidArgument(
+                "Forge no longer maintains separate paths for Host and DPU site-wide BMC root credentials. This has been unified.".into(),
+            ).into());
         }
         rpc::CredentialType::SiteWideBmcRoot => {
             set_sitewide_bmc_root_credentials(api, password)
@@ -90,7 +90,7 @@ pub(crate) async fn create_credential(
             } else if req.username.is_none() && password.is_empty() && req.vendor.is_some() {
                 write_ufm_certs(api, req.vendor.unwrap_or_default()).await?;
             } else {
-                return Err(tonic::Status::invalid_argument("missing UFM Url"));
+                return Err(CarbideError::InvalidArgument("missing UFM Url".to_string()).into());
             }
         }
         rpc::CredentialType::DpuUefi => {
@@ -153,10 +153,10 @@ pub(crate) async fn create_credential(
         }
         rpc::CredentialType::HostBmcFactoryDefault => {
             let Some(username) = req.username else {
-                return Err(tonic::Status::invalid_argument("missing username"));
+                return Err(CarbideError::InvalidArgument("missing username".to_string()).into());
             };
             let Some(vendor) = req.vendor else {
-                return Err(tonic::Status::invalid_argument("missing vendor"));
+                return Err(CarbideError::InvalidArgument("missing vendor".to_string()).into());
             };
             let vendor: bmc_vendor::BMCVendor = vendor.as_str().into();
             api.credential_manager
@@ -175,7 +175,7 @@ pub(crate) async fn create_credential(
         }
         rpc::CredentialType::DpuBmcFactoryDefault => {
             let Some(username) = req.username else {
-                return Err(tonic::Status::invalid_argument("missing username"));
+                return Err(CarbideError::InvalidArgument("missing username".to_string()).into());
             };
             api.credential_manager
                 .set_credentials(
@@ -193,7 +193,7 @@ pub(crate) async fn create_credential(
         }
         rpc::CredentialType::RootBmcByMacAddress => {
             let Some(mac_address) = req.mac_address else {
-                return Err(tonic::Status::invalid_argument("mac address"));
+                return Err(CarbideError::InvalidArgument("mac address".to_string()).into());
             };
 
             let parsed_mac: MacAddress = mac_address
@@ -210,9 +210,10 @@ pub(crate) async fn create_credential(
         }
         rpc::CredentialType::BmcForgeAdminByMacAddress => {
             // TODO: support credential creation for forge-admin
-            return Err(tonic::Status::invalid_argument(
-                "Forge does not support creating forge-admin credentials yet.",
-            ));
+            return Err(CarbideError::InvalidArgument(
+                "Forge does not support creating forge-admin credentials yet.".into(),
+            )
+            .into());
         }
         rpc::CredentialType::NmxM => {
             if let Some(username) = req.username {
@@ -235,7 +236,7 @@ pub(crate) async fn create_credential(
                         ))
                     })?;
             } else {
-                return Err(tonic::Status::invalid_argument("missing username"));
+                return Err(CarbideError::InvalidArgument("missing username".to_string()).into());
             }
         }
     };
@@ -279,7 +280,7 @@ pub(crate) async fn delete_credential(
                         ))
                     })?;
             } else {
-                return Err(tonic::Status::invalid_argument("missing UFM Url"));
+                return Err(CarbideError::InvalidArgument("missing UFM Url".to_string()).into());
             }
         }
         rpc::CredentialType::SiteWideBmcRoot => {
@@ -295,9 +296,10 @@ pub(crate) async fn delete_credential(
                 delete_bmc_root_credentials_by_mac(api, parsed_mac).await?;
             }
             None => {
-                return Err(tonic::Status::invalid_argument(
-                    "request does not specify mac address",
-                ));
+                return Err(CarbideError::InvalidArgument(
+                    "request does not specify mac address".into(),
+                )
+                .into());
             }
         },
         rpc::CredentialType::HostBmc

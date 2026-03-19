@@ -53,7 +53,7 @@ pub(crate) async fn add(
     let source_type: rpc::RouteServerSourceType = request
         .source_type
         .try_into()
-        .map_err(|_| Status::invalid_argument("source_type"))?;
+        .map_err(|_| CarbideError::InvalidArgument("source_type".to_string()))?;
 
     let mut txn = api.txn_begin().await?;
     db::route_servers::add(&mut txn, &route_servers, source_type.into()).await?;
@@ -76,7 +76,7 @@ pub(crate) async fn remove(
     let source_type: rpc::RouteServerSourceType = request
         .source_type
         .try_into()
-        .map_err(|_| Status::invalid_argument("source_type"))?;
+        .map_err(|_| CarbideError::InvalidArgument("source_type".to_string()))?;
 
     let mut txn = api.txn_begin().await?;
     db::route_servers::remove(&mut txn, &route_servers, source_type.into()).await?;
@@ -100,7 +100,7 @@ pub(crate) async fn replace(
     let source_type: rpc::RouteServerSourceType = request
         .source_type
         .try_into()
-        .map_err(|_| Status::invalid_argument("source_type"))?;
+        .map_err(|_| CarbideError::InvalidArgument("source_type".to_string()))?;
 
     let mut txn = api.txn_begin().await?;
     db::route_servers::replace(&mut txn, &route_servers, source_type.into()).await?;

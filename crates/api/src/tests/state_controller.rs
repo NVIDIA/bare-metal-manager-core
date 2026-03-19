@@ -623,7 +623,10 @@ impl StateControllerIO for TestStateControllerIO {
         }
     }
 
-    fn state_sla(_state: &Versioned<Self::ControllerState>) -> StateSla {
+    fn state_sla(
+        _state: &Versioned<Self::ControllerState>,
+        _object_state: &Self::State,
+    ) -> StateSla {
         StateSla {
             sla: None,
             time_in_state_above_sla: false,
@@ -691,8 +694,8 @@ impl StateControllerIO for PanicInListObjectsStateControllerIO {
         TestStateControllerIO::metric_state_names(state)
     }
 
-    fn state_sla(state: &Versioned<Self::ControllerState>) -> StateSla {
-        TestStateControllerIO::state_sla(state)
+    fn state_sla(state: &Versioned<Self::ControllerState>, object_state: &Self::State) -> StateSla {
+        TestStateControllerIO::state_sla(state, object_state)
     }
 }
 

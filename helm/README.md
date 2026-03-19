@@ -1,10 +1,10 @@
 # Carbide Helm Chart
 
-NVIDIA Bare Metal Manager (Carbide) -- Kubernetes Deployment
+NCX Infra Controller (Carbide) -- Kubernetes Deployment
 
 ## Overview
 
-Carbide (also known as NVIDIA Bare Metal Manager) is a platform for provisioning, managing, and monitoring bare metal GPU servers, including DGX and HGX systems. This Helm chart deploys Carbide services into a Kubernetes cluster as a single umbrella chart with independently toggleable subcharts.
+Carbide (also known as NCX Infra Controller) is a platform for provisioning, managing, and monitoring bare metal GPU servers, including DGX and HGX systems. This Helm chart deploys Carbide services into a Kubernetes cluster as a single umbrella chart with independently toggleable subcharts.
 
 The chart is designed for production environments where Carbide manages the full lifecycle of bare metal infrastructure: DHCP/PXE-based OS provisioning, DNS resolution, hardware health monitoring, SSH console access, and a unified REST/gRPC API.
 

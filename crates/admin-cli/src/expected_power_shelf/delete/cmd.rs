@@ -14,3 +14,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+use rpc::forge::ExpectedPowerShelfRequest;
+
+use super::args::Args;
+use crate::rpc::ApiClient;
+
+pub async fn delete(data: Args, api_client: &ApiClient) -> color_eyre::Result<()> {
+    let req: ExpectedPowerShelfRequest = data.try_into()?;
+    api_client.0.delete_expected_power_shelf(req).await?;
+    Ok(())
+}

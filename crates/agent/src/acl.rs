@@ -21,13 +21,7 @@ use ipnetwork::Ipv4Network;
 // A representation of a rules file that can be placed in the policy.d
 // directory
 pub struct RulesFile {
-    iptables_rules: IpTablesRuleset,
-}
-
-impl RulesFile {
-    pub fn new(iptables_rules: IpTablesRuleset) -> Self {
-        Self { iptables_rules }
-    }
+    pub iptables_rules: IpTablesRuleset,
 }
 
 // FIXME: Display is probably not quite the right interface to implement
@@ -43,13 +37,7 @@ impl Display for RulesFile {
 
 // The ordered rules that live within an `[iptables]` section.
 pub struct IpTablesRuleset {
-    rules: Vec<IpTablesRule>,
-}
-
-impl IpTablesRuleset {
-    pub fn new_with_rules(rules: Vec<IpTablesRule>) -> Self {
-        Self { rules }
-    }
+    pub rules: Vec<IpTablesRule>,
 }
 
 impl Display for IpTablesRuleset {

@@ -18,7 +18,6 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::ops::Deref;
 
-use ::rpc::forge as rpc;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
@@ -259,7 +258,7 @@ pub async fn list_segment_ids(
 
 pub async fn find_ids(
     txn: impl DbReader<'_>,
-    filter: rpc::NetworkSegmentSearchFilter,
+    filter: model::network_segment::NetworkSegmentSearchFilter,
 ) -> Result<Vec<NetworkSegmentId>, DatabaseError> {
     // build query
     let mut builder = sqlx::QueryBuilder::new("SELECT s.id FROM network_segments AS s");

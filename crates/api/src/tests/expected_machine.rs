@@ -70,19 +70,21 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let new_machine = db::expected_machine::create(
         &mut txn,
-        machine.bmc_mac_address,
-        ExpectedMachineData {
-            bmc_username: "ADMIN3".into(),
-            bmc_password: "hmm".into(),
-            serial_number: "JFAKLJF".into(),
-            fallback_dpu_serial_numbers: vec![],
-            metadata: Metadata::new_with_default_name(),
-            sku_id: None,
-            override_id: None,
-            default_pause_ingestion_and_poweron: None,
-            host_nics: vec![],
-            rack_id: None,
-            dpf_enabled: Some(true),
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: machine.bmc_mac_address,
+            data: ExpectedMachineData {
+                bmc_username: "ADMIN3".into(),
+                bmc_password: "hmm".into(),
+                serial_number: "JFAKLJF".into(),
+                fallback_dpu_serial_numbers: vec![],
+                metadata: Metadata::new_with_default_name(),
+                sku_id: None,
+                default_pause_ingestion_and_poweron: None,
+                host_nics: vec![],
+                rack_id: None,
+                dpf_enabled: Some(true),
+            },
         },
     )
     .await;
@@ -145,7 +147,7 @@ async fn test_delete(pool: sqlx::PgPool) -> () {
 
     assert_eq!(machine.data.serial_number, "VVG121GG");
 
-    db::expected_machine::delete(machine.bmc_mac_address, &mut txn)
+    db::expected_machine::delete_by_mac(&mut txn, machine.bmc_mac_address)
         .await
         .expect("Error deleting expected_machine");
 

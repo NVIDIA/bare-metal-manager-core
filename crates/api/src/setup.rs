@@ -404,6 +404,7 @@ pub async fn start_api(
         let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
             .with_labeler(crate::dpf::CarbideDPFLabeler)
             .with_bmc_password_refresh_interval(std::time::Duration::from_secs(60))
+            .with_join_set(join_set)
             .initialize(&init_config)
             .await
             .map_err(|err| eyre::eyre!("Failed to initialize DPF SDK: {err}"))?;
@@ -411,8 +412,33 @@ pub async fn start_api(
         Some(Arc::new(crate::dpf::DpfSdkOps::new(
             Arc::new(sdk),
             db_pool.clone(),
-        )))
+            join_set,
+        )?))
     } else {
+        None
+    };
+
+    let component_manager = if let Some(cd_config) = &carbide_config.component_manager {
+        match component_manager::component_manager::build_component_manager(cd_config).await {
+            Ok(cm) => {
+                tracing::info!(
+                    "Component manager configured (nv_switch={}, power_shelf={})",
+                    cm.nv_switch.name(),
+                    cm.power_shelf.name()
+                );
+                Some(cm)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to build component managers, component manager RPCs will be unavailable: {e}"
+                );
+                None
+            }
+        }
+    } else {
+        tracing::info!(
+            "No [component_manager] config found; component manager RPCs will be unavailable"
+        );
         None
     };
 
@@ -435,6 +461,7 @@ pub async fn start_api(
         dpf_sdk: dpf_sdk.clone(),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool),
         metric_emitter: ApiMetricsEmitter::new(&meter),
+        component_manager,
     });
 
     if carbide_config.listen_only {
@@ -774,6 +801,12 @@ pub async fn initialize_and_start_controllers(
                 prevent_allocations_on_stale_dpu_agent_version: carbide_config
                     .host_health
                     .prevent_allocations_on_stale_dpu_agent_version,
+                prevent_allocations_on_scout_heartbeat_timeout: carbide_config
+                    .host_health
+                    .prevent_allocations_on_scout_heartbeat_timeout,
+                suppress_external_alerting_on_scout_heartbeat_timeout: carbide_config
+                    .host_health
+                    .suppress_external_alerting_on_scout_heartbeat_timeout,
             },
         }))
         .state_change_emitter(state_change_emitter)

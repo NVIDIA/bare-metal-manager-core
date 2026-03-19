@@ -32,7 +32,7 @@ pub(crate) async fn find_explored_endpoint_ids(
 ) -> Result<Response<::rpc::site_explorer::ExploredEndpointIdList>, Status> {
     log_request_data(&request);
 
-    let filter: ::rpc::site_explorer::ExploredEndpointSearchFilter = request.into_inner();
+    let filter: model::site_explorer::ExploredEndpointSearchFilter = request.into_inner().into();
 
     let endpoint_ips = db::explored_endpoints::find_ips(&api.database_connection, filter).await?;
 
@@ -87,7 +87,7 @@ pub(crate) async fn find_explored_managed_host_ids(
 ) -> Result<Response<::rpc::site_explorer::ExploredManagedHostIdList>, Status> {
     log_request_data(&request);
 
-    let filter: ::rpc::site_explorer::ExploredManagedHostSearchFilter = request.into_inner();
+    let filter: model::site_explorer::ExploredManagedHostSearchFilter = request.into_inner().into();
 
     let host_ips = db::explored_managed_host::find_ips(&api.database_connection, filter).await?;
 
@@ -143,11 +143,7 @@ pub(crate) async fn get_site_exploration_report(
 ) -> Result<Response<::rpc::site_explorer::SiteExplorationReport>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin().await?;
-
-    let report = db::site_exploration_report::fetch(&mut txn).await?;
-
-    txn.rollback().await?;
+    let report = db::site_exploration_report::fetch(&mut api.db_reader()).await?;
 
     Ok(tonic::Response::new(report.into()))
 }
@@ -245,9 +241,10 @@ pub(crate) async fn pause_explored_endpoint_remediation(
     }
 
     // Check if a machine exists for this endpoint
-    let in_managed_host = crate::site_explorer::is_endpoint_in_managed_host(bmc_ip, &mut txn)
-        .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+    let in_managed_host =
+        crate::site_explorer::is_endpoint_in_managed_host(bmc_ip, txn.as_pgconn())
+            .await
+            .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     if in_managed_host {
         return Err(CarbideError::InvalidArgument(format!(
@@ -277,20 +274,17 @@ pub(crate) async fn is_bmc_in_managed_host(
 
     let mut addrs = lookup_host(address).await?;
     let Some(bmc_addr) = addrs.next() else {
-        return Err(tonic::Status::invalid_argument(format!(
+        return Err(CarbideError::InvalidArgument(format!(
             "Could not resolve {}. Must be hostname[:port] or IPv4[:port]",
             req.ip_address
-        )));
+        ))
+        .into());
     };
 
-    let mut txn = api.txn_begin().await?;
-
     let in_managed_host =
-        crate::site_explorer::is_endpoint_in_managed_host(bmc_addr.ip(), &mut txn)
+        crate::site_explorer::is_endpoint_in_managed_host(bmc_addr.ip(), &api.database_connection)
             .await
             .map_err(|e| CarbideError::internal(e.to_string()))?;
-
-    txn.commit().await?;
 
     Ok(Response::new(IsBmcInManagedHostResponse {
         in_managed_host,
@@ -319,9 +313,10 @@ pub(crate) async fn delete_explored_endpoint(
     }
 
     // Check if a machine exists for this endpoint
-    let in_managed_host = crate::site_explorer::is_endpoint_in_managed_host(bmc_ip, &mut txn)
-        .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+    let in_managed_host =
+        crate::site_explorer::is_endpoint_in_managed_host(bmc_ip, txn.as_pgconn())
+            .await
+            .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     if in_managed_host {
         return Err(CarbideError::InvalidArgument(format!(

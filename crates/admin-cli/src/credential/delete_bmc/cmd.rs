@@ -16,17 +16,13 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::{CredentialType, forge as forgerpc};
+use ::rpc::forge as forgerpc;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn delete_bmc(c: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let req = forgerpc::CredentialDeletionRequest {
-        credential_type: CredentialType::from(c.kind).into(),
-        username: None,
-        mac_address: c.mac_address.map(|mac| mac.to_string()),
-    };
+pub async fn delete_bmc(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+    let req: forgerpc::CredentialDeletionRequest = data.into();
     api_client.0.delete_credential(req).await?;
     Ok(())
 }

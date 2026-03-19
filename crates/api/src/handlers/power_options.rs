@@ -59,10 +59,10 @@ pub(crate) async fn update_power_option(
 
     let machine_id = req
         .machine_id
-        .ok_or_else(|| Status::invalid_argument("Machine ID is missing"))?;
+        .ok_or_else(|| CarbideError::InvalidArgument("Machine ID is missing".to_string()))?;
 
     if machine_id.machine_type().is_dpu() {
-        return Err(Status::invalid_argument("Only host id is expected!!"));
+        return Err(CarbideError::InvalidArgument("Only host id is expected!!".to_string()).into());
     }
 
     log_machine_id(&machine_id);
@@ -73,7 +73,7 @@ pub(crate) async fn update_power_option(
 
     // This should never happen until machine is not forced-deleted or does not exist.
     let Some(current_power_options) = current_power_state.first() else {
-        return Err(Status::invalid_argument("Only host id is expected!!"));
+        return Err(CarbideError::InvalidArgument("Only host id is expected!!".to_string()).into());
     };
 
     let desired_power_state = req.power_state();
@@ -106,18 +106,20 @@ pub(crate) async fn update_power_option(
                 .classifications
                 .contains(&health_report::HealthAlertClassification::suppress_external_alerting())
         }) {
-            return Err(Status::invalid_argument(
-                "Machine must have a 'Maintenance' Health Alert with 'SupressExternalAlerting' classification.",
-            ));
+            return Err(CarbideError::InvalidArgument(
+                "Machine must have a 'Maintenance' Health Alert with 'SupressExternalAlerting' classification.".into(),
+            )
+            .into());
         }
     }
 
     // To avoid unnecessary version increment.
     let desired_power_state = desired_power_state.into();
     if desired_power_state == current_power_options.desired_power_state {
-        return Err(Status::invalid_argument(format!(
+        return Err(CarbideError::InvalidArgument(format!(
             "Power State is already set as {desired_power_state:?}. No change is performed."
-        )));
+        ))
+        .into());
     }
 
     let updated_value = db::power_options::update_desired_state(

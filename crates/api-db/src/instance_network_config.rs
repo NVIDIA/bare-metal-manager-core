@@ -101,6 +101,7 @@ pub fn add_inband_interfaces_to_config(
                 host_inband_mac_address: None,
                 device_locator: None,
                 internal_uuid: uuid::Uuid::new_v4(),
+                requested_ip_addr: None,
             })
         }
     }

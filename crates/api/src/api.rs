@@ -81,6 +81,7 @@ pub struct Api {
     pub(crate) dpf_sdk: Option<Arc<dyn DpfOperations>>,
     pub(crate) machine_state_handler_enqueuer: Enqueuer<MachineStateControllerIO>,
     pub(crate) metric_emitter: ApiMetricsEmitter,
+    pub(crate) component_manager: Option<component_manager::component_manager::ComponentManager>,
 }
 
 pub(crate) type ScoutStreamType =
@@ -1516,6 +1517,55 @@ impl Forge for Api {
         crate::handlers::expected_switch::delete_all_expected_switches(self, request).await
     }
 
+    async fn add_expected_rack(
+        &self,
+        request: Request<rpc::ExpectedRack>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::expected_rack::add_expected_rack(self, request).await
+    }
+
+    async fn delete_expected_rack(
+        &self,
+        request: Request<rpc::ExpectedRackRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::expected_rack::delete_expected_rack(self, request).await
+    }
+
+    async fn update_expected_rack(
+        &self,
+        request: Request<rpc::ExpectedRack>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::expected_rack::update_expected_rack(self, request).await
+    }
+
+    async fn get_expected_rack(
+        &self,
+        request: Request<rpc::ExpectedRackRequest>,
+    ) -> Result<Response<rpc::ExpectedRack>, Status> {
+        crate::handlers::expected_rack::get_expected_rack(self, request).await
+    }
+
+    async fn get_all_expected_racks(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<rpc::ExpectedRackList>, Status> {
+        crate::handlers::expected_rack::get_all_expected_racks(self, request).await
+    }
+
+    async fn replace_all_expected_racks(
+        &self,
+        request: Request<rpc::ExpectedRackList>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::expected_rack::replace_all_expected_racks(self, request).await
+    }
+
+    async fn delete_all_expected_racks(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::expected_rack::delete_all_expected_racks(self, request).await
+    }
+
     async fn find_connected_devices_by_dpu_machine_ids(
         &self,
         request: Request<::rpc::common::MachineIdList>,
@@ -2919,6 +2969,41 @@ impl Forge for Api {
 
         crate::handlers::power_options::allow_ingestion_and_power_on(self, &request.into_inner())
             .await
+    }
+
+    async fn component_power_control(
+        &self,
+        request: Request<rpc::ComponentPowerControlRequest>,
+    ) -> Result<Response<rpc::ComponentPowerControlResponse>, Status> {
+        crate::handlers::component_manager::component_power_control(self, request).await
+    }
+
+    async fn get_component_inventory(
+        &self,
+        request: Request<rpc::GetComponentInventoryRequest>,
+    ) -> Result<Response<rpc::GetComponentInventoryResponse>, Status> {
+        crate::handlers::component_manager::get_component_inventory(self, request).await
+    }
+
+    async fn update_component_firmware(
+        &self,
+        request: Request<rpc::UpdateComponentFirmwareRequest>,
+    ) -> Result<Response<rpc::UpdateComponentFirmwareResponse>, Status> {
+        crate::handlers::component_manager::update_component_firmware(self, request).await
+    }
+
+    async fn get_component_firmware_status(
+        &self,
+        request: Request<rpc::GetComponentFirmwareStatusRequest>,
+    ) -> Result<Response<rpc::GetComponentFirmwareStatusResponse>, Status> {
+        crate::handlers::component_manager::get_component_firmware_status(self, request).await
+    }
+
+    async fn list_component_firmware_versions(
+        &self,
+        request: Request<rpc::ListComponentFirmwareVersionsRequest>,
+    ) -> Result<Response<rpc::ListComponentFirmwareVersionsResponse>, Status> {
+        crate::handlers::component_manager::list_component_firmware_versions(self, request).await
     }
 }
 

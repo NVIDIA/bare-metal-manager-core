@@ -117,8 +117,11 @@ impl MqttStateChangeHook {
 impl StateChangeHook<MachineId, ManagedHostState> for MqttStateChangeHook {
     fn on_state_changed(&self, event: &StateChangeEvent<'_, MachineId, ManagedHostState>) {
         // Serialize immediately to avoid cloning state
-        let message =
-            ManagedHostStateChangeMessage::new(event.object_id, event.new_state, event.timestamp);
+        let message = ManagedHostStateChangeMessage {
+            machine_id: event.object_id,
+            managed_host_state: event.new_state,
+            timestamp: event.timestamp,
+        };
         let topic = Self::build_topic(event.object_id);
 
         match message.to_json_bytes() {

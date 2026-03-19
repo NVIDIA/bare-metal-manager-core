@@ -76,11 +76,14 @@ async fn test_find_machine_by_ip(pool: sqlx::PgPool) {
     let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu_machine =
-        db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     let ip = &dpu_machine.interfaces[0].addresses[0];
 
     let machine = db::machine::find_by_query(&mut txn, &ip.to_string())
@@ -111,11 +114,14 @@ async fn test_find_machine_by_ipv6(pool: sqlx::PgPool) {
     let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu_machine =
-        db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     let interface_id = dpu_machine.interfaces[0].id;
 
     // Add an IPv6 address to the interface.
@@ -178,7 +184,7 @@ async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine = db::machine::find_one(
-        &mut txn,
+        txn.as_mut(),
         &dpu_machine_id,
         MachineSearchConfig {
             include_history: true,
@@ -219,7 +225,7 @@ async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine = db::machine::find_one(
-        &mut txn,
+        txn.as_mut(),
         &dpu_machine_id,
         MachineSearchConfig {
             include_history: true,

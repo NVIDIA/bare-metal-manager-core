@@ -27,6 +27,40 @@ use uuid::Uuid;
 
 use crate::metadata::Metadata;
 
+/// A request to identify an ExpectedMachine by either ID or MAC address.
+#[derive(Debug, Clone)]
+pub struct ExpectedMachineRequest {
+    pub id: Option<Uuid>,
+    pub bmc_mac_address: Option<MacAddress>,
+}
+
+impl TryFrom<rpc::forge::ExpectedMachineRequest> for ExpectedMachineRequest {
+    type Error = RpcDataConversionError;
+
+    fn try_from(rpc: rpc::forge::ExpectedMachineRequest) -> Result<Self, Self::Error> {
+        let id = rpc
+            .id
+            .map(|u| {
+                Uuid::parse_str(&u.value)
+                    .map_err(|_| RpcDataConversionError::InvalidArgument(u.value))
+            })
+            .transpose()?;
+        let bmc_mac_address = if rpc.bmc_mac_address.is_empty() {
+            None
+        } else {
+            Some(
+                MacAddress::try_from(rpc.bmc_mac_address.as_str())
+                    .map_err(|_| RpcDataConversionError::InvalidMacAddress(rpc.bmc_mac_address))?,
+            )
+        };
+
+        Ok(ExpectedMachineRequest {
+            id,
+            bmc_mac_address,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ExpectedHostNic {
     pub mac_address: MacAddress,
@@ -60,8 +94,6 @@ pub struct ExpectedMachineData {
     pub sku_id: Option<String>,
     #[serde(default)]
     pub metadata: Metadata,
-    #[serde(skip)]
-    pub override_id: Option<Uuid>,
     #[serde(default)]
     pub host_nics: Vec<ExpectedHostNic>,
     pub rack_id: Option<RackId>,
@@ -94,7 +126,6 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
                 fallback_dpu_serial_numbers: row.try_get("fallback_dpu_serial_numbers")?,
                 metadata,
                 sku_id: row.try_get("sku_id")?,
-                override_id: None,
                 rack_id: row.try_get("rack_id")?,
                 host_nics,
                 default_pause_ingestion_and_poweron: row
@@ -197,7 +228,6 @@ impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
             fallback_dpu_serial_numbers: em.fallback_dpu_serial_numbers,
             sku_id: em.sku_id,
             metadata: metadata_from_request(em.metadata)?,
-            override_id: em.id.and_then(|u| Uuid::parse_str(&u.value).ok()),
             host_nics: em.host_nics.into_iter().map(|nic| nic.into()).collect(),
             rack_id: em.rack_id,
             default_pause_ingestion_and_poweron: em.default_pause_ingestion_and_poweron,

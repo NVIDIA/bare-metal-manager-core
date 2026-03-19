@@ -52,6 +52,7 @@ mod dpu;
 mod dpu_remediation;
 mod expected_machines;
 mod expected_power_shelf;
+mod expected_rack;
 mod expected_switch;
 mod extension_service;
 mod firmware;
@@ -210,6 +211,7 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::DpuRemediation(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ExpectedMachine(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ExpectedPowerShelf(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ExpectedRack(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ExpectedSwitch(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ExtensionService(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Firmware(cmd) => cmd.dispatch(ctx).await?,

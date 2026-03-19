@@ -45,6 +45,24 @@ use crate::machine::machine_id::{MissingHardwareInfo, from_hardware_info_with_ty
 use crate::power_shelf::power_shelf_id;
 use crate::switch::switch_id;
 
+#[derive(Clone, Debug, Default)]
+pub struct ExploredEndpointSearchFilter {}
+
+impl From<rpc::site_explorer::ExploredEndpointSearchFilter> for ExploredEndpointSearchFilter {
+    fn from(_filter: rpc::site_explorer::ExploredEndpointSearchFilter) -> Self {
+        ExploredEndpointSearchFilter {}
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ExploredManagedHostSearchFilter {}
+
+impl From<rpc::site_explorer::ExploredManagedHostSearchFilter> for ExploredManagedHostSearchFilter {
+    fn from(_filter: rpc::site_explorer::ExploredManagedHostSearchFilter) -> Self {
+        ExploredManagedHostSearchFilter {}
+    }
+}
+
 /// Data that we gathered about a particular endpoint during site exploration
 /// This data is stored as JSON in the Database. Therefore the format can
 /// only be adjusted in a backward compatible fashion.

@@ -1,13 +1,18 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 //! DPF SDK trait abstraction for testability.
@@ -21,6 +26,7 @@ use carbide_dpf::{
     KubeRepository, ResourceLabeler, node_id_from_dpu_node_cr_name,
 };
 use sqlx::PgPool;
+use tokio::task::JoinSet;
 
 use crate::cfg::file::CarbideConfig;
 use crate::state_controller::controller::Enqueuer;
@@ -231,7 +237,11 @@ pub struct DpfSdkOps {
 
 impl DpfSdkOps {
     /// Create a new DpfSdkOps using the DPF SDK and sets up watcher callbacks to trigger carbide state handling.
-    pub fn new(sdk: Arc<DpfSdk<KubeRepository, CarbideDPFLabeler>>, db_pool: PgPool) -> Self {
+    pub fn new(
+        sdk: Arc<DpfSdk<KubeRepository, CarbideDPFLabeler>>,
+        db_pool: PgPool,
+        join_set: &mut JoinSet<()>,
+    ) -> std::io::Result<Self> {
         let watcher = sdk
             .watcher()
             .on_dpu_event(|event| async move {
@@ -300,12 +310,13 @@ impl DpfSdkOps {
                     }
                 }
             })
-            .start();
+            .with_join_set(join_set)
+            .start()?;
 
-        Self {
+        Ok(Self {
             sdk,
             _watcher: watcher,
-        }
+        })
     }
 }
 
@@ -340,7 +351,7 @@ async fn enqueue_host(db_pool: &PgPool, node_name: &str, reason: &str) -> Result
             DpfError::InvalidState(format!("Failed to acquire database connection: {e}"))
         })?;
         db::machine::find_one(
-            &mut conn,
+            &mut *conn,
             &host_machine_id,
             model::machine::machine_search_config::MachineSearchConfig::default(),
         )

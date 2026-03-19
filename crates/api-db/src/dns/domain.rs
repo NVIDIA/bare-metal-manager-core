@@ -183,7 +183,7 @@ pub async fn find_by_name(
 
 /// Find the domain with the given ID, even if it is deleted.
 pub async fn find_by_uuid(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     uuid: DomainId,
 ) -> Result<Option<Domain>, DatabaseError> {
     find_all_by(txn, ObjectColumnFilter::One(IdColumn, &uuid), true)

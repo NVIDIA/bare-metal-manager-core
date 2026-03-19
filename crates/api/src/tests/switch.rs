@@ -558,6 +558,7 @@ async fn test_find_switch_with_bmc_info(
     };
     use mac_address::MacAddress;
     use model::address_selection_strategy::AddressSelectionStrategy;
+    use model::expected_switch::ExpectedSwitch;
     use model::metadata::Metadata;
     use model::network_segment::NetworkSegmentType;
 
@@ -570,18 +571,21 @@ async fn test_find_switch_with_bmc_info(
 
     db_expected_switch::create(
         &mut txn,
-        bmc_mac,
-        "admin".to_string(),
-        "password".to_string(),
-        switch_serial.to_string(),
-        Metadata {
-            name: "Test Expected Switch".to_string(),
-            description: "Test switch for BMC info lookup".to_string(),
-            labels: HashMap::new(),
+        ExpectedSwitch {
+            expected_switch_id: None,
+            bmc_mac_address: bmc_mac,
+            bmc_username: "admin".to_string(),
+            bmc_password: "password".to_string(),
+            serial_number: switch_serial.to_string(),
+            metadata: Metadata {
+                name: "Test Expected Switch".to_string(),
+                description: "Test switch for BMC info lookup".to_string(),
+                labels: HashMap::new(),
+            },
+            rack_id: None,
+            nvos_username: Some("nvos_user".to_string()),
+            nvos_password: Some("nvos_pass".to_string()),
         },
-        None,
-        Some("nvos_user".to_string()),
-        Some("nvos_pass".to_string()),
     )
     .await?;
 

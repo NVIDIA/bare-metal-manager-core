@@ -30,6 +30,7 @@ use libmlx::lockdown::lockdown::{LockdownManager, StatusReport};
 use libmlx::profile::error::MlxProfileError;
 use libmlx::profile::serialization::SerializableProfile;
 use libmlx::registry::registries;
+use libmlx::runner::applier::MlxConfigApplier;
 use libmlx::runner::result_types::{ComparisonResult, SyncResult};
 use libmlx::runner::runner::MlxConfigRunner;
 use rpc::protos::mlx_device as mlx_device_pb;
@@ -1107,6 +1108,59 @@ pub async fn apply_firmware(
                 "firmware flash failed"
             );
             None
+        }
+    }
+}
+
+// apply_profile resets the device's mlxconfig parameters to factory
+// defaults and then, if a profile is provided, syncs it to the
+// device. We always reset [first] to ensure a clean slate, so that
+// stale/unexpected settings from a previous tenancy don't leak
+// through to the next tenant.
+//
+// Returns the profile name (if any) and whether the operation
+// succeeded, for reporting back via MlxObservation.
+pub(crate) fn apply_profile(
+    device: &str,
+    profile: Option<SerializableProfile>,
+) -> (Option<String>, Option<bool>) {
+    // Always reset to factory defaults first.
+    let applier = MlxConfigApplier::new(device);
+    if let Err(e) = applier.reset_config() {
+        tracing::error!(
+            device = %device,
+            %e,
+            "mlxconfig reset failed"
+        );
+        return (profile.map(|p| p.name), Some(false));
+    }
+    tracing::info!(device = %device, "mlxconfig reset to factory defaults");
+
+    // If a profile was provided, sync it after the reset.
+    let Some(profile) = profile else {
+        return (None, Some(true));
+    };
+
+    let name = profile.name.clone();
+    match load_and_sync_profile(device, profile) {
+        Ok(result) => {
+            tracing::info!(
+                device = %device,
+                profile = %name,
+                variables_checked = result.variables_checked,
+                variables_changed = result.variables_changed,
+                "mlxconfig profile synced"
+            );
+            (Some(name), Some(true))
+        }
+        Err(e) => {
+            tracing::error!(
+                device = %device,
+                profile = %name,
+                %e,
+                "mlxconfig profile sync failed"
+            );
+            (Some(name), Some(false))
         }
     }
 }

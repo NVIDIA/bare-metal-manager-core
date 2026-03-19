@@ -507,7 +507,7 @@ impl TestEnv {
             let mut txn: sqlx::Transaction<'static, sqlx::Postgres> =
                 self.pool.begin().await.unwrap();
             let machine = db::machine::find_one(
-                &mut txn,
+                txn.as_mut(),
                 host_machine_id,
                 model::machine::machine_search_config::MachineSearchConfig::default(),
             )
@@ -521,7 +521,7 @@ impl TestEnv {
         }
         let mut txn = self.pool.begin().await.unwrap();
         let machine = db::machine::find_one(
-            &mut txn,
+            txn.as_mut(),
             host_machine_id,
             model::machine::machine_search_config::MachineSearchConfig::default(),
         )
@@ -663,6 +663,46 @@ impl TestEnv {
             .boxed()
             .await
             .unwrap();
+    }
+
+    /// Runs the necessary iterations to return an instance back to an Assigned/Ready
+    /// state after a network config update has added/removed an interface.
+    pub async fn run_machine_state_controller_iteration_network_config_return_to_ready(
+        &self,
+        mh: &TestManagedHost,
+        interfaces_added: bool,
+    ) {
+        if interfaces_added {
+            // Move the network segment along
+            self.run_network_segment_controller_iteration().await;
+        }
+
+        // Ticks for WaitingForConfigSynced
+        self.run_machine_state_controller_iteration_until_state_matches(
+            &mh.host().id,
+            10,
+            ManagedHostState::Assigned {
+                instance_state: model::machine::InstanceState::NetworkConfigUpdate {
+                    network_config_update_state:
+                        model::machine::NetworkConfigUpdateState::WaitingForConfigSynced,
+                },
+            },
+        )
+        .await;
+
+        // Simulate the DPU calling in, getting a response,
+        // configuring itself, and reporting back.
+        mh.network_configured(self).await;
+
+        // Ticks to get us back to assigned ready after releasing old resources
+        self.run_machine_state_controller_iteration_until_state_matches(
+            &mh.host().id,
+            10,
+            ManagedHostState::Assigned {
+                instance_state: model::machine::InstanceState::Ready,
+            },
+        )
+        .await;
     }
 
     pub async fn override_machine_state_controller_handler(&self, handler: MachineStateHandler) {
@@ -1157,6 +1197,7 @@ pub fn get_config() -> CarbideConfig {
         rms_api_url: Some(
             SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080).to_string(),
         ),
+        rack_types: Default::default(),
         spdm_state_controller: SpdmStateControllerConfig {
             controller: StateControllerConfig::default(),
         },
@@ -1171,6 +1212,7 @@ pub fn get_config() -> CarbideConfig {
         x86_pxe_boot_url_override: None,
         arm_pxe_boot_url_override: None,
         supernic_firmware_profiles: HashMap::default(),
+        component_manager: None,
     }
 }
 
@@ -1455,6 +1497,7 @@ pub async fn create_test_env_with_overrides(
         work_lock_manager_handle: work_lock_manager_handle.clone(),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool.clone()),
         metric_emitter: ApiMetricsEmitter::new(&test_meter.meter()),
+        component_manager: None,
     });
 
     let attestation_enabled = config.attestation_enabled;

@@ -27,13 +27,8 @@ pub async fn handle_delete(
     _output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    api_client
-        .0
-        .delete_dpu_extension_service(DeleteDpuExtensionServiceRequest {
-            service_id: args.service_id,
-            versions: args.versions,
-        })
-        .await?;
+    let req: DeleteDpuExtensionServiceRequest = args.into();
+    api_client.0.delete_dpu_extension_service(req).await?;
 
     println!("Delete successful");
     Ok(())

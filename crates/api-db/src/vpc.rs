@@ -16,7 +16,6 @@
  */
 use std::ops::DerefMut;
 
-use ::rpc::forge as rpc;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use config_version::ConfigVersion;
@@ -88,7 +87,7 @@ pub async fn persist(
 
 pub async fn find_ids(
     txn: impl DbReader<'_>,
-    filter: rpc::VpcSearchFilter,
+    filter: model::vpc::VpcSearchFilter,
 ) -> Result<Vec<VpcId>, DatabaseError> {
     // build query
     let mut builder = sqlx::QueryBuilder::new("SELECT id FROM vpcs WHERE ");

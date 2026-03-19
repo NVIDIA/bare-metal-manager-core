@@ -18,7 +18,6 @@
 use std::ops::DerefMut;
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
 use carbide_uuid::extension_service::ExtensionServiceId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
@@ -60,7 +59,7 @@ pub struct InstanceTable {}
 
 pub async fn find_ids(
     txn: impl DbReader<'_>,
-    filter: rpc::InstanceSearchFilter,
+    filter: model::instance::InstanceSearchFilter,
 ) -> Result<Vec<InstanceId>, DatabaseError> {
     let mut builder = sqlx::QueryBuilder::new("SELECT id FROM instances WHERE TRUE "); // The TRUE will be optimized away.
 
@@ -135,7 +134,7 @@ WHERE vpc_id = ",
 }
 
 pub async fn find(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     filter: ObjectColumnFilter<'_, IdColumn>,
 ) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
     let mut query = FilterableQueryBuilder::new("SELECT row_to_json(i.*) FROM instances i")

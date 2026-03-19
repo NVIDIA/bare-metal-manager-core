@@ -27,12 +27,13 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::NvLinkPartitionIdList>, Status> {
     log_request_data(&request);
 
-    let filter: rpc::NvLinkPartitionSearchFilter = request.into_inner();
+    let rpc_filter: rpc::NvLinkPartitionSearchFilter = request.into_inner();
 
-    if let Some(ref tenant_org_id_str) = filter.tenant_organization_id {
+    if let Some(ref tenant_org_id_str) = rpc_filter.tenant_organization_id {
         log_tenant_organization_id(tenant_org_id_str);
     }
 
+    let filter: model::nvl_partition::NvLinkPartitionSearchFilter = rpc_filter.into();
     let partition_ids = db::nvl_partition::find_ids(&api.database_connection, filter).await?;
 
     Ok(Response::new(rpc::NvLinkPartitionIdList { partition_ids }))

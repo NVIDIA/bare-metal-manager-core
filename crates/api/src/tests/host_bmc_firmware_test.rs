@@ -160,7 +160,7 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_all(&mut txn).await?;
+    let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
     if let PreingestionState::UpgradeFirmwareWait {
@@ -177,7 +177,7 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_all(&mut txn).await?;
+    let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
     let PreingestionState::NewFirmwareReportedWait { .. } = endpoint.preingestion_state else {
@@ -189,7 +189,7 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_all(&mut txn).await?;
+    let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
     assert!(endpoints.len() == 1);
     let mut endpoint = endpoints.into_iter().next().unwrap();
 
@@ -212,7 +212,7 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_all(&mut txn).await?;
+    let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
@@ -1080,7 +1080,7 @@ async fn test_preingestion_preupdate_powercycling(
         mgr.run_single_iteration().await?;
 
         let mut txn = pool.begin().await.unwrap();
-        let endpoints = db::explored_endpoints::find_all(&mut txn).await?;
+        let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
         assert!(endpoints.len() == 1);
         let mut endpoint = endpoints.into_iter().next().unwrap();
         tracing::debug!("State should be {state:?}");
@@ -1117,7 +1117,7 @@ async fn test_preingestion_preupdate_powercycling(
 
     mgr.run_single_iteration().await?;
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_all(&mut txn).await?;
+    let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
     txn.commit().await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
@@ -2367,7 +2367,7 @@ async fn test_preingestion_time_sync_check_error_fails(
     // The test passes if it doesn't panic - the mock BMC should return valid time
     // and the endpoint should proceed to completion or firmware check
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_all(&mut txn).await?;
+    let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
     assert_eq!(endpoints.len(), 1);
     // Just verify we didn't fail - we should be in Complete or some valid state
     let endpoint = &endpoints[0];

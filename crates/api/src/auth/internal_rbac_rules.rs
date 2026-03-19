@@ -644,6 +644,28 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, Machineatron, Rla],
         );
         x.perm(
+            "AddExpectedRack",
+            vec![ForgeAdminCLI, Machineatron, SiteAgent],
+        );
+        x.perm(
+            "DeleteExpectedRack",
+            vec![ForgeAdminCLI, Machineatron, SiteAgent],
+        );
+        x.perm(
+            "UpdateExpectedRack",
+            vec![ForgeAdminCLI, Machineatron, SiteAgent],
+        );
+        x.perm(
+            "GetExpectedRack",
+            vec![ForgeAdminCLI, Machineatron, SiteAgent, Rla],
+        );
+        x.perm(
+            "GetAllExpectedRacks",
+            vec![ForgeAdminCLI, Machineatron, SiteAgent, Rla],
+        );
+        x.perm("ReplaceAllExpectedRacks", vec![ForgeAdminCLI, Machineatron]);
+        x.perm("DeleteAllExpectedRacks", vec![ForgeAdminCLI, Machineatron]);
+        x.perm(
             "FindSwitchStateHistories",
             vec![ForgeAdminCLI, Machineatron, Rla],
         );
@@ -711,6 +733,11 @@ impl InternalRBACRules {
         );
         x.perm("UpdateComputeAllocation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteComputeAllocation", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("ComponentPowerControl", vec![ForgeAdminCLI, Rla]);
+        x.perm("GetComponentInventory", vec![ForgeAdminCLI, Rla]);
+        x.perm("UpdateComponentFirmware", vec![ForgeAdminCLI, Rla]);
+        x.perm("GetComponentFirmwareStatus", vec![ForgeAdminCLI, Rla]);
+        x.perm("ListComponentFirmwareVersions", vec![ForgeAdminCLI, Rla]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {

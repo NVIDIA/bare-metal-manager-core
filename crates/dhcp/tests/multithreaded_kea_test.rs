@@ -64,14 +64,6 @@ fn test_real_kea_multithreaded() -> Result<(), eyre::Report> {
     socket.connect(format!("127.0.0.1:{dhcp_in_port}"))?;
     socket.set_read_timeout(Some(READ_TIMEOUT))?;
 
-    // The first packet doesn't get a response. I don't know why. dhcp-relay also sends two.
-    // So sacrifice a packet, and wait to be sure it's the first packet received by Kea.
-    let mut msg = DHCPFactory::discover(0);
-    msg.set_xid(0);
-    let pkt = DHCPFactory::encode(msg)?;
-    socket.send(&pkt)?;
-    thread::sleep(Duration::from_millis(20));
-
     let socket = Arc::new(socket);
     let recv_packets = Arc::new(AtomicU64::new(0));
     thread::scope(|s| {
@@ -85,7 +77,6 @@ fn test_real_kea_multithreaded() -> Result<(), eyre::Report> {
 
         // Multiple send threads
 
-        // Start from 1 because idx 0 was the sacrifice
         for idx in 1..=NUM_THREADS {
             let inner_socket = socket.clone();
             let s_should_stop = should_stop.clone();
@@ -155,7 +146,7 @@ fn test_real_kea_multithreaded() -> Result<(), eyre::Report> {
 
     // Each thread only triggered one backend call because the other messages used the cache.
     let api_calls = api_server.calls_for(mock_api_server::ENDPOINT_DISCOVER_DHCP) as u8;
-    assert_eq!(api_calls, NUM_THREADS + 1); // +1 for the sacrificial message
+    assert_eq!(api_calls, NUM_THREADS);
 
     Ok(())
 }

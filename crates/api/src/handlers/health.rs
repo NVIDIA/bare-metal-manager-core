@@ -63,7 +63,7 @@ async fn remove_by_source(
     source: String,
 ) -> Result<(), CarbideError> {
     let host_machine = db::machine::find_one(
-        txn,
+        &mut *txn,
         &machine_id,
         MachineSearchConfig {
             // Technically,  an update is going to happen,

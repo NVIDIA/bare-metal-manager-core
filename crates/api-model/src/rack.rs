@@ -71,7 +71,12 @@ impl From<Rack> for rpc::forge::Rack {
                 .iter()
                 .map(|x| x.to_string())
                 .collect(),
-            expected_nvlink_switches: vec![],
+            expected_nvlink_switches: value
+                .config
+                .expected_switches
+                .iter()
+                .map(|x| x.to_string())
+                .collect(),
             compute_trays: value.config.compute_trays,
             power_shelves: value.config.power_shelves,
             created: Some(Timestamp::from(value.created)),
@@ -245,15 +250,26 @@ pub struct RackStateHistory {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct RackConfig {
     pub compute_trays: Vec<MachineId>,
-    // todo: put in nvlink switch ids here when that code lands
-    // pub nvlink_switches: Vec<NvlinkSwitchId>
     pub power_shelves: Vec<PowerShelfId>,
 
-    // store bmc mac address of every tray in the rack
+    /// expected_compute_trays contains the BMC MAC addresses of every
+    /// expected compute tray in the rack.
     pub expected_compute_trays: Vec<MacAddress>,
-    // todo: nvlink switches
-    // pub expected_nvlink_switches: Vec<MacAddress>,
+    /// expected_switches contains the BMC MAC addresses of every expected
+    /// switch in the rack. The NVOS management MAC address is stored
+    /// separately in the expected switch's metadata labels, and validated
+    /// separately as part of the switch state controller.
+    #[serde(default)]
+    pub expected_switches: Vec<MacAddress>,
+    /// expected_power_shelves contains the BMC MAC addresses of every
+    /// expected power shelf in the rack.
     pub expected_power_shelves: Vec<MacAddress>,
+
+    /// rack_type is the name of the rack type (e.g. "NVL72") that maps to
+    /// a RackCapabilitiesSet in the config file. The capabilities are looked
+    /// up at runtime so config changes apply retroactively to all racks.
+    #[serde(default)]
+    pub rack_type: Option<String>,
 }
 
 pub fn state_sla(state: &RackState, state_version: &ConfigVersion) -> StateSla {

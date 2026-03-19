@@ -53,13 +53,6 @@ pub struct LldpdConfigFileWriter {
 }
 
 impl LldpdConfigFileWriter {
-    pub fn new(filename: PathBuf, header_comments: Vec<String>) -> Self {
-        Self {
-            filename,
-            header_comments,
-        }
-    }
-
     pub fn ensure_file(&self, config: &LldpConfig) -> eyre::Result<bool> {
         let file_contents = self.render_contents(config);
         let mut config_file = crate::agent_platform::ManagedFile::new(self.filename.to_owned());
@@ -101,9 +94,10 @@ impl LldpdConfigFileWriter {
 
 impl Default for LldpdConfigFileWriter {
     fn default() -> Self {
-        let filename = "/etc/lldpd.d/forge.conf".into();
-        let header_comment = vec!["This file is managed by the Forge DPU agent".into()];
-        Self::new(filename, header_comment)
+        Self {
+            filename: "/etc/lldpd.d/forge.conf".into(),
+            header_comments: vec!["This file is managed by the Forge DPU agent".into()],
+        }
     }
 }
 

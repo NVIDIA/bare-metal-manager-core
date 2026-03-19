@@ -66,7 +66,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::TenantKeysetIdList>, Status> {
     log_request_data(&request);
 
-    let filter: rpc::TenantKeysetSearchFilter = request.into_inner();
+    let filter: model::tenant::TenantKeysetSearchFilter = request.into_inner().into();
 
     let keyset_ids = db::tenant_keyset::find_ids(&api.database_connection, filter).await?;
 
@@ -101,6 +101,11 @@ pub(crate) async fn find_by_ids(
             CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
         );
     }
+
+    let keyset_ids: Vec<model::tenant::TenantKeysetIdentifier> = keyset_ids
+        .into_iter()
+        .map(|id| id.try_into())
+        .collect::<Result<_, _>>()?;
 
     let keysets =
         db::tenant_keyset::find_by_ids(&api.database_connection, keyset_ids, include_key_data)

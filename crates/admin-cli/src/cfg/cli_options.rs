@@ -20,13 +20,13 @@ use rpc::admin_cli::OutputFormat;
 use crate::cfg::measurement;
 use crate::{
     bmc_machine, boot_override, compute_allocation, credential, devenv, domain, dpa, dpu,
-    dpu_remediation, expected_machines, expected_power_shelf, expected_switch, extension_service,
-    firmware, generate_shell_complete, host, ib_partition, instance, instance_type, inventory, ip,
-    jump, machine, machine_interfaces, machine_validation, managed_host, mlx, network_devices,
-    network_security_group, network_segment, nvl_logical_partition, nvl_partition, os_image, ping,
-    power_shelf, rack, rack_firmware, redfish, resource_pool, rms, route_server, scout_stream, set,
-    site_explorer, sku, ssh, switch, tenant, tenant_keyset, tpm_ca, trim_table, version, vpc,
-    vpc_peering, vpc_prefix,
+    dpu_remediation, expected_machines, expected_power_shelf, expected_rack, expected_switch,
+    extension_service, firmware, generate_shell_complete, host, ib_partition, instance,
+    instance_type, inventory, ip, jump, machine, machine_interfaces, machine_validation,
+    managed_host, mlx, network_devices, network_security_group, network_segment,
+    nvl_logical_partition, nvl_partition, os_image, ping, power_shelf, rack, rack_firmware,
+    redfish, resource_pool, rms, route_server, scout_stream, set, site_explorer, sku, ssh, switch,
+    tenant, tenant_keyset, tpm_ca, trim_table, version, vpc, vpc_peering, vpc_prefix,
 };
 
 #[derive(Parser, Debug)]
@@ -212,6 +212,8 @@ pub enum CliCommand {
         visible_alias = "ep"
     )]
     ExpectedPowerShelf(expected_power_shelf::Cmd),
+    #[clap(about = "Expected rack handling", subcommand, visible_alias = "er")]
+    ExpectedRack(expected_rack::Cmd),
     #[clap(about = "Expected switch handling", subcommand, visible_alias = "ew")]
     ExpectedSwitch(expected_switch::Cmd),
     #[clap(about = "VPC related handling", subcommand)]

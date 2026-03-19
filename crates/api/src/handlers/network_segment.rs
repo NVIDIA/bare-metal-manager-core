@@ -34,7 +34,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::NetworkSegmentIdList>, Status> {
     log_request_data(&request);
 
-    let filter: rpc::NetworkSegmentSearchFilter = request.into_inner();
+    let filter: model::network_segment::NetworkSegmentSearchFilter = request.into_inner().into();
 
     let network_segments_ids =
         db::network_segment::find_ids(&api.database_connection, filter).await?;

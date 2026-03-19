@@ -16,9 +16,7 @@
  */
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::{
-    CreateComputeAllocationRequest, {self as forgerpc},
-};
+use ::rpc::forge::CreateComputeAllocationRequest;
 
 use super::args::Args;
 use crate::compute_allocation::common::convert_compute_allocations_to_table;
@@ -32,31 +30,8 @@ pub async fn create(
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let labels = if let Some(labels_json) = args.labels {
-        serde_json::from_str(&labels_json)?
-    } else {
-        vec![]
-    };
-
-    let metadata = forgerpc::Metadata {
-        name: args.name.unwrap_or_default(),
-        description: args.description.unwrap_or_default(),
-        labels,
-    };
-
-    let allocation = api_client
-        .0
-        .create_compute_allocation(CreateComputeAllocationRequest {
-            id: args.id,
-            tenant_organization_id: args.tenant_organization_id,
-            metadata: Some(metadata),
-            attributes: Some(forgerpc::ComputeAllocationAttributes {
-                instance_type_id: args.instance_type_id,
-                count: args.count,
-            }),
-            created_by: None,
-        })
-        .await?;
+    let req: CreateComputeAllocationRequest = args.try_into()?;
+    let allocation = api_client.0.create_compute_allocation(req).await?;
     let allocation = allocation.allocation.ok_or(CarbideCliError::Empty)?;
 
     match output_format {

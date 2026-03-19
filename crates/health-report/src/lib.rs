@@ -141,12 +141,23 @@ impl HealthReport {
 
     /// Returns a health report that indicates that no fresh data health data
     /// has been received from a certain subsystem
-    pub fn heartbeat_timeout(source: String, target: String, message: String) -> Self {
+    pub fn heartbeat_timeout(
+        source: String,
+        target: String,
+        message: String,
+        prevent_allocations: bool,
+        suppress_external_alerting: bool,
+    ) -> Self {
         Self {
             source,
             observed_at: Some(chrono::Utc::now()),
             successes: vec![],
-            alerts: vec![HealthProbeAlert::heartbeat_timeout(target, message)],
+            alerts: vec![HealthProbeAlert::heartbeat_timeout(
+                target,
+                message,
+                prevent_allocations,
+                suppress_external_alerting,
+            )],
             triggered_by: None,
         }
     }
@@ -370,17 +381,27 @@ impl HealthProbeAlert {
     }
 
     /// Creates a HeartbeatTimeout alert
-    pub fn heartbeat_timeout(target: String, message: String) -> Self {
+    pub fn heartbeat_timeout(
+        target: String,
+        message: String,
+        prevent_allocations: bool,
+        suppress_external_alerting: bool,
+    ) -> Self {
+        let mut classifications = Vec::new();
+        if prevent_allocations {
+            classifications.push(HealthAlertClassification::prevent_allocations());
+        }
+        classifications.push(HealthAlertClassification::prevent_host_state_changes());
+        if suppress_external_alerting {
+            classifications.push(HealthAlertClassification::suppress_external_alerting());
+        }
         Self {
             id: HealthProbeId::heartbeat_timeout(),
             target: Some(target),
             in_alert_since: Some(chrono::Utc::now()),
             message,
             tenant_message: None,
-            classifications: vec![
-                HealthAlertClassification::prevent_allocations(),
-                HealthAlertClassification::prevent_host_state_changes(),
-            ],
+            classifications,
         }
     }
 
@@ -642,6 +663,15 @@ impl HealthAlertClassification {
 
     pub fn sensor_critical() -> Self {
         Self("SensorCritical".to_string())
+    }
+
+    /// Excludes the host from state machine SLA tracking.
+    /// When this classification is present on any alert in the aggregate health report,
+    /// the host will not be counted as violating its state machine SLA.
+    /// Intended for manual operations (e.g. hands-on maintenance, repair) where the
+    /// operator needs the state machine running but SLA alerts would be spurious.
+    pub fn exclude_from_state_machine_sla() -> Self {
+        Self("ExcludeFromStateMachineSla".to_string())
     }
 }
 

@@ -15,9 +15,9 @@
 # limitations under the License.
 #
 [book]
-title = "NVIDIA Bare Metal Manager Documentation"
+title = "NCX Infra Controller Documentation"
 authors = [
-  "NVIDIA Bare Metal Manager Development Team <carbide-dev@exchange.nvidia.com>",
+  "NCX Infra Controller Development Team <carbide-dev@exchange.nvidia.com>",
 ]
 
 [rust]

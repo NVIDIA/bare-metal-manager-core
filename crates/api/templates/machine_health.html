@@ -136,7 +136,7 @@ const templateMergeInternalMaintenance = {
 	health_report: {
 		source: "maintenance",
 		successes: [],
-		alerts: [{id: "Maintenance", target: null, message: "", tenant_message: null, classifications: ["PreventAllocations", "SuppressExternalAlerting"]}]
+		alerts: [{id: "Maintenance", target: null, message: "", tenant_message: null, classifications: ["PreventAllocations", "SuppressExternalAlerting", "ExcludeFromStateMachineSla"]}]
 	}
 };
 
@@ -145,7 +145,7 @@ const templateMergeOfrMaintenance = {
 	health_report: {
 		source: "manual-maintenance",
 		successes: [],
-		alerts: [{id: "Maintenance", target: "OutForRepair", message: "", tenant_message: null, classifications: ["PreventAllocations", "SuppressExternalAlerting"]}]
+		alerts: [{id: "Maintenance", target: "OutForRepair", message: "", tenant_message: null, classifications: ["PreventAllocations", "SuppressExternalAlerting", "ExcludeFromStateMachineSla"]}]
 	}
 };
 

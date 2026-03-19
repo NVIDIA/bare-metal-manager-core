@@ -196,7 +196,7 @@ pub async fn find_latest_by_machine_ids(
 }
 
 pub async fn find_machine_id_by_bmc_ip(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     address: &str,
 ) -> Result<Option<MachineId>, DatabaseError> {
     let query = "SELECT machine_id FROM machine_topologies WHERE topology->'bmc_info'->>'ip' = $1";

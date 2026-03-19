@@ -97,6 +97,12 @@ pub enum CarbideCliError {
     #[error("Generic Error: {0}")]
     GenericError(String),
 
+    #[error("Cannot specify both {0} and {1}. Please provide only one.")]
+    ChooseOneError(&'static str, &'static str),
+
+    #[error("Must specify either {0} or {1}.")]
+    RequireOneError(&'static str, &'static str),
+
     #[error("Invalid datetime format: {0}. Use 'YYYY-MM-DD HH:MM:SS' or 'HH:MM:SS'")]
     InvalidDateTimeFromUserInput(String),
 

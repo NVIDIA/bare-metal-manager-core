@@ -30,7 +30,7 @@ use libmlx::runner::executor::CommandExecutor;
 #[test]
 fn test_create_temp_file() {
     let options = ExecOptions::default();
-    let executor = CommandExecutor::new(&options);
+    let executor = CommandExecutor { options: &options };
 
     let temp_dir = tempfile::tempdir().unwrap();
     let prefix = temp_dir.path().to_str().unwrap();
@@ -57,7 +57,7 @@ fn test_create_temp_file() {
 #[test]
 fn test_cleanup_temp_file_existing() {
     let options = ExecOptions::default();
-    let executor = CommandExecutor::new(&options);
+    let executor = CommandExecutor { options: &options };
 
     let temp_dir = tempfile::tempdir().unwrap();
     let prefix = temp_dir.path().to_str().unwrap();
@@ -73,7 +73,7 @@ fn test_cleanup_temp_file_existing() {
 #[test]
 fn test_cleanup_temp_file_nonexistent() {
     let options = ExecOptions::default();
-    let executor = CommandExecutor::new(&options);
+    let executor = CommandExecutor { options: &options };
 
     let temp_dir = tempfile::tempdir().unwrap();
     let nonexistent_file = temp_dir.path().join("nonexistent.json");
@@ -85,30 +85,41 @@ fn test_cleanup_temp_file_nonexistent() {
 #[test]
 fn test_is_dry_run() {
     let dry_run_options = ExecOptions::new().with_dry_run(true);
-    let executor = CommandExecutor::new(&dry_run_options);
+    let executor = CommandExecutor {
+        options: &dry_run_options,
+    };
     assert!(executor.is_dry_run());
 
     let normal_options = ExecOptions::new().with_dry_run(false);
-    let executor = CommandExecutor::new(&normal_options);
+    let executor = CommandExecutor {
+        options: &normal_options,
+    };
     assert!(!executor.is_dry_run());
 }
 
 #[test]
 fn test_is_verbose() {
     let verbose_options = ExecOptions::new().with_verbose(true);
-    let executor = CommandExecutor::new(&verbose_options);
+    let executor = CommandExecutor {
+        options: &verbose_options,
+    };
     assert!(executor.is_verbose());
 
     let quiet_options = ExecOptions::new().with_verbose(false);
-    let executor = CommandExecutor::new(&quiet_options);
+    let executor = CommandExecutor {
+        options: &quiet_options,
+    };
     assert!(!executor.is_verbose());
 }
 
 #[test]
 fn test_execute_dry_run() {
     let options = ExecOptions::new().with_dry_run(true);
-    let executor = CommandExecutor::new(&options);
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let executor = CommandExecutor { options: &options };
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let assignments = vec!["TEST_VAR=test".to_string()];
     let command_spec = builder.build_set_command(&assignments).unwrap();
@@ -120,7 +131,7 @@ fn test_execute_dry_run() {
 #[test]
 fn test_successful_command_execution() {
     let options = ExecOptions::default();
-    let executor = CommandExecutor::new(&options);
+    let executor = CommandExecutor { options: &options };
 
     // Use a simple command that should always succeed.
     let command_spec = CommandSpec::new("echo").arg("hello");
@@ -134,7 +145,7 @@ fn test_successful_command_execution() {
 fn test_failed_command_execution() {
     // No retries to make the test faster.
     let options = ExecOptions::new().with_retries(0);
-    let executor = CommandExecutor::new(&options);
+    let executor = CommandExecutor { options: &options };
 
     // Use a command that should always fail.
     let command_spec = CommandSpec::new("false");
@@ -147,7 +158,7 @@ fn test_failed_command_execution() {
 fn test_command_not_found() {
     // No retries to make the test faster.
     let options = ExecOptions::new().with_retries(0);
-    let executor = CommandExecutor::new(&options);
+    let executor = CommandExecutor { options: &options };
 
     // Use a command that definitely doesn't exist.
     let command_spec = CommandSpec::new("duppet_is_real_but_not_like_this");
@@ -163,7 +174,7 @@ fn test_timeout_functionality() {
         .with_timeout(Some(Duration::from_millis(100)))
         .with_retries(0); // No retries to make test faster
 
-    let executor = CommandExecutor::new(&options);
+    let executor = CommandExecutor { options: &options };
 
     // Use sleep command that will exceed our timeout.
     let command_spec = CommandSpec::new("sleep").arg("5");
@@ -185,7 +196,7 @@ fn test_no_timeout_successful_execution() {
         .with_timeout(None) // No timeout in this case.
         .with_retries(0);
 
-    let executor = CommandExecutor::new(&options);
+    let executor = CommandExecutor { options: &options };
 
     // Use a command that should complete quickly
     let command_spec = CommandSpec::new("echo").arg("no timeout test");
@@ -201,7 +212,7 @@ fn test_no_timeout_successful_execution() {
 #[test]
 fn test_should_retry_error_classification() {
     let options = ExecOptions::default();
-    let executor = CommandExecutor::new(&options);
+    let executor = CommandExecutor { options: &options };
 
     // Permanent errors should not be retried.
     assert!(
@@ -257,7 +268,7 @@ fn test_exponential_backoff_configuration() {
         .with_max_retry_delay(Duration::from_millis(100))
         .with_retry_multiplier(3.0); // Triple each time
 
-    let executor = CommandExecutor::new(&options);
+    let executor = CommandExecutor { options: &options };
 
     // Test that options are correctly set
     assert_eq!(options.retries, 3);
@@ -281,7 +292,7 @@ fn test_conservative_backoff() {
         .with_retry_multiplier(1.2) // Only 20% increase each time
         .with_retries(2);
 
-    let executor = CommandExecutor::new(&options);
+    let executor = CommandExecutor { options: &options };
 
     // Use a command that should succeed
     let command_spec = CommandSpec::new("echo").arg("conservative test");
@@ -303,7 +314,7 @@ fn test_aggressive_backoff() {
         .with_retry_multiplier(5.0) // 5x increase each time
         .with_retries(2);
 
-    let executor = CommandExecutor::new(&options);
+    let executor = CommandExecutor { options: &options };
 
     // Use a command that should succeed
     let command_spec = CommandSpec::new("echo").arg("aggressive test");
@@ -322,7 +333,7 @@ fn test_retry_logic_with_retries() {
         .with_retries(2)
         .with_retry_delay(Duration::from_millis(10)); // Fast retry for testing
 
-    let executor = CommandExecutor::new(&options);
+    let executor = CommandExecutor { options: &options };
 
     // Command that always fails
     let command_spec = CommandSpec::new("false");
@@ -340,7 +351,7 @@ fn test_retry_logic_eventual_success() {
         .with_retries(1)
         .with_retry_delay(Duration::from_millis(10));
 
-    let executor = CommandExecutor::new(&options);
+    let executor = CommandExecutor { options: &options };
 
     // Use a command that should succeed
     let command_spec = CommandSpec::new("echo").arg("success");
@@ -352,7 +363,7 @@ fn test_retry_logic_eventual_success() {
 #[test]
 fn test_temp_file_unique_names() {
     let options = ExecOptions::default();
-    let executor = CommandExecutor::new(&options);
+    let executor = CommandExecutor { options: &options };
 
     let temp_dir = tempfile::tempdir().unwrap();
     let prefix = temp_dir.path().to_str().unwrap();
@@ -380,7 +391,7 @@ fn test_temp_file_unique_names() {
 #[test]
 fn test_temp_file_directory_creation() {
     let options = ExecOptions::default();
-    let executor = CommandExecutor::new(&options);
+    let executor = CommandExecutor { options: &options };
 
     // Use system temp directory which should always be writable
     let result = executor.create_temp_file("/tmp");
@@ -395,7 +406,7 @@ fn test_temp_file_directory_creation() {
 #[test]
 fn test_temp_file_content_isolation() {
     let options = ExecOptions::default();
-    let executor = CommandExecutor::new(&options);
+    let executor = CommandExecutor { options: &options };
 
     let temp_dir = tempfile::tempdir().unwrap();
     let prefix = temp_dir.path().to_str().unwrap();
@@ -424,8 +435,8 @@ fn test_executor_options_independence() {
     let options1 = ExecOptions::new().with_verbose(true);
     let options2 = ExecOptions::new().with_dry_run(true);
 
-    let executor1 = CommandExecutor::new(&options1);
-    let executor2 = CommandExecutor::new(&options2);
+    let executor1 = CommandExecutor { options: &options1 };
+    let executor2 = CommandExecutor { options: &options2 };
 
     assert!(executor1.is_verbose());
     assert!(!executor1.is_dry_run());
@@ -437,8 +448,11 @@ fn test_executor_options_independence() {
 #[test]
 fn test_mlxconfig_query_command_spec_execution() {
     let options = ExecOptions::new().with_retries(0); // No retries for faster test
-    let _executor = CommandExecutor::new(&options);
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let _executor = CommandExecutor { options: &options };
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let temp_dir = tempfile::tempdir().unwrap();
     let temp_file = temp_dir.path().join("test.json");
@@ -457,8 +471,11 @@ fn test_mlxconfig_query_command_spec_execution() {
 #[test]
 fn test_mlxconfig_set_command_spec_execution() {
     let options = ExecOptions::new().with_retries(0).with_dry_run(true); // Dry run to avoid actual execution
-    let executor = CommandExecutor::new(&options);
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let executor = CommandExecutor { options: &options };
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let assignments = vec!["SRIOV_EN=true".to_string()];
     let command_spec = builder.build_set_command(&assignments).unwrap();
@@ -476,7 +493,10 @@ fn test_mlxconfig_set_command_spec_execution() {
 #[test]
 fn test_command_spec_integration_with_builder() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("02:00.0", &options);
+    let builder = CommandBuilder {
+        device: "02:00.0",
+        options: &options,
+    };
 
     // Test that CommandBuilder properly creates CommandSpec objects
     let temp_file = Path::new("/tmp/integration_test.json");
@@ -499,7 +519,7 @@ mod integration_tests {
     #[test]
     fn test_temp_file_lifecycle() {
         let options = ExecOptions::default();
-        let executor = CommandExecutor::new(&options);
+        let executor = CommandExecutor { options: &options };
 
         let temp_dir = tempfile::tempdir().unwrap();
         let prefix = temp_dir.path().to_str().unwrap();
@@ -527,7 +547,9 @@ mod integration_tests {
             .with_retry_delay(Duration::from_millis(100))
             .with_verbose(false);
 
-        let executor = CommandExecutor::new(&production_options);
+        let executor = CommandExecutor {
+            options: &production_options,
+        };
 
         // Test with a command that should succeed
         let command_spec = CommandSpec::new("echo").arg("production test");
@@ -544,7 +566,7 @@ mod integration_tests {
             .with_retries(2)
             .with_retry_delay(Duration::from_millis(5)); // Fast retry
 
-        let executor = CommandExecutor::new(&options);
+        let executor = CommandExecutor { options: &options };
 
         // Use sleep command that will consistently timeout
         let command_spec = CommandSpec::new("sleep").arg("1"); // Sleep for 1 second
@@ -569,7 +591,7 @@ mod integration_tests {
             .with_timeout(Some(Duration::from_secs(5))) // Generous timeout
             .with_retries(1);
 
-        let executor = CommandExecutor::new(&options);
+        let executor = CommandExecutor { options: &options };
 
         // Use a command that should complete quickly
         let command_spec = CommandSpec::new("echo").arg("timeout test success");
@@ -592,7 +614,7 @@ mod integration_tests {
             .with_retry_multiplier(2.0)
             .with_verbose(false); // Reduce noise in test output
 
-        let executor = CommandExecutor::new(&options);
+        let executor = CommandExecutor { options: &options };
 
         // Use a command that will always fail to trigger retries
         let command_spec = CommandSpec::new("false");
@@ -627,7 +649,7 @@ mod integration_tests {
             .with_retry_multiplier(10.0) // High multiplier that would exceed cap
             .with_verbose(false);
 
-        let executor = CommandExecutor::new(&options);
+        let executor = CommandExecutor { options: &options };
 
         // Use a command that will always fail
         let command_spec = CommandSpec::new("false");
@@ -650,8 +672,11 @@ mod integration_tests {
     fn test_builder_executor_integration() {
         // Test the full integration between CommandBuilder and CommandExecutor
         let options = ExecOptions::new().with_dry_run(true); // Dry run for safety
-        let builder = CommandBuilder::new("01:00.0", &options);
-        let executor = CommandExecutor::new(&options);
+        let builder = CommandBuilder {
+            device: "01:00.0",
+            options: &options,
+        };
+        let executor = CommandExecutor { options: &options };
 
         // Test query command flow
         let temp_dir = tempfile::tempdir().unwrap();
@@ -684,7 +709,7 @@ mod integration_tests {
                 .with_retry_delay(Duration::from_millis(10))
                 .with_retry_multiplier(multiplier);
 
-            let executor = CommandExecutor::new(&options);
+            let executor = CommandExecutor { options: &options };
 
             // Use a command that should succeed
             let command_spec = CommandSpec::new("echo").arg(format!("multiplier test {test_name}"));
@@ -702,7 +727,7 @@ mod error_classification_tests {
     #[test]
     fn test_all_permanent_errors() {
         let options = ExecOptions::default();
-        let executor = CommandExecutor::new(&options);
+        let executor = CommandExecutor { options: &options };
 
         // Test all permanent error types
         let permanent_errors = vec![
@@ -750,7 +775,7 @@ mod error_classification_tests {
     #[test]
     fn test_all_transient_errors() {
         let options = ExecOptions::default();
-        let executor = CommandExecutor::new(&options);
+        let executor = CommandExecutor { options: &options };
 
         // Test all transient error types
         let transient_errors = vec![
@@ -801,7 +826,7 @@ mod error_classification_tests {
         ];
 
         for options in edge_cases {
-            let executor = CommandExecutor::new(&options);
+            let executor = CommandExecutor { options: &options };
 
             // Test that all configurations work with a simple command
             let command_spec = CommandSpec::new("echo").arg("edge case test");

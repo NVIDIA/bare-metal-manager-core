@@ -40,16 +40,10 @@ use crate::runner::exec_options::ExecOptions;
 pub struct CommandExecutor<'a> {
     // options contains the execution options controlling retry,
     // timeout, and interactive confirmation behavior.
-    options: &'a ExecOptions,
+    pub options: &'a ExecOptions,
 }
 
 impl<'a> CommandExecutor<'a> {
-    // Creates a new CommandExecutor with the specified options
-    // for how to execute the command.
-    pub fn new(options: &'a ExecOptions) -> Self {
-        Self { options }
-    }
-
     // Executes a command with retry logic, exponential backoff, and timeout
     // handling using backon. Returns the command output on success, or an error
     // if we had to give up after configured retries/timeouts.

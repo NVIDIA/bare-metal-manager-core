@@ -1,6 +1,6 @@
 # Collecting Machine Diagnostic Information using carbide-admin-cli
 
-This guide describes how to use the `carbide-admin-cli` debug bundle command to collect diagnostic information for troubleshooting machines managed by NVIDIA Bare Metal Manager (BMM). The command creates a ZIP file containing logs, health data, and machine state information.
+This guide describes how to use the `carbide-admin-cli` debug bundle command to collect diagnostic information for troubleshooting machines managed by NCX Infra Controller (NICo). The command creates a ZIP file containing logs, health data, and machine state information.
 
 ## What the Command Does
 
@@ -8,11 +8,11 @@ The debug bundle command collects data from two sources:
 
 1. **Grafana (Loki)** (optional): Fetches logs using Grafana's Loki datasource
    - Host machine logs
-   - BMM API logs
+   - NICo API logs
    - DPU agent logs
    - ***Note:*** Log collection is skipped if `--grafana-url` is not provided
 
-2. **BMM API**: Fetches machine information
+2. **NICo API**: Fetches machine information
    - Health alerts for the specified time range
    - Health alert overrides
    - Site controller details (BMC information)
@@ -23,7 +23,7 @@ The debug bundle command collects data from two sources:
 The generated ZIP file contains:
 
 - Host machine logs from Grafana
-- BMM API container logs from Grafana
+- NICo API container logs from Grafana
 - DPU agent logs from Grafana
 - Machine health alerts for the time range
 - Health alert overrides (if any are configured)
@@ -37,7 +37,7 @@ Before running the debug bundle command, ensure you have:
 
 ### 1. Access to `carbide-admin-cli`
 
-You need `carbide-admin-cli` installed with valid client certificates to connect to the BMM API. Refer to your BMM installation documentation for setup instructions.
+You need `carbide-admin-cli` installed with valid client certificates to connect to the NICo API. Refer to your NICo installation documentation for setup instructions.
 
 ### 2. Grafana Authentication Token (Optional)
 
@@ -80,8 +80,8 @@ carbide-admin-cli -c <API_URL> mh debug-bundle <MACHINE_ID> --start-time <TIME> 
 
 **Required:**
 
-- `-c <API_URL>`: BMM API endpoint
-  - From outside cluster: `https://<your-bmm-api-url>/`
+- `-c <API_URL>`: NICo API endpoint
+  - From outside cluster: `https://<your-nico-api-url>/`
   - From inside cluster: `https://127.0.0.1:1079`
 - `<MACHINE_ID>`: The machine ID to collect debug information for
 - `--start-time <TIME>`: Start time in format `HH:MM:SS` or `YYYY-MM-DD HH:MM:SS`
@@ -101,7 +101,7 @@ carbide-admin-cli -c <API_URL> mh debug-bundle <MACHINE_ID> --start-time <TIME> 
 ```bash
 GRAFANA_AUTH_TOKEN=<your-token> \
 https_proxy=socks5://127.0.0.1:8888 \
-carbide-admin-cli -c https://<your-bmm-api-url>/ mh debug-bundle \
+carbide-admin-cli -c https://<your-nico-api-url>/ mh debug-bundle \
   <machine-id> \
   --start-time 06:00:00 \
   --grafana-url https://grafana.example.com
@@ -112,7 +112,7 @@ carbide-admin-cli -c https://<your-bmm-api-url>/ mh debug-bundle \
 ```bash
 GRAFANA_AUTH_TOKEN=<your-token> \
 https_proxy=socks5://127.0.0.1:8888 \
-carbide-admin-cli -c https://<your-bmm-api-url>/ mh debug-bundle \
+carbide-admin-cli -c https://<your-nico-api-url>/ mh debug-bundle \
   <machine-id> \
   --start-time 06:00:00 \
   --end-time 18:00:00 \
@@ -123,7 +123,7 @@ carbide-admin-cli -c https://<your-bmm-api-url>/ mh debug-bundle \
 **Without Grafana (metadata only):**
 
 ```bash
-carbide-admin-cli -c https://<your-bmm-api-url>/ mh debug-bundle \
+carbide-admin-cli -c https://<your-nico-api-url>/ mh debug-bundle \
   <machine-id> \
   --start-time 06:00:00
 ```

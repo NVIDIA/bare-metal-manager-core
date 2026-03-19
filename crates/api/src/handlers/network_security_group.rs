@@ -92,9 +92,7 @@ pub(crate) async fn create(
         req.tenant_organization_id
             .parse()
             .map_err(|e: InvalidTenantOrg| {
-                Status::from(CarbideError::from(
-                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
-                ))
+                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
             })?;
 
     // Start a new transaction for a db write.
@@ -143,9 +141,7 @@ pub(crate) async fn find_ids(
         .map(|t| t.parse::<TenantOrganizationId>())
         .transpose()
         .map_err(|e: InvalidTenantOrg| {
-            Status::from(CarbideError::from(
-                RpcDataConversionError::InvalidTenantOrg(e.to_string()),
-            ))
+            CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
         })?;
 
     let mut txn = api.txn_begin().await?;
@@ -215,9 +211,7 @@ pub(crate) async fn find_by_ids(
         .map(|t| t.parse::<TenantOrganizationId>())
         .transpose()
         .map_err(|e: InvalidTenantOrg| {
-            Status::from(CarbideError::from(
-                RpcDataConversionError::InvalidTenantOrg(e.to_string()),
-            ))
+            CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
         })?;
 
     // Prepare our txn to grab the NetworkSecurityGroups from the DB
@@ -309,9 +303,7 @@ pub(crate) async fn update(
         req.tenant_organization_id
             .parse()
             .map_err(|e: InvalidTenantOrg| {
-                Status::from(CarbideError::from(
-                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
-                ))
+                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
             })?;
 
     // Start a new transaction for a db write.
@@ -423,9 +415,7 @@ pub(crate) async fn delete(
         req.tenant_organization_id
             .parse()
             .map_err(|e: InvalidTenantOrg| {
-                Status::from(CarbideError::from(
-                    RpcDataConversionError::InvalidTenantOrg(e.to_string()),
-                ))
+                CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
             })?;
 
     // Prepare our txn to delete from the DB

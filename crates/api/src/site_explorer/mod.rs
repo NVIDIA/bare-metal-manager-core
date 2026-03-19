@@ -327,8 +327,8 @@ impl SiteExplorer {
 
         // Grab them all because we care about everything,
         // not just the subset in the current run.
-        let explored_endpoints = db::explored_endpoints::find_all(&mut txn).await?;
-        let explored_managed_hosts = db::explored_managed_host::find_all(&mut txn).await?;
+        let explored_endpoints = db::explored_endpoints::find_all(txn.as_pgconn()).await?;
+        let explored_managed_hosts = db::explored_managed_host::find_all(txn.as_pgconn()).await?;
 
         txn.rollback().await?;
 
@@ -723,7 +723,7 @@ impl SiteExplorer {
 
         let mac_addresses = report.all_mac_addresses();
         for mac_address in mac_addresses {
-            let mi = db::machine_interface::find_by_mac_address(&mut txn, mac_address).await?;
+            let mi = db::machine_interface::find_by_mac_address(&mut *txn, mac_address).await?;
             if let Some(interface) = mi.first() {
                 db::machine_interface::associate_interface_with_machine(
                     &interface.id,
@@ -736,7 +736,7 @@ impl SiteExplorer {
 
         let mac_addresses = report.all_mac_addresses();
         for mac_address in mac_addresses {
-            let mi = db::machine_interface::find_by_mac_address(&mut txn, mac_address).await?;
+            let mi = db::machine_interface::find_by_mac_address(&mut *txn, mac_address).await?;
             if let Some(interface) = mi.first() {
                 db::machine_interface::associate_interface_with_machine(
                     &interface.id,
@@ -841,7 +841,7 @@ impl SiteExplorer {
             .map_err(|e| CarbideError::InvalidArgument(format!("Invalid MAC address: {}", e)))?;
 
         let interface =
-            db::machine_interface::find_by_mac_address(&mut txn, host_mac_address).await?;
+            db::machine_interface::find_by_mac_address(&mut *txn, host_mac_address).await?;
 
         let (host_nvos_mac_addresses, host_nvos_ip_addresses) =
             if let Some(interface) = interface.first() {
@@ -910,7 +910,7 @@ impl SiteExplorer {
 
         let mac_addresses = explored_endpoint.report.all_mac_addresses();
         for mac_address in mac_addresses {
-            let mi = db::machine_interface::find_by_mac_address(&mut txn, mac_address).await?;
+            let mi = db::machine_interface::find_by_mac_address(&mut *txn, mac_address).await?;
             if let Some(interface) = mi.first() {
                 db::machine_interface::associate_interface_with_machine(
                     &interface.id,
@@ -1458,7 +1458,7 @@ impl SiteExplorer {
             db::network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay))
                 .await?;
         let interfaces = db::machine_interface::find_all(&mut txn).await?;
-        let explored_endpoints = db::explored_endpoints::find_all(&mut txn).await?;
+        let explored_endpoints = db::explored_endpoints::find_all(txn.as_pgconn()).await?;
         let expected_switches = db::expected_switch::find_all(&mut txn).await?;
         let expected_machines = db::expected_machine::find_all(&mut txn).await?;
         let expected_power_shelves = db::expected_power_shelf::find_all(&mut txn).await?;
@@ -2231,7 +2231,7 @@ impl SiteExplorer {
         let mut txn = self.txn_begin().await?;
 
         let is_endpoint_in_managed_host =
-            is_endpoint_in_managed_host(bmc_ip_address, &mut txn).await?;
+            is_endpoint_in_managed_host(bmc_ip_address, txn.as_pgconn()).await?;
 
         txn.commit().await?;
 
@@ -2730,7 +2730,9 @@ pub async fn get_machine_state_by_bmc_ip(
 ) -> Result<String, DatabaseError> {
     let mut txn = Transaction::begin(database_connection).await?;
 
-    let state = match db::machine_topology::find_machine_id_by_bmc_ip(&mut txn, bmc_ip).await? {
+    let state = match db::machine_topology::find_machine_id_by_bmc_ip(txn.as_pgconn(), bmc_ip)
+        .await?
+    {
         Some(machine_id) => {
             match machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await? {
                 Some(machine) => machine.current_state().to_string(),

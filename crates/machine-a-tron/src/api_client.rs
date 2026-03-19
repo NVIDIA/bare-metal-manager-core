@@ -262,6 +262,7 @@ impl ApiClient {
             device: None,
             device_instance: 0,
             virtual_function_id: None,
+            ip_address: None,
         };
 
         let tenant_config = rpc::TenantConfig {

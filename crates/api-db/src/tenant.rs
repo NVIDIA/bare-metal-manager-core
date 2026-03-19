@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
 use model::metadata::Metadata;
 use model::tenant::{RoutingProfileType, Tenant, TenantPublicKeyValidationRequest};
@@ -136,7 +135,7 @@ pub async fn increment_version<S: AsRef<str>>(
 
 pub async fn find_tenant_organization_ids(
     txn: impl DbReader<'_>,
-    search_config: rpc::TenantSearchFilter,
+    search_config: model::tenant::TenantSearchFilter,
 ) -> Result<Vec<OrganizationID>, DatabaseError> {
     let mut qb = sqlx::QueryBuilder::new("SELECT organization_id FROM tenants");
 

@@ -15,31 +15,13 @@
  * limitations under the License.
  */
 
+use rpc::forge::ExpectedSwitch;
+
 use super::args::Args;
-use crate::metadata::parse_rpc_labels;
 use crate::rpc::ApiClient;
 
 pub async fn update(data: Args, api_client: &ApiClient) -> color_eyre::Result<()> {
-    if let Err(e) = data.validate() {
-        eprintln!("{e}");
-        return Ok(());
-    }
-    let metadata = rpc::forge::Metadata {
-        name: data.meta_name.unwrap_or_default(),
-        description: data.meta_description.unwrap_or_default(),
-        labels: parse_rpc_labels(data.labels.unwrap_or_default()),
-    };
-    api_client
-        .update_expected_switch(
-            data.bmc_mac_address,
-            data.bmc_username,
-            data.bmc_password,
-            data.switch_serial_number,
-            data.rack_id,
-            data.nvos_username,
-            data.nvos_password,
-            metadata,
-        )
-        .await?;
+    let request: ExpectedSwitch = data.try_into()?;
+    api_client.0.update_expected_switch(request).await?;
     Ok(())
 }

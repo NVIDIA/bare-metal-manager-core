@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::forge::dpu_extension_service_credential::Type;
 use clap::Parser;
 
 use super::super::common::ExtensionServiceType;
@@ -57,4 +59,51 @@ pub struct Args {
         help = "JSON array containing a defined set of extension observability configs (optional)"
     )]
     pub observability: Option<String>,
+}
+
+impl TryFrom<Args> for ::rpc::forge::CreateDpuExtensionServiceRequest {
+    type Error = CarbideCliError;
+
+    fn try_from(args: Args) -> CarbideCliResult<Self> {
+        let credential =
+            if args.username.is_some() || args.password.is_some() || args.registry_url.is_some() {
+                if args.username.is_none() || args.password.is_none() || args.registry_url.is_none()
+                {
+                    return Err(CarbideCliError::GenericError(
+                    "All of username, password and registry URL are required to create credential"
+                        .to_string(),
+                ));
+                }
+
+                Some(::rpc::forge::DpuExtensionServiceCredential {
+                    registry_url: args.registry_url.unwrap_or_default(),
+                    r#type: Some(Type::UsernamePassword(rpc::forge::UsernamePassword {
+                        username: args.username.unwrap_or_default(),
+                        password: args.password.unwrap_or_default(),
+                    })),
+                })
+            } else {
+                None
+            };
+
+        let observability: Vec<::rpc::forge::DpuExtensionServiceObservabilityConfig> =
+            if let Some(r) = args.observability {
+                serde_json::from_str(&r)?
+            } else {
+                vec![]
+            };
+
+        Ok(Self {
+            service_id: args.service_id,
+            service_name: args.service_name,
+            service_type: args.service_type as i32,
+            tenant_organization_id: args.tenant_organization_id.unwrap_or_default(),
+            data: args.data,
+            description: args.description,
+            credential,
+            observability: Some(::rpc::forge::DpuExtensionServiceObservability {
+                configs: observability,
+            }),
+        })
+    }
 }

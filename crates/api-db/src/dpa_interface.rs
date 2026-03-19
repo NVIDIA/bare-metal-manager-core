@@ -188,7 +188,7 @@ pub async fn find_ids(txn: impl DbReader<'_>) -> Result<Vec<DpaInterfaceId>, Dat
 // Given an IP address, find and return the DPA interface that has the given IP
 // as its underlay or overlay IP address.
 pub async fn find_by_ip(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     ipaddr: IpAddr,
 ) -> Result<Vec<DpaInterface>, DatabaseError> {
     let query = "SELECT row_to_json(m.*) from (select * from dpa_interfaces
@@ -198,7 +198,7 @@ pub async fn find_by_ip(
         sqlx::query_as(query)
             .bind(ipaddr)
             .bind(ipaddr)
-            .fetch_all(&mut *txn)
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))?
     };
@@ -243,7 +243,7 @@ pub async fn get_for_pci_name(
 // Find a DPA Interface given its mac address. When we receive messages from the MQTT broker,
 // the topic contains the mac address, and we look up the interface based on that mac address.
 pub async fn find_by_mac_addr(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     maddr: &MacAddress,
 ) -> Result<Vec<DpaInterface>, DatabaseError> {
     let query = "SELECT row_to_json(m.*) from (select * from dpa_interfaces WHERE deleted is NULL AND mac_address = $1) m";
@@ -251,7 +251,7 @@ pub async fn find_by_mac_addr(
     let results: Vec<DpaInterface> = {
         sqlx::query_as(query)
             .bind(maddr)
-            .fetch_all(&mut *txn)
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))?
     };

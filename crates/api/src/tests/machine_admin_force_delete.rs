@@ -71,11 +71,14 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu_machine =
-        db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert!(
         !db::machine_state_history::find_by_machine_ids(&mut txn, &[dpu_machine_id])
             .await
@@ -346,7 +349,7 @@ async fn validate_machine_deletion(
     // And it should also be gone on the DB layer
     let mut txn = env.pool.begin().await.unwrap();
     assert!(
-        db::machine::find_one(&mut txn, machine_id, MachineSearchConfig::default())
+        db::machine::find_one(txn.as_mut(), machine_id, MachineSearchConfig::default())
             .await
             .unwrap()
             .is_none()

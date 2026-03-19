@@ -55,8 +55,9 @@ pub(crate) async fn get_inner(
     .await?;
     txn.commit().await?;
 
-    let Some(bmc_mac_address) = bmc_endpoint_request.mac_address else {
-        return Err(CarbideError::NotFoundError {
+    let bmc_mac_address: mac_address::MacAddress = bmc_endpoint_request
+        .mac_address
+        .ok_or_else(|| CarbideError::NotFoundError {
             kind: "bmc_metadata",
             id: format!(
                 "MachineId: {}, IP: {}",
@@ -67,14 +68,11 @@ pub(crate) async fn get_inner(
                     .unwrap_or_default(),
                 bmc_endpoint_request.ip_address
             ),
-        });
-    };
-
-    let bmc_mac_address: mac_address::MacAddress = match bmc_mac_address.parse() {
-        Ok(m) => m,
-        Err(_) => {
+        })?
+        .parse()
+        .map_err(|e| {
             let e = format!(
-                "The MAC address {bmc_mac_address} resolved for MachineId {}, IP {} is not valid",
+                "The MAC address resolved for MachineId {}, IP {} is not valid: {e}",
                 request
                     .machine_id
                     .as_ref()
@@ -83,9 +81,8 @@ pub(crate) async fn get_inner(
                 bmc_endpoint_request.ip_address
             );
             tracing::error!(e);
-            return Err(CarbideError::internal(e));
-        }
-    };
+            CarbideError::internal(e)
+        })?;
 
     let credentials = credential_reader
         .get_credentials(&CredentialKey::BmcCredentials {
@@ -94,6 +91,11 @@ pub(crate) async fn get_inner(
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?
         .ok_or_else(|| CarbideError::internal("missing credentials".to_string()))?;
+
+    let ip_address = bmc_endpoint_request.ip_address.parse().map_err(|_| {
+        CarbideError::internal("Internal error: Stored IP address is invalid".to_string())
+    })?;
+    let vendor = db::explored_endpoints::lookup_vendor_by_ip(ip_address, pool).await?;
 
     let (username, password) = match credentials {
         Credentials::UsernamePassword { username, password } => (username, password),
@@ -107,5 +109,6 @@ pub(crate) async fn get_inner(
         mac: bmc_mac_address.to_string(),
         user: username,
         password,
+        vendor,
     })
 }

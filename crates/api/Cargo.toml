@@ -55,7 +55,8 @@ carbide-api-model = { path = "../api-model", default-features = false }
 carbide-api-db = { path = "../api-db", default-features = false }
 spancounter = { path = "../spancounter" }
 nras = { path = "../nras" }
-carbide-dpf-beta = { path = "../dpf-beta" }
+carbide-dpf = { path = "../dpf" }
+component-manager = { path = "../component-manager" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized
@@ -107,7 +108,7 @@ mac_address = { workspace = true }
 md5 = { workspace = true }
 num-bigint-dig = { workspace = true }
 num_cpus = { workspace = true }
-nv-redfish = { workspace = true, features = [ "bmc-http", "oem-hpe" ] }
+nv-redfish = { workspace = true, features = ["bmc-http", "oem-hpe"] }
 oauth2 = { default-features = false, workspace = true }
 oid-registry = { workspace = true }
 opentelemetry = { workspace = true, features = ["logs"] }

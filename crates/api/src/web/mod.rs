@@ -51,6 +51,7 @@ use crate::api::Api;
 use crate::auth::{AuthContext, Principal};
 use crate::cfg::file::CarbideConfig;
 
+mod action_status;
 mod attestation;
 mod auth;
 mod compute_allocation;
@@ -58,6 +59,9 @@ mod domain;
 mod dpa;
 mod dpu_versions;
 mod expected_machine;
+mod expected_power_shelf;
+mod expected_rack;
+mod expected_switch;
 mod explored_endpoint;
 mod filters;
 mod health;
@@ -67,6 +71,7 @@ mod ib_partition;
 mod instance;
 mod instance_type;
 mod interface;
+mod ipam;
 mod machine;
 mod machine_state_history;
 mod machine_validation;
@@ -336,6 +341,11 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/interface", get(interface::show_html))
             .route("/interface.json", get(interface::show_all_json))
             .route("/interface/{interface_id}", get(interface::detail))
+            .route("/ipam/dhcp", get(ipam::dhcp_html))
+            .route("/ipam/dhcp.json", get(ipam::dhcp_json))
+            .route("/ipam/dns", get(ipam::dns_html))
+            .route("/ipam/underlay", get(ipam::underlay_html))
+            .route("/ipam/overlay", get(ipam::overlay_html))
             .route("/machine", get(machine::show_all_html))
             .route("/machine.json", get(machine::show_all_json))
             .route("/machine/{machine_id}", get(machine::detail))
@@ -417,6 +427,18 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route(
                 "/expected-machine-definition.json",
                 get(expected_machine::show_expected_machine_raw_json),
+            )
+            .route("/expected-rack", get(expected_rack::show_html))
+            .route("/expected-rack.json", get(expected_rack::show_json))
+            .route("/expected-switch", get(expected_switch::show_html))
+            .route("/expected-switch.json", get(expected_switch::show_json))
+            .route(
+                "/expected-power-shelf",
+                get(expected_power_shelf::show_html),
+            )
+            .route(
+                "/expected-power-shelf.json",
+                get(expected_power_shelf::show_json),
             )
             .route("/network-device", get(network_device::show_html))
             .route("/network-device.json", get(network_device::show_all_json))
@@ -715,7 +737,7 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
     {
         Ok(x) if x == Off as i32 => "Off",
         Ok(x) if x == UpOnly as i32 => "Upgrade only",
-        Ok(x) if x == UpDown as i32 => "Upgade and Downgrade",
+        Ok(x) if x == UpDown as i32 => "Upgrade and Downgrade",
         Ok(_) => "Unknown",
         Err(err) => {
             tracing::error!(%err, "dpu_agent_upgrade_policy_action");

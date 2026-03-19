@@ -21,6 +21,7 @@ use model::network_segment::NetworkSegmentType;
 use sqlx::{FromRow, PgConnection};
 
 use super::DatabaseError;
+use crate::db_read::DbReader;
 
 #[derive(Debug, FromRow, Clone)]
 pub struct MachineInterfaceAddress {
@@ -41,7 +42,7 @@ pub async fn find_ipv4_for_interface(
 }
 
 pub async fn find_by_address(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     address: IpAddr,
 ) -> Result<Option<MachineInterfaceSearchResult>, DatabaseError> {
     let query = "SELECT mi.id, mi.machine_id, ns.name, ns.network_segment_type

@@ -39,7 +39,7 @@ pub struct InterfaceRules {
 /// Generate /etc/cumulus/acl/policy.d/60-forge.rules
 pub fn build(conf: AclConfig) -> Result<String, eyre::Report> {
     let iptables_rules = make_forge_rules(conf);
-    let rules_file = RulesFile::new(iptables_rules);
+    let rules_file = RulesFile { iptables_rules };
 
     let mut file_contents = rules_file.to_string();
     append_arp_suppression_contents(&mut file_contents);
@@ -71,7 +71,7 @@ fn make_forge_rules(acl_config: AclConfig) -> IpTablesRuleset {
 
     rules.push(make_block_nvued_rule());
 
-    IpTablesRuleset::new_with_rules(rules)
+    IpTablesRuleset { rules }
 }
 
 // Create the Forge ruleset for a specific tenant-facing interface.

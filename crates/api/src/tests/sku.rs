@@ -21,7 +21,7 @@ pub mod tests {
     use db::sku::CURRENT_SKU_VERSION;
     use db::{self, DatabaseError, ObjectFilter, WithTransaction};
     use futures_util::FutureExt;
-    use model::expected_machine::ExpectedMachineData;
+    use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
     use model::machine::machine_search_config::MachineSearchConfig;
     use model::machine::{
         BomValidating, BomValidatingContext, MachineState, MachineValidatingState,
@@ -781,19 +781,21 @@ pub mod tests {
         let mut txn = pool.begin().await?;
         db::expected_machine::create(
             &mut txn,
-            managed_host_config.bmc_mac_address,
-            ExpectedMachineData {
-                bmc_username: "admin".to_string(),
-                bmc_password: "password".to_string(),
-                serial_number: "1234567890".to_string(),
-                fallback_dpu_serial_numbers: vec![],
-                metadata: Metadata::new_with_default_name(),
-                sku_id: Some("no-sku".to_string()),
-                override_id: None,
-                default_pause_ingestion_and_poweron: None,
-                host_nics: vec![],
-                rack_id: None,
-                dpf_enabled: Some(true),
+            ExpectedMachine {
+                id: None,
+                bmc_mac_address: managed_host_config.bmc_mac_address,
+                data: ExpectedMachineData {
+                    bmc_username: "admin".to_string(),
+                    bmc_password: "password".to_string(),
+                    serial_number: "1234567890".to_string(),
+                    fallback_dpu_serial_numbers: vec![],
+                    metadata: Metadata::new_with_default_name(),
+                    sku_id: Some("no-sku".to_string()),
+                    default_pause_ingestion_and_poweron: None,
+                    host_nics: vec![],
+                    rack_id: None,
+                    dpf_enabled: Some(true),
+                },
             },
         )
         .await?;
@@ -870,19 +872,21 @@ pub mod tests {
         let mut txn = pool.begin().await?;
         db::expected_machine::create(
             &mut txn,
-            managed_host_config.bmc_mac_address,
-            ExpectedMachineData {
-                bmc_username: "admin".to_string(),
-                bmc_password: "password".to_string(),
-                serial_number: "1234567890".to_string(),
-                fallback_dpu_serial_numbers: vec![],
-                metadata: Metadata::new_with_default_name(),
-                sku_id: Some("no-sku-missing".to_string()),
-                override_id: None,
-                default_pause_ingestion_and_poweron: None,
-                host_nics: vec![],
-                rack_id: None,
-                dpf_enabled: Some(true),
+            ExpectedMachine {
+                id: None,
+                bmc_mac_address: managed_host_config.bmc_mac_address,
+                data: ExpectedMachineData {
+                    bmc_username: "admin".to_string(),
+                    bmc_password: "password".to_string(),
+                    serial_number: "1234567890".to_string(),
+                    fallback_dpu_serial_numbers: vec![],
+                    metadata: Metadata::new_with_default_name(),
+                    sku_id: Some("no-sku-missing".to_string()),
+                    default_pause_ingestion_and_poweron: None,
+                    host_nics: vec![],
+                    rack_id: None,
+                    dpf_enabled: Some(true),
+                },
             },
         )
         .await?;
@@ -934,19 +938,21 @@ pub mod tests {
         let mut txn = pool.begin().await?;
         db::expected_machine::create(
             &mut txn,
-            managed_host_config.bmc_mac_address,
-            ExpectedMachineData {
-                bmc_username: "admin".to_string(),
-                bmc_password: "password".to_string(),
-                serial_number: "1234567890".to_string(),
-                fallback_dpu_serial_numbers: vec![],
-                metadata: Metadata::new_with_default_name(),
-                sku_id: Some("no-sku".to_string()),
-                override_id: None,
-                default_pause_ingestion_and_poweron: None,
-                host_nics: vec![],
-                rack_id: None,
-                dpf_enabled: Some(true),
+            ExpectedMachine {
+                id: None,
+                bmc_mac_address: managed_host_config.bmc_mac_address,
+                data: ExpectedMachineData {
+                    bmc_username: "admin".to_string(),
+                    bmc_password: "password".to_string(),
+                    serial_number: "1234567890".to_string(),
+                    fallback_dpu_serial_numbers: vec![],
+                    metadata: Metadata::new_with_default_name(),
+                    sku_id: Some("no-sku".to_string()),
+                    default_pause_ingestion_and_poweron: None,
+                    host_nics: vec![],
+                    rack_id: None,
+                    dpf_enabled: Some(true),
+                },
             },
         )
         .await?;
@@ -1015,19 +1021,21 @@ pub mod tests {
         let mut txn = pool.begin().await?;
         db::expected_machine::create(
             &mut txn,
-            managed_host_config.bmc_mac_address,
-            ExpectedMachineData {
-                bmc_username: "admin".to_string(),
-                bmc_password: "password".to_string(),
-                serial_number: "1234567890".to_string(),
-                fallback_dpu_serial_numbers: vec![],
-                metadata: Metadata::new_with_default_name(),
-                sku_id: Some("non-existent-sku".to_string()),
-                override_id: None,
-                default_pause_ingestion_and_poweron: None,
-                host_nics: vec![],
-                rack_id: None,
-                dpf_enabled: Some(true),
+            ExpectedMachine {
+                id: None,
+                bmc_mac_address: managed_host_config.bmc_mac_address,
+                data: ExpectedMachineData {
+                    bmc_username: "admin".to_string(),
+                    bmc_password: "password".to_string(),
+                    serial_number: "1234567890".to_string(),
+                    fallback_dpu_serial_numbers: vec![],
+                    metadata: Metadata::new_with_default_name(),
+                    sku_id: Some("non-existent-sku".to_string()),
+                    default_pause_ingestion_and_poweron: None,
+                    host_nics: vec![],
+                    rack_id: None,
+                    dpf_enabled: Some(true),
+                },
             },
         )
         .await?;
@@ -1447,19 +1455,21 @@ pub mod tests {
         let mut txn = pool.begin().await?;
         db::expected_machine::create(
             &mut txn,
-            managed_host_config.bmc_mac_address,
-            ExpectedMachineData {
-                bmc_username: "admin".to_string(),
-                bmc_password: "password".to_string(),
-                serial_number: "1234567890".to_string(),
-                fallback_dpu_serial_numbers: vec![],
-                metadata: Metadata::new_with_default_name(),
-                sku_id: Some(mismatched_sku.id.clone()),
-                override_id: None,
-                default_pause_ingestion_and_poweron: None,
-                host_nics: vec![],
-                rack_id: None,
-                dpf_enabled: Some(true),
+            ExpectedMachine {
+                id: None,
+                bmc_mac_address: managed_host_config.bmc_mac_address,
+                data: ExpectedMachineData {
+                    bmc_username: "admin".to_string(),
+                    bmc_password: "password".to_string(),
+                    serial_number: "1234567890".to_string(),
+                    fallback_dpu_serial_numbers: vec![],
+                    metadata: Metadata::new_with_default_name(),
+                    sku_id: Some(mismatched_sku.id.clone()),
+                    default_pause_ingestion_and_poweron: None,
+                    host_nics: vec![],
+                    rack_id: None,
+                    dpf_enabled: Some(true),
+                },
             },
         )
         .await?;

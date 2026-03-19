@@ -19,9 +19,8 @@ use carbide_uuid::rack::RackId;
 use db::rack as db_rack;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
-use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
+use model::expected_machine::{ExpectedMachine, ExpectedMachineData, ExpectedMachineRequest};
 use regex::Regex;
-use tonic::Status;
 use uuid::Uuid;
 
 use crate::CarbideError;
@@ -38,51 +37,27 @@ pub(crate) async fn get(
 ) -> Result<tonic::Response<rpc::ExpectedMachine>, tonic::Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin().await?;
+    let req: ExpectedMachineRequest = request
+        .into_inner()
+        .try_into()
+        .map_err(|e| CarbideError::InvalidArgument(format!("{}", e)))?;
 
-    let request = request.into_inner();
+    let target_id = req
+        .id
+        .map(|u| u.to_string())
+        .or(req.bmc_mac_address.map(|m| m.to_string()))
+        .unwrap_or_default();
 
-    // If id was provided, fetch by id; else fetch by MAC
-    if let Some(uuid_val) = request.id.clone() {
-        let id = Uuid::parse_str(&uuid_val.value).map_err(|_| {
-            CarbideError::InvalidArgument("invalid expected_machine id".to_string())
-        })?;
-        let maybe: Option<ExpectedMachine> = db::expected_machine::find_by_id(&mut txn, id).await?;
-        return match maybe {
-            Some(expected_machine) => Ok(tonic::Response::new(expected_machine.into())),
-            None => Err(CarbideError::NotFoundError {
-                kind: "expected_machine",
-                id: uuid_val.value,
-            }
-            .into()),
-        };
-    }
-
-    let parsed_mac: MacAddress = request
-        .bmc_mac_address
-        .parse::<MacAddress>()
-        .map_err(CarbideError::from)?;
-
-    let result = match db::expected_machine::find_by_bmc_mac_address(&mut txn, parsed_mac).await? {
-        Some(expected_machine) => {
-            if expected_machine.bmc_mac_address != parsed_mac {
-                return Err(Status::invalid_argument(format!(
-                    "find_by_bmc_mac_address returned {expected_machine:#?} which differs from the queried mac address {parsed_mac}"
-                )));
-            }
-
-            Ok(tonic::Response::new(expected_machine.into()))
-        }
-        None => Err(CarbideError::NotFoundError {
+    let expected_machine = db::expected_machine::find(&api.database_connection, &req)
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or(CarbideError::NotFoundError {
             kind: "expected_machine",
-            id: parsed_mac.to_string(),
-        }
-        .into()),
-    };
+            id: target_id,
+        })?;
 
-    txn.rollback().await?;
-
-    result
+    let response = rpc::ExpectedMachine::from(expected_machine);
+    Ok(tonic::Response::new(response))
 }
 
 pub(crate) async fn add(
@@ -112,34 +87,37 @@ pub(crate) async fn add(
         .map_err(CarbideError::from)?;
 
     let request_rack_id = request.rack_id;
-    let mut db_data: ExpectedMachineData = request.try_into()?;
-    // Ensure an id is always supplied by the server if the client omitted it
-    if db_data.override_id.is_none() {
-        db_data.override_id = Some(Uuid::new_v4());
-    }
+    let id = request
+        .id
+        .as_ref()
+        .map(|u| {
+            Uuid::parse_str(&u.value).map_err(|_| {
+                CarbideError::InvalidArgument("invalid expected_machine id".to_string())
+            })
+        })
+        .transpose()?;
+    let db_data: ExpectedMachineData = request.try_into()?;
+
+    let machine = ExpectedMachine {
+        id,
+        bmc_mac_address: parsed_mac,
+        data: db_data,
+    };
 
     let mut txn = api.txn_begin().await?;
 
-    db::expected_machine::create(&mut txn, parsed_mac, db_data).await?;
+    db::expected_machine::create(&mut txn, machine).await?;
 
     if let Some(rack_id) = request_rack_id {
-        match db_rack::get(&mut txn, rack_id).await {
-            Ok(rack) => {
-                let mut config = rack.config.clone();
-                if !config.expected_compute_trays.contains(&parsed_mac) {
-                    config.expected_compute_trays.push(parsed_mac);
-                    db_rack::update(&mut txn, rack_id, &config)
-                        .await
-                        .map_err(CarbideError::from)?;
-                }
-            }
-            Err(_) => {
-                let expected_compute_trays = vec![parsed_mac];
-                let _rack =
-                    db_rack::create(&mut txn, rack_id, expected_compute_trays, vec![], vec![])
-                        .await
-                        .map_err(CarbideError::from)?;
-            }
+        let adopted = db_rack::adopt_expected_machine(&mut txn, rack_id, parsed_mac)
+            .await
+            .map_err(CarbideError::from)?;
+        if !adopted {
+            tracing::debug!(
+                "rack {} does not exist yet, machine {} will be adopted later.",
+                rack_id,
+                parsed_mac
+            );
         }
     }
 
@@ -154,23 +132,16 @@ pub(crate) async fn delete(
 ) -> Result<tonic::Response<()>, tonic::Status> {
     log_request_data(&request);
 
-    let request = request.into_inner();
+    let req: ExpectedMachineRequest = request
+        .into_inner()
+        .try_into()
+        .map_err(|e| CarbideError::InvalidArgument(format!("{}", e)))?;
 
     let mut txn = api.txn_begin().await?;
 
-    if let Some(uuid_val) = request.id.clone() {
-        let id = Uuid::parse_str(&uuid_val.value).map_err(|_| {
-            CarbideError::InvalidArgument("invalid expected_machine id".to_string())
-        })?;
-        db::expected_machine::delete_by_id(id, &mut txn).await?;
-    } else {
-        // We parse the MAC in order to detect formatting errors before handing it off to the database
-        let parsed_mac: MacAddress = request
-            .bmc_mac_address
-            .parse::<MacAddress>()
-            .map_err(CarbideError::from)?;
-        db::expected_machine::delete(parsed_mac, &mut txn).await?;
-    }
+    db::expected_machine::delete(&mut txn, &req)
+        .await
+        .map_err(CarbideError::from)?;
 
     txn.commit().await?;
 
@@ -190,54 +161,44 @@ pub(crate) async fn update(
         );
     }
     // Save fields needed later before moving `request` into data conversion
-    let request_id = request.id.clone();
-    let request_mac = request.bmc_mac_address.clone();
+    let id = request
+        .id
+        .as_ref()
+        .map(|u| {
+            Uuid::parse_str(&u.value).map_err(|_| {
+                CarbideError::InvalidArgument("invalid expected_machine id".to_string())
+            })
+        })
+        .transpose()?;
+    let parsed_mac: MacAddress = request
+        .bmc_mac_address
+        .parse::<MacAddress>()
+        .map_err(CarbideError::from)?;
     let request_rack_id = request.rack_id;
     let data: ExpectedMachineData = request.try_into()?;
 
+    let machine = ExpectedMachine {
+        id,
+        bmc_mac_address: parsed_mac,
+        data,
+    };
+
     let mut txn = api.txn_begin().await?;
 
-    if let Some(uuid_val) = request_id.clone() {
-        let id = Uuid::parse_str(&uuid_val.value).map_err(|_| {
-            CarbideError::InvalidArgument("invalid expected_machine id".to_string())
-        })?;
-        db::expected_machine::update_by_id(&mut txn, id, data).await?;
-    } else {
-        let parsed_mac: MacAddress = request_mac
-            .parse::<MacAddress>()
-            .map_err(CarbideError::from)?;
-        let mut expected_machine = ExpectedMachine {
-            id: Some(Uuid::new_v4()),
-            bmc_mac_address: parsed_mac,
-            data: data.clone(),
-        };
-        db::expected_machine::update(&mut expected_machine, &mut txn, data).await?;
+    db::expected_machine::update(&mut txn, &machine)
+        .await
+        .map_err(CarbideError::from)?;
 
-        // TODO(chet): This should also go into the `update_by_id` flow,
-        // but the fact `parsed_mac` is only in this flow makes me think
-        // there might not be a parsed MAC to work with in the `update_by_id`
-        // flow. That said, the backing queries could be changed to return
-        // the bmc_mac_address in both cases, which would then let this
-        // work for both cases.
-        if let Some(rack_id) = request_rack_id {
-            match db_rack::get(&mut txn, rack_id).await {
-                Ok(rack) => {
-                    let mut config = rack.config.clone();
-                    if !config.expected_compute_trays.contains(&parsed_mac) {
-                        config.expected_compute_trays.push(parsed_mac);
-                        db_rack::update(&mut txn, rack_id, &config)
-                            .await
-                            .map_err(CarbideError::from)?;
-                    }
-                }
-                Err(_) => {
-                    let expected_compute_trays = vec![parsed_mac];
-                    let _rack =
-                        db_rack::create(&mut txn, rack_id, expected_compute_trays, vec![], vec![])
-                            .await
-                            .map_err(CarbideError::from)?;
-                }
-            }
+    if let Some(rack_id) = request_rack_id {
+        let adopted = db_rack::adopt_expected_machine(&mut txn, rack_id, parsed_mac)
+            .await
+            .map_err(CarbideError::from)?;
+        if !adopted {
+            tracing::debug!(
+                "rack {} does not exist yet, machine {} will be adopted later.",
+                rack_id,
+                parsed_mac
+            );
         }
     }
 
@@ -355,28 +316,21 @@ fn sanitize_expected_machine_and_get_ids(
     Ok((id, parsed_mac))
 }
 
-/// Helper function to process rack association
+/// process_rack_association registers an expected machine MAC with a rack, creating the rack if needed.
 async fn process_rack_association(
     txn: &mut sqlx::PgConnection,
     rack_id: RackId,
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
-    match db_rack::get(&mut *txn, rack_id).await {
-        Ok(rack) => {
-            let mut config = rack.config.clone();
-            if !config.expected_compute_trays.contains(&parsed_mac) {
-                config.expected_compute_trays.push(parsed_mac);
-                db_rack::update(txn, rack_id, &config)
-                    .await
-                    .map_err(CarbideError::from)?;
-            }
-        }
-        Err(_) => {
-            let expected_compute_trays = vec![parsed_mac];
-            let _rack = db_rack::create(txn, rack_id, expected_compute_trays, vec![], vec![])
-                .await
-                .map_err(CarbideError::from)?;
-        }
+    let adopted = db_rack::adopt_expected_machine(txn, rack_id, parsed_mac)
+        .await
+        .map_err(CarbideError::from)?;
+    if !adopted {
+        tracing::debug!(
+            "rack {} does not exist yet, machine {} will be adopted later.",
+            rack_id,
+            parsed_mac
+        );
     }
     Ok(())
 }
@@ -389,10 +343,15 @@ async fn create_expected_machine(
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
     let request_rack_id = machine.rack_id;
-    let mut db_data: ExpectedMachineData = machine.try_into()?;
-    db_data.override_id = Some(id);
+    let db_data: ExpectedMachineData = machine.try_into()?;
 
-    db::expected_machine::create(txn, parsed_mac, db_data).await?;
+    let expected_machine = ExpectedMachine {
+        id: Some(id),
+        bmc_mac_address: parsed_mac,
+        data: db_data,
+    };
+
+    db::expected_machine::create(txn, expected_machine).await?;
 
     // Handle rack association
     if let Some(rack_id) = request_rack_id {
@@ -412,7 +371,13 @@ async fn update_expected_machine(
     let request_rack_id = machine.rack_id;
     let data: ExpectedMachineData = machine.try_into()?;
 
-    db::expected_machine::update_by_id(txn, id, data).await?;
+    let expected_machine = ExpectedMachine {
+        id: Some(id),
+        bmc_mac_address: parsed_mac,
+        data,
+    };
+
+    db::expected_machine::update(txn, &expected_machine).await?;
 
     // Handle rack association
     if let Some(rack_id) = request_rack_id {

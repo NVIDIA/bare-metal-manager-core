@@ -18,6 +18,7 @@
 use carbide_uuid::vpc::VpcId;
 use carbide_uuid::vpc_peering::VpcPeeringId;
 use clap::Parser;
+use rpc::forge::VpcPeeringCreationRequest;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -29,4 +30,14 @@ pub struct Args {
 
     #[clap(long, help = "Optional desired ID for the VPC peering")]
     pub id: Option<VpcPeeringId>,
+}
+
+impl From<Args> for VpcPeeringCreationRequest {
+    fn from(args: Args) -> Self {
+        VpcPeeringCreationRequest {
+            vpc_id: Some(args.vpc1_id),
+            peer_vpc_id: Some(args.vpc2_id),
+            id: args.id,
+        }
+    }
 }

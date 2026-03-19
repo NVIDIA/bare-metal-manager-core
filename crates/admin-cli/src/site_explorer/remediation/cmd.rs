@@ -41,9 +41,7 @@ pub async fn remediation(api_client: &ApiClient, opts: Args) -> CarbideCliResult
             .await?;
         println!("Remediation resumed for endpoint {}", opts.address);
     } else {
-        return Err(CarbideCliError::GenericError(
-            "Must specify either --pause or --resume".to_owned(),
-        ));
+        return Err(CarbideCliError::RequireOneError("--pause", "--resume"));
     }
     Ok(())
 }

@@ -176,16 +176,20 @@ pub async fn create_new_run(
     Ok(id)
 }
 
-pub async fn find(
-    txn: &mut PgConnection,
+pub async fn find<DB>(
+    txn: &mut DB,
     machine_id: &MachineId,
     include_history: bool,
-) -> DatabaseResult<Vec<MachineValidation>> {
+) -> DatabaseResult<Vec<MachineValidation>>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     if include_history {
-        return find_by_machine_id(txn, machine_id).await;
+        return find_by_machine_id(&mut *txn, machine_id).await;
     };
     let machine =
-        match crate::machine::find_one(txn, machine_id, MachineSearchConfig::default()).await {
+        match crate::machine::find_one(&mut *txn, machine_id, MachineSearchConfig::default()).await
+        {
             Err(err) => {
                 tracing::warn!(%machine_id, error = %err, "failed loading machine");
                 return Err(DatabaseError::InvalidArgument(
@@ -208,7 +212,7 @@ pub async fn find(
     let on_demand_machine_validation_id =
         machine.on_demand_machine_validation_id.unwrap_or_default();
     find_by(
-        txn,
+        &mut *txn,
         ObjectFilter::List(&[
             cleanup_machine_validation_id.to_string(),
             discovery_machine_validation_id.to_string(),
@@ -261,7 +265,7 @@ pub async fn find_by_id(
     )))
 }
 
-pub async fn find_all(txn: &mut PgConnection) -> DatabaseResult<Vec<MachineValidation>> {
+pub async fn find_all(txn: impl DbReader<'_>) -> DatabaseResult<Vec<MachineValidation>> {
     find_by(txn, ObjectFilter::All, "").await
 }
 

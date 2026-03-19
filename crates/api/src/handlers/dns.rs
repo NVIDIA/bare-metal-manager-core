@@ -273,12 +273,12 @@ pub async fn lookup_record(
     );
 
     let rrtype = DnsResourceRecordType::try_from(lookup_request.qtype)
-        .map_err(|e| tonic::Status::invalid_argument(format!("Invalid qtype supplied: {}", e)))?;
+        .map_err(|e| CarbideError::InvalidArgument(format!("Invalid qtype supplied: {}", e)))?;
 
     let qname = lookup_request.qname;
 
     if qname.is_empty() {
-        return Err(Status::invalid_argument("qname cannot be empty"));
+        return Err(CarbideError::InvalidArgument("qname cannot be empty".to_string()).into());
     }
 
     let resource_record: Vec<DnsResourceRecordReply> = match rrtype {
@@ -353,7 +353,7 @@ pub async fn lookup_record_legacy_compat(
     // Check for empty qname early
     if qname.is_empty() {
         tracing::warn!("Received legacy DNS request with empty qname");
-        return Err(Status::invalid_argument("qname cannot be empty"));
+        return Err(CarbideError::InvalidArgument("qname cannot be empty".to_string()).into());
     }
 
     // Convert numeric q_type to string using constants
@@ -369,10 +369,11 @@ pub async fn lookup_record_legacy_compat(
         DNS_QTYPE_SRV => DNS_TYPE_SRV,
         DNS_QTYPE_ANY => DNS_TYPE_ANY,
         _ => {
-            return Err(Status::invalid_argument(format!(
+            return Err(CarbideError::InvalidArgument(format!(
                 "Unsupported DNS record type: {}",
                 q_type
-            )));
+            ))
+            .into());
         }
     }
     .to_string();
@@ -397,7 +398,10 @@ pub async fn lookup_record_legacy_compat(
         .iter()
         .filter(|d| domain_name.ends_with(&d.name))
         .max_by_key(|d| d.name.len())
-        .ok_or_else(|| Status::not_found(format!("No domain found for qname: {}", qname)))?;
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "domain",
+            id: format!("No domain found for qname: {}", qname),
+        })?;
 
     // Convert to new request format
     let lookup_request = protos::dns::DnsResourceRecordLookupRequest {

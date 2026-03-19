@@ -82,6 +82,9 @@ pub fn get_health_report(
         }
         HealthOverrideTemplates::InternalMaintenance => {
             report.source = "maintenance".to_string();
+            report.alerts[0]
+                .classifications
+                .push(HealthAlertClassification::exclude_from_state_machine_sla());
         }
         HealthOverrideTemplates::StopRebootForAutomaticRecoveryFromStateMachine => {
             report.source = "manual-maintenance".to_string();
@@ -93,6 +96,9 @@ pub fn get_health_report(
         HealthOverrideTemplates::OutForRepair => {
             report.source = "manual-maintenance".to_string();
             report.alerts[0].target = Some("OutForRepair".to_string());
+            report.alerts[0]
+                .classifications
+                .push(HealthAlertClassification::exclude_from_state_machine_sla());
         }
         HealthOverrideTemplates::Degraded => {
             report.source = "manual-maintenance".to_string();
@@ -353,6 +359,55 @@ mod tests {
         );
         assert!(
             repair_report.alerts[0]
+                .classifications
+                .contains(&HealthAlertClassification::suppress_external_alerting())
+        );
+    }
+
+    #[test]
+    fn test_internal_maintenance_template_excludes_from_state_machine_sla() {
+        let report = get_health_report(HealthOverrideTemplates::InternalMaintenance, None);
+
+        assert_eq!(report.source, "maintenance");
+        let alert = &report.alerts[0];
+        assert!(
+            alert
+                .classifications
+                .contains(&HealthAlertClassification::exclude_from_state_machine_sla()),
+            "InternalMaintenance should carry ExcludeFromStateMachineSla"
+        );
+        assert!(
+            alert
+                .classifications
+                .contains(&HealthAlertClassification::prevent_allocations())
+        );
+        assert!(
+            alert
+                .classifications
+                .contains(&HealthAlertClassification::suppress_external_alerting())
+        );
+    }
+
+    #[test]
+    fn test_out_for_repair_template_excludes_from_state_machine_sla() {
+        let report = get_health_report(HealthOverrideTemplates::OutForRepair, None);
+
+        assert_eq!(report.source, "manual-maintenance");
+        let alert = &report.alerts[0];
+        assert_eq!(alert.target, Some("OutForRepair".to_string()));
+        assert!(
+            alert
+                .classifications
+                .contains(&HealthAlertClassification::exclude_from_state_machine_sla()),
+            "OutForRepair should carry ExcludeFromStateMachineSla"
+        );
+        assert!(
+            alert
+                .classifications
+                .contains(&HealthAlertClassification::prevent_allocations())
+        );
+        assert!(
+            alert
                 .classifications
                 .contains(&HealthAlertClassification::suppress_external_alerting())
         );

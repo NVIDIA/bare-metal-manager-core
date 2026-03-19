@@ -209,7 +209,11 @@ pub(crate) async fn machine_set_auto_update(
     let Some(_machine) =
         db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?
     else {
-        return Err(Status::not_found("The machine ID was not found"));
+        return Err(CarbideError::NotFoundError {
+            kind: "machine",
+            id: request.machine_id.unwrap_or_default().to_string(),
+        }
+        .into());
     };
 
     let state = match request.action() {
@@ -497,13 +501,14 @@ pub(crate) async fn admin_force_delete_machine(
         {
             let host_dpf_id = machine
                 .dpf_id()
-                .ok_or_else(|| CarbideError::internal("BMC MAC not set for host".into()))?;
+                .ok_or_else(|| CarbideError::internal("BMC MAC not set for host".to_string()))?;
             let node_name = carbide_dpf::dpu_node_cr_name(&host_dpf_id);
             let dpu_device_names: Vec<String> = dpu_machines
                 .iter()
                 .map(|d| {
-                    d.dpf_id()
-                        .ok_or_else(|| CarbideError::internal("BMC MAC not set for DPU".into()))
+                    d.dpf_id().ok_or_else(|| {
+                        CarbideError::internal("BMC MAC not set for DPU".to_string())
+                    })
                 })
                 .collect::<Result<_, _>>()?;
             ops.force_delete_host(&node_name, &dpu_device_names)
@@ -661,7 +666,9 @@ pub(crate) async fn get_dpu_info_list(
 
     txn.commit().await?;
 
-    let response = rpc::GetDpuInfoListResponse { dpu_list };
+    let response = rpc::GetDpuInfoListResponse {
+        dpu_list: dpu_list.into_iter().map(rpc::DpuInfo::from).collect(),
+    };
     Ok(Response::new(response))
 }
 

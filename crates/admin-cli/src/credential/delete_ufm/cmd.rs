@@ -16,19 +16,13 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::{CredentialType, forge as forgerpc};
+use ::rpc::forge as forgerpc;
 
 use super::args::Args;
-use crate::credential::common::url_validator;
 use crate::rpc::ApiClient;
 
-pub async fn delete_ufm(c: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let username = url_validator(c.url)?;
-    let req = forgerpc::CredentialDeletionRequest {
-        credential_type: CredentialType::Ufm.into(),
-        username: Some(username),
-        mac_address: None,
-    };
+pub async fn delete_ufm(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+    let req: forgerpc::CredentialDeletionRequest = data.try_into()?;
     api_client.0.delete_credential(req).await?;
     Ok(())
 }

@@ -54,7 +54,7 @@ impl From<DbExploredManagedHost> for ExploredManagedHost {
 pub async fn find_ips(
     txn: impl DbReader<'_>,
     // filter is currently is empty, so it is a placeholder for the future
-    _filter: ::rpc::site_explorer::ExploredManagedHostSearchFilter,
+    _filter: model::site_explorer::ExploredManagedHostSearchFilter,
 ) -> Result<Vec<IpAddr>, DatabaseError> {
     #[derive(Debug, Clone, Copy, FromRow)]
     pub struct ExploredManagedHostIp(IpAddr);

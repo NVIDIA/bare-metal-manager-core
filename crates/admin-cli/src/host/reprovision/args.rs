@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use ::rpc::forge::host_reprovisioning_request::Mode;
+use ::rpc::forge::{HostReprovisioningRequest, UpdateInitiator};
 use carbide_uuid::machine::MachineId;
 use clap::Parser;
 
@@ -47,6 +49,16 @@ pub struct ReprovisionSet {
     pub update_message: Option<String>,
 }
 
+impl From<&ReprovisionSet> for HostReprovisioningRequest {
+    fn from(args: &ReprovisionSet) -> Self {
+        Self {
+            machine_id: Some(args.id),
+            mode: Mode::Set as i32,
+            initiator: UpdateInitiator::AdminCli as i32,
+        }
+    }
+}
+
 #[derive(Parser, Debug, Clone)]
 pub struct ReprovisionClear {
     #[clap(
@@ -58,6 +70,16 @@ pub struct ReprovisionClear {
 
     #[clap(short, long, action)]
     pub update_firmware: bool,
+}
+
+impl From<ReprovisionClear> for HostReprovisioningRequest {
+    fn from(args: ReprovisionClear) -> Self {
+        Self {
+            machine_id: Some(args.id),
+            mode: Mode::Clear as i32,
+            initiator: UpdateInitiator::AdminCli as i32,
+        }
+    }
 }
 
 #[derive(Parser, Debug, Clone)]

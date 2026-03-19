@@ -1,26 +1,26 @@
-# Bare Metal Manager Health Checks and Health Aggregation
+# Health Checks and Health Aggregation
 
 [summary]: #summary
 
-BMM integrates a variety of tools to continuously assess and report the health of any host under its management. It also allows site operators to configure and extend the set of health checks via runtime configurations and extension APIs.
+NICo integrates a variety of tools to continuously assess and report the health of any host under its management. It also allows site operators to configure and extend the set of health checks via runtime configurations and extension APIs.
 
 The health information that is obtained by these tools is rolled up within Carbide-Core into an "aggregated host health".
 The aggregated host health information is used for multiple purposes:
-1. For BMM internal decision making - e.g. "is this host usable as a bare metal instance by a tenant" and "is the host allowed to transition between 2 states".
-2. The aggregated host health information is made available to BMM API users. Site administrators can use the information to assess host health and external fleet health automation systems can use it to trigger remediation workflows.
+1. For NICo internal decision making - e.g. "is this host usable as a bare metal instance by a tenant" and "is the host allowed to transition between 2 states".
+2. The aggregated host health information is made available to NICo API users. Site administrators can use the information to assess host health and external fleet health automation systems can use it to trigger remediation workflows.
 3. A filtered subset of the aggregated health status is made available to tenants in order to inform them whether their host is subject to known problems and whether they should release it.
 
 ## Health check types
 
 Health checks roughly fall into 3 categories:
-1. Out of band health checks: These continuous health checks are able to continuously assess the health of a host - independent of whether there the host is used as a bare metal instance or not. Within this category, BMM provides the following types of health checks
+1. Out of band health checks: These continuous health checks are able to continuously assess the health of a host - independent of whether there the host is used as a bare metal instance or not. Within this category, NICo provides the following types of health checks
     1. [BMC health metric based health monitoring](#bmc-health-monitoring)
     2. [BMC inventory based health monitoring](#bmc-inventory-monitoring)
     3. [dpu-agent based health monitoring](#dpu-agent-based-health-monitoring)
-2. In band health checks: These health checks run at certain well-defined points in time during the host lifecycle. Within this category, BMM provides the following types of health checks
+2. In band health checks: These health checks run at certain well-defined points in time during the host lifecycle. Within this category, NICo provides the following types of health checks
     1. [Host validation tests](#host-validation-tests)
     2. [SKU validation tests](#sku-validation-tests)
-3. Health status assessments by external tools and operators: BMM allows external tooling to provide health information via APIs. These APIs have the same capabilities as all health related tools that are provided by BMM. They can thereby used to extend the scope of health-monitoring as required by site operators. These APIs are described in the [Health overrides](#health-report-overrides)
+3. Health status assessments by external tools and operators: NICo allows external tooling to provide health information via APIs. These APIs have the same capabilities as all health related tools that are provided by NICo. They can thereby used to extend the scope of health-monitoring as required by site operators. These APIs are described in the [Health overrides](#health-report-overrides)
 
 The overall health of the system can be seen as the combination of all health reports
 reports. If any component reports that a subsystem is not healthy, then the
@@ -32,7 +32,7 @@ A list of health alert classifications can be found in [Health Alert Classificat
 
 ## Overview diagram
 
-The following diagram provides an overview about the current sources of health information within BMM, and how they are rolled up for API users:
+The following diagram provides an overview about the current sources of health information within NICo, and how they are rolled up for API users:
 
 ```mermaid
 flowchart TB
@@ -44,12 +44,12 @@ flowchart TB
     subgraph Users["Users and External Systems"]
         direction TB
         extautomations["External Automation Systems"]
-        siteadmin["BMM<br>Site Admin 🧑"]
-        tenant["BMM<br>Bare Metal Instance<br>User (Tenant) 🧑"]
+        siteadmin["NICo<br>Site Admin 🧑"]
+        tenant["NICo<br>Bare Metal Instance<br>User (Tenant) 🧑"]
         Metrics["Site MetricsAggregation (OTEL, Prometheus, etc)"]
     end
 
-    subgraph Deployment["BMM Deployment"]
+    subgraph Deployment["NICo Deployment"]
         carbide-core["<b>carbide-core</b><br>- derives aggregate Health status<br>- uses aggregate health for decision making"]
         HWMON["Hardware Health Monitor"]
         class carbide-core carbideclass;
@@ -79,7 +79,7 @@ flowchart TB
             class dpuos osclass;
     end
 
-    subgraph ManagedHostHost["BMM Managed Host"]
+    subgraph ManagedHostHost["NICo Managed Host"]
         direction TB
             Host
             DPU
@@ -102,7 +102,7 @@ flowchart TB
 
 ## Health Report format
 
-BMM components exchange and store aggregated health information internally in a datastructure called `HealthReport`. It contains a set of failed health checks (`alerts`) as well as a set of succeeded health checks (`successes`). Each check describes exactly which component had been probed (`id` and `target` fields).
+NICo components exchange and store aggregated health information internally in a datastructure called `HealthReport`. It contains a set of failed health checks (`alerts`) as well as a set of succeeded health checks (`successes`). Each check describes exactly which component had been probed (`id` and `target` fields).
 
 The datastructure had been designed and optimized for merging health information from a variety of sources into an aggregate report. E.g. if 2 subsystems report health, and each subsystem reports 1 health alert, the aggregate health report will contain 2 alerts if the alerts are reported by different probe IDs.
 
@@ -190,9 +190,9 @@ message HealthProbeSuccess {
 
 For failed health checks, the `HealthProbeAlert` can carry an optional set of `classifications` that describe how the system will react on the failed health check.
 
-The core idea here is that not all types of alerts have the same significance, and that different alerts will require a different response by BMM and site administrators: E.g. a BGP peering failure with a BGP peering issue on just one of the 2 redundant links will not render a host automatically unusable, while a fully unreachable DPU implies that the host can't be used.
+The core idea here is that not all types of alerts have the same significance, and that different alerts will require a different response by NICo and site administrators: E.g. a BGP peering failure with a BGP peering issue on just one of the 2 redundant links will not render a host automatically unusable, while a fully unreachable DPU implies that the host can't be used.
 
-Health alert classifications decouple the BMM logic from the actual alert IDs. E.g. BMM logic does not have to encode an exhaustive check over all possible health probe IDs:
+Health alert classifications decouple the NICo logic from the actual alert IDs. E.g. NICo logic does not have to encode an exhaustive check over all possible health probe IDs:
 ```rust
 if alert.id == "BgpPeeringFailure" || alert.id === BmcUnreachable || lots_of_other_conditions {
     host_is_fit_for_instance_creation = false;
@@ -208,15 +208,15 @@ if alert.classifications.contains("PreventAllocations") {
 
 This mechanism also allows site-administrator provided health checks via [Health report override APIs](#health-report-overrides) to trigger the same behavior as integrated health checks.
 
-The set of classifications that are currently interpreted by BMM is described in [List of Health Alert Classifications](health/health_alert_classifications.md)
+The set of classifications that are currently interpreted by NICo is described in [List of Health Alert Classifications](health/health_alert_classifications.md)
 
 ## In band health checks
 
 ### Host validation tests
 
-BMM will schedule the execution of validation tests at via the `scout` tool on the actual host host at various points
+NICo will schedule the execution of validation tests at via the `scout` tool on the actual host host at various points
 in the lifecycle of a managed host:
-1. When the host is ingested into BMM
+1. When the host is ingested into NICo
 2. After an instance is released by tenant and got cleaned up
 3. On demand while the host is not assigned to any tenant
 
@@ -226,14 +226,14 @@ The framework thereby allows the execution of off-the-shelf tests, e.g. using th
 
 If Host validation fails, a Health Alert with ID `FailedValidationTest` or `FailedValidationTestCompletion` will be placed on the host to make the host un-allocatable by tenants.
 
-In addition to that, the full test output (stdout and stderr) will be stored within carbide-core and is made available to BMM users via APIs, admin-cli and admin-ui.
+In addition to that, the full test output (stdout and stderr) will be stored within carbide-core and is made available to NICo users via APIs, admin-cli and admin-ui.
 
 Details can be found in the [Machine validation manual](../manuals/machine_validation.md).
 
 ### SKU validation tests
 
-SKU validation is a feature in BMM which validates that a host contains all the hardware it is expected to contain by validating it to "conform to a certain SKU".
-The SKU is the definition of hardware components within the host. And the SKU validation workflow compares it the the set of hardware components that have been detected via BMM hardware discovery workflows - which utilize inband data as well as out of band data.
+SKU validation is a feature in NICo which validates that a host contains all the hardware it is expected to contain by validating it to "conform to a certain SKU".
+The SKU is the definition of hardware components within the host. And the SKU validation workflow compares it the the set of hardware components that have been detected via NICo hardware discovery workflows - which utilize inband data as well as out of band data.
 
 SKU validation can thereby e.g. detect
 - whether a host has the right type of CPU installed
@@ -283,14 +283,14 @@ In certain conditions the scraping process will place a health alert on the host
 
 ## Health report overrides
 
-Site administrators are able to update the health state of any BMM managed host via
+Site administrators are able to update the health state of any NICo managed host via
 the API calls `InsertHealthReportOverride` and `RemoveHealthReportOverride`.
 
 The override API offers 2 different modes of operation:
 1. `merge` (default) - In this mode, any health probe alerts indicated in the override
-  will get merged with health probe alerts reported by builtin BMM tools in order
+  will get merged with health probe alerts reported by builtin NICo tools in order
   to derive the aggregate host health status. **This mode is meant to augment the internal health monitoring mechanism with additional sources of health data**
-1. `replace` - In this mode, the health probe alerts reported by builtin BMM
+1. `replace` - In this mode, the health probe alerts reported by builtin NICo
   monitoring tools will be ignored. Only alerts that are passed as part of the
   override will be taking into account. If the override list is empty, the system
   will behave as if the Host would be fully healthy. **This mode is meant to bypass the internal health data in case the site operator desires a different behavior**
@@ -302,7 +302,7 @@ If a ManagedHosts health is overriden, the remaining behavior is exactly the sam
 as if the overridden Health report would have been directly derived from monitoring
 hardware health:
 - The host will be allocatable depending on whether any `PreventAllocations` classification is present in the aggregate host health
-- State transitions behave as if BMM integrated monitoring would have detected
+- State transitions behave as if NICo integrated monitoring would have detected
   the same health status:
   - A ManagedHost whose health status is overridden from healthy to not-healthy
     will stop performing certain state transitions that require the host to be healthy.
@@ -311,5 +311,5 @@ hardware health:
     This is useful for unblocking hosts in certain operational scenarios - e.g.
     where the integrated health monitoring system reported a host as non-healthy
     for an invalid reason.
-- BMM API users will observe that the ManagedHost is not healthy. They
+- NICo API users will observe that the ManagedHost is not healthy. They
   will also observe that a health override is applied.

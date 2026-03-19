@@ -208,11 +208,11 @@ And then check UFM HA cluster status:
 root:/# ufm_ha_cluster status
 ```
 
-## BMM
+## NICo
 
 ### Installation
 
-No additional steps are required to enable Infiniband in NVIDIA Bare Metal Manager (BMM).
+No additional steps are required to enable Infiniband in NCX Infra Controller (NICo).
 
 ### Configuration
 
@@ -238,7 +238,7 @@ root:/# curl -s -k -XGET -u admin:password https://ufm:443/ufmRest/app/tokens | 
 ]
 ```
 
-Create the credential for UFM client in BMM by carbide-admin-cli as follows:
+Create the credential for UFM client in NICo by carbide-admin-cli as follows:
 
 ```
 root:/# carbide-admin-cli credential add-ufm --url=https://<address:port> --token=<access_token>
@@ -255,10 +255,10 @@ Zero Trust means that no user, device, or network traffic is trusted by default,
 UFM Server Certificates should include UFM Host Name `<ufm host name>` into The Subject Alternative Name (SAN) extension to the X.509 specification.
 
 Note:
-- `<ufm host name>` should be as `default.ufm.forge`, `default.ufm.<site domain name>`. Where <site domain name> is taken from `initial_domain_name` BMM configuration parameter.
+- `<ufm host name>` should be as `default.ufm.forge`, `default.ufm.<site domain name>`. Where <site domain name> is taken from `initial_domain_name` NICo configuration parameter.
 ```
 openssl x509 -in server.crt -text -noout | grep DNS
-                DNS:default.ufm.forge, DNS:default.ufm.bmm.example.org
+                DNS:default.ufm.forge, DNS:default.ufm.nico.example.org
 ```
 - direct IP address is not supported.
 - for UFM version less than 6.18.0-5 following patch should be applied as
@@ -277,7 +277,7 @@ openssl x509 -in server.crt -text -noout | grep DNS
 
 **Select Client Authentication mode.**
 
-Existing BMM certificates such as `/run/secrets/spiffe.io/{tls.crt,tls.key,ca.crt}` are used for client side.
+Existing NICo certificates such as `/run/secrets/spiffe.io/{tls.crt,tls.key,ca.crt}` are used for client side.
 
     carbide-admin-cli credential add-ufm --url=<ufm host name>
 
@@ -464,10 +464,10 @@ endpoints = ["https://10.217.161.194:443/"]
 pkeys = [{ start = "256", end = "2303" }]
 ```
 
-Note that currently BMM only supports only a single IB fabric. Therefore only
+Note that currently NICo only supports only a single IB fabric. Therefore only
 the fabric ID `default` will be accepted here.
 
-**NOTE**: A pkey will be generated for all partitions that are managed by BMM; ensure sure the range does not conflict with the existing pkey in UFM (if any).
+**NOTE**: A pkey will be generated for all partitions that are managed by NICo; ensure sure the range does not conflict with the existing pkey in UFM (if any).
 
 Update the configmap `carbide-api-site-config-files` to enable Infiniband features as follows:
 
@@ -542,9 +542,9 @@ Ports          :
     1070fd0300bd588c    -                   pf        1070fd0300bd588c    7         Active    1070fd0300bd588c_1  localhost ibp202s0f0
 ```
 
-### How to check the auth token and UFM IP in BMM?
+### How to check the auth token and UFM IP in NICo?
 
-After configuring UFM credentials in BMM, using the following commands to check whether the token was updated in Vault accordingly.
+After configuring UFM credentials in NICo, using the following commands to check whether the token was updated in Vault accordingly.
 
 ```
 kubectl exec -it vault-0 -n vault -- /bin/sh
@@ -573,9 +573,9 @@ UsernamePassword    map[password:ABCDEF username:https://1.2.3.4:443/]
 
 The `username` here encodes the UFM address, while the `password` identifies the auth token.
 
-SRE can also check the InfiniBand fabric monitor metrics emitted by BMM to determine whether it can reach UFM. E.g. the following graph shows a scenario where
+SRE can also check the InfiniBand fabric monitor metrics emitted by NICo to determine whether it can reach UFM. E.g. the following graph shows a scenario where
 
-* First BMM could not connect to UFM to invalid credentials
+* First NICo could not connect to UFM to invalid credentials
 * Fixing the credentials provided access and lead UFM metrics (version number) to be emitted
 
 ![alt text](../images/ib_ufm_ver.png)

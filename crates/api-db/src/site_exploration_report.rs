@@ -16,14 +16,17 @@
  */
 
 use model::site_explorer::SiteExplorationReport;
-use sqlx::PgConnection;
 
 use crate::DatabaseError;
+use crate::db_read::DbReader;
 
 /// Fetches the latest site exploration report from the database
-pub async fn fetch(txn: &mut PgConnection) -> Result<SiteExplorationReport, DatabaseError> {
-    let endpoints = crate::explored_endpoints::find_all(txn).await?;
-    let managed_hosts = crate::explored_managed_host::find_all(txn).await?;
+pub async fn fetch<DB>(db: &mut DB) -> Result<SiteExplorationReport, DatabaseError>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
+    let endpoints = crate::explored_endpoints::find_all(&mut *db).await?;
+    let managed_hosts = crate::explored_managed_host::find_all(db).await?;
     Ok(SiteExplorationReport {
         endpoints,
         managed_hosts,

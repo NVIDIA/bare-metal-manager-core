@@ -16,9 +16,9 @@
  */
 use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
-use db::nvl_logical_partition::{self, NewLogicalPartition};
-use db::{self, ObjectColumnFilter, WithTransaction, instance};
+use db::{self, ObjectColumnFilter, WithTransaction, instance, nvl_logical_partition};
 use futures_util::FutureExt;
+use model::nvl_logical_partition::NewLogicalPartition;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -44,7 +44,9 @@ pub(crate) async fn create(
     let metadata = req.config.metadata.clone();
     metadata.validate(true).map_err(CarbideError::from)?;
 
-    let resp = req.create(&mut txn).await.map_err(CarbideError::from)?;
+    let resp = nvl_logical_partition::create(&req, &mut txn)
+        .await
+        .map_err(CarbideError::from)?;
     let resp = rpc::NvLinkLogicalPartition::try_from(resp).map(Response::new)?;
     txn.commit().await?;
 
@@ -57,7 +59,8 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::NvLinkLogicalPartitionIdList>, Status> {
     log_request_data(&request);
 
-    let filter: rpc::NvLinkLogicalPartitionSearchFilter = request.into_inner();
+    let filter: model::nvl_logical_partition::NvLinkLogicalPartitionSearchFilter =
+        request.into_inner().into();
 
     let partition_ids =
         db::nvl_logical_partition::find_ids(&api.database_connection, filter).await?;

@@ -18,6 +18,7 @@
 use std::borrow::Cow;
 
 use libmlx::firmware::config::FirmwareFlasherProfile;
+use libmlx::profile::serialization::SerializableProfile;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -27,7 +28,7 @@ pub enum OpCode<'a> {
         key: String,
     },
     ApplyProfile {
-        profile_str: String,
+        serialized_profile: Option<SerializableProfile>,
     },
     Lock {
         key: String,

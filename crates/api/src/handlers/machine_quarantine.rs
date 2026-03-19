@@ -61,13 +61,9 @@ pub(crate) async fn get_managed_host_quarantine_state(
     let rpc::GetManagedHostQuarantineStateRequest { machine_id } = request.into_inner();
     let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
 
-    let mut txn = api.txn_begin().await?;
-
-    let quarantine_state = db::machine::get_quarantine_state(&mut txn, &machine_id)
+    let quarantine_state = db::machine::get_quarantine_state(&api.database_connection, &machine_id)
         .await?
         .map(Into::into);
-
-    txn.commit().await?;
 
     Ok(Response::new(rpc::GetManagedHostQuarantineStateResponse {
         quarantine_state,

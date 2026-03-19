@@ -1,4 +1,4 @@
-# How to write Rust in bare-metal-manager-core
+# How to write Rust in ncx-infra-controller-core
 
 The goal of this document is to help keep our codebase consistent and maintainable by outlining best-practices we've
 learned through experience. It is currently a mix of best practices for _this codebase_ (ie. how we expect code to

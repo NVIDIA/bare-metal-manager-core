@@ -117,7 +117,11 @@ impl FromStr for DeviceFilter {
             MatchMode::Regex
         };
 
-        Ok(DeviceFilter::new(field, values, match_mode))
+        Ok(DeviceFilter {
+            field,
+            values,
+            match_mode,
+        })
     }
 }
 
@@ -211,48 +215,67 @@ pub struct DeviceFilterSet {
 }
 
 impl DeviceFilter {
-    // new creates a new device filter with the specified parameters.
-    pub fn new(field: DeviceField, values: Vec<String>, match_mode: MatchMode) -> Self {
+    // device_type creates a filter for device type matching.
+    pub fn device_type(values: Vec<String>, match_mode: MatchMode) -> Self {
         Self {
-            field,
+            field: DeviceField::DeviceType,
             values,
             match_mode,
         }
     }
 
-    // device_type creates a filter for device type matching.
-    pub fn device_type(values: Vec<String>, match_mode: MatchMode) -> Self {
-        Self::new(DeviceField::DeviceType, values, match_mode)
-    }
-
     // part_number creates a filter for part number matching.
     pub fn part_number(values: Vec<String>, match_mode: MatchMode) -> Self {
-        Self::new(DeviceField::PartNumber, values, match_mode)
+        Self {
+            field: DeviceField::PartNumber,
+            values,
+            match_mode,
+        }
     }
 
     // firmware_version creates a filter for firmware version matching.
     pub fn firmware_version(values: Vec<String>, match_mode: MatchMode) -> Self {
-        Self::new(DeviceField::FirmwareVersion, values, match_mode)
+        Self {
+            field: DeviceField::FirmwareVersion,
+            values,
+            match_mode,
+        }
     }
 
     // mac_address creates a filter for MAC address matching.
     pub fn mac_address(values: Vec<String>, match_mode: MatchMode) -> Self {
-        Self::new(DeviceField::MacAddress, values, match_mode)
+        Self {
+            field: DeviceField::MacAddress,
+            values,
+            match_mode,
+        }
     }
 
     // description creates a filter for description matching.
     pub fn description(values: Vec<String>, match_mode: MatchMode) -> Self {
-        Self::new(DeviceField::Description, values, match_mode)
+        Self {
+            field: DeviceField::Description,
+            values,
+            match_mode,
+        }
     }
 
     // pci_name creates a filter for PCI name matching.
     pub fn pci_name(values: Vec<String>, match_mode: MatchMode) -> Self {
-        Self::new(DeviceField::PciName, values, match_mode)
+        Self {
+            field: DeviceField::PciName,
+            values,
+            match_mode,
+        }
     }
 
     // status creates a filter for device status matching.
     pub fn status(values: Vec<String>, match_mode: MatchMode) -> Self {
-        Self::new(DeviceField::Status, values, match_mode)
+        Self {
+            field: DeviceField::Status,
+            values,
+            match_mode,
+        }
     }
 
     // matches checks if a device satisfies this filter.

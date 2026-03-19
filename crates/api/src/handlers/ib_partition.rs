@@ -15,11 +15,10 @@
  * limitations under the License.
  */
 use ::rpc::forge as rpc;
-use db::ObjectColumnFilter;
-use db::ib_partition::{self, IBPartitionStatus, NewIBPartition};
 use db::resource_pool::ResourcePoolDatabaseError;
+use db::{ObjectColumnFilter, ib_partition};
 use model::ib::DEFAULT_IB_FABRIC_NAME;
-use model::ib_partition::PartitionKey;
+use model::ib_partition::{IBPartitionStatus, NewIBPartition, PartitionKey};
 use model::resource_pool;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
@@ -78,9 +77,11 @@ pub(crate) async fn create(
             // is less than <max_partition_per_tenant> by using a sub-select query in a WHERE clause.
             // The 'RowNotFound' error means that the number of existing partitions exceeded the limit
             // and no insert was performed.
-            Status::invalid_argument("Maximum Limit of Infiniband partitions had been reached")
+            CarbideError::InvalidArgument(
+                "Maximum Limit of Infiniband partitions had been reached".into(),
+            )
         } else {
-            CarbideError::from(e).into()
+            CarbideError::from(e)
         }
     })?;
     let resp = rpc::IbPartition::try_from(resp).map(Response::new)?;
@@ -96,7 +97,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::IbPartitionIdList>, Status> {
     log_request_data(&request);
 
-    let filter: rpc::IbPartitionSearchFilter = request.into_inner();
+    let filter: model::ib_partition::IbPartitionSearchFilter = request.into_inner().into();
 
     let ib_partition_ids = db::ib_partition::find_ids(&api.database_connection, filter).await?;
 

@@ -21,6 +21,7 @@
 use ::rpc::forge::{self as rpc, MachineIdentityResponse};
 use tonic::{Request, Response, Status};
 
+use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::auth::AuthContext;
 
@@ -37,9 +38,10 @@ pub(crate) async fn sign_machine_identity(
     log_request_data(&request);
 
     if !api.runtime_config.machine_identity.enabled {
-        return Err(tonic::Status::unavailable(
-            "Machine identity is disabled in site config",
-        ));
+        return Err(CarbideError::UnavailableError(
+            "Machine identity is disabled in site config".into(),
+        )
+        .into());
     }
 
     let auth_context = request
@@ -55,7 +57,7 @@ pub(crate) async fn sign_machine_identity(
 
     let _machine_id: carbide_uuid::machine::MachineId = machine_id_str
         .parse()
-        .map_err(|e| Status::invalid_argument(format!("Invalid machine ID format: {}", e)))?;
+        .map_err(|e| CarbideError::InvalidArgument(format!("Invalid machine ID format: {}", e)))?;
 
     let req = request.get_ref();
     let _audience = &req.audience; // TODO: Use audience in JWT claims

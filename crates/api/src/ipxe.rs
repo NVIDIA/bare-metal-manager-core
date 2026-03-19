@@ -147,14 +147,14 @@ exit ||
 
         let mut console = "ttyS0";
         let mut qcow_imager_url = "chain ${base-url}/internal/x86_64/qcow-imager.efi loglevel=7 console=tty0 pci=realloc=off ";
-        let interface = db::machine_interface::find_one(txn, target.interface_id).await?;
+        let interface = db::machine_interface::find_one(&mut *txn, target.interface_id).await?;
 
         // This custom pxe is different from a customer instance of pxe. It is more for testing one off
         // changes until a real dev env is established and we can just override our existing code to test
         // It is possible for the pxe to be null if we are only trying to test the user data, and this will
         // follow the same code path and retrieve the non customer pxe
         if let Some(machine_boot_override) =
-            db::machine_boot_override::find_optional(txn, target.interface_id).await?
+            db::machine_boot_override::find_optional(&mut *txn, target.interface_id).await?
             && let Some(custom_pxe) = machine_boot_override.custom_pxe
         {
             return Ok(custom_pxe);
@@ -190,7 +190,7 @@ exit ||
             // - If it's ARM and we have an exploration report, check if the report is a bluefield
             //   model.
             let Some(endpoint) =
-                db::explored_endpoints::find_by_mac_address(txn, interface.mac_address)
+                db::explored_endpoints::find_by_mac_address(&mut *txn, interface.mac_address)
                     .await?
                     .into_iter()
                     .next()
@@ -221,7 +221,7 @@ exit ||
             ));
         };
 
-        let machine = db::machine::find_one(txn, &machine_id, MachineSearchConfig::default())
+        let machine = db::machine::find_one(&mut *txn, &machine_id, MachineSearchConfig::default())
             .await
             .map_err(|e| CarbideError::InvalidArgument(format!("Get machine failed, Error: {e}")))?
             .ok_or(CarbideError::InvalidArgument(

@@ -23,12 +23,10 @@ use crate::rpc::ApiClient;
 
 /// Delete an instance type.
 pub async fn delete(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    api_client
-        .0
-        .delete_instance_type(DeleteInstanceTypeRequest {
-            id: args.id.clone(),
-        })
-        .await?;
-    println!("Deleted instance type {} successfully.", args.id);
+    let id = args.id.clone();
+    let req: DeleteInstanceTypeRequest = args.into();
+
+    api_client.0.delete_instance_type(req).await?;
+    println!("Deleted instance type {} successfully.", id);
     Ok(())
 }

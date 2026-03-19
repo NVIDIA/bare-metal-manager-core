@@ -201,7 +201,7 @@ pub async fn associate_interface_with_machine(
 }
 
 pub async fn find_by_mac_address(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     macaddr: MacAddress,
 ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
     find_by(txn, ObjectColumnFilter::One(MacAddressColumn, &macaddr)).await
@@ -260,7 +260,7 @@ pub async fn count_by_segment_id(
 }
 
 pub async fn find_one(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     interface_id: MachineInterfaceId,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     let mut interfaces = find_by(txn, ObjectColumnFilter::One(IdColumn, &interface_id)).await?;
@@ -321,7 +321,7 @@ pub async fn validate_existing_mac_and_create(
     relay: IpAddr,
     host_nic: Option<ExpectedHostNic>,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
-    let mut existing_mac = find_by_mac_address(txn, mac_address).await?;
+    let mut existing_mac = find_by_mac_address(&mut *txn, mac_address).await?;
     match &existing_mac.len() {
         0 => {
             tracing::debug!(
@@ -892,7 +892,7 @@ fn address_to_hostname(address: &IpAddr) -> DatabaseResult<String> {
 }
 
 async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineInterfaceSnapshot>>(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     filter: ObjectColumnFilter<'a, C>,
 ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
     let mut query = FilterableQueryBuilder::new(MACHINE_INTERFACE_SNAPSHOT_QUERY)
@@ -954,7 +954,7 @@ pub async fn move_predicted_machine_interface_to_machine(
     }
 
     let machine_interface_id = match self::find_by_mac_address(
-        txn,
+        &mut *txn,
         predicted_machine_interface.mac_address,
     )
     .await?

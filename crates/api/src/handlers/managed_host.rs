@@ -167,7 +167,7 @@ pub(crate) async fn set_primary_dpu(
 
     // increment the network config version so that the DPUs pick up their new config
     let (network_config, network_config_version) =
-        db::machine::get_network_config(&mut txn, &host_machine_id)
+        db::machine::get_network_config(txn.as_pgconn(), &host_machine_id)
             .await?
             .take();
     db::machine::try_update_network_config(
@@ -227,9 +227,10 @@ pub(crate) async fn set_maintenance(
         .load_machine(&machine_id, MachineSearchConfig::default())
         .await?;
     if host_machine.is_dpu() {
-        return Err(Status::invalid_argument(
-            "DPU ID provided. Need managed host.",
-        ));
+        return Err(CarbideError::InvalidArgument(
+            "DPU ID provided. Need managed host.".to_string(),
+        )
+        .into());
     }
     let dpu_machines = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine_id).await?;
     txn.commit().await?;
@@ -238,16 +239,17 @@ pub(crate) async fn set_maintenance(
     match req.operation() {
         rpc::MaintenanceOperation::Enable => {
             let Some(reference) = req.reference else {
-                return Err(Status::invalid_argument(
-                    "Missing reference url".to_string(),
-                ));
+                return Err(
+                    CarbideError::InvalidArgument("Missing reference url".to_string()).into(),
+                );
             };
 
             let reference = reference.trim().to_string();
             if reference.len() < 5 {
-                return Err(Status::invalid_argument(
-                    "Provide some valid reference. Minimum expected length is 5.".to_string(),
-                ));
+                return Err(CarbideError::InvalidArgument(
+                    "Provide some valid reference. Minimum expected length is 5.".into(),
+                )
+                .into());
             }
 
             // Maintenance mode is implemented as a host health override
@@ -283,10 +285,11 @@ pub(crate) async fn set_maintenance(
         rpc::MaintenanceOperation::Disable => {
             for dpu_machine in dpu_machines.iter() {
                 if dpu_machine.reprovision_requested.is_some() {
-                    return Err(Status::invalid_argument(format!(
+                    return Err(CarbideError::InvalidArgument(format!(
                         "Reprovisioning request is set on DPU: {}. Clear it first.",
                         &dpu_machine.id
-                    )));
+                    ))
+                    .into());
                 }
             }
 

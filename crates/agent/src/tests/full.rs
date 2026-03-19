@@ -799,13 +799,15 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                     )),
                     device: None,
                     device_instance: 0,
-                    virtual_function_id: None
+                    virtual_function_id: None,
+                    ip_address: None,
                 }],
             }),
             infiniband: None,
             network_security_group_id: None,
             dpu_extension_services: None,
             nvlink: None,
+
         }),
         status: Some(rpc::InstanceStatus {
             tenant: Some(rpc::InstanceTenantStatus {

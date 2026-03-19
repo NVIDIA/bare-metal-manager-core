@@ -37,6 +37,8 @@ kind: ConfigMap
 metadata:
   name: {{ .Values.envFrom.vaultClusterInfo.configMapName }}
   namespace: {{ include "carbide-api.namespace" . }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
   labels:
     {{- include "carbide-api.labels" . | nindent 4 }}
 data:
@@ -51,6 +53,8 @@ kind: ConfigMap
 metadata:
   name: {{ .Values.envFrom.databaseConfig.configMapName }}
   namespace: {{ include "carbide-api.namespace" . }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
   labels:
     {{- include "carbide-api.labels" . | nindent 4 }}
 data:

@@ -67,30 +67,9 @@ pub struct QueriedVariable {
 }
 
 // QueriedVariable provides a few methods to make
-// working with them easier, including a constructor
-// of course, as well as some wrappers to get at
-// underlying data (such as the variable name).
+// working with them easier, including some wrappers
+// to get at underlying data (such as the variable name).
 impl QueriedVariable {
-    // new creates a new QueriedVariable with
-    // all required parameters.
-    pub fn new(
-        variable: MlxConfigVariable,
-        current_value: MlxConfigValue,
-        default_value: MlxConfigValue,
-        next_value: MlxConfigValue,
-        modified: bool,
-        read_only: bool,
-    ) -> Self {
-        Self {
-            variable,
-            current_value,
-            default_value,
-            next_value,
-            modified,
-            read_only,
-        }
-    }
-
     // name returns the variable name.
     pub fn name(&self) -> &str {
         &self.variable.name
@@ -167,14 +146,6 @@ impl QueriedDeviceInfo {
 }
 
 impl QueryResult {
-    // new creates a new QueryResult.
-    pub fn new(device_info: QueriedDeviceInfo, variables: Vec<QueriedVariable>) -> Self {
-        Self {
-            device_info,
-            variables,
-        }
-    }
-
     // variable_count returns the number of variables
     // in the query result.
     pub fn variable_count(&self) -> usize {
@@ -216,24 +187,6 @@ pub struct SyncResult {
 }
 
 impl SyncResult {
-    // new creates a new SyncResult with everything
-    // needed to populate it.
-    pub fn new(
-        variables_checked: usize,
-        variables_changed: usize,
-        changes_applied: Vec<VariableChange>,
-        execution_time: Duration,
-        query_result: QueryResult,
-    ) -> Self {
-        Self {
-            variables_checked,
-            variables_changed,
-            changes_applied,
-            execution_time,
-            query_result,
-        }
-    }
-
     // summary prints a summary of the sync result -- this
     // is mainly just for the CLI reference example for now.
     pub fn summary(&self) -> String {
@@ -263,21 +216,6 @@ pub struct ComparisonResult {
 }
 
 impl ComparisonResult {
-    // new creates a new ComparisonResult.
-    pub fn new(
-        variables_checked: usize,
-        variables_needing_change: usize,
-        planned_changes: Vec<PlannedChange>,
-        query_result: QueryResult,
-    ) -> Self {
-        Self {
-            variables_checked,
-            variables_needing_change,
-            planned_changes,
-            query_result,
-        }
-    }
-
     // summary prints a summary of the comparison result -- this
     // is mainly just for the CLI reference example for now.
     pub fn summary(&self) -> String {
@@ -304,19 +242,6 @@ pub struct PlannedChange {
 }
 
 impl PlannedChange {
-    // new creates a new PlannedChange.
-    pub fn new(
-        variable_name: String,
-        current_value: MlxConfigValue,
-        desired_value: MlxConfigValue,
-    ) -> Self {
-        Self {
-            variable_name,
-            current_value,
-            desired_value,
-        }
-    }
-
     // description prints a description of the planned change -- this
     // is mainly just for the CLI reference example for now.
     pub fn description(&self) -> String {
@@ -341,19 +266,6 @@ pub struct VariableChange {
 }
 
 impl VariableChange {
-    // new creates a new VariableChange.
-    pub fn new(
-        variable_name: String,
-        old_value: MlxConfigValue,
-        new_value: MlxConfigValue,
-    ) -> Self {
-        Self {
-            variable_name,
-            old_value,
-            new_value,
-        }
-    }
-
     // description prints a description of the change -- this
     // is mainly just for the CLI reference example for now.
     pub fn description(&self) -> String {

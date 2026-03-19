@@ -23,7 +23,6 @@ use std::net::IpAddr;
 use std::ops::Deref;
 use std::str::FromStr;
 
-use ::rpc::forge::DpuInfo;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineType};
 use chrono::prelude::*;
@@ -42,7 +41,7 @@ use model::machine::network::{
 use model::machine::nvlink::MachineNvLinkStatusObservation;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::machine::{
-    Dpf, FailureDetails, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
+    Dpf, DpuInfo, FailureDetails, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
     MachineLastRebootRequestedMode, ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use model::machine_interface_address::MachineInterfaceAssociation;
@@ -150,7 +149,7 @@ pub async fn get_or_create(
 }
 
 pub async fn find_one(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     id: &MachineId,
     search_config: MachineSearchConfig,
 ) -> Result<Option<Machine>, DatabaseError> {
@@ -485,7 +484,7 @@ pub async fn find_by_mac_address(
 }
 
 pub async fn find_by_loopback_ip(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     loopback_ip: &str,
 ) -> Result<Option<Machine>, DatabaseError> {
     lazy_static! {
@@ -1295,7 +1294,7 @@ pub async fn create(
         )));
     }
 
-    let machine = find_one(txn, stable_machine_id, MachineSearchConfig::default())
+    let machine = find_one(&mut *txn, stable_machine_id, MachineSearchConfig::default())
         .await?
         .ok_or_else(|| DatabaseError::NotFoundError {
             kind: "machine",
@@ -1598,7 +1597,7 @@ pub async fn apply_agent_upgrade_policy(
     if policy == AgentUpgradePolicy::Off {
         return Ok(false);
     }
-    let machine = find_one(txn, machine_id, MachineSearchConfig::default())
+    let machine = find_one(&mut *txn, machine_id, MachineSearchConfig::default())
         .await?
         .ok_or_else(|| DatabaseError::NotFoundError {
             kind: "dpu_machine",
@@ -1730,7 +1729,7 @@ pub async fn update_state(
     new_state: &ManagedHostState,
 ) -> Result<(), DatabaseError> {
     let host = find_one(
-        txn,
+        &mut *txn,
         host_id,
         // TODO(?): Should we be using for_update/row-level locks here?
         // This is a select that's later used for an update on both version
@@ -2077,7 +2076,7 @@ pub async fn update_sku_status_last_match_attempt(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET hw_sku_status=jsonb_set(coalesce(hw_sku_status, '{}'), '{last_match_attempt}', $1) WHERE id=$2 RETURNING id";
 
-    let _: () = sqlx::query_as(query)
+    sqlx::query_as::<_, ()>(query)
         .bind(sqlx::types::Json(Utc::now()))
         .bind(machine_id)
         .fetch_one(txn)
@@ -2093,7 +2092,7 @@ pub async fn update_sku_status_last_generate_attempt(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET hw_sku_status=jsonb_set(coalesce(hw_sku_status, '{}'), '{last_generate_attempt}', $1) WHERE id=$2 RETURNING id";
 
-    let _: () = sqlx::query_as(query)
+    sqlx::query_as::<_, ()>(query)
         .bind(sqlx::types::Json(Utc::now()))
         .bind(machine_id)
         .fetch_one(txn)
@@ -2109,7 +2108,7 @@ pub async fn update_sku_status_verify_request_time(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET hw_sku_status=jsonb_set(coalesce(hw_sku_status, '{}'), '{verify_request_time}', $1) WHERE id=$2 RETURNING id";
 
-    let _: () = sqlx::query_as(query)
+    sqlx::query_as::<_, ()>(query)
         .bind(sqlx::types::Json(Utc::now()))
         .bind(machine_id)
         .fetch_one(txn)
@@ -2179,7 +2178,7 @@ pub async fn find_machine_ids_by_sku_ids(
 }
 
 pub async fn get_network_config(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     machine_id: &MachineId,
 ) -> Result<Versioned<ManagedHostNetworkConfig>, DatabaseError> {
     #[derive(FromRow)]
@@ -2203,7 +2202,7 @@ pub async fn get_network_config(
 }
 
 pub async fn get_quarantine_state(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     machine_id: &MachineId,
 ) -> Result<Option<ManagedHostQuarantineState>, DatabaseError> {
     let network_config = get_network_config(txn, machine_id).await?;
@@ -2216,7 +2215,7 @@ pub async fn set_quarantine_state(
     quarantine_state: ManagedHostQuarantineState,
 ) -> Result<Option<ManagedHostQuarantineState>, DatabaseError> {
     let (mut network_config, network_config_version) =
-        get_network_config(txn, machine_id).await?.take();
+        get_network_config(&mut *txn, machine_id).await?.take();
     let old_quarantine_state = network_config.quarantine_state.clone();
     network_config.quarantine_state = Some(quarantine_state);
     try_update_network_config(txn, machine_id, network_config_version, &network_config).await?;
@@ -2228,7 +2227,7 @@ pub async fn clear_quarantine_state(
     machine_id: &MachineId,
 ) -> Result<Option<ManagedHostQuarantineState>, DatabaseError> {
     let (mut network_config, network_config_version) =
-        get_network_config(txn, machine_id).await?.take();
+        get_network_config(&mut *txn, machine_id).await?.take();
     let old_quarantine_state = network_config.quarantine_state.clone();
     network_config.quarantine_state = None;
     try_update_network_config(txn, machine_id, network_config_version, &network_config).await?;
@@ -2345,7 +2344,7 @@ mod test {
         txn.commit().await?;
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();
 
-        let host = crate::machine::find_one(&mut txn, &id, MachineSearchConfig::default())
+        let host = crate::machine::find_one(&mut *txn, &id, MachineSearchConfig::default())
             .await
             .unwrap()
             .unwrap();
@@ -2354,7 +2353,7 @@ mod test {
         txn.commit().await?;
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();
         super::set_firmware_autoupdate(&mut txn, &id, None).await?;
-        let host = crate::machine::find_one(&mut txn, &id, MachineSearchConfig::default())
+        let host = crate::machine::find_one(&mut *txn, &id, MachineSearchConfig::default())
             .await
             .unwrap()
             .unwrap();

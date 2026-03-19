@@ -38,11 +38,11 @@ use crate::variables::value::MlxConfigValue;
 pub struct JsonResponseParser<'a> {
     // registry is the registry containing variable definitions
     // for validation.
-    registry: &'a MlxVariableRegistry,
+    pub registry: &'a MlxVariableRegistry,
     // options are the execution options provided by the
     // parent runner, which in this case is primarily used
     // by the JSON parser for logging control.
-    options: &'a ExecOptions,
+    pub options: &'a ExecOptions,
 }
 
 // JsonResponse represents the top-level structure of the
@@ -106,11 +106,6 @@ pub enum JsonValueField {
 }
 
 impl<'a> JsonResponseParser<'a> {
-    // new creates a new JSON parser with registry and options.
-    pub fn new(registry: &'a MlxVariableRegistry, options: &'a ExecOptions) -> Self {
-        Self { registry, options }
-    }
-
     // parse_json_response parses a complete JSON response file from mlxconfig
     // into a QueryResult. It also validates that the device in the response
     // matches the expected device we provided, because if those don't match,
@@ -146,15 +141,15 @@ impl<'a> JsonResponseParser<'a> {
         // converted into properly typed values and such.
         let variables = self.parse_variables(&json_response.device.tlv_configuration)?;
 
-        Ok(QueryResult::new(
-            QueriedDeviceInfo {
+        Ok(QueryResult {
+            device_info: QueriedDeviceInfo {
                 device_id: Some(json_response.device.device),
                 device_type: Some(json_response.device.device_type),
                 part_number: Some(json_response.device.name),
                 description: Some(json_response.device.description),
             },
             variables,
-        ))
+        })
     }
 
     // parse_variables is the thing that actually parses all variables
@@ -214,14 +209,14 @@ impl<'a> JsonResponseParser<'a> {
             self.json_value_to_config_value(registry_var, &json_var.default_value)?;
         let next_value = self.json_value_to_config_value(registry_var, &json_var.next_value)?;
 
-        Ok(QueriedVariable::new(
-            registry_var.clone(),
+        Ok(QueriedVariable {
+            variable: registry_var.clone(),
             current_value,
             default_value,
             next_value,
-            json_var.modified,
-            json_var.read_only,
-        ))
+            modified: json_var.modified,
+            read_only: json_var.read_only,
+        })
     }
 
     // parse_array_variable parses an array variable by collecting
@@ -277,14 +272,14 @@ impl<'a> JsonResponseParser<'a> {
             }
         }
 
-        Ok(QueriedVariable::new(
-            registry_var.clone(),
+        Ok(QueriedVariable {
+            variable: registry_var.clone(),
             current_value,
             default_value,
             next_value,
             modified,
             read_only,
-        ))
+        })
     }
 
     // build_sparse_array_from_json builds a sparse array MlxConfigValue

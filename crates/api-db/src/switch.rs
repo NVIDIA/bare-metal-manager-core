@@ -274,3 +274,94 @@ pub async fn list_switch_bmc_info(txn: &mut PgConnection) -> DatabaseResult<Vec<
         .await
         .map_err(|err| DatabaseError::new("list_switch_bmc_info", err))
 }
+
+/// Resolve SwitchIds to BMC IPs via the canonical path:
+///   switches.id -> switches.config->>'name' (serial)
+///   -> expected_switches.serial_number -> bmc_mac_address
+///   -> machine_interfaces -> machine_interface_addresses (underlay) -> IP
+pub async fn find_bmc_ips_by_switch_ids(
+    db: impl crate::db_read::DbReader<'_>,
+    switch_ids: &[SwitchId],
+) -> DatabaseResult<Vec<(SwitchId, IpAddr)>> {
+    let sql = r#"
+        SELECT
+            s.id,
+            mia.address
+        FROM switches s
+        JOIN expected_switches es ON es.serial_number = s.config->>'name'
+        JOIN machine_interfaces mi ON mi.mac_address = es.bmc_mac_address
+        JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
+        JOIN network_segments ns ON ns.id = mi.segment_id
+        WHERE s.id = ANY($1)
+          AND ns.network_segment_type = 'underlay'
+    "#;
+
+    sqlx::query_as(sql)
+        .bind(switch_ids)
+        .fetch_all(db)
+        .await
+        .map_err(|err| DatabaseError::new("switch::find_bmc_ips_by_switch_ids", err))
+}
+
+/// Full endpoint info for a switch: BMC MAC/IP and optionally NVOS MAC/IP.
+///
+/// NVOS fields are nullable because the `host_mac_address` metadata label may
+/// not be set, or the corresponding `machine_interfaces` / addresses may not
+/// exist yet.
+#[derive(Debug, sqlx::FromRow)]
+pub struct SwitchEndpointRow {
+    pub switch_id: SwitchId,
+    pub bmc_mac: MacAddress,
+    pub bmc_ip: IpAddr,
+    pub nvos_mac: Option<MacAddress>,
+    pub nvos_ip: Option<IpAddr>,
+}
+
+/// Resolve SwitchIds to full endpoint info (BMC + NVOS MAC/IP).
+///
+/// Uses `DISTINCT ON (s.id)` to avoid duplicate rows when a MAC has multiple
+/// addresses. NVOS resolution uses LEFT JOINs so switches without NVOS info
+/// are still returned (with NULL nvos_mac / nvos_ip).
+///
+/// Path:
+///   switches.id -> switches.config->>'name' (serial)
+///   -> expected_switches.serial_number -> bmc_mac_address (BMC MAC)
+///   -> machine_interfaces (by bmc_mac) -> machine_interface_addresses (underlay) -> BMC IP
+///   -> expected_switches.metadata_labels->>'host_mac_address' (NVOS MAC, nullable)
+///   -> machine_interfaces (by nvos_mac) -> machine_interface_addresses -> NVOS IP
+pub async fn find_switch_endpoints_by_ids(
+    db: impl crate::db_read::DbReader<'_>,
+    switch_ids: &[SwitchId],
+) -> DatabaseResult<Vec<SwitchEndpointRow>> {
+    let sql = r#"
+        SELECT DISTINCT ON (s.id)
+            s.id                 AS switch_id,
+            es.bmc_mac_address   AS bmc_mac,
+            bmc_mia.address      AS bmc_ip,
+            nvos_mi.mac_address  AS nvos_mac,
+            nvos_mia.address     AS nvos_ip
+        FROM switches s
+        JOIN expected_switches es
+            ON es.serial_number = s.config->>'name'
+        JOIN machine_interfaces bmc_mi
+            ON bmc_mi.mac_address = es.bmc_mac_address
+        JOIN machine_interface_addresses bmc_mia
+            ON bmc_mia.interface_id = bmc_mi.id
+        JOIN network_segments bmc_ns
+            ON bmc_ns.id = bmc_mi.segment_id
+        LEFT JOIN machine_interfaces nvos_mi
+            ON es.metadata_labels->>'host_mac_address' IS NOT NULL
+           AND nvos_mi.mac_address = (es.metadata_labels->>'host_mac_address')::macaddr
+        LEFT JOIN machine_interface_addresses nvos_mia
+            ON nvos_mia.interface_id = nvos_mi.id
+        WHERE s.id = ANY($1)
+          AND bmc_ns.network_segment_type = 'underlay'
+        ORDER BY s.id
+    "#;
+
+    sqlx::query_as(sql)
+        .bind(switch_ids)
+        .fetch_all(db)
+        .await
+        .map_err(|err| DatabaseError::new("switch::find_switch_endpoints_by_ids", err))
+}

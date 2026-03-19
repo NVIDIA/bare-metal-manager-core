@@ -216,7 +216,10 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
 
     let join_discovery: tokio::task::JoinHandle<Result<(), HealthError>> = tokio::spawn({
         let config = config_arc.clone();
-        let shard_manager = ShardManager::new(config.shard, config.shards_count);
+        let shard_manager = ShardManager {
+            shard: config.shard,
+            shards_count: config.shards_count,
+        };
         let limiter: Arc<dyn RateLimiter> =
             if let Configurable::Enabled(rate_limit) = &config.rate_limit {
                 Arc::new(BucketLimiter::new(

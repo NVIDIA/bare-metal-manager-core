@@ -15,11 +15,13 @@
  * limitations under the License.
  */
 
+use ::rpc::admin_cli::CarbideCliError;
 use carbide_uuid::rack::RackId;
 use clap::{ArgGroup, Parser};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use utils::has_duplicates;
+use uuid::Uuid;
 
 /// Patch expected machine (partial update, preserves unprovided fields).
 ///
@@ -42,13 +44,12 @@ use utils::has_duplicates;
 "sku_id",
 ])))]
 pub struct Args {
-    #[clap(
-        short = 'a',
-        required = true,
-        long,
-        help = "BMC MAC Address of the expected machine"
-    )]
-    pub bmc_mac_address: MacAddress,
+    #[clap(short = 'a', long, help = "BMC MAC Address of the expected machine")]
+    pub bmc_mac_address: Option<MacAddress>,
+
+    #[clap(long = "id", help = "ID (UUID) of the expected machine to patch.")]
+    #[serde(skip)]
+    pub id: Option<Uuid>,
     #[clap(
         short = 'u',
         long,
@@ -137,7 +138,19 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), CarbideCliError> {
+        match (&self.bmc_mac_address, &self.id) {
+            (Some(_), Some(_)) => {
+                return Err(CarbideCliError::ChooseOneError("--bmc-mac-address", "--id"));
+            }
+            (None, None) => {
+                return Err(CarbideCliError::RequireOneError(
+                    "--bmc-mac-address",
+                    "--id",
+                ));
+            }
+            _ => {}
+        }
         // TODO: It is possible to do these checks by clap itself, via arg groups
         if self.bmc_username.is_none()
             && self.bmc_password.is_none()
@@ -146,14 +159,16 @@ impl Args {
             && self.sku_id.is_none()
             && self.rack_id.is_none()
         {
-            return Err("One of the following options must be specified: bmc-user-name and bmc-password or chassis-serial-number or fallback-dpu-serial-number".to_string());
+            return Err(CarbideCliError::GenericError("One of the following options must be specified: bmc-user-name and bmc-password or chassis-serial-number or fallback-dpu-serial-number".to_string()));
         }
         if self
             .fallback_dpu_serial_numbers
             .as_ref()
             .is_some_and(has_duplicates)
         {
-            return Err("Duplicate dpu serial numbers found".to_string());
+            return Err(CarbideCliError::GenericError(
+                "Duplicate dpu serial numbers found".to_string(),
+            ));
         }
         Ok(())
     }

@@ -131,7 +131,10 @@ impl StateControllerIO for DpaInterfaceStateControllerIO {
         }
     }
 
-    fn state_sla(state: &Versioned<Self::ControllerState>) -> StateSla {
+    fn state_sla(
+        state: &Versioned<Self::ControllerState>,
+        _object_state: &Self::State,
+    ) -> StateSla {
         dpa_interface::state_sla(&state.value, &state.version)
     }
 }

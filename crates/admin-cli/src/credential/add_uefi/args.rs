@@ -16,8 +16,10 @@
  */
 
 use clap::Parser;
+use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use rpc::{CredentialType, forge as forgerpc};
 
-use crate::credential::common::UefiCredentialType;
+use crate::credential::common::{UefiCredentialType, password_validator};
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -26,4 +28,21 @@ pub struct Args {
 
     #[clap(long, require_equals(true), help = "The UEFI password")]
     pub password: String,
+}
+
+impl TryFrom<Args> for forgerpc::CredentialCreationRequest {
+    type Error = CarbideCliError;
+    fn try_from(args: Args) -> CarbideCliResult<Self> {
+        let mut password = password_validator(args.password)?;
+        if password.is_empty() {
+            password = forge_secrets::credentials::Credentials::generate_password_no_special_char();
+        }
+        Ok(Self {
+            credential_type: CredentialType::from(args.kind).into(),
+            username: None,
+            password,
+            mac_address: None,
+            vendor: None,
+        })
+    }
 }

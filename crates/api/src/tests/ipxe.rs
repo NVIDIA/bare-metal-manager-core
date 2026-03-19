@@ -42,7 +42,7 @@ async fn move_machine_to_needed_state(
         .await
         .expect("Unable to create transaction on database pool");
     let machine = db::machine::find_one(
-        &mut txn,
+        txn.as_mut(),
         &machine_id,
         model::machine::machine_search_config::MachineSearchConfig::default(),
     )
@@ -404,7 +404,7 @@ async fn test_cloud_init_when_machine_is_not_created(pool: sqlx::PgPool) {
     // Interface is created. Let's fetch interface id.
     let mut txn = env.pool.begin().await.unwrap();
     let interfaces = db::machine_interface::find_by_mac_address(
-        &mut txn,
+        txn.as_mut(),
         mac_address.parse::<MacAddress>().unwrap(),
     )
     .await

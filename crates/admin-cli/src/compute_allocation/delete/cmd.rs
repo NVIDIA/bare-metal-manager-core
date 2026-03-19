@@ -23,13 +23,9 @@ use crate::rpc::ApiClient;
 
 /// Delete a compute allocation.
 pub async fn delete(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    api_client
-        .0
-        .delete_compute_allocation(DeleteComputeAllocationRequest {
-            id: Some(args.id),
-            tenant_organization_id: args.tenant_organization_id,
-        })
-        .await?;
-    println!("Deleted compute allocation {} successfully.", args.id);
+    let id = args.id;
+    let req: DeleteComputeAllocationRequest = args.into();
+    api_client.0.delete_compute_allocation(req).await?;
+    println!("Deleted compute allocation {} successfully.", id);
     Ok(())
 }
