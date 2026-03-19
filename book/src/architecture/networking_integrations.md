@@ -20,10 +20,11 @@ Networking integrations in NICo achieve this through the following patterns:
 ### Tenant instance interface configurations
 
 1. Tenants are able to associate the network interfaces of their instances with a partition they created upfront. This configuration can either happen at instance creation time, or at a later time using `UpdateInstanceConfig` calls.
-2. When the instance is updated, the tenant will get accurate status if networking on the machine has been reconfigured to use the new partition using `configs_synced` attributes that are part of the instance status. This flag will also influence the overall readiness of the instance that is shown in the `state` field: If networking is not fully configured, the instance will show a status of `Configuring`. Once networking is configured, it will move to `Ready`.
-3. When the instance configuration is updated, the `config_version` field that is part of the `Instance` will get incremented.
-4. On initial provisioning, the state machine will block booting into the tenant OS until the desired configuration is achieved. This guarantees that once the instance is booted, it can immediately communicate with all other instances of the tenant that share the partition.
-5. On instance termination, the termination flow blocks on the until the networking interfaces are reconfigured to no longer be part of any partition (the instance is isolated on the network). That assures that once the tenant is notified that the instance is deleted, it is at least fully isolated and can no longer show up as a "ghost instance" - even in case the disk might not be cleaned up yet. The "desired" instance configuration that is submitted by the tenant and reflected in the `InstanceConfig` message will not change during that workflow. This means the system must also take another field in the machine object into account to switch from "tenant desired networking" to "isolated network".
+2. In order to support Virtual Machines on top of instances, partitions should be configurable on a per-interface base instead of per-host base. This allows the VM system to attach different interfaces (PCI PFs) to different VMs.
+3. When the instance is updated, the tenant will get accurate status if networking on the machine has been reconfigured to use the new partition using `configs_synced` attributes that are part of the instance status. This flag will also influence the overall readiness of the instance that is shown in the `state` field: If networking is not fully configured, the instance will show a status of `Configuring`. Once networking is configured, it will move to `Ready`.
+4. When the instance configuration is updated, the `config_version` field that is part of the `Instance` will get incremented.
+5. On initial provisioning, the state machine will block booting into the tenant OS until the desired configuration is achieved. This guarantees that once the instance is booted, it can immediately communicate with all other instances of the tenant that share the partition.
+6. On instance termination, the termination flow blocks on the until the networking interfaces are reconfigured to no longer be part of any partition (the instance is isolated on the network). That assures that once the tenant is notified that the instance is deleted, it is at least fully isolated and can no longer show up as a "ghost instance" - even in case the disk might not be cleaned up yet. The "desired" instance configuration that is submitted by the tenant and reflected in the `InstanceConfig` message will not change during that workflow. This means the system must also take another field in the machine object into account to switch from "tenant desired networking" to "isolated network".
 
 ### Machine Capabilities and Instance types
 
@@ -84,6 +85,11 @@ There needs to be a mechanism that periodically compares the expected networking
 ## Configurability
 
 - Whether a certain network virtualization technology is available in a NICo deployment should be configurable via NICo config files.
+
+## Managed Host force delete support
+
+- When a host is force-deleted from the system, it will not go through the regular deprovisioning states. This means without extra support, networking configurations for the host would still persist in external agents and fabric managers.
+- To prevent that, the force-delete code-path should contain extra logic to detach the host from partitions via external fabric manager APIs.
 
 ## External fabric manager client libraries
 

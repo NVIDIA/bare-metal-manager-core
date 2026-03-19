@@ -84,6 +84,10 @@ Other common places where we've seen `#[allow(dead_code)]` that are not necessar
     - A `state_reason` field which shows the outcome of the last state handler run
     - A `state_sla` field which shows the SLA for the state, and whether it had been breached.
 
+## Networking integrations
+
+Networking technologies should be integrated using the workflows described in [Networking Integrations](book/src/architecture/networking_integrations.md).
+
 ## Metrics
 
 When designing metrics, be careful with cardinality. Do not attach highly unique labels that explode time-series
