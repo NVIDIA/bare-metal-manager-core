@@ -106,7 +106,7 @@ git rebase --signoff origin/main
 
 ### DCO Enforcement
 
-All pull requests are automatically checked for DCO complianc via DCO bot. Pull requests with unsigned commits cannot be merged until all commits are properly signed off.
+All pull requests are automatically checked for DCO compliance via DCO bot. Pull requests with unsigned commits cannot be merged until all commits are properly signed off.
 
 ## Fork and Setup
 
