@@ -11,6 +11,7 @@ images:
     image: carbide-api
     custom:
       command: |-
+        docker image inspect build-container-localdev >/dev/null 2>&1 || docker build --pull=false -t build-container-localdev -f dev/docker/Dockerfile.build-container-x86_64 .
         docker build -t ${runtime.images.carbide-api.image}:${runtime.images.carbide-api.tag} -f dev/deployment/devspace/Dockerfile.api .
       onChange:
         - .dockerignore
@@ -20,6 +21,7 @@ images:
         - .cargo
         - crates
         - include
+        - dev/docker/Dockerfile.build-container-x86_64
         - dev/deployment/devspace/Dockerfile.api
         - pxe/templates
         - pxe/static/blobs/internal/aarch64/secure-boot-pk.pem
@@ -27,6 +29,7 @@ images:
     image: machine-a-tron
     custom:
       command: |-
+        docker image inspect build-container-localdev >/dev/null 2>&1 || docker build --pull=false -t build-container-localdev -f dev/docker/Dockerfile.build-container-x86_64 .
         docker build -t ${runtime.images.machine-a-tron.image}:${runtime.images.machine-a-tron.tag} -f dev/deployment/devspace/Dockerfile.machine-a-tron .
       onChange:
         - .dockerignore
@@ -36,6 +39,7 @@ images:
         - .cargo
         - crates
         - include
+        - dev/docker/Dockerfile.build-container-x86_64
         - dev/deployment/devspace/Dockerfile.machine-a-tron
 
 deployments:

@@ -1,37 +1,9 @@
 # syntax=docker/dockerfile:1.7
 
-FROM rust:1.90.0-slim-bookworm AS builder
+FROM build-container-localdev AS builder
 
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 ENV CARGO_TARGET_DIR=/cargo-target
-
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-  --mount=type=cache,target=/var/lib/apt,sharing=locked \
-  apt-get update && \
-  apt-get install -y --no-install-recommends \
-    build-essential \
-    clang \
-    cmake \
-    curl \
-    git \
-    libaio-dev \
-    libboost-dev \
-    libgrpc++-dev \
-    libgrpc-dev \
-    libopenipmi-dev \
-    libprotobuf-dev \
-    libssh-dev \
-    libssl-dev \
-    libtss2-dev \
-    libudev-dev \
-    lld \
-    openipmi \
-    pkg-config \
-    protobuf-compiler \
-    protobuf-compiler-grpc \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN update-alternatives --install /usr/bin/ld ld /usr/bin/lld 50
 
 WORKDIR /workspace
 

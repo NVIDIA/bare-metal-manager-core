@@ -88,7 +88,7 @@ DevSpace will:
 - deploy the local-only `machine-a-tron` chart in [`charts/machine-a-tron`](charts/machine-a-tron)
 - inject the built image names and DevSpace-generated tags into both deployments at runtime
 
-The image builds are configured in [`devspace.yaml`](../../../devspace.yaml). Both Dockerfiles are multi-stage builds: the builder stage compiles the Rust binary inside Docker, and the runtime stage copies only the finished binary and required runtime assets. BuildKit cache mounts are used for Cargo registry, Cargo git checkouts, and Cargo target output so rebuilds stay fast without copying host build artifacts into the image.
+The image builds are configured in [`devspace.yaml`](../../../devspace.yaml). Both Dockerfiles are multi-stage builds: the builder stage compiles the Rust binary inside Docker from the local `build-container-localdev` image, and the runtime stage copies only the finished binary and required runtime assets. DevSpace first checks whether `build-container-localdev` already exists locally and reuses it if present; otherwise it builds it from [`dev/docker/Dockerfile.build-container-x86_64`](../../../dev/docker/Dockerfile.build-container-x86_64). BuildKit cache mounts are used for Cargo registry, Cargo git checkouts, and Cargo target output so rebuilds stay fast without copying host build artifacts into the image.
 
 The DevSpace images also use Dockerfile-specific ignore files: [`Dockerfile.api.dockerignore`](Dockerfile.api.dockerignore) and [`Dockerfile.machine-a-tron.dockerignore`](Dockerfile.machine-a-tron.dockerignore). This keeps the top-level [`.dockerignore`](../../../.dockerignore) aligned with the main branch for CI and release builds, while still giving the local DevSpace builds a small Docker context.
 
@@ -109,6 +109,7 @@ devspace deploy --force-build
 If you want to understand what DevSpace is doing for the app image, the configured build is effectively:
 
 ```bash
+docker image inspect build-container-localdev >/dev/null 2>&1 || docker build --pull=false -t build-container-localdev -f dev/docker/Dockerfile.build-container-x86_64 .
 docker build -t "carbide-api:<devspace-generated-tag>" -f dev/deployment/devspace/Dockerfile.api .
 docker build -t "machine-a-tron:<devspace-generated-tag>" -f dev/deployment/devspace/Dockerfile.machine-a-tron .
 ```
