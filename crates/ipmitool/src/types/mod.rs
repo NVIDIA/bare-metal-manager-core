@@ -412,6 +412,292 @@ pub fn cipher_suite_by_id(id: u8) -> Option<CipherSuiteId> {
     }
 }
 
+// ==============================================================================
+// IPMI Command Identifiers
+// ==============================================================================
+
+/// Known IPMI commands, mapping each to its `(NetFn, cmd)` byte pair.
+///
+/// Replaces raw magic numbers in handler tables and `IpmiRequest` construction.
+/// The variants cover every command implemented in the `cmd/` modules plus
+/// session-level commands used by the transport layer.
+///
+/// Use [`IpmiCommand::netfn`] and [`IpmiCommand::cmd`] to get the wire values,
+/// or [`IpmiCommand::from_pair`] to look up a variant from received bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IpmiCommand {
+    // ── Chassis (NetFn 0x00) ─────────────────────────────────────────
+    /// Get Chassis Status (cmd 0x01).
+    GetChassisStatus,
+    /// Chassis Control — power on/off/cycle/reset/soft (cmd 0x02).
+    ChassisControl,
+    /// Chassis Identify — blink LEDs (cmd 0x04).
+    ChassisIdentify,
+    /// Set System Boot Options (cmd 0x08).
+    SetBootOptions,
+    /// Get System Boot Options (cmd 0x09).
+    GetBootOptions,
+
+    // ── App (NetFn 0x06) ─────────────────────────────────────────────
+    /// Get Device ID (cmd 0x01).
+    GetDeviceId,
+    /// Cold Reset (cmd 0x02).
+    ColdReset,
+    /// Warm Reset (cmd 0x03).
+    WarmReset,
+    /// Get Self Test Results (cmd 0x04).
+    GetSelfTestResults,
+    /// Get Device GUID (cmd 0x37).
+    GetDeviceGuid,
+    /// Reset Watchdog Timer (cmd 0x22).
+    ResetWatchdogTimer,
+    /// Get Watchdog Timer (cmd 0x25).
+    GetWatchdogTimer,
+    /// Get Channel Authentication Capabilities (cmd 0x38).
+    GetChannelAuthCapabilities,
+    /// Set Channel Access (cmd 0x40).
+    SetChannelAccess,
+    /// Get Channel Access (cmd 0x41).
+    GetChannelAccess,
+    /// Get Channel Info (cmd 0x42).
+    GetChannelInfo,
+    /// Set User Access (cmd 0x43).
+    SetUserAccess,
+    /// Get User Access (cmd 0x44).
+    GetUserAccess,
+    /// Set User Name (cmd 0x45).
+    SetUserName,
+    /// Get User Name (cmd 0x46).
+    GetUserName,
+    /// Set User Password (cmd 0x47).
+    SetUserPassword,
+    /// Activate Payload — SOL (cmd 0x48).
+    ActivatePayload,
+    /// Deactivate Payload — SOL (cmd 0x49).
+    DeactivatePayload,
+    /// Get Channel Cipher Suites (cmd 0x54).
+    GetChannelCipherSuites,
+    /// Set Session Privilege Level (cmd 0x3B).
+    SetSessionPrivilegeLevel,
+    /// Close Session (cmd 0x3C).
+    CloseSession,
+
+    // ── Sensor/Event (NetFn 0x04) ────────────────────────────────────
+    /// Set Sensor Thresholds (cmd 0x26).
+    SetSensorThresholds,
+    /// Get Sensor Thresholds (cmd 0x27).
+    GetSensorThresholds,
+    /// Get Sensor Reading (cmd 0x2D).
+    GetSensorReading,
+
+    // ── Storage (NetFn 0x0A) ─────────────────────────────────────────
+    /// Get FRU Inventory Area Info (cmd 0x10).
+    GetFruInventoryAreaInfo,
+    /// Read FRU Data (cmd 0x11).
+    ReadFruData,
+    /// Get SDR Repository Info (cmd 0x20).
+    GetSdrRepositoryInfo,
+    /// Reserve SDR Repository (cmd 0x22).
+    ReserveSdrRepository,
+    /// Get SDR (cmd 0x23).
+    GetSdr,
+    /// Get SEL Info (cmd 0x40).
+    GetSelInfo,
+    /// Get SEL Entry (cmd 0x43).
+    GetSelEntry,
+    /// Reserve SEL Repository (cmd 0x42).
+    ReserveSelRepository,
+    /// Clear SEL (cmd 0x47).
+    ClearSel,
+    /// Get SEL Time (cmd 0x48).
+    GetSelTime,
+
+    // ── Transport (NetFn 0x0C) ───────────────────────────────────────
+    /// Set SOL Configuration Parameters (cmd 0x21).
+    SetSolConfigParam,
+    /// Get SOL Configuration Parameters (cmd 0x22).
+    GetSolConfigParam,
+}
+
+impl IpmiCommand {
+    /// The request network function code for this command.
+    #[must_use]
+    pub fn netfn(self) -> NetFn {
+        match self {
+            Self::GetChassisStatus
+            | Self::ChassisControl
+            | Self::ChassisIdentify
+            | Self::SetBootOptions
+            | Self::GetBootOptions => NetFn::Chassis,
+
+            Self::GetDeviceId
+            | Self::ColdReset
+            | Self::WarmReset
+            | Self::GetSelfTestResults
+            | Self::GetDeviceGuid
+            | Self::ResetWatchdogTimer
+            | Self::GetWatchdogTimer
+            | Self::GetChannelAuthCapabilities
+            | Self::SetChannelAccess
+            | Self::GetChannelAccess
+            | Self::GetChannelInfo
+            | Self::SetUserAccess
+            | Self::GetUserAccess
+            | Self::SetUserName
+            | Self::GetUserName
+            | Self::SetUserPassword
+            | Self::ActivatePayload
+            | Self::DeactivatePayload
+            | Self::GetChannelCipherSuites
+            | Self::SetSessionPrivilegeLevel
+            | Self::CloseSession => NetFn::App,
+
+            Self::SetSensorThresholds
+            | Self::GetSensorThresholds
+            | Self::GetSensorReading => NetFn::SensorEvent,
+
+            Self::GetFruInventoryAreaInfo
+            | Self::ReadFruData
+            | Self::GetSdrRepositoryInfo
+            | Self::ReserveSdrRepository
+            | Self::GetSdr
+            | Self::GetSelInfo
+            | Self::GetSelEntry
+            | Self::ReserveSelRepository
+            | Self::ClearSel
+            | Self::GetSelTime => NetFn::Storage,
+
+            Self::SetSolConfigParam | Self::GetSolConfigParam => NetFn::Transport,
+        }
+    }
+
+    /// The command code byte for this command.
+    #[must_use]
+    pub fn cmd(self) -> u8 {
+        match self {
+            // Chassis
+            Self::GetChassisStatus => 0x01,
+            Self::ChassisControl => 0x02,
+            Self::ChassisIdentify => 0x04,
+            Self::SetBootOptions => 0x08,
+            Self::GetBootOptions => 0x09,
+            // App
+            Self::GetDeviceId => 0x01,
+            Self::ColdReset => 0x02,
+            Self::WarmReset => 0x03,
+            Self::GetSelfTestResults => 0x04,
+            Self::ResetWatchdogTimer => 0x22,
+            Self::GetWatchdogTimer => 0x25,
+            Self::GetDeviceGuid => 0x37,
+            Self::GetChannelAuthCapabilities => 0x38,
+            Self::SetSessionPrivilegeLevel => 0x3B,
+            Self::CloseSession => 0x3C,
+            Self::SetChannelAccess => 0x40,
+            Self::GetChannelAccess => 0x41,
+            Self::GetChannelInfo => 0x42,
+            Self::SetUserAccess => 0x43,
+            Self::GetUserAccess => 0x44,
+            Self::SetUserName => 0x45,
+            Self::GetUserName => 0x46,
+            Self::SetUserPassword => 0x47,
+            Self::ActivatePayload => 0x48,
+            Self::DeactivatePayload => 0x49,
+            Self::GetChannelCipherSuites => 0x54,
+            // Sensor/Event
+            Self::SetSensorThresholds => 0x26,
+            Self::GetSensorThresholds => 0x27,
+            Self::GetSensorReading => 0x2D,
+            // Storage
+            Self::GetFruInventoryAreaInfo => 0x10,
+            Self::ReadFruData => 0x11,
+            Self::GetSdrRepositoryInfo => 0x20,
+            Self::ReserveSdrRepository => 0x22,
+            Self::GetSdr => 0x23,
+            Self::GetSelInfo => 0x40,
+            Self::ReserveSelRepository => 0x42,
+            Self::GetSelEntry => 0x43,
+            Self::ClearSel => 0x47,
+            Self::GetSelTime => 0x48,
+            // Transport
+            Self::SetSolConfigParam => 0x21,
+            Self::GetSolConfigParam => 0x22,
+        }
+    }
+
+    /// The `(netfn, cmd)` byte pair for use in handler tables.
+    #[must_use]
+    pub fn pair(self) -> (u8, u8) {
+        (self.netfn() as u8, self.cmd())
+    }
+
+    /// Look up a command variant from raw `(netfn, cmd)` bytes.
+    ///
+    /// Returns `None` for unknown combinations. Note that some `(netfn, cmd)`
+    /// pairs are ambiguous (e.g., App cmd 0x01 is Get Device ID, Chassis cmd
+    /// 0x01 is Get Chassis Status) — the netfn disambiguates.
+    #[must_use]
+    pub fn from_pair(netfn: u8, cmd: u8) -> Option<Self> {
+        // Strip the response bit so callers can pass either request or
+        // response netfn values.
+        let netfn = netfn & 0xFE;
+        match (netfn, cmd) {
+            // Chassis
+            (0x00, 0x01) => Some(Self::GetChassisStatus),
+            (0x00, 0x02) => Some(Self::ChassisControl),
+            (0x00, 0x04) => Some(Self::ChassisIdentify),
+            (0x00, 0x08) => Some(Self::SetBootOptions),
+            (0x00, 0x09) => Some(Self::GetBootOptions),
+            // App
+            (0x06, 0x01) => Some(Self::GetDeviceId),
+            (0x06, 0x02) => Some(Self::ColdReset),
+            (0x06, 0x03) => Some(Self::WarmReset),
+            (0x06, 0x04) => Some(Self::GetSelfTestResults),
+            (0x06, 0x22) => Some(Self::ResetWatchdogTimer),
+            (0x06, 0x25) => Some(Self::GetWatchdogTimer),
+            (0x06, 0x37) => Some(Self::GetDeviceGuid),
+            (0x06, 0x38) => Some(Self::GetChannelAuthCapabilities),
+            (0x06, 0x3B) => Some(Self::SetSessionPrivilegeLevel),
+            (0x06, 0x3C) => Some(Self::CloseSession),
+            (0x06, 0x40) => Some(Self::SetChannelAccess),
+            (0x06, 0x41) => Some(Self::GetChannelAccess),
+            (0x06, 0x42) => Some(Self::GetChannelInfo),
+            (0x06, 0x43) => Some(Self::SetUserAccess),
+            (0x06, 0x44) => Some(Self::GetUserAccess),
+            (0x06, 0x45) => Some(Self::SetUserName),
+            (0x06, 0x46) => Some(Self::GetUserName),
+            (0x06, 0x47) => Some(Self::SetUserPassword),
+            (0x06, 0x48) => Some(Self::ActivatePayload),
+            (0x06, 0x49) => Some(Self::DeactivatePayload),
+            (0x06, 0x54) => Some(Self::GetChannelCipherSuites),
+            // Sensor/Event
+            (0x04, 0x26) => Some(Self::SetSensorThresholds),
+            (0x04, 0x27) => Some(Self::GetSensorThresholds),
+            (0x04, 0x2D) => Some(Self::GetSensorReading),
+            // Storage
+            (0x0A, 0x10) => Some(Self::GetFruInventoryAreaInfo),
+            (0x0A, 0x11) => Some(Self::ReadFruData),
+            (0x0A, 0x20) => Some(Self::GetSdrRepositoryInfo),
+            (0x0A, 0x22) => Some(Self::ReserveSdrRepository),
+            (0x0A, 0x23) => Some(Self::GetSdr),
+            (0x0A, 0x40) => Some(Self::GetSelInfo),
+            (0x0A, 0x42) => Some(Self::ReserveSelRepository),
+            (0x0A, 0x43) => Some(Self::GetSelEntry),
+            (0x0A, 0x47) => Some(Self::ClearSel),
+            (0x0A, 0x48) => Some(Self::GetSelTime),
+            // Transport
+            (0x0C, 0x21) => Some(Self::SetSolConfigParam),
+            (0x0C, 0x22) => Some(Self::GetSolConfigParam),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for IpmiCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -473,5 +759,73 @@ mod tests {
     fn privilege_level_ordering() {
         assert!(PrivilegeLevel::User < PrivilegeLevel::Operator);
         assert!(PrivilegeLevel::Operator < PrivilegeLevel::Administrator);
+    }
+
+    #[test]
+    fn ipmi_command_pair_roundtrip() {
+        // Every variant must survive a pair() → from_pair() roundtrip.
+        let all_commands = [
+            IpmiCommand::GetChassisStatus,
+            IpmiCommand::ChassisControl,
+            IpmiCommand::ChassisIdentify,
+            IpmiCommand::SetBootOptions,
+            IpmiCommand::GetBootOptions,
+            IpmiCommand::GetDeviceId,
+            IpmiCommand::ColdReset,
+            IpmiCommand::WarmReset,
+            IpmiCommand::GetSelfTestResults,
+            IpmiCommand::GetDeviceGuid,
+            IpmiCommand::ResetWatchdogTimer,
+            IpmiCommand::GetWatchdogTimer,
+            IpmiCommand::GetChannelAuthCapabilities,
+            IpmiCommand::SetChannelAccess,
+            IpmiCommand::GetChannelAccess,
+            IpmiCommand::GetChannelInfo,
+            IpmiCommand::SetUserAccess,
+            IpmiCommand::GetUserAccess,
+            IpmiCommand::SetUserName,
+            IpmiCommand::GetUserName,
+            IpmiCommand::SetUserPassword,
+            IpmiCommand::ActivatePayload,
+            IpmiCommand::DeactivatePayload,
+            IpmiCommand::GetChannelCipherSuites,
+            IpmiCommand::SetSessionPrivilegeLevel,
+            IpmiCommand::CloseSession,
+            IpmiCommand::SetSensorThresholds,
+            IpmiCommand::GetSensorThresholds,
+            IpmiCommand::GetSensorReading,
+            IpmiCommand::GetFruInventoryAreaInfo,
+            IpmiCommand::ReadFruData,
+            IpmiCommand::GetSdrRepositoryInfo,
+            IpmiCommand::ReserveSdrRepository,
+            IpmiCommand::GetSdr,
+            IpmiCommand::GetSelInfo,
+            IpmiCommand::GetSelEntry,
+            IpmiCommand::ReserveSelRepository,
+            IpmiCommand::ClearSel,
+            IpmiCommand::GetSelTime,
+            IpmiCommand::SetSolConfigParam,
+            IpmiCommand::GetSolConfigParam,
+        ];
+
+        for cmd in all_commands {
+            let (netfn, code) = cmd.pair();
+            let back = IpmiCommand::from_pair(netfn, code)
+                .unwrap_or_else(|| panic!("from_pair failed for {cmd:?} = (0x{netfn:02x}, 0x{code:02x})"));
+            assert_eq!(cmd, back, "roundtrip failed for {cmd:?}");
+        }
+    }
+
+    #[test]
+    fn ipmi_command_from_pair_unknown_returns_none() {
+        assert!(IpmiCommand::from_pair(0x06, 0xFF).is_none());
+        assert!(IpmiCommand::from_pair(0xFF, 0x01).is_none());
+    }
+
+    #[test]
+    fn ipmi_command_from_pair_accepts_response_netfn() {
+        // Passing the response netfn (odd) should still resolve.
+        let cmd = IpmiCommand::from_pair(0x07, 0x01); // App response
+        assert_eq!(cmd, Some(IpmiCommand::GetDeviceId));
     }
 }

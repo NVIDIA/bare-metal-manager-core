@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `IpmiCommand` enum mapping every known IPMI command to its
+  `(NetFn, cmd)` byte pair, replacing raw magic numbers in handler
+  tables and dispatch logic
 - IPMI v1.5 LAN transport (`-I lan`) for BMCs that do not support
   RMCP+ (IPMI v2.0), with MD5 and None authentication types
 - Interactive SOL terminal session with bidirectional I/O, terminal raw
