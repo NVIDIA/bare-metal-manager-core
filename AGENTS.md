@@ -122,13 +122,21 @@ Make sure to review it to ensure changes meet the expected style of the codebase
 
 ## Commit Guidelines
 
-All commits **must** be signed with the Developer Certificate of Origin (DCO):
+All commits **must** meet two signing requirements:
 
-```bash
-git commit -s -m "Your commit message"
-```
+1. **DCO sign-off** — certifies the Developer Certificate of Origin:
+   ```bash
+   git commit -s -m "Your commit message"
+   ```
+   DCO compliance is enforced automatically; unsigned commits block merging.
 
-DCO compliance is enforced automatically; unsigned commits block merging.
+2. **Cryptographic signing** — commits must be signed with a GPG or SSH key
+   so they appear as **Verified** on GitHub. Configure SSH signing once:
+   ```bash
+   git config --global gpg.format ssh
+   git config --global user.signingkey ~/.ssh/id_ed25519.pub
+   git config --global commit.gpgsign true
+   ```
 
 ## Pull Request Guidelines
 
