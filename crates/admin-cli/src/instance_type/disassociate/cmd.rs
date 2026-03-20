@@ -16,7 +16,6 @@
  */
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use carbide_uuid::machine::MachineId;
 use rpc::TenantState;
 use rpc::forge::RemoveMachineInstanceTypeAssociationRequest;
 
@@ -45,7 +44,7 @@ pub async fn remove_association(
         Removing instance type will create a mismatch between cloud and carbide. If you are sure, run this command again with --cloud-unsafe-op=<username> flag before `instance-type`."#.to_string(),
         ));
                     }
-                    remove_association_api(api_client, args.machine_id).await?;
+                    remove_association_api(api_client, &args).await?;
                     return Ok(());
                 }
                 _ => {}
@@ -55,7 +54,7 @@ pub async fn remove_association(
             "A instance is already allocated to this machine. You can remove an instance-type association only in Teminating state.".to_string(),
         ));
     } else {
-        remove_association_api(api_client, args.machine_id).await?;
+        remove_association_api(api_client, &args).await?;
     }
 
     Ok(())
@@ -63,13 +62,12 @@ pub async fn remove_association(
 
 async fn remove_association_api(
     api_client: &ApiClient,
-    machine_id: MachineId,
+    args: &Args,
 ) -> Result<(), CarbideCliError> {
+    let req: RemoveMachineInstanceTypeAssociationRequest = args.into();
     api_client
         .0
-        .remove_machine_instance_type_association(RemoveMachineInstanceTypeAssociationRequest {
-            machine_id: machine_id.to_string(),
-        })
+        .remove_machine_instance_type_association(req)
         .await?;
     println!("Association is removed successfully!!");
     Ok(())

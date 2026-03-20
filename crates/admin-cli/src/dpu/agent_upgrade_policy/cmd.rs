@@ -17,44 +17,22 @@
 
 use ::rpc::admin_cli::CarbideCliResult;
 
-use super::args::AgentUpgradePolicyChoice;
+use super::args::{AgentUpgradePolicyChoice, Args};
 use crate::rpc::ApiClient;
 
-pub async fn agent_upgrade_policy(
-    api_client: &ApiClient,
-    set: Option<AgentUpgradePolicyChoice>,
-) -> CarbideCliResult<()> {
-    let rpc_choice = set.map(|cmd_line_policy| match cmd_line_policy {
-        AgentUpgradePolicyChoice::Off => rpc::forge::AgentUpgradePolicy::Off,
-        AgentUpgradePolicyChoice::UpOnly => rpc::forge::AgentUpgradePolicy::UpOnly,
-        AgentUpgradePolicyChoice::UpDown => rpc::forge::AgentUpgradePolicy::UpDown,
-    });
-    handle_agent_upgrade_policy(api_client, rpc_choice).await
-}
+pub async fn agent_upgrade_policy(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
+    let is_set = args.set.is_some();
+    let resp = api_client.0.dpu_agent_upgrade_policy_action(args).await?;
+    let policy: AgentUpgradePolicyChoice = resp.active_policy.into();
 
-pub async fn handle_agent_upgrade_policy(
-    api_client: &ApiClient,
-    action: Option<::rpc::forge::AgentUpgradePolicy>,
-) -> CarbideCliResult<()> {
-    match action {
-        None => {
-            let resp = api_client
-                .0
-                .dpu_agent_upgrade_policy_action(rpc::forge::DpuAgentUpgradePolicyRequest {
-                    new_policy: None,
-                })
-                .await?;
-            let policy: AgentUpgradePolicyChoice = resp.active_policy.into();
-            tracing::info!("{policy}");
-        }
-        Some(choice) => {
-            let resp = api_client.0.dpu_agent_upgrade_policy_action(choice).await?;
-            let policy: AgentUpgradePolicyChoice = resp.active_policy.into();
-            tracing::info!(
-                "Policy is now: {policy}. Update succeeded? {}.",
-                resp.did_change,
-            );
-        }
+    if is_set {
+        tracing::info!(
+            "Policy is now: {policy}. Update succeeded? {}.",
+            resp.did_change
+        );
+    } else {
+        tracing::info!("{policy}");
     }
+
     Ok(())
 }

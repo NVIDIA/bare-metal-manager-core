@@ -16,19 +16,11 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::{CredentialType, forge as forgerpc};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn generate_ufm_cert(c: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let req = forgerpc::CredentialCreationRequest {
-        credential_type: CredentialType::Ufm.into(),
-        username: None,
-        password: "".to_string(),
-        mac_address: None,
-        vendor: Some(c.fabric),
-    };
-    api_client.0.create_credential(req).await?;
+pub async fn generate_ufm_cert(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+    api_client.0.create_credential(args).await?;
     Ok(())
 }

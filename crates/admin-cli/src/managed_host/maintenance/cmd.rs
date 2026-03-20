@@ -18,32 +18,14 @@
 use ::rpc::admin_cli::CarbideCliResult;
 use ::rpc::forge as forgerpc;
 
-use super::args::{Args, MaintenanceOff, MaintenanceOn};
+use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn maintenance_on(api_client: &ApiClient, args: MaintenanceOn) -> CarbideCliResult<()> {
-    let req = forgerpc::MaintenanceRequest {
-        operation: forgerpc::MaintenanceOperation::Enable.into(),
-        host_id: Some(args.host),
-        reference: Some(args.reference),
-    };
-    api_client.0.set_maintenance(req).await?;
-    Ok(())
-}
-
-pub async fn maintenance_off(api_client: &ApiClient, args: MaintenanceOff) -> CarbideCliResult<()> {
-    let req = forgerpc::MaintenanceRequest {
-        operation: forgerpc::MaintenanceOperation::Disable.into(),
-        host_id: Some(args.host),
-        reference: None,
-    };
-    api_client.0.set_maintenance(req).await?;
-    Ok(())
-}
-
 pub async fn maintenance(api_client: &ApiClient, action: Args) -> CarbideCliResult<()> {
-    match action {
-        Args::On(args) => maintenance_on(api_client, args).await,
-        Args::Off(args) => maintenance_off(api_client, args).await,
-    }
+    let req: forgerpc::MaintenanceRequest = match action {
+        Args::On(args) => args.into(),
+        Args::Off(args) => args.into(),
+    };
+    api_client.0.set_maintenance(req).await?;
+    Ok(())
 }

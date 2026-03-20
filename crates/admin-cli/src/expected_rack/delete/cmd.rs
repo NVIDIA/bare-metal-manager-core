@@ -15,14 +15,11 @@
  * limitations under the License.
  */
 
-use rpc::forge::ExpectedRackRequest;
-
 use super::Args;
 use crate::rpc::ApiClient;
 
 /// delete deletes an expected rack by its rack_id.
 pub async fn delete(data: Args, api_client: &ApiClient) -> color_eyre::Result<()> {
-    let req: ExpectedRackRequest = data.into();
-    api_client.0.delete_expected_rack(req).await?;
+    api_client.0.delete_expected_rack(data).await?;
     Ok(())
 }

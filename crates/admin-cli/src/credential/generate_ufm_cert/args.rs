@@ -16,6 +16,7 @@
  */
 
 use clap::Parser;
+use rpc::{CredentialType, forge as forgerpc};
 
 use crate::credential::common::DEFAULT_IB_FABRIC_NAME;
 
@@ -23,4 +24,16 @@ use crate::credential::common::DEFAULT_IB_FABRIC_NAME;
 pub struct Args {
     #[clap(long, default_value_t = DEFAULT_IB_FABRIC_NAME.to_string(), help = "Infiniband fabric.")]
     pub fabric: String,
+}
+
+impl From<Args> for forgerpc::CredentialCreationRequest {
+    fn from(args: Args) -> Self {
+        Self {
+            credential_type: CredentialType::Ufm.into(),
+            username: None,
+            password: "".to_string(),
+            mac_address: None,
+            vendor: Some(args.fabric),
+        }
+    }
 }

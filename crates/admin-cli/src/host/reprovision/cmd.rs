@@ -67,8 +67,7 @@ pub async fn trigger_reprovisioning_clear(
     data: ReprovisionClear,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let req: HostReprovisioningRequest = data.into();
-    api_client.0.trigger_host_reprovisioning(req).await?;
+    api_client.0.trigger_host_reprovisioning(data).await?;
     Ok(())
 }
 

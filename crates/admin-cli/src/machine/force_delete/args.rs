@@ -16,6 +16,7 @@
  */
 
 use clap::Parser;
+use rpc::forge::AdminForceDeleteMachineRequest;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -55,4 +56,15 @@ pub struct Args {
         help = "Delete machine with allocated instance. This flag acknowledges destroying the user instance as well."
     )]
     pub allow_delete_with_instance: bool,
+}
+
+impl From<&Args> for AdminForceDeleteMachineRequest {
+    fn from(args: &Args) -> Self {
+        Self {
+            host_query: args.machine.clone(),
+            delete_interfaces: args.delete_interfaces,
+            delete_bmc_interfaces: args.delete_bmc_interfaces,
+            delete_bmc_credentials: args.delete_bmc_credentials,
+        }
+    }
 }
