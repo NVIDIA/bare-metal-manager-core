@@ -68,13 +68,15 @@ impl EventContext {
 pub struct SensorHealthContext {
     pub entity_type: String,
     pub sensor_id: String,
+    pub upper_fatal: Option<f64>,
+    pub lower_fatal: Option<f64>,
     pub upper_critical: Option<f64>,
     pub lower_critical: Option<f64>,
     pub upper_caution: Option<f64>,
     pub lower_caution: Option<f64>,
     pub range_max: Option<f64>,
     pub range_min: Option<f64>,
-    pub bmc_health: Option<BmcHealth>,
+    pub bmc_health: BmcHealth,
 }
 
 #[derive(Clone, Debug)]
@@ -169,6 +171,7 @@ pub enum Classification {
     SensorOk,
     SensorWarning,
     SensorCritical,
+    SensorFatal,
     SensorFailure,
     Leak,
     LeakDetector,
@@ -180,6 +183,7 @@ impl Classification {
             Self::SensorOk => "SensorOk",
             Self::SensorWarning => "SensorWarning",
             Self::SensorCritical => "SensorCritical",
+            Self::SensorFatal => "SensorFatal",
             Self::SensorFailure => "SensorFailure",
             Self::Leak => "Leak",
             Self::LeakDetector => "LeakDetector",

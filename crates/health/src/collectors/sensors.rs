@@ -635,6 +635,20 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             }
         };
 
+        let Some(bmc_health) = sensor
+            .status
+            .as_ref()
+            .and_then(|s| s.health.and_then(std::convert::identity))
+        else {
+            tracing::debug!(
+                sensor_id = %sensor.base.id,
+                entity_type = entity.metric_prefix(),
+                sensor = ?sensor,
+                "Sensor does not have health status field, skipping"
+            );
+            return 0;
+        };
+
         let Some((reading, reading_type, unit)) = sensor
             .reading
             .flatten()
@@ -701,34 +715,43 @@ impl<B: Bmc + 'static> SensorCollector<B> {
         let metric_type = reading_type.to_snake_case().to_string();
         let unit = sanitize_unit(&unit);
 
-        let (upper_critical, lower_critical, upper_caution, lower_caution) =
-            if let Some(thresholds) = &sensor.thresholds {
-                (
-                    thresholds
-                        .upper_critical
-                        .as_ref()
-                        .and_then(|t| t.reading.flatten()),
-                    thresholds
-                        .lower_critical
-                        .as_ref()
-                        .and_then(|t| t.reading.flatten()),
-                    thresholds
-                        .upper_caution
-                        .as_ref()
-                        .and_then(|t| t.reading.flatten()),
-                    thresholds
-                        .lower_caution
-                        .as_ref()
-                        .and_then(|t| t.reading.flatten()),
-                )
-            } else {
-                (None, None, None, None)
-            };
-
-        let bmc_health = sensor
-            .status
-            .as_ref()
-            .and_then(|s| s.health.and_then(std::convert::identity));
+        let (
+            upper_fatal,
+            lower_fatal,
+            upper_critical,
+            lower_critical,
+            upper_caution,
+            lower_caution,
+        ) = if let Some(thresholds) = &sensor.thresholds {
+            (
+                thresholds
+                    .upper_fatal
+                    .as_ref()
+                    .and_then(|t| t.reading.flatten()),
+                thresholds
+                    .lower_fatal
+                    .as_ref()
+                    .and_then(|t| t.reading.flatten()),
+                thresholds
+                    .upper_critical
+                    .as_ref()
+                    .and_then(|t| t.reading.flatten()),
+                thresholds
+                    .lower_critical
+                    .as_ref()
+                    .and_then(|t| t.reading.flatten()),
+                thresholds
+                    .upper_caution
+                    .as_ref()
+                    .and_then(|t| t.reading.flatten()),
+                thresholds
+                    .lower_caution
+                    .as_ref()
+                    .and_then(|t| t.reading.flatten()),
+            )
+        } else {
+            (None, None, None, None, None, None)
+        };
 
         let derived_metrics = entity.entity_metrics(&attributes);
 
@@ -743,6 +766,8 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                 context: Some(SensorHealthContext {
                     entity_type: entity.metric_prefix().replace("hw_", ""),
                     sensor_id: sensor.base.id.clone(),
+                    upper_fatal,
+                    lower_fatal,
                     upper_critical,
                     lower_critical,
                     upper_caution,
