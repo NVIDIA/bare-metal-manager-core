@@ -2558,6 +2558,9 @@ pub fn state_sla(
                 // Since retries happen after 30min, the occurence of any retry means we exhausted the SLA
                 StateSla::with_sla(std::time::Duration::ZERO, time_in_state)
             }
+            InstanceState::HostPlatformConfiguration { .. } => {
+                StateSla::with_sla(slas::ASSIGNED_HOST_PLATFORM_CONFIGURATION, time_in_state)
+            }
             _ => StateSla::with_sla(slas::ASSIGNED, time_in_state),
         },
         ManagedHostState::WaitingForCleanup { .. } => {
