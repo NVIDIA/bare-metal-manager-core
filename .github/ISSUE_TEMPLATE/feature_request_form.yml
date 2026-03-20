@@ -13,10 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Feature Request Form
+name: Feature/Enhancement Request Form
 description: Request new or improved functionality or changes to existing functionality
-title: "[FEA]: "
-labels: ["feature request"]
+title: "feat: "
+labels: ["feature"]
+type: Enhancement
 
 body:
   - type: markdown
@@ -27,10 +28,10 @@ body:
   - type: dropdown
     id: new_or_improvement
     attributes:
-      label: Is this a new feature, an improvement, or a change to existing functionality?
+      label: Is this a new feature, an enhancement, or a change to existing functionality?
       options:
         - New Feature
-        - Improvement
+        - Enhancement
         - Change
     validations:
       required: true
@@ -44,6 +45,7 @@ body:
         - High
         - Medium
         - Low (would be nice)
+      default: 2
     validations:
       required: true
 
@@ -81,8 +83,6 @@ body:
         def feature_request(form_info):
             parse(form_info)
             return triage_outcome
-    validations:
-      required: true
 
   - type: textarea
     id: alternatives
@@ -101,9 +101,9 @@ body:
     id: terms
     attributes:
       label: Code of Conduct
-      description: By submitting this issue, you agree to follow our [Code of Conduct](https://github.com/NVIDIA/bare-metal-manager-core/blob/main/CODE_OF_CONDUCT.md)
+      description: By submitting this issue, you agree to follow our [Code of Conduct](https://github.com/NVIDIA/ncx-infra-controller-core/blob/main/CODE_OF_CONDUCT.md)
       options:
-        - label: I agree to follow NVIDIA Bare Metal Manager's Code of Conduct
+        - label: I agree to follow NCX Infra Controller's Code of Conduct
           required: true
-        - label: I have searched the [open feature requests](https://github.com/NVIDIA/bare-metal-manager-core/issues?q=is%3Aopen+is%3Aissue+label%3A%22feature+request%22%2Cimprovement%2Cenhancement) and have found no duplicates for this feature request
+        - label: I have searched the [open feature requests](https://github.com/NVIDIA/ncx-infra-controller-core/issues?q=is%3Aopen+is%3Aissue+type:Enhancement,Epic) and have found no duplicates for this feature request
           required: true
