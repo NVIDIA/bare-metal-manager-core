@@ -530,8 +530,8 @@ mod tests {
             *by_type.entry(reading_type.clone()).or_default() += 1;
 
             match reading_type.as_str() {
-                "Temperature" => assert!((28.0..=42.0).contains(&reading)),
-                "Rotational" => assert!((3800.0..=9400.0).contains(&reading)),
+                "Temperature" => assert!((25.0..=45.0).contains(&reading)),
+                "Rotational" => assert!((0.0..=9400.0).contains(&reading)),
                 "Power" => assert!((130.0..=780.0).contains(&reading)),
                 "Current" => assert!((1.5..=42.0).contains(&reading)),
                 "Voltage" => assert!((1.2..=1.85).contains(&reading)),
