@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::time::Duration;
 
-use bmc_mock::MockPowerState;
+use bmc_mock::{HostHardwareType, MockPowerState};
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use crossterm::ExecutableCommand;
@@ -92,6 +92,7 @@ impl SubnetDetails {
 pub struct HostDetails {
     pub mat_id: Uuid,
     pub machine_id: Option<String>,
+    pub hw_type: Option<HostHardwareType>,
     pub power_state: MockPowerState,
     pub mat_state: String,
     pub api_state: String,
@@ -115,20 +116,25 @@ impl HostDetails {
     fn details(&self) -> String {
         let mut result = String::with_capacity(1024);
 
-        result.push_str(&format!("MAT ID: {}\n", self.mat_id));
-        result.push_str(&format!(
-            "Machine ID: {}\n",
-            self.machine_id
-                .as_ref()
-                .map(|id| id.to_string())
-                .unwrap_or_default()
-        ));
-        result.push_str(&format!("Machine IP: {}\n", self.machine_ip));
-        result.push_str(&format!("BMC IP: {}\n", self.oob_ip));
-        result.push_str(&format!("Power State: {}\n", self.power_state));
-        result.push_str(&format!("Booted OS: {}\n", self.booted_os));
-        result.push_str(&format!("MAT State: {}\n", self.mat_state));
-        result.push_str(&format!("API State: {}\n", self.api_state));
+        [
+            &format!("MAT ID: {}\n", self.mat_id),
+            &format!(
+                "Machine ID: {}\n",
+                self.machine_id.as_deref().unwrap_or_default()
+            ),
+            &self
+                .hw_type
+                .map(|t| format!("Hardware type: {t}\n"))
+                .unwrap_or_default(),
+            &format!("Machine IP: {}\n", self.machine_ip),
+            &format!("BMC IP: {}\n", self.oob_ip),
+            &format!("Power State: {}\n", self.power_state),
+            &format!("Booted OS: {}\n", self.booted_os),
+            &format!("MAT State: {}\n", self.mat_state),
+            &format!("API State: {}\n", self.api_state),
+        ]
+        .into_iter()
+        .for_each(|v| result.push_str(v));
 
         if !self.dpus.is_empty() {
             result.push('\n');

@@ -420,6 +420,7 @@ impl HostMachine {
 
         HostDetails {
             mat_id: self.mat_id,
+            hw_type: Some(self.host_info.hw_type),
             machine_id: self
                 .live_state
                 .read()
