@@ -1522,7 +1522,7 @@ impl Default for TestRackDbBuilder {
             expected_compute_trays: vec![],
             expected_power_shelves: vec![],
             expected_switches: vec![],
-            rack_id: RackId::from(uuid::Uuid::new_v4()),
+            rack_id: RackId::new(uuid::Uuid::new_v4().to_string()),
             rack_type: None,
         }
     }
@@ -1569,7 +1569,7 @@ impl TestRackDbBuilder {
     pub async fn persist(&self, txn: &mut PgConnection) -> Result<RackId, DatabaseError> {
         db_rack::create(
             txn,
-            self.rack_id,
+            &self.rack_id,
             self.expected_compute_trays.clone(),
             self.expected_switches.clone(),
             self.expected_power_shelves.clone(),
@@ -1586,9 +1586,9 @@ impl TestRackDbBuilder {
             rack_type: self.rack_type.clone(),
         };
 
-        db_rack::update(txn, self.rack_id, &cfg).await?;
+        db_rack::update(txn, &self.rack_id, &cfg).await?;
 
-        Ok(self.rack_id)
+        Ok(self.rack_id.clone())
     }
 }
 

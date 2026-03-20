@@ -94,11 +94,11 @@ impl StateControllerIO for RackStateControllerIO {
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
         let _updated =
-            db_rack::try_update_controller_state(txn, *rack_id, old_version, new_state).await?;
+            db_rack::try_update_controller_state(txn, rack_id, old_version, new_state).await?;
 
         // Persist state history for debugging purposes
         let _history =
-            db::rack_state_history::persist(txn, *rack_id, new_state, old_version).await?;
+            db::rack_state_history::persist(txn, rack_id, new_state, old_version).await?;
 
         Ok(())
     }
@@ -109,7 +109,7 @@ impl StateControllerIO for RackStateControllerIO {
         rack_id: &Self::ObjectId,
         outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError> {
-        db_rack::update_controller_state_outcome(txn, *rack_id, outcome).await
+        db_rack::update_controller_state_outcome(txn, rack_id, outcome).await
     }
 
     fn metric_state_names(state: &RackState) -> (&'static str, &'static str) {

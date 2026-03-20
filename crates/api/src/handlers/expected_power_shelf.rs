@@ -29,7 +29,7 @@ pub async fn add_expected_power_shelf(
     request: Request<rpc::ExpectedPowerShelf>,
 ) -> Result<Response<()>, Status> {
     let rpc_power_shelf = request.into_inner();
-    let request_rack_id = rpc_power_shelf.rack_id;
+    let request_rack_id = rpc_power_shelf.rack_id.clone();
     let power_shelf: ExpectedPowerShelf =
         rpc_power_shelf
             .try_into()
@@ -50,7 +50,7 @@ pub async fn add_expected_power_shelf(
         .await
         .map_err(CarbideError::from)?;
 
-    if let Some(rack_id) = request_rack_id {
+    if let Some(ref rack_id) = request_rack_id {
         let adopted = db::rack::adopt_expected_power_shelf(&mut txn, rack_id, bmc_mac_address)
             .await
             .map_err(CarbideError::from)?;

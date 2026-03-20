@@ -52,26 +52,25 @@ pub async fn add_expected_rack(
         .into());
     }
 
-    let rack_id = rack.rack_id;
-    let rack_type = rack.rack_type.clone();
-
     let mut txn = api.txn_begin().await?;
 
     // Check if the expected rack already exists.
-    if db_expected_rack::find_by_rack_id(&mut txn, rack_id)
+    if db_expected_rack::find_by_rack_id(&mut txn, &rack.rack_id)
         .await
         .map_err(CarbideError::from)?
         .is_some()
     {
         return Err(CarbideError::AlreadyFoundError {
             kind: "expected_rack",
-            id: rack_id.to_string(),
+            id: rack.rack_id.to_string(),
         }
         .into());
     }
 
     // Create the expected rack record.
-    db_expected_rack::create(&mut txn, rack)
+    let rack_id = &rack.rack_id;
+    let rack_type = rack.rack_type.clone();
+    db_expected_rack::create(&mut txn, &rack)
         .await
         .map_err(CarbideError::from)?;
 
@@ -99,7 +98,7 @@ pub async fn delete_expected_rack(
     let rack_id = RackId::from_str(&req.rack_id)
         .map_err(|e| CarbideError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
     let mut txn = api.txn_begin().await?;
-    db_expected_rack::delete(&mut txn, rack_id)
+    db_expected_rack::delete(&mut txn, &rack_id)
         .await
         .map_err(CarbideError::from)?;
     txn.commit().await?;
@@ -130,27 +129,25 @@ pub async fn update_expected_rack(
         .into());
     }
 
-    let rack_id = rack.rack_id;
-    let rack_type = rack.rack_type.clone();
-
     let mut txn = api.txn_begin().await?;
-    db_expected_rack::find_by_rack_id(&mut txn, rack_id)
+    db_expected_rack::find_by_rack_id(&mut txn, &rack.rack_id)
         .await
         .map_err(CarbideError::from)?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "expected_rack",
-            id: rack_id.to_string(),
+            id: rack.rack_id.to_string(),
         })?;
 
+    let rack_type = rack.rack_type.clone();
     db_expected_rack::update(&mut txn, &rack)
         .await
         .map_err(CarbideError::from)?;
 
     // Update the rack_type name in the rack config.
-    if let Ok(db_rack) = db_rack::get(&mut txn, rack_id).await {
+    if let Ok(db_rack) = db_rack::get(&mut txn, &rack.rack_id).await {
         let mut config = db_rack.config.clone();
         config.rack_type = Some(rack_type);
-        db_rack::update(&mut txn, rack_id, &config)
+        db_rack::update(&mut txn, &rack.rack_id, &config)
             .await
             .map_err(CarbideError::from)?;
     }
@@ -168,7 +165,7 @@ pub async fn get_expected_rack(
     let rack_id = RackId::from_str(&req.rack_id)
         .map_err(|e| CarbideError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
     let mut txn = api.txn_begin().await?;
-    let expected_rack = db_expected_rack::find_by_rack_id(&mut txn, rack_id)
+    let expected_rack = db_expected_rack::find_by_rack_id(&mut txn, &rack_id)
         .await
         .map_err(CarbideError::from)?
         .ok_or_else(|| CarbideError::NotFoundError {
@@ -219,7 +216,7 @@ pub async fn replace_all_expected_racks(
             .into());
         }
 
-        db_expected_rack::create(&mut txn, rack)
+        db_expected_rack::create(&mut txn, &rack)
             .await
             .map_err(CarbideError::from)?;
     }

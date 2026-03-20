@@ -29,8 +29,10 @@ pub struct Args {
 
 impl From<&Args> for Option<rpc::forge::ExpectedRackRequest> {
     fn from(args: &Args) -> Self {
-        args.rack_id.map(|id| rpc::forge::ExpectedRackRequest {
-            rack_id: id.to_string(),
-        })
+        args.rack_id
+            .as_ref()
+            .map(|id| rpc::forge::ExpectedRackRequest {
+                rack_id: id.to_string(),
+            })
     }
 }

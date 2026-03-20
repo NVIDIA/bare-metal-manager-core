@@ -45,7 +45,7 @@ pub struct RackStateHandler {}
 /// if any devices were adopted (config was changed).
 pub(crate) async fn adopt_dangling_devices(
     pool: &PgPool,
-    id: RackId,
+    id: &RackId,
     config: &mut RackConfig,
 ) -> Result<bool, StateHandlerError> {
     let mut txn = pool.begin().await?;
@@ -178,7 +178,7 @@ pub(crate) fn log_capability_hints(id: &RackId, capabilities: &RackCapabilitiesS
 /// explored and linked to actual machines. Returns (done, optional_txn).
 pub(crate) async fn check_compute_linked(
     pool: &PgPool,
-    id: RackId,
+    id: &RackId,
     config: &mut RackConfig,
 ) -> Result<(bool, Option<PgTransaction<'static>>), StateHandlerError> {
     match config
@@ -226,7 +226,7 @@ pub(crate) async fn check_compute_linked(
 /// been explored and linked.
 pub(crate) async fn check_power_shelves_linked(
     pool: &PgPool,
-    id: RackId,
+    id: &RackId,
     config: &mut RackConfig,
 ) -> Result<bool, StateHandlerError> {
     match config
@@ -332,7 +332,7 @@ impl StateHandler for RackStateHandler {
 
                 // Adopt dangling expected devices that have this rack_id but
                 // haven't been added to the rack config yet.
-                if adopt_dangling_devices(&ctx.services.db_pool, *id, &mut config).await? {
+                if adopt_dangling_devices(&ctx.services.db_pool, id, &mut config).await? {
                     return Ok(StateHandlerOutcome::do_nothing());
                 }
 
@@ -345,9 +345,9 @@ impl StateHandler for RackStateHandler {
 
                 // Check if all expected devices have been explored and linked.
                 let (compute_done, pending_txn) =
-                    check_compute_linked(&ctx.services.db_pool, *id, &mut config).await?;
+                    check_compute_linked(&ctx.services.db_pool, id, &mut config).await?;
                 let ps_done =
-                    check_power_shelves_linked(&ctx.services.db_pool, *id, &mut config).await?;
+                    check_power_shelves_linked(&ctx.services.db_pool, id, &mut config).await?;
                 let switch_done = check_switches_linked(&ctx.services.db_pool, &config).await?;
 
                 if compute_done && ps_done && switch_done {

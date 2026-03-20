@@ -982,7 +982,7 @@ pub async fn apply(
             serde_json::json!({})
         });
 
-    let rack = db::rack::get(&api.database_connection, rack_id)
+    let rack = db::rack::get(&api.database_connection, &rack_id)
         .await
         .map_err(|e| CarbideError::Internal {
             message: format!("Failed to get rack: {}", e),

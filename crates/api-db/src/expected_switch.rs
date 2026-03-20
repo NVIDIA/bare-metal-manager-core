@@ -105,7 +105,7 @@ pub async fn find_all(txn: &mut PgConnection) -> DatabaseResult<Vec<ExpectedSwit
 /// find_all_by_rack_id returns all expected switches for a given rack_id.
 pub async fn find_all_by_rack_id(
     txn: &mut PgConnection,
-    rack_id: RackId,
+    rack_id: &RackId,
 ) -> DatabaseResult<Vec<ExpectedSwitch>> {
     let sql = "SELECT * FROM expected_switches WHERE rack_id=$1";
     sqlx::query_as(sql)
@@ -177,7 +177,7 @@ pub async fn create(
         .bind(&switch.serial_number)
         .bind(&switch.metadata.name)
         .bind(&switch.metadata.description)
-        .bind(switch.rack_id)
+        .bind(&switch.rack_id)
         .bind(sqlx::types::Json(&switch.metadata.labels))
         .bind(&switch.nvos_username)
         .bind(&switch.nvos_password)
@@ -297,7 +297,7 @@ pub async fn update(txn: &mut PgConnection, switch: &ExpectedSwitch) -> Database
         .bind(&switch.metadata.name)
         .bind(&switch.metadata.description)
         .bind(sqlx::types::Json(&switch.metadata.labels))
-        .bind(switch.rack_id)
+        .bind(&switch.rack_id)
         .bind(&switch.nvos_username)
         .bind(&switch.nvos_password)
         .bind(&target_id)

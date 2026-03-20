@@ -191,7 +191,7 @@ async fn test_add_expected_switch(pool: sqlx::PgPool) {
                     },
                 ],
             }),
-            rack_id: Some(RackId::from(uuid::Uuid::new_v4())),
+            rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
         },
     ] {
         env.api
@@ -317,7 +317,7 @@ async fn test_update_expected_switch(pool: sqlx::PgPool) {
                     },
                 ],
             }),
-            rack_id: Some(RackId::from(uuid::Uuid::new_v4())),
+            rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
         },
     ] {
         env.api
@@ -771,7 +771,7 @@ async fn test_replace_all_expected_switches(pool: sqlx::PgPool) {
         nvos_username: Some("nvos_new".into()),
         nvos_password: Some("nvos_new_pass".into()),
         metadata: Some(rpc::Metadata::default()),
-        rack_id: Some(RackId::from(uuid::Uuid::new_v4())),
+        rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
     };
 
     let expected_switch_2 = rpc::forge::ExpectedSwitch {
@@ -783,7 +783,7 @@ async fn test_replace_all_expected_switches(pool: sqlx::PgPool) {
         nvos_username: None,
         nvos_password: None,
         metadata: Some(rpc::Metadata::default()),
-        rack_id: Some(RackId::from(uuid::Uuid::new_v4())),
+        rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
     };
 
     expected_switch_list

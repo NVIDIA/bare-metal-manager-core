@@ -77,7 +77,7 @@ async fn test_insert_list_remove_rack_override(
     env.api
         .insert_rack_health_report_override(Request::new(
             rpc_forge::InsertRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id),
+                rack_id: Some(rack_id.clone()),
                 r#override: Some(rpc_forge::HealthReportOverride {
                     report: Some(report.clone().into()),
                     mode: rpc_forge::OverrideMode::Merge as i32,
@@ -90,7 +90,7 @@ async fn test_insert_list_remove_rack_override(
         .api
         .list_rack_health_report_overrides(Request::new(
             rpc_forge::ListRackHealthReportOverridesRequest {
-                rack_id: Some(rack_id),
+                rack_id: Some(rack_id.clone()),
             },
         ))
         .await?
@@ -108,7 +108,7 @@ async fn test_insert_list_remove_rack_override(
     env.api
         .remove_rack_health_report_override(Request::new(
             rpc_forge::RemoveRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id),
+                rack_id: Some(rack_id.clone()),
                 source: "dsx-exchange-consumer".to_string(),
             },
         ))
@@ -118,7 +118,7 @@ async fn test_insert_list_remove_rack_override(
         .api
         .list_rack_health_report_overrides(Request::new(
             rpc_forge::ListRackHealthReportOverridesRequest {
-                rack_id: Some(rack_id),
+                rack_id: Some(rack_id.clone()),
             },
         ))
         .await?
@@ -144,7 +144,7 @@ async fn test_idempotent_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         env.api
             .insert_rack_health_report_override(Request::new(
                 rpc_forge::InsertRackHealthReportOverrideRequest {
-                    rack_id: Some(rack_id),
+                    rack_id: Some(rack_id.clone()),
                     r#override: Some(rpc_forge::HealthReportOverride {
                         report: Some(report.clone().into()),
                         mode: rpc_forge::OverrideMode::Merge as i32,
@@ -158,7 +158,7 @@ async fn test_idempotent_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         .api
         .list_rack_health_report_overrides(Request::new(
             rpc_forge::ListRackHealthReportOverridesRequest {
-                rack_id: Some(rack_id),
+                rack_id: Some(rack_id.clone()),
             },
         ))
         .await?
@@ -184,7 +184,7 @@ async fn test_remove_nonexistent_source(
         .api
         .remove_rack_health_report_override(Request::new(
             rpc_forge::RemoveRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id),
+                rack_id: Some(rack_id.clone()),
                 source: "nonexistent-source".to_string(),
             },
         ))
@@ -203,7 +203,7 @@ async fn test_missing_rack_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
         create_test_env_with_overrides(pool.clone(), TestEnvOverrides::with_config(get_config()))
             .await;
 
-    let nonexistent_rack_id = RackId::from(uuid::Uuid::new_v4());
+    let nonexistent_rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
     let report = leak_alert_report("dsx-exchange-consumer");
 
     let result = env
@@ -235,10 +235,10 @@ async fn test_propagation_to_host_aggregate_health(
     let mh = create_managed_host(&env).await;
     let host_machine_id = mh.id;
 
-    let rack_id = RackId::from(uuid::Uuid::new_v4());
+    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
     let mut txn = pool.acquire().await?;
     TestRackDbBuilder::new()
-        .with_rack_id(rack_id)
+        .with_rack_id(rack_id.clone())
         .persist(&mut txn)
         .await?;
 
@@ -250,14 +250,14 @@ async fn test_propagation_to_host_aggregate_health(
         expected_power_shelves: vec![],
         rack_type: None,
     };
-    db::rack::update(&mut txn, rack_id, &config).await?;
+    db::rack::update(&mut txn, &rack_id, &config).await?;
     drop(txn);
 
     let report = leak_alert_report("dsx-exchange-consumer");
     env.api
         .insert_rack_health_report_override(Request::new(
             rpc_forge::InsertRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id),
+                rack_id: Some(rack_id.clone()),
                 r#override: Some(rpc_forge::HealthReportOverride {
                     report: Some(report.into()),
                     mode: rpc_forge::OverrideMode::Merge as i32,
@@ -303,10 +303,10 @@ async fn test_host_allocatability_blocked_by_rack_override(
     let mh = create_managed_host(&env).await;
     let host_machine_id = mh.id;
 
-    let rack_id = RackId::from(uuid::Uuid::new_v4());
+    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
     let mut txn = pool.acquire().await?;
     TestRackDbBuilder::new()
-        .with_rack_id(rack_id)
+        .with_rack_id(rack_id.clone())
         .persist(&mut txn)
         .await?;
     let config = RackConfig {
@@ -317,14 +317,14 @@ async fn test_host_allocatability_blocked_by_rack_override(
         expected_power_shelves: vec![],
         rack_type: None,
     };
-    db::rack::update(&mut txn, rack_id, &config).await?;
+    db::rack::update(&mut txn, &rack_id, &config).await?;
     drop(txn);
 
     let report = leak_alert_report("dsx-exchange-consumer");
     env.api
         .insert_rack_health_report_override(Request::new(
             rpc_forge::InsertRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id),
+                rack_id: Some(rack_id.clone()),
                 r#override: Some(rpc_forge::HealthReportOverride {
                     report: Some(report.into()),
                     mode: rpc_forge::OverrideMode::Merge as i32,
@@ -369,10 +369,10 @@ async fn test_host_replace_overrides_rack_alerts(
     )
     .await;
 
-    let rack_id = RackId::from(uuid::Uuid::new_v4());
+    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
     let mut txn = pool.acquire().await?;
     TestRackDbBuilder::new()
-        .with_rack_id(rack_id)
+        .with_rack_id(rack_id.clone())
         .persist(&mut txn)
         .await?;
     let config = RackConfig {
@@ -383,14 +383,14 @@ async fn test_host_replace_overrides_rack_alerts(
         expected_power_shelves: vec![],
         rack_type: None,
     };
-    db::rack::update(&mut txn, rack_id, &config).await?;
+    db::rack::update(&mut txn, &rack_id, &config).await?;
     drop(txn);
 
     let rack_report = leak_alert_report("dsx-exchange-consumer");
     env.api
         .insert_rack_health_report_override(Request::new(
             rpc_forge::InsertRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id),
+                rack_id: Some(rack_id.clone()),
                 r#override: Some(rpc_forge::HealthReportOverride {
                     report: Some(rack_report.into()),
                     mode: rpc_forge::OverrideMode::Merge as i32,
@@ -445,10 +445,10 @@ async fn test_host_replace_takes_full_precedence_over_rack_replace(
     )
     .await;
 
-    let rack_id = RackId::from(uuid::Uuid::new_v4());
+    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
     let mut txn = pool.acquire().await?;
     TestRackDbBuilder::new()
-        .with_rack_id(rack_id)
+        .with_rack_id(rack_id.clone())
         .persist(&mut txn)
         .await?;
     let config = RackConfig {
@@ -459,14 +459,14 @@ async fn test_host_replace_takes_full_precedence_over_rack_replace(
         expected_power_shelves: vec![],
         rack_type: None,
     };
-    db::rack::update(&mut txn, rack_id, &config).await?;
+    db::rack::update(&mut txn, &rack_id, &config).await?;
     drop(txn);
 
     let rack_report = leak_alert_report("rack-level-replace");
     env.api
         .insert_rack_health_report_override(Request::new(
             rpc_forge::InsertRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id),
+                rack_id: Some(rack_id.clone()),
                 r#override: Some(rpc_forge::HealthReportOverride {
                     report: Some(rack_report.into()),
                     mode: rpc_forge::OverrideMode::Replace as i32,
@@ -537,7 +537,7 @@ async fn test_dsx_consumer_contract(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     env.api
         .insert_rack_health_report_override(Request::new(
             rpc_forge::InsertRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id),
+                rack_id: Some(rack_id.clone()),
                 r#override: Some(rpc_forge::HealthReportOverride {
                     report: Some(report.into()),
                     mode: rpc_forge::OverrideMode::Merge as i32,
@@ -549,7 +549,7 @@ async fn test_dsx_consumer_contract(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     env.api
         .remove_rack_health_report_override(Request::new(
             rpc_forge::RemoveRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id),
+                rack_id: Some(rack_id.clone()),
                 source: "dsx-exchange-consumer".to_string(),
             },
         ))
@@ -559,7 +559,7 @@ async fn test_dsx_consumer_contract(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .api
         .list_rack_health_report_overrides(Request::new(
             rpc_forge::ListRackHealthReportOverridesRequest {
-                rack_id: Some(rack_id),
+                rack_id: Some(rack_id.clone()),
             },
         ))
         .await?
@@ -589,7 +589,7 @@ async fn test_rack_health_visible_in_get_rack(
     env.api
         .insert_rack_health_report_override(Request::new(
             rpc_forge::InsertRackHealthReportOverrideRequest {
-                rack_id: Some(rack_id),
+                rack_id: Some(rack_id.clone()),
                 r#override: Some(rpc_forge::HealthReportOverride {
                     report: Some(report.into()),
                     mode: rpc_forge::OverrideMode::Merge as i32,

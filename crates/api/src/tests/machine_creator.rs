@@ -1495,7 +1495,7 @@ async fn test_rms_registration_with_rack_id(
     };
 
     // Create an expected machine WITH a rack_id in the DB.
-    let rack_id = RackId::from(uuid::Uuid::new_v4());
+    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
     let mut txn = env.pool.begin().await.unwrap();
     db::expected_machine::create(
         &mut txn,
@@ -1668,7 +1668,7 @@ async fn test_rms_registration_retries_on_failure(
         }],
     };
 
-    let rack_id = RackId::from(uuid::Uuid::new_v4());
+    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
     let mut txn = env.pool.begin().await.unwrap();
     db::expected_machine::create(
         &mut txn,
@@ -1858,7 +1858,7 @@ async fn test_rms_verification_failure_paths(
         }],
     };
 
-    let rack_id = RackId::from(uuid::Uuid::new_v4());
+    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
     let mut txn = env.pool.begin().await.unwrap();
     db::expected_machine::create(
         &mut txn,

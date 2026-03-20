@@ -731,7 +731,9 @@ impl MachineStateHandler {
                 // site-explorer machine creation, which then allows us to skip over the
                 // ExpectedMachine lookup. Conceptually, EM == Inventory/Manifest, and the
                 // MH == what we're actually managing.
-                let rack_id = expected_machine.as_ref().and_then(|em| em.data.rack_id);
+                let rack_id = expected_machine
+                    .as_ref()
+                    .and_then(|em| em.data.rack_id.clone());
                 if rack_id.is_none() {
                     tracing::debug!(
                         machine_id = %host_machine_id,
@@ -832,7 +834,9 @@ impl MachineStateHandler {
                 // site-explorer machine creation, which then allows us to skip over the
                 // ExpectedMachine lookup. Conceptually, EM == Inventory/Manifest, and the
                 // MH == what we're actually managing.
-                let rack_id = expected_machine.as_ref().and_then(|em| em.data.rack_id);
+                let rack_id = expected_machine
+                    .as_ref()
+                    .and_then(|em| em.data.rack_id.clone());
                 let Some(rack_id) = rack_id else {
                     tracing::debug!(
                         machine_id = %host_machine_id,

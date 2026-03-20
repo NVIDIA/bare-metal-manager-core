@@ -96,7 +96,7 @@ pub async fn find_all(txn: &mut PgConnection) -> DatabaseResult<Vec<ExpectedPowe
 /// find_all_by_rack_id returns all expected power shelves for a given rack_id.
 pub async fn find_all_by_rack_id(
     txn: &mut PgConnection,
-    rack_id: RackId,
+    rack_id: &RackId,
 ) -> DatabaseResult<Vec<ExpectedPowerShelf>> {
     let sql = "SELECT * FROM expected_power_shelves WHERE rack_id=$1";
     sqlx::query_as(sql)
@@ -154,7 +154,7 @@ pub async fn create(
         .bind(&power_shelf.metadata.name)
         .bind(&power_shelf.metadata.description)
         .bind(sqlx::types::Json(&power_shelf.metadata.labels))
-        .bind(power_shelf.rack_id)
+        .bind(&power_shelf.rack_id)
         .fetch_one(txn)
         .await
         .map_err(|err: sqlx::Error| match err {
@@ -274,7 +274,7 @@ pub async fn update(
         .bind(&power_shelf.metadata.name)
         .bind(&power_shelf.metadata.description)
         .bind(sqlx::types::Json(&power_shelf.metadata.labels))
-        .bind(power_shelf.rack_id)
+        .bind(&power_shelf.rack_id)
         .bind(&target_id)
         .execute(&mut *txn)
         .await

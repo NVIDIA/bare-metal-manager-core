@@ -86,7 +86,7 @@ pub(crate) async fn add(
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
 
-    let request_rack_id = request.rack_id;
+    let request_rack_id = request.rack_id.clone();
     let id = request
         .id
         .as_ref()
@@ -108,7 +108,7 @@ pub(crate) async fn add(
 
     db::expected_machine::create(&mut txn, machine).await?;
 
-    if let Some(rack_id) = request_rack_id {
+    if let Some(ref rack_id) = request_rack_id {
         let adopted = db_rack::adopt_expected_machine(&mut txn, rack_id, parsed_mac)
             .await
             .map_err(CarbideError::from)?;
@@ -174,7 +174,7 @@ pub(crate) async fn update(
         .bmc_mac_address
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
-    let request_rack_id = request.rack_id;
+    let request_rack_id = request.rack_id.clone();
     let data: ExpectedMachineData = request.try_into()?;
 
     let machine = ExpectedMachine {
@@ -189,7 +189,7 @@ pub(crate) async fn update(
         .await
         .map_err(CarbideError::from)?;
 
-    if let Some(rack_id) = request_rack_id {
+    if let Some(ref rack_id) = request_rack_id {
         let adopted = db_rack::adopt_expected_machine(&mut txn, rack_id, parsed_mac)
             .await
             .map_err(CarbideError::from)?;
@@ -319,7 +319,7 @@ fn sanitize_expected_machine_and_get_ids(
 /// process_rack_association registers an expected machine MAC with a rack, creating the rack if needed.
 async fn process_rack_association(
     txn: &mut sqlx::PgConnection,
-    rack_id: RackId,
+    rack_id: &RackId,
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
     let adopted = db_rack::adopt_expected_machine(txn, rack_id, parsed_mac)
@@ -342,7 +342,7 @@ async fn create_expected_machine(
     id: Uuid,
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
-    let request_rack_id = machine.rack_id;
+    let request_rack_id = machine.rack_id.clone();
     let db_data: ExpectedMachineData = machine.try_into()?;
 
     let expected_machine = ExpectedMachine {
@@ -354,7 +354,7 @@ async fn create_expected_machine(
     db::expected_machine::create(txn, expected_machine).await?;
 
     // Handle rack association
-    if let Some(rack_id) = request_rack_id {
+    if let Some(ref rack_id) = request_rack_id {
         process_rack_association(txn, rack_id, parsed_mac).await?;
     }
 
@@ -368,7 +368,7 @@ async fn update_expected_machine(
     id: Uuid,
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
-    let request_rack_id = machine.rack_id;
+    let request_rack_id = machine.rack_id.clone();
     let data: ExpectedMachineData = machine.try_into()?;
 
     let expected_machine = ExpectedMachine {
@@ -380,7 +380,7 @@ async fn update_expected_machine(
     db::expected_machine::update(txn, &expected_machine).await?;
 
     // Handle rack association
-    if let Some(rack_id) = request_rack_id {
+    if let Some(ref rack_id) = request_rack_id {
         process_rack_association(txn, rack_id, parsed_mac).await?;
     }
 

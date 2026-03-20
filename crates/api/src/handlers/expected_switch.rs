@@ -36,7 +36,7 @@ pub async fn add_expected_switch(
                 CarbideError::InvalidArgument(e.to_string())
             })?;
 
-    let rack_id = switch.rack_id;
+    let rack_id = switch.rack_id.clone();
     let bmc_mac_address = switch.bmc_mac_address;
 
     let mut txn = api
@@ -51,7 +51,7 @@ pub async fn add_expected_switch(
         .await
         .map_err(CarbideError::from)?;
 
-    if let Some(rack_id) = rack_id {
+    if let Some(ref rack_id) = rack_id {
         let adopted = db_rack::adopt_expected_switch(&mut txn, rack_id, bmc_mac_address)
             .await
             .map_err(CarbideError::from)?;

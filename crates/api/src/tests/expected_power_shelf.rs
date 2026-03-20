@@ -188,7 +188,7 @@ async fn test_add_expected_power_shelf(pool: sqlx::PgPool) {
                     },
                 ],
             }),
-            rack_id: Some(RackId::from(uuid::Uuid::new_v4())),
+            rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
         },
     ] {
         env.api
@@ -337,7 +337,7 @@ async fn test_update_expected_power_shelf(pool: sqlx::PgPool) {
                     },
                 ],
             }),
-            rack_id: Some(RackId::from(uuid::Uuid::new_v4())),
+            rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
         },
     ] {
         env.api
@@ -465,7 +465,7 @@ async fn test_replace_all_expected_power_shelves(pool: sqlx::PgPool) {
         shelf_serial_number: "PS-NEW-001".into(),
         ip_address: "192.168.100.1".into(),
         metadata: Some(rpc::Metadata::default()),
-        rack_id: Some(RackId::from(uuid::Uuid::new_v4())),
+        rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
     };
 
     let expected_power_shelf_2 = rpc::forge::ExpectedPowerShelf {
@@ -476,7 +476,7 @@ async fn test_replace_all_expected_power_shelves(pool: sqlx::PgPool) {
         shelf_serial_number: "PS-NEW-002".into(),
         ip_address: "192.168.100.2".into(),
         metadata: Some(rpc::Metadata::default()),
-        rack_id: Some(RackId::from(uuid::Uuid::new_v4())),
+        rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
     };
 
     expected_power_shelf_list
@@ -570,7 +570,7 @@ async fn test_add_expected_power_shelf_with_ip(pool: sqlx::PgPool) {
         shelf_serial_number: "PS-IP-001".into(),
         ip_address: "10.0.0.100".into(),
         metadata: Some(rpc::Metadata::default()),
-        rack_id: Some(RackId::from(uuid::Uuid::new_v4())),
+        rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
     };
 
     env.api

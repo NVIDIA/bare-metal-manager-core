@@ -332,7 +332,7 @@ async fn update_rack_config_predicted_id_with_actual(
             let expected_compute_trays = vec![*parsed_mac];
             #[allow(deprecated)]
             let rack_id: RackId = RackId::default();
-            let rack = db::rack::create(txn, rack_id, expected_compute_trays, vec![], vec![])
+            let rack = db::rack::create(txn, &rack_id, expected_compute_trays, vec![], vec![])
                 .await
                 .map_err(CarbideError::from)?;
             tracing::warn!(
@@ -349,7 +349,7 @@ async fn update_rack_config_predicted_id_with_actual(
         .find(|item| *item == predicted)
     {
         *item = *actual;
-        db::rack::update(txn, rack.id, &config)
+        db::rack::update(txn, &rack.id, &config)
             .await
             .map_err(CarbideError::from)?;
     }

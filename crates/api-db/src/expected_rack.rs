@@ -24,7 +24,7 @@ use crate::{DatabaseError, DatabaseResult};
 /// find_by_rack_id finds an expected rack by its rack_id.
 pub async fn find_by_rack_id(
     txn: &mut PgConnection,
-    rack_id: RackId,
+    rack_id: &RackId,
 ) -> Result<Option<ExpectedRack>, DatabaseError> {
     let sql = "SELECT * FROM expected_racks WHERE rack_id=$1";
     sqlx::query_as(sql)
@@ -44,14 +44,14 @@ pub async fn find_all(txn: &mut PgConnection) -> DatabaseResult<Vec<ExpectedRack
 }
 
 /// create creates a new expected rack.
-pub async fn create(txn: &mut PgConnection, rack: ExpectedRack) -> DatabaseResult<ExpectedRack> {
+pub async fn create(txn: &mut PgConnection, rack: &ExpectedRack) -> DatabaseResult<ExpectedRack> {
     let query = "INSERT INTO expected_racks
              (rack_id, rack_type, metadata_name, metadata_description, metadata_labels)
              VALUES
              ($1::varchar, $2::varchar, $3::varchar, $4::varchar, $5::jsonb) RETURNING *";
 
     sqlx::query_as(query)
-        .bind(rack.rack_id)
+        .bind(&rack.rack_id)
         .bind(&rack.rack_type)
         .bind(&rack.metadata.name)
         .bind(&rack.metadata.description)
@@ -70,7 +70,7 @@ pub async fn create(txn: &mut PgConnection, rack: ExpectedRack) -> DatabaseResul
 }
 
 /// delete deletes an expected rack by its rack_id.
-pub async fn delete(txn: &mut PgConnection, rack_id: RackId) -> DatabaseResult<()> {
+pub async fn delete(txn: &mut PgConnection, rack_id: &RackId) -> DatabaseResult<()> {
     let query = "DELETE FROM expected_racks WHERE rack_id=$1";
 
     let result = sqlx::query(query)
@@ -109,7 +109,7 @@ pub async fn update(txn: &mut PgConnection, rack: &ExpectedRack) -> DatabaseResu
         .bind(&rack.metadata.name)
         .bind(&rack.metadata.description)
         .bind(sqlx::types::Json(&rack.metadata.labels))
-        .bind(rack.rack_id)
+        .bind(&rack.rack_id)
         .execute(txn)
         .await
         .map_err(|err| DatabaseError::query(query, err))?;

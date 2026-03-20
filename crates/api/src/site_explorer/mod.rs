@@ -747,7 +747,7 @@ impl SiteExplorer {
             }
         }
 
-        if let Some(rack_id) = expected_shelf.rack_id {
+        if let Some(ref rack_id) = expected_shelf.rack_id {
             let rack = match db::rack::get(txn.as_mut(), rack_id).await {
                 Ok(rack) => rack,
                 Err(_) => db::rack::create(
@@ -779,7 +779,7 @@ impl SiteExplorer {
 
         // Register the power shelf with Rack Manager if RMS client is available
         if let Some(rms_client) = &self.rms_client {
-            if let Some(rack_id) = expected_shelf.rack_id {
+            if let Some(ref rack_id) = expected_shelf.rack_id {
                 let new_node_info = NewNodeInfo {
                     rack_id: rack_id.to_string(),
                     node_id: power_shelf_id.to_string(),
@@ -934,7 +934,7 @@ impl SiteExplorer {
 
         // Register the switch with Rack Manager if RMS client is available
         if let Some(rms_client) = &self.rms_client {
-            if let Some(rack_id) = expected_switch.rack_id {
+            if let Some(ref rack_id) = expected_switch.rack_id {
                 let bmc_mac_address = expected_switch.bmc_mac_address;
                 let new_node_info = NewNodeInfo {
                     rack_id: rack_id.to_string(),

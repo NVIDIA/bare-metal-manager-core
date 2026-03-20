@@ -35,7 +35,7 @@ pub async fn get_rack(
     let rack = if let Some(id) = req.id {
         let rack_id = RackId::from_str(&id)
             .map_err(|e| CarbideError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
-        let r = db_rack::get(&api.database_connection, rack_id)
+        let r = db_rack::get(&api.database_connection, &rack_id)
             .await
             .map_err(CarbideError::from)?;
         vec![r.into()]
@@ -100,7 +100,7 @@ pub async fn delete_rack(
             let rack_id = RackId::from_str(&req.id)
                 .map_err(|e| CarbideError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
             let rack =
-                db_rack::get(txn.as_mut(), rack_id)
+                db_rack::get(txn.as_mut(), &rack_id)
                     .await
                     .map_err(|e| CarbideError::Internal {
                         message: format!("Getting rack {}", e),
@@ -127,7 +127,7 @@ pub async fn list_rack_health_report_overrides(
         .rack_id
         .ok_or_else(|| CarbideError::MissingArgument("rack_id"))?;
 
-    let rack = db_rack::get(&api.database_connection, rack_id)
+    let rack = db_rack::get(&api.database_connection, &rack_id)
         .await
         .map_err(CarbideError::from)?;
 
@@ -172,7 +172,7 @@ pub async fn insert_rack_health_report_override(
 
     let mut txn = api.txn_begin().await?;
 
-    let rack = db_rack::get(&mut txn, rack_id)
+    let rack = db_rack::get(&mut txn, &rack_id)
         .await
         .map_err(CarbideError::from)?;
 
@@ -205,7 +205,7 @@ pub async fn remove_rack_health_report_override(
 
     let mut txn = api.txn_begin().await?;
 
-    let rack = db_rack::get(&mut txn, rack_id)
+    let rack = db_rack::get(&mut txn, &rack_id)
         .await
         .map_err(CarbideError::from)?;
 

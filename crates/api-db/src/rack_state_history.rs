@@ -59,7 +59,7 @@ pub async fn find_by_rack_ids(
 /// Store each state for debugging purpose.
 pub async fn persist(
     txn: &mut PgConnection,
-    rack_id: RackId,
+    rack_id: &RackId,
     state: &RackState,
     state_version: ConfigVersion,
 ) -> DatabaseResult<RackStateHistory> {
