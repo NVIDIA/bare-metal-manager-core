@@ -2441,6 +2441,7 @@ dependencies = [
  "eyre",
  "humantime",
  "ipnetwork",
+ "itertools 0.14.0",
  "prettytable-rs",
  "serde",
  "serde_json",

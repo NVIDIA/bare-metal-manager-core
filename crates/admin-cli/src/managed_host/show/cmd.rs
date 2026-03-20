@@ -460,8 +460,6 @@ pub async fn show(
     page_size: usize,
     sort_by: SortField,
 ) -> CarbideCliResult<()> {
-    let site_explorer_managed_hosts = api_client.get_all_explored_managed_hosts(page_size).await?;
-
     // TODO(chet): Remove this ~March 2024.
     // Use tracing::warn for this so its both a little more
     // noticeable, and a little more annoying/naggy. If people
@@ -559,7 +557,6 @@ pub async fn show(
     show_managed_hosts(
         utils::ManagedHostMetadata {
             machines,
-            site_explorer_managed_hosts,
             connected_devices,
             network_devices,
             exploration_reports: vec![], //Todo - add exploration reports
