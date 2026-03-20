@@ -20,7 +20,7 @@
 use super::CompletionCode;
 
 /// An IPMI command response received from a BMC.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct IpmiResponse {
     /// Completion code indicating success or failure.
     pub completion_code: CompletionCode,

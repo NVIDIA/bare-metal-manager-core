@@ -37,7 +37,8 @@ pub use sensor_types::*;
 
 /// IPMI network function codes. Each request NetFn has a corresponding response
 /// NetFn at `request | 0x01`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(into = "u8", try_from = "u8")]
 #[repr(u8)]
 pub enum NetFn {
     Chassis = 0x00,
@@ -108,7 +109,8 @@ impl TryFrom<u8> for NetFn {
 // ==============================================================================
 
 /// IPMI completion codes returned by BMCs. See IPMI v2.0 spec Table 5-2.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(into = "u8", from = "u8")]
 pub enum CompletionCode {
     /// Command completed normally.
     Success,

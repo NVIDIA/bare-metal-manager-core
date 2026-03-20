@@ -20,7 +20,7 @@
 use super::NetFn;
 
 /// An IPMI command request to be sent over a transport.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct IpmiRequest {
     /// Network function code identifying the command group.
     pub netfn: NetFn,

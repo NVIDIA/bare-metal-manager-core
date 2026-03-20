@@ -19,6 +19,7 @@
 
 pub mod lan;
 pub mod lanplus;
+pub mod http;
 #[cfg(test)]
 pub mod mock;
 
@@ -54,6 +55,8 @@ pub enum Transport {
     Lan(lan::LanTransport),
     /// IPMI v2.0 RMCP+ transport (encrypted + integrity-checked).
     Lanplus(lanplus::LanplusTransport),
+    /// IPMI-over-HTTPS transport for testing against bmc-mock.
+    Http(http::HttpTransport),
 }
 
 impl IpmiTransport for Transport {
@@ -61,6 +64,7 @@ impl IpmiTransport for Transport {
         match self {
             Self::Lan(t) => t.send_recv(req).await,
             Self::Lanplus(t) => t.send_recv(req).await,
+            Self::Http(t) => t.send_recv(req).await,
         }
     }
 
@@ -68,6 +72,7 @@ impl IpmiTransport for Transport {
         match self {
             Self::Lan(t) => t.close().await,
             Self::Lanplus(t) => t.close().await,
+            Self::Http(t) => t.close().await,
         }
     }
 }

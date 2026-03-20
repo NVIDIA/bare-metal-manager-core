@@ -20,6 +20,7 @@ use color_eyre::eyre::{self, Context};
 use ipmitool::cli::{Cli, CliCommand};
 use ipmitool::transport::lan::LanTransport;
 use ipmitool::transport::lanplus::LanplusTransport;
+use ipmitool::transport::http::{HttpTransport, HttpTransportConfig};
 use ipmitool::transport::{IpmiTransport, Transport};
 use ipmitool::ConnectionConfig;
 
@@ -65,7 +66,16 @@ async fn main() -> eyre::Result<()> {
                 .context("connect to BMC via IPMI v1.5 LAN")?;
             Transport::Lan(t)
         }
-        other => eyre::bail!("unsupported interface: {other} (supported: lan, lanplus)"),
+        "http" => {
+            let http_config = HttpTransportConfig {
+                bmc_host: format!("{}:{}", config.host, config.port),
+                proxy_url: String::new(),
+            };
+            let t = HttpTransport::connect(http_config)
+                .context("connect to BMC via HTTPS")?;
+            Transport::Http(t)
+        }
+        other => eyre::bail!("unsupported interface: {other} (supported: lan, lanplus, http)"),
     };
 
     let result = match cli.command {
@@ -101,7 +111,7 @@ async fn main() -> eyre::Result<()> {
                             .await
                             .context("SOL interactive session")
                     }
-                    Transport::Lan(_) => {
+                    Transport::Lan(_) | Transport::Http(_) => {
                         eyre::bail!("SOL requires RMCP+ (-I lanplus)")
                     }
                 }

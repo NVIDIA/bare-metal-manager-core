@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- HTTPS transport (`-I http`) for testing against bmc-mock, using
+  JSON-over-HTTPS as a carrier for `IpmiRequest`/`IpmiResponse`
 - `IpmiCommand` enum mapping every known IPMI command to its
   `(NetFn, cmd)` byte pair, replacing raw magic numbers in handler
   tables and dispatch logic
