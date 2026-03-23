@@ -33,8 +33,10 @@ use crate::redfish::test_support::RedfishSimAction;
 use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
+use crate::tests::common::api_fixtures::managed_host::HardwareInfoTemplate;
 use crate::tests::common::api_fixtures::{
-    TestManagedHost, create_managed_host, forge_agent_control, update_time_params,
+    TestManagedHost, create_managed_host, create_managed_host_with_hardware_info_template,
+    forge_agent_control, update_time_params,
 };
 
 #[crate::sqlx_test]
@@ -1917,4 +1919,105 @@ impl TestManagedHost {
             .await
             .unwrap();
     }
+}
+
+#[crate::sqlx_test]
+async fn test_dpu_reprovision_power_cycle_grace_grace(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host_with_hardware_info_template(
+        &env,
+        HardwareInfoTemplate::Custom(
+            crate::tests::common::api_fixtures::host::SUPERMICRO_ARS121_INFO_JSON,
+        ),
+    )
+    .await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu_bmc_ip = mh.dpu().bmc_ip(&mut txn).await.unwrap().to_string();
+    txn.commit().await.unwrap();
+
+    mh.mark_machine_for_updates().await;
+    mh.dpu().trigger_dpu_reprovisioning(Mode::Set, false).await;
+    mh.dpu().discovery_completed().await;
+
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
+    assert_eq!(
+        dpu.current_state(),
+        &mh.new_dpu_reprovision_state(ReprovisionState::PoweringOffHost)
+    );
+
+    // PoweringOffHost -> PowerDown (host ForceOff issued)
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
+    assert_eq!(
+        dpu.current_state(),
+        &mh.new_dpu_reprovision_state(ReprovisionState::PowerDown)
+    );
+
+    // PowerDown -> VerifyFirmwareVersions: should issue PowerCycle then ChassisReset to DPU BMC
+    let redfish_timepoint = env.redfish_sim.timepoint();
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
+    assert_eq!(
+        dpu.current_state(),
+        &mh.new_dpu_reprovision_state(ReprovisionState::VerifyFirmareVersions)
+    );
+
+    let dpu_actions = env
+        .redfish_sim
+        .actions_since(&redfish_timepoint)
+        .for_host(&dpu_bmc_ip);
+    assert_eq!(
+        dpu_actions,
+        vec![
+            RedfishSimAction::Power(SystemPowerControl::PowerCycle),
+            RedfishSimAction::ChassisReset {
+                chassis_id: "Bluefield_ERoT".to_string(),
+                reset_type: SystemPowerControl::GracefulRestart,
+            },
+        ]
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_dpu_reprovision_power_cycle_not_triggered_for_non_grace_grace(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    // Default fixture uses Dell hardware info (sys_vendor: "Dell Inc.")
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu_bmc_ip = mh.dpu().bmc_ip(&mut txn).await.unwrap().to_string();
+    txn.commit().await.unwrap();
+
+    mh.mark_machine_for_updates().await;
+    mh.dpu().trigger_dpu_reprovisioning(Mode::Set, false).await;
+    mh.dpu().discovery_completed().await;
+
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
+    assert_eq!(
+        dpu.current_state(),
+        &mh.new_dpu_reprovision_state(ReprovisionState::PoweringOffHost)
+    );
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
+    assert_eq!(
+        dpu.current_state(),
+        &mh.new_dpu_reprovision_state(ReprovisionState::PowerDown)
+    );
+
+    let redfish_timepoint = env.redfish_sim.timepoint();
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
+    assert_eq!(
+        dpu.current_state(),
+        &mh.new_dpu_reprovision_state(ReprovisionState::VerifyFirmareVersions)
+    );
+
+    // No PowerCycle or ChassisReset should be sent to the DPU BMC for non-Supermicro machines
+    let dpu_actions = env
+        .redfish_sim
+        .actions_since(&redfish_timepoint)
+        .for_host(&dpu_bmc_ip);
+    assert!(
+        !dpu_actions.iter().any(|a| matches!(
+            a,
+            RedfishSimAction::Power(SystemPowerControl::PowerCycle)
+                | RedfishSimAction::ChassisReset { .. }
+        )),
+        "unexpected DPU BMC actions for non-Supermicro machine: {dpu_actions:?}"
+    );
 }

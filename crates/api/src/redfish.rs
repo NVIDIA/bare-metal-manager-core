@@ -727,6 +727,10 @@ pub mod test_support {
         Power(libredfish::SystemPowerControl),
         BmcReset,
         SetUtcTimezone,
+        ChassisReset {
+            chassis_id: String,
+            reset_type: libredfish::SystemPowerControl,
+        },
     }
 
     pub struct RedfishSimActions {
@@ -739,6 +743,10 @@ pub mod test_support {
                 .values()
                 .flat_map(|actions| actions.iter().cloned())
                 .collect()
+        }
+
+        pub fn for_host(&self, host: &str) -> Vec<RedfishSimAction> {
+            self.host_actions.get(host).cloned().unwrap_or_default()
         }
     }
 
@@ -1508,9 +1516,15 @@ pub mod test_support {
 
         async fn chassis_reset(
             &self,
-            _chassis_id: &str,
-            _reset_type: SystemPowerControl,
+            chassis_id: &str,
+            reset_type: SystemPowerControl,
         ) -> Result<(), RedfishError> {
+            let mut state = self.state.lock().unwrap();
+            let host_state = state.hosts.get_mut(&self._host).unwrap();
+            host_state.actions.push(RedfishSimAction::ChassisReset {
+                chassis_id: chassis_id.to_string(),
+                reset_type,
+            });
             Ok(())
         }
 

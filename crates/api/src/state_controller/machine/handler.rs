@@ -2825,8 +2825,7 @@ async fn handle_dpu_reprovision(
 
             // For Supermicro ARS-121L-DNR machines, perform DPU power cycle sequence
             // before powering the host back on.
-            if let Err(e) =
-                reprovision_dpu_power_cycle_grace_grace(state, dpu_snapshot, ctx).await
+            if let Err(e) = reprovision_dpu_power_cycle_grace_grace(state, dpu_snapshot, ctx).await
             {
                 return Ok(StateHandlerOutcome::wait(format!(
                     "DPU power cycle sequence failed for host {}: {e}",
@@ -3073,10 +3072,7 @@ async fn reprovision_dpu_power_cycle_grace_grace(
         let bmc_ip = dpu
             .bmc_addr()
             .map_or_else(|| "unknown".to_string(), |a| a.to_string());
-        let dpu_bmc_client = ctx
-            .services
-            .create_redfish_client_from_machine(dpu)
-            .await?;
+        let dpu_bmc_client = ctx.services.create_redfish_client_from_machine(dpu).await?;
         dpu_bmc_client
             .power(SystemPowerControl::PowerCycle)
             .await
