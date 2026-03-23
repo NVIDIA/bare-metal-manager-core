@@ -951,6 +951,9 @@ service Forge {
   // Updates the cached_url field of named artifacts in-place, leaving all other artifact fields
   // and OS definition fields (including ipxe_definition_hash) unchanged.
   rpc UpdateOperatingSystemCachableIpxeTemplateArtifacts(UpdateOperatingSystemIpxeTemplateArtifactRequest) returns (IpxeTemplateArtifactList);
+
+  // Secrets management
+  rpc ReWrapSecrets(ReWrapSecretsRequest) returns (ReWrapSecretsResponse);
 }
 
 // Indicates the lifecycle state of a resource that is controlled by a state controller
@@ -8694,4 +8697,25 @@ message UpdateOperatingSystemIpxeTemplateArtifactRequest {
 message HostRepresentorInterceptBridging {
   string bridge     = 1;
   string patch_port = 2;
+}
+
+message ReWrapSecretsRequest {
+  // Rows scanned per batch during the re-wrap walk.
+  // Unset: the server picks a sensible default (100).
+  // Out of range: the server clamps to [1, 10000]; in
+  // particular 0 does not mean "scan nothing". Clients
+  // should not rely on sending 0 or very large values.
+  optional uint32 batch_size = 1;
+}
+
+message ReWrapSecretsResponse {
+  // Journal rows whose DEK was re-wrapped to the
+  // routed KEK.
+  uint64 re_wrapped = 1;
+  // Journal rows already wrapped by the routed KEK.
+  uint64 already_current = 2;
+  // Journal rows still wrapped by a KEK outside the
+  // routing config after the walk. Zero means every
+  // unrouted KEK can be retired.
+  uint64 stale_remaining = 3;
 }

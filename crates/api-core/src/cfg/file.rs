@@ -729,6 +729,11 @@ pub struct CarbideConfig {
 
     #[serde(default)]
     pub tracing: TracingConfig,
+
+    /// Secrets backend configuration. When present, credentials live
+    /// encrypted in Postgres and vault leaves the credential chain
+    /// entirely; when absent, vault remains the credential store.
+    pub secrets: Option<SecretsConfig>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -839,6 +844,102 @@ pub enum BgpLeafSessionPassword {
     /// store.
     #[default]
     SiteWide,
+}
+
+/// Configures the Postgres secrets backend. When this section is present,
+/// credentials live encrypted in Postgres and vault is not in the
+/// credential chain at all -- the one-time import either completes before
+/// the process serves traffic, or the process does not start. Vault keeps
+/// serving PKI certificates either way.
+///
+/// Enabling this on an existing site has two prerequisites that live
+/// outside this process:
+///
+/// - Services that read credentials from vault through their own chains
+///   (`bmc-proxy`, `dsx-exchange-consumer`) keep reading vault and will
+///   not see anything carbide-api writes to Postgres afterwards. They must
+///   be migrated or fed another way before credentials here change.
+/// - During a rolling upgrade, replicas still running the vault config
+///   keep writing rotated credentials to vault, where they are stranded
+///   once the import has completed. Keep autonomous credential writers
+///   (site-explorer credential rotation) disabled until the whole fleet
+///   runs this config.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SecretsConfig {
+    /// KMS backend configuration.
+    pub kms: KmsConfig,
+
+    /// Maps path prefixes to the kek_id that encrypts new writes under
+    /// them, longest prefix winning. A "/" catch-all entry is required.
+    /// Reads never consult routing -- every stored row records the KEK
+    /// that wrapped it -- so rotating a key means changing it here and
+    /// running `carbide-admin-cli secrets re-wrap`.
+    ///
+    /// Example:
+    /// ```toml
+    /// [secrets.routing]
+    /// "/" = "default-key"
+    /// "machines/bmc" = "bmc-key"
+    /// ```
+    pub routing: std::collections::HashMap<String, String>,
+
+    /// A source backend to import secrets from at startup. Unset means a
+    /// fresh site with nothing to import; unsupported values fail config
+    /// parsing rather than silently skipping the import.
+    pub import_from: Option<ImportSource>,
+
+    /// How to treat secrets that already exist in Postgres during import.
+    /// Defaults to missing_only.
+    #[serde(default)]
+    pub import_approach: crate::secrets::ImportApproach,
+}
+
+/// A backend the one-time secrets import can read from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportSource {
+    Vault,
+}
+
+/// Configures the KMS backends that wrap DEKs. Several named providers can
+/// be defined: the active one wraps DEKs for new writes, and every provider
+/// answers unwraps for the kek_ids it has.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct KmsConfig {
+    /// The provider that wraps DEKs for new writes.
+    pub active: String,
+
+    /// Named provider configurations.
+    pub providers: std::collections::HashMap<String, ProviderConfig>,
+}
+
+/// One KMS provider. The `type` field in TOML selects the variant, and each
+/// variant only accepts the fields that belong to it -- an integrated
+/// provider cannot be given a transit key list, a misspelled field is a
+/// parse error, and so on.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ProviderConfig {
+    /// Local key material, loaded from the environment or files. The
+    /// default backend when no external KMS exists.
+    Integrated {
+        /// kek_id to key source. Key material itself never appears in
+        /// this config -- only where to find it.
+        keys: std::collections::HashMap<String, carbide_kms_provider::KeySource>,
+    },
+    /// Vault/OpenBao Transit, which wraps and unwraps DEKs server-side.
+    /// Requires a static vault token in the credential config -- the
+    /// Kubernetes service-account login flow is not supported for transit
+    /// yet.
+    Transit {
+        /// The Transit key names this provider answers for.
+        keys: Vec<String>,
+        /// The Transit secrets engine mount path. Defaults to "transit".
+        #[serde(default)]
+        transit_mount: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -3995,5 +4096,186 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             services.doca_hbn.docker_image_pull_secret,
             DEFAULT_DPF_IMAGE_PULL_SECRET
         );
+    }
+
+    // Verifies that a [secrets] config section with KMS, routing, and import settings
+    // deserializes correctly from TOML.
+    #[test]
+    fn secrets_config_deserializes_from_toml() {
+        #[derive(Deserialize)]
+        struct Wrapper {
+            secrets: SecretsConfig,
+        }
+
+        let toml_str = r#"
+            [secrets]
+            import_from = "vault"
+            import_approach = "missing_only"
+
+            [secrets.kms]
+            active = "local"
+
+            [secrets.kms.providers.local]
+            type = "integrated"
+            keys.default-key = { env = "CARBIDE_SECRETS_KEY_DEFAULT" }
+            keys.bmc-key = { file = "/run/secrets/bmc-key" }
+
+            [secrets.kms.providers.prod-transit]
+            type = "transit"
+            keys = ["my-transit-key"]
+
+            [secrets.routing]
+            "/" = "default-key"
+            "machines/bmc" = "bmc-key"
+        "#;
+
+        let wrapper: Wrapper = toml::from_str(toml_str).expect("parse secrets config");
+        let secrets = wrapper.secrets;
+
+        // Verify KMS config: the `type` field selects the enum variant.
+        assert_eq!(secrets.kms.active, "local");
+        assert_eq!(secrets.kms.providers.len(), 2);
+        assert!(matches!(
+            &secrets.kms.providers["local"],
+            ProviderConfig::Integrated { keys } if keys.len() == 2
+        ));
+        assert!(matches!(
+            &secrets.kms.providers["prod-transit"],
+            ProviderConfig::Transit { keys, transit_mount: None } if keys == &["my-transit-key"]
+        ));
+
+        // Verify routing.
+        assert_eq!(secrets.routing.len(), 2);
+        assert_eq!(secrets.routing["/"], "default-key");
+        assert_eq!(secrets.routing["machines/bmc"], "bmc-key");
+
+        // Verify import settings.
+        assert_eq!(secrets.import_from, Some(ImportSource::Vault));
+        assert_eq!(
+            secrets.import_approach,
+            crate::secrets::ImportApproach::MissingOnly
+        );
+    }
+
+    // Verifies that a typo'd import source fails config parsing instead of
+    // silently skipping the import.
+    #[test]
+    fn secrets_config_rejects_unknown_import_source() {
+        #[derive(Deserialize)]
+        struct Wrapper {
+            #[expect(dead_code)]
+            secrets: SecretsConfig,
+        }
+
+        let toml_str = r#"
+            [secrets]
+            import_from = "valt"
+
+            [secrets.kms]
+            active = "local"
+
+            [secrets.kms.providers.local]
+            type = "integrated"
+            keys.default-key = { env = "CARBIDE_SECRETS_KEY_DEFAULT" }
+
+            [secrets.routing]
+            "/" = "default-key"
+        "#;
+
+        assert!(toml::from_str::<Wrapper>(toml_str).is_err());
+    }
+
+    // Verifies that a misspelled optional key in [secrets] -- here
+    // `import_fom` for `import_from` -- fails to parse instead of leaving
+    // the import silently disabled. Without deny_unknown_fields, the typo'd
+    // key is ignored and an existing site can boot on empty Postgres.
+    #[test]
+    fn secrets_config_rejects_misspelled_field() {
+        #[derive(Deserialize)]
+        struct Wrapper {
+            #[expect(dead_code)]
+            secrets: SecretsConfig,
+        }
+
+        let toml_str = r#"
+            [secrets]
+            import_fom = "vault"
+
+            [secrets.kms]
+            active = "local"
+
+            [secrets.kms.providers.local]
+            type = "integrated"
+            keys.default-key = { env = "CARBIDE_SECRETS_KEY_DEFAULT" }
+
+            [secrets.routing]
+            "/" = "default-key"
+        "#;
+
+        assert!(toml::from_str::<Wrapper>(toml_str).is_err());
+    }
+
+    // Verifies that a field belonging to the other provider type -- here
+    // transit_mount on an integrated provider -- fails to parse instead of
+    // being silently ignored.
+    #[test]
+    fn secrets_config_rejects_unknown_provider_field() {
+        #[derive(Deserialize)]
+        struct Wrapper {
+            #[expect(dead_code)]
+            secrets: SecretsConfig,
+        }
+
+        let toml_str = r#"
+            [secrets.kms]
+            active = "local"
+
+            [secrets.kms.providers.local]
+            type = "integrated"
+            transit_mount = "transit"
+            keys.default-key = { env = "CARBIDE_SECRETS_KEY_DEFAULT" }
+
+            [secrets.routing]
+            "/" = "default-key"
+        "#;
+
+        assert!(toml::from_str::<Wrapper>(toml_str).is_err());
+    }
+
+    // Verifies that a provider with the wrong field for its type -- here an
+    // integrated provider given transit's key list -- fails to parse
+    // instead of deferring the mistake to startup.
+    #[test]
+    fn secrets_config_rejects_mismatched_provider_fields() {
+        #[derive(Deserialize)]
+        struct Wrapper {
+            #[expect(dead_code)]
+            secrets: SecretsConfig,
+        }
+
+        let toml_str = r#"
+            [secrets.kms]
+            active = "local"
+
+            [secrets.kms.providers.local]
+            type = "integrated"
+            keys = ["not-a-key-map"]
+
+            [secrets.routing]
+            "/" = "default-key"
+        "#;
+
+        assert!(toml::from_str::<Wrapper>(toml_str).is_err());
+    }
+
+    // Verifies that secrets config is optional — a config without [secrets] should have None.
+    #[test]
+    fn secrets_config_absent_by_default() {
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .extract()
+            .unwrap();
+
+        assert!(config.secrets.is_none());
     }
 }

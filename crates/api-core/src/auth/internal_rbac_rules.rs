@@ -463,6 +463,7 @@ impl InternalRBACRules {
             "UpdateOperatingSystemCachableIpxeTemplateArtifacts",
             vec![ForgeAdminCLI],
         );
+        x.perm("ReWrapSecrets", vec![ForgeAdminCLI]);
         x.perm("GetIpxeTemplate", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("ListIpxeTemplates", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindRackStateHistories", vec![ForgeAdminCLI, Machineatron]);

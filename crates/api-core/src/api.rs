@@ -88,6 +88,7 @@ pub struct Api {
     pub(crate) metric_emitter: ApiMetricsEmitter,
     pub(crate) component_manager: Option<component_manager::component_manager::ComponentManager>,
     pub(crate) bms_client: OnceLock<Arc<BmsDsxExchangeHandle>>,
+    pub(crate) secrets_context: Option<crate::secrets::SecretsContext>,
 }
 
 pub(crate) type ScoutStreamType =
@@ -1442,6 +1443,13 @@ impl Forge for Api {
         request: Request<rpc::CredentialDeletionRequest>,
     ) -> Result<Response<rpc::CredentialDeletionResult>, Status> {
         crate::handlers::credential::delete_credential(self, request).await
+    }
+
+    async fn re_wrap_secrets(
+        &self,
+        request: Request<rpc::ReWrapSecretsRequest>,
+    ) -> Result<Response<rpc::ReWrapSecretsResponse>, Status> {
+        crate::handlers::secrets::re_wrap_secrets(self, request).await
     }
 
     /// get_route_servers returns a list of all configured route server
