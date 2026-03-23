@@ -2826,7 +2826,7 @@ async fn handle_dpu_reprovision(
             // For Supermicro ARS-121L-DNR machines, perform DPU power cycle sequence
             // before powering the host back on.
             if let Err(e) =
-                reprovision_dpu_power_cycle_supermicro(state, dpu_snapshot, ctx).await
+                reprovision_dpu_power_cycle_grace_grace(state, dpu_snapshot, ctx).await
             {
                 return Ok(StateHandlerOutcome::wait(format!(
                     "DPU power cycle sequence failed for host {}: {e}",
@@ -3052,7 +3052,7 @@ async fn handle_dpu_reprovision(
 /// restart to all DPUs after the host is powered off during DPU reprovision. This is needed as
 /// as Grace-Grace's DPU has power sources from both nodes in the chassis. Shutting down a host
 /// does not necessarily shutdown the DPU.
-async fn reprovision_dpu_power_cycle_supermicro(
+async fn reprovision_dpu_power_cycle_grace_grace(
     state: &ManagedHostStateSnapshot,
     dpu_snapshot: &Machine,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
