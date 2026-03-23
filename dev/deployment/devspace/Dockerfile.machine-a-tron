@@ -1,0 +1,34 @@
+# syntax=docker/dockerfile:1.7
+
+FROM build-container-localdev AS builder
+
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+ENV CARGO_TARGET_DIR=/cargo-target
+
+WORKDIR /workspace
+
+COPY . .
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+  --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+  --mount=type=cache,target=/cargo-target,sharing=locked \
+  cargo build -p carbide-machine-a-tron --bin machine-a-tron --locked && \
+  mkdir -p /artifacts && \
+  cp /cargo-target/debug/machine-a-tron /artifacts/machine-a-tron
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  ca-certificates \
+  iproute2 \
+  iputils-ping \
+  libssl3 \
+  libudev1 \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /opt/machine-a-tron/bin /opt/machine-a-tron/templates /tmp/machine-a-tron-data
+
+COPY --from=builder /artifacts/machine-a-tron /opt/machine-a-tron/bin/machine-a-tron
+COPY crates/machine-a-tron/templates /opt/machine-a-tron/templates
+COPY crates/bmc-mock/dell_poweredge_r750.tar.gz /opt/machine-a-tron/dell_poweredge_r750.tar.gz
+COPY crates/bmc-mock/nvidia_dpu.tar.gz /opt/machine-a-tron/nvidia_dpu.tar.gz
