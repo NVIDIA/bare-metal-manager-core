@@ -68,6 +68,8 @@ pub enum RpcDataConversionError {
     InvalidVpcVirtualizationType(i32),
     #[error("Invalid enum value received for critical error type: {0}")]
     InvalidCriticalErrorType(i32),
+    #[error("PowerState {0} is not valid")]
+    InvalidPowerState(i32),
     #[error("Instance ID {0} is not valid")]
     InvalidInstanceId(String),
     #[error("Remediation ID {0} is not valid")]
