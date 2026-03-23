@@ -20,7 +20,9 @@
 		{% endif %}
 		</td>
 	</tr>
-			<tr><th>State</th><td>
+	<tr><th>Rack ID</th><td>{{ rack_id }}</td></tr>
+	<tr><th>State</th>
+		<td>
 			{% if state.to_lowercase().contains("failed") %}
 				<span class="bubble error">{{ state }}{% if time_in_state_above_sla %} ⏱️{% endif %}</span>
 			{% else if time_in_state_above_sla %}
@@ -30,7 +32,8 @@
 			{% else %}
 				<span class="bubble">{{ state }}</span>
 			{% endif %}
-		</td></tr>
+		</td>
+	</tr>
 	<tr><th>State Version</th><td>{{ state_version|config_version|safe }}</td></tr>
 	<tr><th>Time in state</th><td>{{ time_in_state }}</td></tr>
 	<tr><th>Last Reboot</th><td>{{ last_reboot }}</td></tr>

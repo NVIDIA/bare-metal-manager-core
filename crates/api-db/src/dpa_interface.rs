@@ -573,7 +573,6 @@ mod test {
     use mac_address::MacAddress;
     use model::dpa_interface::NewDpaInterface;
     use model::machine::ManagedHostState;
-    use model::metadata::Metadata;
 
     use crate::machine;
 
@@ -584,17 +583,7 @@ mod test {
         let id =
             MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
 
-        machine::create(
-            &mut txn,
-            None,
-            &id,
-            ManagedHostState::Ready,
-            &Metadata::default(),
-            None,
-            true,
-            2,
-        )
-        .await?;
+        machine::create(&mut txn, None, &id, ManagedHostState::Ready, None, 2).await?;
 
         let new_intf = NewDpaInterface {
             mac_address: MacAddress::from_str("00:11:22:33:44:55")?,
@@ -632,9 +621,7 @@ mod test {
             None,
             &machine_id,
             ManagedHostState::Ready,
-            &Metadata::default(),
             None,
-            true,
             2,
         )
         .await?;
@@ -689,9 +676,7 @@ mod test {
             None,
             &machine_id,
             ManagedHostState::Ready,
-            &Metadata::default(),
             None,
-            true,
             2,
         )
         .await?;

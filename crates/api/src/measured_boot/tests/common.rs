@@ -25,7 +25,6 @@ use carbide_uuid::machine::MachineId;
 use measured_boot::machine::CandidateMachine;
 use model::hardware_info::HardwareInfo;
 use model::machine::ManagedHostState;
-use model::metadata::Metadata;
 use sqlx::PgConnection;
 
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
@@ -52,9 +51,7 @@ pub async fn create_test_machine(
         None,
         &machine_id,
         ManagedHostState::Ready,
-        &Metadata::default(),
         None,
-        true,
         CURRENT_STATE_MODEL_VERSION,
     )
     .await?;

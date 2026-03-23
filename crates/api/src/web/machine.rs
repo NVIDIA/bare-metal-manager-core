@@ -435,6 +435,7 @@ pub async fn fetch_machines(
 struct MachineDetail<'a> {
     id: String,
     host_id: String,
+    rack_id: String,
     state: String,
     state_version: String,
     time_in_state: String,
@@ -658,6 +659,7 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
 
         MachineDetail {
             id: machine_id.clone(),
+            rack_id: m.rack_id.map(|id| id.to_string()).unwrap_or_default(),
             time_in_state: config_version::since_state_change_humanized(&m.state_version),
             state: m.state,
             state_version: m.state_version,

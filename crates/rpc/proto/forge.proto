@@ -2903,6 +2903,8 @@ message Machine {
   optional MachineNVLinkInfo nvlink_info = 43;
 
   optional MachineNVLinkStatusObservation nvlink_status_observation = 44;
+
+  optional common.RackId rack_id = 45;
 }
 
 message InstanceNetworkRestrictions {
@@ -6842,7 +6844,7 @@ message RackFirmwareJobStatusResponse {
 }
 
 message RackFirmwareHistoryRequest {
-  string firmware_id = 1;      // Optional: filter by firmware ID. Empty string means no filter.
+  string firmware_id = 1; // Optional: filter by firmware ID. Empty string means no filter.
   repeated string rack_ids = 2; // Optional: filter by rack IDs. Empty list returns all racks.
 }
 

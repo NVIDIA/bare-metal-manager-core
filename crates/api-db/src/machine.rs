@@ -32,6 +32,7 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use model::controller_outcome::PersistentStateHandlerOutcome;
+use model::expected_machine::ExpectedMachineData;
 use model::hardware_info::{MachineInventory, MachineNvLinkInfo};
 use model::machine::infiniband::MachineInfinibandStatusObservation;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -127,17 +128,7 @@ pub async fn get_or_create(
         // Host and DPU machines are created in same `discover_machine` call. Update same
         // state in both machines.
         let state = ManagedHostState::Created;
-        let machine = create(
-            txn,
-            common_pools,
-            stable_machine_id,
-            state,
-            &Metadata::default(),
-            None,
-            true,
-            2,
-        )
-        .await?;
+        let machine = create(txn, common_pools, stable_machine_id, state, None, 2).await?;
         crate::machine_interface::associate_interface_with_machine(
             &interface.id,
             MachineInterfaceAssociation::Machine(machine.id),
@@ -1216,23 +1207,32 @@ pub async fn clear_failure_details(
 ///
 /// If metadata.name is empty then it is initialized in
 /// stable_machine_id.to_string().
-#[allow(clippy::too_many_arguments)]
 pub async fn create(
     txn: &mut PgConnection,
     common_pools: Option<&CommonPools>,
     stable_machine_id: &MachineId,
     state: ManagedHostState,
-    metadata: &Metadata,
-    sku_id: Option<&String>,
-    dpf_enabled: bool,
+    expected_machine_data: Option<&ExpectedMachineData>,
     state_model_version: i16,
 ) -> DatabaseResult<Machine> {
     let stable_machine_id_string = stable_machine_id.to_string();
-    let metadata_name = if metadata.name.is_empty() {
-        &stable_machine_id_string
-    } else {
+
+    let default_metadata = &Metadata::default();
+    let metadata = expected_machine_data
+        .map(|data| &data.metadata)
+        .unwrap_or(default_metadata);
+    let metadata_name = if !metadata.name.is_empty() {
         &metadata.name
+    } else {
+        &stable_machine_id_string
     };
+    let rack_id = expected_machine_data.and_then(|data| data.rack_id.as_ref());
+    let sku_id = expected_machine_data.and_then(|data| data.sku_id.as_ref());
+    let dpf_enabled = match expected_machine_data {
+        Some(data) => data.dpf_enabled.unwrap_or(false), // EM entry exists
+        None => true,                                    // EM entry does not exist
+    };
+
     // Host and DPU machines are created in same `discover_machine` call. Update same
     // state in both machines.
     let state_version = ConfigVersion::initial();
@@ -1265,8 +1265,8 @@ pub async fn create(
     };
 
     let query = r#"INSERT INTO machines(
-                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels, hw_sku, dpf)
-                            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::json, $12, $13) RETURNING id"#;
+                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels, rack_id, hw_sku, dpf)
+                            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::json, $12, $13, $14) RETURNING id"#;
     let machine_id: MachineId = sqlx::query_as(query)
         .bind(&stable_machine_id_string)
         .bind(state_version)
@@ -1279,6 +1279,7 @@ pub async fn create(
         .bind(metadata_name)
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
+        .bind(rack_id)
         .bind(sku_id)
         .bind(sqlx::types::Json(Dpf {
             enabled: dpf_enabled,
@@ -2319,7 +2320,6 @@ mod test {
     use carbide_uuid::machine::MachineId;
     use model::machine::ManagedHostState;
     use model::machine::machine_search_config::MachineSearchConfig;
-    use model::metadata::Metadata;
 
     #[crate::sqlx_test]
 
@@ -2329,17 +2329,7 @@ mod test {
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();
         let id =
             MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
-        super::create(
-            &mut txn,
-            None,
-            &id,
-            ManagedHostState::Ready,
-            &Metadata::default(),
-            None,
-            true,
-            2,
-        )
-        .await?;
+        super::create(&mut txn, None, &id, ManagedHostState::Ready, None, 2).await?;
         super::set_firmware_autoupdate(&mut txn, &id, Some(true)).await?;
         txn.commit().await?;
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();

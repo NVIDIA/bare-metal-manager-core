@@ -18,6 +18,7 @@ use std::collections::HashMap;
 
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::rack::RackId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use health_report::HealthReport;
@@ -48,6 +49,7 @@ use crate::sku::SkuStatus;
 #[derive(Serialize, Deserialize)]
 pub struct MachineSnapshotPgJson {
     pub id: MachineId,
+    pub rack_id: Option<RackId>,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub deployed: Option<DateTime<Utc>>,
@@ -149,6 +151,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
 
         Ok(Self {
             id: value.id,
+            rack_id: value.rack_id,
             state: Versioned {
                 value: value.controller_state,
                 version: value.controller_state_version.parse().map_err(|e| {

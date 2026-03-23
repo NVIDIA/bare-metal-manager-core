@@ -27,6 +27,7 @@ use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
@@ -811,6 +812,9 @@ pub struct Machine {
     /// TEMPORARY: Used for workflow where manual upgrades are required before automatic ones
     /// TODO: Remove after upgrade-through-scout is complete
     pub manual_firmware_upgrade_completed: Option<DateTime<Utc>>,
+
+    /// The rack that this machine is associated with
+    pub rack_id: Option<RackId>,
 }
 
 // Dpf status field.
@@ -1111,6 +1115,7 @@ impl From<Machine> for rpc::forge::Machine {
 
         rpc::Machine {
             id: Some(machine.id),
+            rack_id: machine.rack_id.clone(),
             state: if machine.is_dpu() {
                 machine.state.value.dpu_state_string(&machine.id)
             } else {
