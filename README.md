@@ -12,6 +12,7 @@ of the bare-metal lifecycle to fast-track building next generation AI Cloud offe
 - Go to the [NCX Infra Controller overview](book/src/README.md) to get an overview of NICo architecture and capabilities.
 - Or jump to the [Site Setup guide](book/src/manuals/site-setup.md) to start setting up your site for NICo.
 - Or jump to the [Building Containers guide](book/src/manuals/building_nico_containers.md) to see an overview for building the containers.
+- Check out [Local Development with DevSpace](dev/deployment/devspace/README.md) to run NICo locally with mock systems.
 
 ## Experimental Notice
 
