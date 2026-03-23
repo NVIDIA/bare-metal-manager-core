@@ -174,8 +174,8 @@ pub async fn try_update_controller_state(
     power_shelf_id: PowerShelfId,
     expected_version: ConfigVersion,
     new_state: &PowerShelfControllerState,
-) -> DatabaseResult<()> {
-    let _query_result = sqlx::query_as::<_, PowerShelfId>(
+) -> DatabaseResult<bool> {
+    let query_result = sqlx::query_as::<_, PowerShelfId>(
             "UPDATE power_shelves SET controller_state = $1, controller_state_version = $2 WHERE id = $3 AND controller_state_version = $4 RETURNING id",
         )
             .bind(sqlx::types::Json(new_state))
@@ -186,7 +186,7 @@ pub async fn try_update_controller_state(
             .await
             .map_err(|e| DatabaseError::new("try_update_controller_state", e))?;
 
-    Ok(())
+    Ok(query_result.is_some())
 }
 
 pub async fn update_controller_state_outcome(

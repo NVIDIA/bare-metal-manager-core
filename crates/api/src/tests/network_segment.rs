@@ -316,18 +316,23 @@ async fn test_network_segment_max_history_length(
 
     for _ in 0..HISTORY_LIMIT + 50 {
         let mut txn = env.pool.begin().await.unwrap();
+        let state = NetworkSegmentControllerState::Deleting {
+            deletion_state: NetworkSegmentDeletionState::DBDelete,
+        };
         assert!(
             db::network_segment::try_update_controller_state(
                 &mut txn,
                 segment_id,
                 version,
-                &NetworkSegmentControllerState::Deleting {
-                    deletion_state: NetworkSegmentDeletionState::DBDelete
-                }
+                &state,
             )
             .await
             .unwrap()
         );
+        let next_version = version.increment();
+        db::network_segment_state_history::persist(&mut txn, segment_id, &state, next_version)
+            .await
+            .unwrap();
         version = db::network_segment::find_by(
             txn.as_mut(),
             ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),

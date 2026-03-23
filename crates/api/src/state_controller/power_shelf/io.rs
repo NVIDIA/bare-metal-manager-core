@@ -99,15 +99,18 @@ impl StateControllerIO for PowerShelfStateControllerIO {
         object_id: &Self::ObjectId,
         old_version: ConfigVersion,
         new_state: &Self::ControllerState,
+    ) -> Result<bool, DatabaseError> {
+        db_power_shelf::try_update_controller_state(txn, *object_id, old_version, new_state).await
+    }
+
+    async fn persist_state_history(
+        &self,
+        txn: &mut PgConnection,
+        object_id: &Self::ObjectId,
+        old_version: ConfigVersion,
+        new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        let _updated =
-            db_power_shelf::try_update_controller_state(txn, *object_id, old_version, new_state)
-                .await?;
-
-        // Persist state history for debugging purposes
-        let _history =
-            db::power_shelf_state_history::persist(txn, object_id, new_state, old_version).await?;
-
+        db::power_shelf_state_history::persist(txn, object_id, new_state, old_version).await?;
         Ok(())
     }
 

@@ -87,8 +87,24 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
         state: &Self::State,
     ) -> Result<Versioned<Self::ControllerState>, DatabaseError>;
 
-    /// Persists the object state that is owned by the state controller
+    /// Persists the object state that is owned by the state controller.
+    ///
+    /// Returns `true` if the state was successfully persisted, `false` if
+    /// the update was skipped (e.g. optimistic lock version mismatch).
+    /// The processor uses this to decide whether to persist state history.
     async fn persist_controller_state(
+        &self,
+        txn: &mut PgConnection,
+        object_id: &Self::ObjectId,
+        old_version: ConfigVersion,
+        new_state: &Self::ControllerState,
+    ) -> Result<bool, DatabaseError>;
+
+    /// Persists a state history record for debugging and audit purposes.
+    ///
+    /// Called by the processor after each successful state transition
+    /// (i.e. when `persist_controller_state` returns `true`).
+    async fn persist_state_history(
         &self,
         txn: &mut PgConnection,
         object_id: &Self::ObjectId,

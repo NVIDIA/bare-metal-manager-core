@@ -177,8 +177,8 @@ pub async fn try_update_controller_state(
     switch_id: SwitchId,
     expected_version: ConfigVersion,
     new_state: &SwitchControllerState,
-) -> DatabaseResult<()> {
-    let _query_result = sqlx::query_as::<_, SwitchId>(
+) -> DatabaseResult<bool> {
+    let query_result = sqlx::query_as::<_, SwitchId>(
             "UPDATE switches SET controller_state = $1, controller_state_version = $2 WHERE id = $3 AND controller_state_version = $4 RETURNING id",
         )
             .bind(sqlx::types::Json(new_state))
@@ -189,7 +189,7 @@ pub async fn try_update_controller_state(
             .await
             .map_err(|e| DatabaseError::new( "try_update_controller_state", e))?;
 
-    Ok(())
+    Ok(query_result.is_some())
 }
 
 pub async fn update_controller_state_outcome(

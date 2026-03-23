@@ -448,39 +448,38 @@ pub async fn persist_controller_state(
     txn: &mut PgConnection,
     object_id: &SpdmObjectId,
     new_state: &SpdmMachineStateSnapshot,
-) -> Result<(), DatabaseError> {
+) -> Result<bool, DatabaseError> {
     // This is a major state change. This means sync state is achieved if devices exist.
     // Update machine state as well all devices state.
     if new_state.update_machine_version {
         let new_version = new_state.machine_version.increment();
         let query = r#"
-            UPDATE 
+            UPDATE
                 spdm_machine_attestation
             SET state= $1, state_version = $2
             WHERE machine_id = $3 AND state_version=$4
+            RETURNING machine_id
         "#;
 
-        let result = sqlx::query(query)
+        let result = sqlx::query_scalar::<_, MachineId>(query)
             .bind(sqlx::types::Json(&new_state.machine_state))
             .bind(new_version)
             .bind(object_id.0)
             .bind(new_state.machine_version)
-            .execute(&mut *txn)
+            .fetch_optional(&mut *txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))?;
 
-        // Check if the update actually affected any rows (optimistic lock check)
-        // If 0 rows were affected, another device already performed this transition
-        if result.rows_affected() == 0 {
-            // This is not an error - just skip device updates and history recording
-            // The other device that won the race will handle updating devices and history
-            return Ok(());
+        if result.is_none() {
+            // Optimistic lock didn't match — another processor already
+            // performed this transition. Skip device updates.
+            return Ok(false);
         }
 
-        // Sync state is achieved, update all devices state .
+        // Sync state is achieved, update all devices state.
         if new_state.update_device_version {
             let query = r#"
-                UPDATE 
+                UPDATE
                     spdm_machine_devices_attestation
                 SET state= $1, state_version=$2
                 WHERE machine_id = $3 AND device_id = $4
@@ -543,7 +542,7 @@ pub async fn persist_controller_state(
 
         let new_version = device_version.increment();
         let query = r#"
-                UPDATE 
+                UPDATE
                     spdm_machine_devices_attestation
                 SET state= $1, state_version=$2
                 WHERE machine_id = $3 AND device_id = $4
@@ -558,10 +557,10 @@ pub async fn persist_controller_state(
             .map_err(|e| DatabaseError::query(query, e))?;
     }
 
-    update_history(txn, object_id, new_state).await
+    Ok(true)
 }
 
-async fn update_history(
+pub async fn update_history(
     txn: &mut PgConnection,
     object_id: &SpdmObjectId,
     state_snapshot: &SpdmMachineStateSnapshot,

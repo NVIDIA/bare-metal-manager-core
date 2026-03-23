@@ -97,10 +97,27 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         object_id: &Self::ObjectId,
         old_version: ConfigVersion,
         new_state: &Self::ControllerState,
+    ) -> Result<bool, DatabaseError> {
+        db::ib_partition::try_update_controller_state(txn, *object_id, old_version, new_state).await
+    }
+
+    async fn persist_state_history(
+        &self,
+        txn: &mut PgConnection,
+        object_id: &Self::ObjectId,
+        old_version: ConfigVersion,
+        new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        let _updated =
-            db::ib_partition::try_update_controller_state(txn, *object_id, old_version, new_state)
-                .await?;
+        let next_version = old_version.increment();
+        let query = "INSERT INTO ib_partition_state_history (partition_id, state, state_version) \
+                     VALUES ($1, $2, $3)";
+        sqlx::query(query)
+            .bind(object_id)
+            .bind(sqlx::types::Json(new_state))
+            .bind(next_version)
+            .execute(txn)
+            .await
+            .map_err(|e| DatabaseError::query(query, e))?;
         Ok(())
     }
 

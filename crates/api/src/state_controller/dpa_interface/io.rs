@@ -19,7 +19,7 @@
 
 use carbide_uuid::dpa_interface::DpaInterfaceId;
 use config_version::{ConfigVersion, Versioned};
-use db::DatabaseError;
+use db::{self, DatabaseError};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::dpa_interface::{self, DpaInterface, DpaInterfaceControllerState};
@@ -101,10 +101,20 @@ impl StateControllerIO for DpaInterfaceStateControllerIO {
         object_id: &Self::ObjectId,
         old_version: ConfigVersion,
         new_state: &Self::ControllerState,
+    ) -> Result<bool, DatabaseError> {
+        db::dpa_interface::try_update_controller_state(txn, *object_id, old_version, new_state)
+            .await
+    }
+
+    async fn persist_state_history(
+        &self,
+        txn: &mut PgConnection,
+        object_id: &Self::ObjectId,
+        old_version: ConfigVersion,
+        new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        let _updated =
-            db::dpa_interface::try_update_controller_state(txn, *object_id, old_version, new_state)
-                .await?;
+        let next_version = old_version.increment();
+        db::dpa_interface_state_history::persist(txn, *object_id, new_state, next_version).await?;
         Ok(())
     }
 
