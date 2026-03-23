@@ -48,9 +48,9 @@ use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::duppet::{SummaryFormat, SyncOptions};
 use crate::ethernet_virtualization::ServiceAddresses;
+use crate::fmds_client::FmdsUpdater;
 use crate::health::HealthCheckParams;
 use crate::host_machine_id::get_host_machine_id_retry;
-use crate::instance_metadata_endpoint::InstanceMetadataRouterStateImpl;
 use crate::instrumentation::{create_metrics, get_dpu_agent_meter};
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::network_monitor::{self, NetworkPingerType};
@@ -121,17 +121,34 @@ pub async fn setup_and_run(
     let agent_meter = get_dpu_agent_meter();
     let metrics = create_metrics(agent_meter);
 
-    if options.enable_metadata_service {
-        crate::metadata_service::spawn_metadata_service(
-            agent_config.metadata_service.address.clone(),
-            agent_config.telemetry.metrics_address.clone(),
-            metrics.clone(),
-            instance_metadata_state.clone(),
-        )
-        .unwrap_or_else(|e| {
-            tracing::warn!("Failed to run metadata service: {:#}", e);
-        });
-    }
+    // And now set up our FMDS updater, which will either be our original
+    // embedded server (which spins up a local listener within the DPU agent)
+    // or will talk to an external FMDS server via gRPC (which is colocated
+    // with the agent on the DPU).
+    let fmds_updater = if let Some(ref fmds_addr) = options.fmds_grpc_server {
+        tracing::info!(
+            fmds_address = fmds_addr,
+            "Using FmdsUpdater::External FMDS service"
+        );
+        let fmds_client = crate::fmds_client::FmdsGrpcClient::connect(fmds_addr)
+            .await
+            .wrap_err("Failed to connect to external FMDS service")?;
+        FmdsUpdater::External(fmds_client)
+    } else {
+        if options.enable_metadata_service {
+            crate::metadata_service::spawn_metadata_service(
+                agent_config.metadata_service.address.clone(),
+                agent_config.telemetry.metrics_address.clone(),
+                metrics.clone(),
+                instance_metadata_state.clone(),
+            )
+            .unwrap_or_else(|e| {
+                tracing::warn!("Failed to run metadata service: {:#}", e);
+            });
+        }
+        tracing::info!("Using FmdsUpdater::Embedded FMDS service");
+        FmdsUpdater::Embedded(instance_metadata_state.clone())
+    };
 
     // Some of these metrics only need to be set once, let's take care of them
     // now.
@@ -319,7 +336,7 @@ pub async fn setup_and_run(
         build_version,
         machine_id,
         periodic_config_reader,
-        instance_metadata_state,
+        fmds_updater,
         client_cert_renewer,
         hbn_device_names,
         is_hbn_up: false,
@@ -351,7 +368,7 @@ struct MainLoop {
     factory_mac_address: MacAddress,
     build_version: String,
     periodic_config_reader: Box<periodic_config_fetcher::PeriodicConfigFetcherReader>,
-    instance_metadata_state: Arc<InstanceMetadataRouterStateImpl>,
+    fmds_updater: FmdsUpdater,
     client_cert_renewer: ClientCertRenewer,
     hbn_device_names: HBNDeviceNames,
     is_hbn_up: bool,
@@ -748,10 +765,9 @@ impl MainLoop {
                 // It will guarantee that the Instance Config that is acknowledged to
                 // carbide via the status message is actually visible to the tenant via
                 // FMDS
-                self.instance_metadata_state
-                    .update_instance_data(instance_data.clone());
-                self.instance_metadata_state
-                    .update_network_configuration(Some(conf.clone()));
+                self.fmds_updater
+                    .update(instance_data.clone(), Some(conf.clone()))
+                    .await;
                 status_out.instance_config_version = instance_data
                     .as_ref()
                     .map(|instance| instance.config_version.version_string());

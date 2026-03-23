@@ -114,6 +114,7 @@ pub fn setup_agent_run_env(
             override_network_virtualization_type: None,
             skip_upgrade_check: false,
             dhcp_grpc_server: None,
+            fmds_grpc_server: None,
         }))),
     };
 

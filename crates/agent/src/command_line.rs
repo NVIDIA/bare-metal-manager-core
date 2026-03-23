@@ -298,6 +298,12 @@ pub struct RunOptions {
                 When set, the agent sends config updates via gRPC instead of writing files directly."
     )]
     pub dhcp_grpc_server: Option<String>,
+    #[clap(
+        long,
+        help = "gRPC address of the external FMDS service (e.g. http://localhost:50052). \
+                When set, the agent sends config updates via gRPC instead of running embedded FMDS."
+    )]
+    pub fmds_grpc_server: Option<String>,
 }
 
 #[derive(Parser, Debug)]

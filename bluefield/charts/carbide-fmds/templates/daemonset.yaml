@@ -1,9 +1,9 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: {{ include "carbide-dpu-agent.fullname" . }}
+  name: {{ include "carbide-fmds.fullname" . }}
   labels:
-    {{- include "carbide-dpu-agent.labels" . | nindent 4 }}
+    {{- include "carbide-fmds.labels" . | nindent 4 }}
     {{- with .Values.serviceDaemonSet.labels }}
       {{- toYaml . | nindent 4 }}
     {{- end }}
@@ -18,7 +18,7 @@ spec:
   {{- end }}
   selector:
     matchLabels:
-      {{- include "carbide-dpu-agent.selectorLabels" . | nindent 6 }}
+      {{- include "carbide-fmds.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       annotations:
@@ -26,7 +26,7 @@ spec:
           {{- toYaml . | nindent 8 }}
         {{- end }}
       labels:
-        {{- include "carbide-dpu-agent.selectorLabels" . | nindent 8 }}
+        {{- include "carbide-fmds.selectorLabels" . | nindent 8 }}
         {{- with .Values.serviceDaemonSet.labels }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -45,13 +45,28 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: wait-for-certs
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for forge certificates in /opt/forge ..."
+              while [ ! -f /opt/forge/forge_root.pem ] || [ ! -f /opt/forge/machine_cert.pem ] || [ ! -f /opt/forge/machine_cert.key ]; do
+                sleep 5
+              done
+              echo "Certificates found, starting carbide-fmds."
+          volumeMounts:
+            - name: forge-certs
+              mountPath: /opt/forge
+              readOnly: true
       containers:
-        - name: forge-dpu-agent
+        - name: carbide-fmds
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args: ["run", "--enable-metadata-service"]
           {{- with toYaml .Values.serviceDaemonSet.resources }}
           resources:
             limits:
@@ -81,6 +96,7 @@ spec:
           volumeMounts:
             - name: forge-certs
               mountPath: /opt/forge
+              readOnly: true
       volumes:
         - name: forge-certs
           hostPath:

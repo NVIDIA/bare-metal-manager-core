@@ -172,7 +172,6 @@ pub struct TuiData {
     pub subnet_cache: HashMap<NetworkSegmentId, SubnetDetails>,
     pub machine_details: String,
     pub machine_logs: String,
-    pub overrides: Vec<String>,
     pub original_routes: HashMap<String, String>,
 }
 
@@ -193,7 +192,6 @@ impl Tui {
                 subnet_cache: HashMap::default(),
                 machine_details: String::default(),
                 machine_logs: String::default(),
-                overrides: Vec::new(),
                 original_routes: HashMap::new(),
             },
             ui: Tab::default(),
@@ -218,11 +216,7 @@ impl Tui {
         Ok(())
     }
 
-    async fn handle_event(
-        &mut self,
-        terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
-        event: Event,
-    ) -> bool {
+    async fn handle_event(&mut self, event: Event) -> bool {
         let Self {
             data,
             ui,
@@ -232,7 +226,7 @@ impl Tui {
             Event::Key(key) => {
                 // Handle global triggers.
                 if key.kind == event::KeyEventKind::Press {
-                    let (handled, machine_changed) = ui.handle_key(terminal, data, key);
+                    let (handled, machine_changed) = ui.handle_key(data, key);
                     if !handled {
                         match key.code {
                             KeyCode::Char('q') => {
@@ -257,7 +251,6 @@ impl Tui {
             // Interpret scroll as up down arrow keys.
             Event::Mouse(mouse) if mouse.kind == event::MouseEventKind::ScrollUp => {
                 ui.handle_key(
-                    terminal,
                     data,
                     event::KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
                 )
@@ -265,7 +258,6 @@ impl Tui {
             }
             Event::Mouse(mouse) if mouse.kind == event::MouseEventKind::ScrollDown => {
                 ui.handle_key(
-                    terminal,
                     data,
                     event::KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
                 )
@@ -450,45 +442,6 @@ impl Tui {
                             .block(Block::default().borders(Borders::ALL).title("Details"));
                         f.render_widget(paragraph, chunks[1]);
                     }
-                    Tab::Overrides(state) => {
-                        let layout = Layout::new(
-                            Direction::Vertical,
-                            [Constraint::Length(3), Constraint::Fill(1)],
-                        )
-                        .split(left_chunks[1]);
-
-                        let p = Paragraph::new("a to add an override path, DEL to remove, i to edit, e to edit the override body").block(Block::bordered().border_style(Style::new().bold()));
-                        f.render_widget(p, layout[0]);
-
-                        if let Some(offset) = state.get_cursor_offset() {
-                            f.set_cursor_position(Position::new(
-                                // Add 1 for border, three for "- /" prefix.
-                                layout[1].x + offset.0 + 4,
-                                // Add 1 for border.
-                                layout[1].y + offset.1 + 1,
-                            ));
-                        }
-
-                        let mut block = Block::default().borders(Borders::ALL);
-                        if state.focused() {
-                            block = block.border_style(Style::new().yellow().bold());
-                        }
-                        let list = List::new(data.overrides.iter().map(|o| format!("- /{o}/index.json")))
-                            .block(block)
-                            .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
-
-                        f.render_stateful_widget(list, layout[1], &mut state.list_state);
-                        if let Some(selected) = state.get_selected() {
-                            let mut block = Block::default().borders(Borders::ALL).title("Response Preview");
-                            if state.scroll_focused() {
-                                block = block.border_style(Style::new().yellow().bold());
-                            }
-
-                            // TODO: make request to redfish using selected override path.
-                            f.render_widget(Paragraph::new(format!("TODO: not implemented yet: selected: {selected}"))
-                                                           .scroll((state.scroll_offset, 0)).block(block), chunks[1]);
-                        }
-                    }
                 }
             })?;
 
@@ -501,7 +454,7 @@ impl Tui {
                 maybe_event = event_stream.next() => {
                     match maybe_event {
                         Some(Ok(event)) => {
-                            list_updated = self.handle_event(&mut terminal, event).await;
+                            list_updated = self.handle_event(event).await;
                         }
                         Some(Err(e)) => tracing::warn!("Error: {:?}", e),
                         None => break,

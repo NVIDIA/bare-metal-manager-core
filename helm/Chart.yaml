@@ -2,7 +2,7 @@ apiVersion: v2
 name: carbide
 description: Umbrella chart for the Carbide Bare Metal Manager platform
 type: application
-version: 0.1.0
+version: 0.1.1
 appVersion: "v2025.12.30-rc1"
 keywords:
   - carbide
@@ -12,7 +12,7 @@ keywords:
 
 dependencies:
   - name: carbide-api
-    version: "0.1.0"
+    version: "0.1.1"
     condition: carbide-api.enabled
   - name: carbide-dhcp
     version: "0.1.0"

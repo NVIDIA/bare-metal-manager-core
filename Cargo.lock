@@ -1853,6 +1853,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbide-fmds"
+version = "0.0.1"
+dependencies = [
+ "arc-swap",
+ "async-trait",
+ "axum 0.8.6",
+ "axum-server",
+ "carbide-dpu-agent-utils",
+ "carbide-rpc",
+ "carbide-tls",
+ "carbide-uuid",
+ "carbide-version",
+ "clap",
+ "eyre",
+ "governor",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "nonzero_ext",
+ "prost 0.14.1",
+ "tokio",
+ "tonic 0.14.2",
+ "tonic-prost",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "carbide-health"
 version = "0.0.1"
 dependencies = [

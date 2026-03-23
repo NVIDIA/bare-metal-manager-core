@@ -113,6 +113,36 @@ args = [
   "forge-dhcp-server",
 ]
 
+[tasks.build-fmds]
+category = "Build"
+description = "cross compile carbide-fmds locally"
+workspace = false
+script = '''
+docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
+    --env CARGO_HOME=/cargo \
+    -v $CARGO_HOME:/cargo \
+    build-artifacts-container-cross-aarch64:latest \
+    "cargo" \
+    "build" \
+    "--release" \
+    "--target=aarch64-unknown-linux-gnu" \
+    "--bin" \
+    "carbide-fmds"
+    docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64:latest "aarch64-linux-gnu-strip" \
+    "/carbide/target/aarch64-unknown-linux-gnu/release/carbide-fmds"
+'''
+dependencies = [
+  { name = "build-cross-docker-image", path = "${REPO_ROOT}" },
+  { name = "check-cargo-home-set", path = "${REPO_ROOT}" },
+]
+
+[tasks.build-fmds-ci]
+category = "Build"
+workspace = false
+description = "Build carbide-fmds for CI"
+command = "cargo"
+args = ["build", "--release", "--bin", "carbide-fmds"]
+
 [tasks.build-dpu-otel-agent]
 category = "Build"
 description = "cross compile forge-dpu-otel-agent locally"
@@ -524,15 +554,25 @@ script = '''
     helm package ${REPO_ROOT}/bluefield/charts/carbide-dpu-otel-agent -d ${REPO_ROOT}/target/charts/
 '''
 
+[tasks.helm-package-carbide-fmds]
+category = "Build"
+description = "Package the carbide-fmds Helm chart"
+workspace = false
+script = '''
+    mkdir -p ${REPO_ROOT}/target/charts/
+    helm package ${REPO_ROOT}/bluefield/charts/carbide-fmds -d ${REPO_ROOT}/target/charts/
+'''
+
 [tasks.helm-package-all]
 category = "Build"
 description = "Package all Carbide DPF Helm charts"
 workspace = false
 dependencies = [
-    "helm-package-carbide-otelcol",
-    "helm-package-carbide-dpu-agent",
-    "helm-package-carbide-dhcp-server",
-    "helm-package-carbide-dpu-otel-agent",
+  "helm-package-carbide-otelcol",
+  "helm-package-carbide-dpu-agent",
+  "helm-package-carbide-dhcp-server",
+  "helm-package-carbide-dpu-otel-agent",
+  "helm-package-carbide-fmds",
 ]
 
 [tasks.docker-build-otelcol]
@@ -582,13 +622,26 @@ script = '''
 '''
 dependencies = ["build-dpu-otel-agent"]
 
+[tasks.docker-build-fmds]
+category = "Build"
+description = "Build the carbide-fmds container image for arm64"
+workspace = false
+script = '''
+    docker build \
+        -t ${CARBIDE_IMAGE_REGISTRY:-nvcr.io/nvidia/carbide}/carbide-fmds:${DPU_AGENT_PKG_VERSION} \
+        -f ${REPO_ROOT}/bluefield/containers/carbide-fmds/Dockerfile \
+        ${REPO_ROOT}
+'''
+dependencies = ["build-fmds"]
+
 [tasks.docker-build-all]
 category = "Build"
 description = "Build all Carbide DPF container images for arm64"
 workspace = false
 dependencies = [
-    "docker-build-otelcol",
-    "docker-build-dpu-agent",
-    "docker-build-dhcp-server",
-    "docker-build-dpu-otel-agent",
+  "docker-build-otelcol",
+  "docker-build-dpu-agent",
+  "docker-build-dhcp-server",
+  "docker-build-dpu-otel-agent",
+  "docker-build-fmds",
 ]

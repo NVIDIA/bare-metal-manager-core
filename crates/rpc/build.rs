@@ -778,6 +778,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "proto/nmx_c.proto",
                 "proto/site_explorer.proto",
                 "proto/dns.proto",
+                "proto/fmds.proto",
             ],
             &["proto"],
         )

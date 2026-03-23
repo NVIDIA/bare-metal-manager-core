@@ -120,13 +120,15 @@ fn metric_events(
                 metric.context = Some(SensorHealthContext {
                     entity_type: "sensor".to_string(),
                     sensor_id: sensor_name,
+                    upper_fatal: Some(90.0),
+                    lower_fatal: Some(2.0),
                     upper_critical: Some(85.0),
                     lower_critical: Some(5.0),
                     upper_caution: Some(75.0),
                     lower_caution: Some(10.0),
                     range_max: Some(100.0),
                     range_min: Some(0.0),
-                    bmc_health: Some(BmcHealth::Warning),
+                    bmc_health: BmcHealth::Warning,
                 });
             }
             CollectorEvent::Metric(metric.into())

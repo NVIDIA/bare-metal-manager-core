@@ -4,6 +4,7 @@ target/*
 !target/aarch64-unknown-linux-gnu/release/forge-dpu-agent
 !target/aarch64-unknown-linux-gnu/release/forge-dpu-otel-agent
 !target/aarch64-unknown-linux-gnu/release/forge-dhcp-server
+!target/aarch64-unknown-linux-gnu/release/carbide-fmds
 .git/
 pxe/mkiso/
 **/.mkosi*

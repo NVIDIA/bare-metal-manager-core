@@ -47,6 +47,10 @@ pub mod site_explorer;
 #[rustfmt::skip]
 pub mod dns;
 
+#[allow(non_snake_case, unknown_lints, clippy::all)]
+#[rustfmt::skip]
+pub mod fmds;
+
 #[allow(clippy::all, deprecated)]
 #[rustfmt::skip]
 pub mod forge_api_client;

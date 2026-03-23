@@ -131,7 +131,7 @@ pub struct SinksConfig {
 impl Default for SinksConfig {
     fn default() -> Self {
         Self {
-            tracing: Configurable::Enabled(TracingSinkConfig::default()),
+            tracing: Configurable::Disabled,
             prometheus: Configurable::Enabled(PrometheusSinkConfig::default()),
             health_override: Configurable::Enabled(HealthOverrideSinkConfig::default()),
         }

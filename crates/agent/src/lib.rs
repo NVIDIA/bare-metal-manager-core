@@ -51,6 +51,7 @@ mod ethernet_virtualization;
 use carbide_uuid::machine::MachineId;
 pub use ethernet_virtualization::FPath;
 pub mod extension_services;
+mod fmds_client;
 
 pub mod duppet;
 mod frr;

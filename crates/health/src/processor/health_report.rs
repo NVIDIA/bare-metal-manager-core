@@ -31,6 +31,7 @@ enum SensorHealth {
     Ok,
     Warning,
     Critical,
+    Fatal,
     SensorFailure,
 }
 
@@ -40,6 +41,7 @@ impl SensorHealth {
             Self::Ok => Classification::SensorOk,
             Self::Warning => Classification::SensorWarning,
             Self::Critical => Classification::SensorCritical,
+            Self::Fatal => Classification::SensorFatal,
             Self::SensorFailure => Classification::SensorFailure,
         }
     }
@@ -94,6 +96,18 @@ impl HealthReportProcessor {
             return SensorHealth::SensorFailure;
         }
 
+        if let Some(upper_fatal) = health.upper_fatal
+            && reading >= upper_fatal
+        {
+            return SensorHealth::Fatal;
+        }
+
+        if let Some(lower_fatal) = health.range_min
+            && reading <= lower_fatal
+        {
+            return SensorHealth::Fatal;
+        }
+
         if let Some(upper_critical) = health.upper_critical
             && reading >= upper_critical
         {
@@ -125,7 +139,6 @@ impl HealthReportProcessor {
         health: &SensorHealthContext,
     ) -> SensorHealthResult {
         let classification = Self::classify(health, metric.value);
-        let bmc_reports_ok = matches!(health.bmc_health, Some(BmcHealth::Ok));
 
         match classification {
             SensorHealth::Ok => SensorHealthResult::Success(HealthReportSuccess {
@@ -133,7 +146,7 @@ impl HealthReportProcessor {
                 target: Some(health.sensor_id.clone()),
             }),
             state => {
-                if bmc_reports_ok {
+                if health.bmc_health == BmcHealth::Ok {
                     tracing::warn!(
                         sensor_id = %health.sensor_id,
                         entity_type = %health.entity_type,
@@ -155,12 +168,13 @@ impl HealthReportProcessor {
                 let status = match state {
                     SensorHealth::Warning => "Warning",
                     SensorHealth::Critical => "Critical",
+                    SensorHealth::Fatal => "Fatal",
                     SensorHealth::SensorFailure => "Sensor Failure",
                     SensorHealth::Ok => "Ok",
                 };
 
                 let message = format!(
-                    "{} '{}': {} - reading {:.2}{} ({}), valid range: {}, caution: {}, critical: {}",
+                    "{} '{}': {} - reading {:.2}{} ({}), valid range: {}, caution: {}, critical: {}, fatal: {}",
                     health.entity_type,
                     health.sensor_id,
                     status,
@@ -170,6 +184,7 @@ impl HealthReportProcessor {
                     Self::fmt_range(health.range_min, health.range_max),
                     Self::fmt_range(health.lower_caution, health.upper_caution),
                     Self::fmt_range(health.lower_critical, health.upper_critical),
+                    Self::fmt_range(health.lower_fatal, health.upper_fatal),
                 );
 
                 SensorHealthResult::Alert(HealthReportAlert {
@@ -277,13 +292,15 @@ mod tests {
                     context: Some(SensorHealthContext {
                         entity_type: "sensor".to_string(),
                         sensor_id: "Temp1".to_string(),
+                        upper_fatal: None,
+                        lower_fatal: None,
                         upper_critical: Some(30.0),
                         lower_critical: None,
                         upper_caution: None,
                         lower_caution: None,
                         range_max: None,
                         range_min: None,
-                        bmc_health: Some(BmcHealth::Warning),
+                        bmc_health: BmcHealth::Critical,
                     }),
                 }
                 .into(),

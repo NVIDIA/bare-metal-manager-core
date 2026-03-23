@@ -1,0 +1,97 @@
+version: v2beta1
+name: ncx-infra-controller-core
+
+vars:
+  LOCAL_DEV_NAMESPACE:
+    source: env
+    default: forge-system
+  LOCAL_DEV_CERT_ISSUER_KIND:
+    source: env
+    default: Issuer
+  LOCAL_DEV_CERT_ISSUER_NAME:
+    source: env
+    default: local-ca-issuer
+  LOCAL_DEV_CERT_ISSUER_GROUP:
+    source: env
+    default: cert-manager.io
+
+images:
+  carbide-api:
+    image: carbide-api
+    custom:
+      command: |-
+        docker image inspect build-container-localdev >/dev/null 2>&1 || docker build --pull=false -t build-container-localdev -f dev/docker/Dockerfile.build-container-x86_64 .
+        docker build -t ${runtime.images.carbide-api.image}:${runtime.images.carbide-api.tag} -f dev/deployment/devspace/Dockerfile.api .
+      onChange:
+        - .dockerignore
+        - Cargo.toml
+        - Cargo.lock
+        - rust-toolchain.toml
+        - .cargo
+        - crates
+        - include
+        - dev/docker/Dockerfile.build-container-x86_64
+        - dev/deployment/devspace/Dockerfile.api
+        - pxe/templates
+        - pxe/static/blobs/internal/aarch64/secure-boot-pk.pem
+  machine-a-tron:
+    image: machine-a-tron
+    custom:
+      command: |-
+        docker image inspect build-container-localdev >/dev/null 2>&1 || docker build --pull=false -t build-container-localdev -f dev/docker/Dockerfile.build-container-x86_64 .
+        docker build -t ${runtime.images.machine-a-tron.image}:${runtime.images.machine-a-tron.tag} -f dev/deployment/devspace/Dockerfile.machine-a-tron .
+      onChange:
+        - .dockerignore
+        - Cargo.toml
+        - Cargo.lock
+        - rust-toolchain.toml
+        - .cargo
+        - crates
+        - include
+        - dev/docker/Dockerfile.build-container-x86_64
+        - dev/deployment/devspace/Dockerfile.machine-a-tron
+
+deployments:
+  carbide-local:
+    namespace: ${LOCAL_DEV_NAMESPACE}
+    updateImageTags: false
+    helm:
+      chart:
+        path: ./helm
+      values:
+        global:
+          image:
+            repository: ${runtime.images.carbide-api.image}
+            tag: ${runtime.images.carbide-api.tag}
+            pullPolicy: IfNotPresent
+      valuesFiles:
+        - dev/deployment/devspace/values.base.yaml
+        - dev/deployment/devspace/values.generated.yaml
+  machine-a-tron-local:
+    namespace: ${LOCAL_DEV_NAMESPACE}
+    updateImageTags: true
+    kubectl:
+      manifests:
+        - dev/deployment/devspace/machine-a-tron.yaml
+      patches:
+        - target:
+            apiVersion: cert-manager.io/v1
+            kind: Certificate
+            name: machine-a-tron-certificate
+          op: replace
+          path: spec.issuerRef.kind
+          value: ${LOCAL_DEV_CERT_ISSUER_KIND}
+        - target:
+            apiVersion: cert-manager.io/v1
+            kind: Certificate
+            name: machine-a-tron-certificate
+          op: replace
+          path: spec.issuerRef.name
+          value: ${LOCAL_DEV_CERT_ISSUER_NAME}
+        - target:
+            apiVersion: cert-manager.io/v1
+            kind: Certificate
+            name: machine-a-tron-certificate
+          op: replace
+          path: spec.issuerRef.group
+          value: ${LOCAL_DEV_CERT_ISSUER_GROUP}

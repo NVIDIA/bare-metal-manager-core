@@ -108,10 +108,12 @@ pub struct SensorBuilder {
 
 #[derive(Debug, Clone, Default)]
 pub struct Thresholds {
+    pub lower_fatal: Option<f64>,
     pub lower_critical: Option<f64>,
     pub lower_caution: Option<f64>,
     pub upper_caution: Option<f64>,
     pub upper_critical: Option<f64>,
+    pub upper_fatal: Option<f64>,
 }
 
 impl Builder for SensorBuilder {
@@ -142,6 +144,18 @@ impl SensorBuilder {
         let Some(reading) = self.reading() else {
             return redfish::resource::Status::Ok;
         };
+
+        if let Some(upper_fatal) = self.threshold("UpperFatal")
+            && reading >= upper_fatal
+        {
+            return redfish::resource::Status::Critical;
+        }
+
+        if let Some(lower_fatal) = self.threshold("LowerFatal")
+            && reading <= lower_fatal
+        {
+            return redfish::resource::Status::Critical;
+        }
 
         if let Some(upper_critical) = self.threshold("UpperCritical")
             && reading >= upper_critical
@@ -204,6 +218,16 @@ impl SensorBuilder {
         }))
     }
 
+    pub fn threshold_lower_fatal(self, value: f64) -> Self {
+        self.apply_patch(json!({
+            "Thresholds": {
+                "LowerFatal": {
+                    "Reading": value
+                }
+            }
+        }))
+    }
+
     pub fn threshold_lower_caution(self, value: f64) -> Self {
         self.apply_patch(json!({
             "Thresholds": {
@@ -234,7 +258,20 @@ impl SensorBuilder {
         }))
     }
 
+    pub fn threshold_upper_fatal(self, value: f64) -> Self {
+        self.apply_patch(json!({
+            "Thresholds": {
+                "UpperFatal": {
+                    "Reading": value
+                }
+            }
+        }))
+    }
+
     pub fn thresholds(mut self, thresholds: Thresholds) -> Self {
+        if let Some(value) = thresholds.lower_fatal {
+            self = self.threshold_lower_fatal(value);
+        }
         if let Some(value) = thresholds.lower_critical {
             self = self.threshold_lower_critical(value);
         }
@@ -246,6 +283,9 @@ impl SensorBuilder {
         }
         if let Some(value) = thresholds.upper_critical {
             self = self.threshold_upper_critical(value);
+        }
+        if let Some(value) = thresholds.upper_fatal {
+            self = self.threshold_upper_fatal(value);
         }
         self
     }
@@ -355,8 +395,8 @@ impl SensorKind {
 
     fn random_reading(self, rng: &mut impl Rng) -> SensorReading {
         match self {
-            Self::Temperature => SensorReading::Float(random_tenths(rng, 28.0..=42.0)),
-            Self::Fan => SensorReading::Unsigned(rng.random_range(3800..=9400)),
+            Self::Temperature => SensorReading::Float(random_tenths(rng, 25.0..=45.0)),
+            Self::Fan => SensorReading::Unsigned(rng.random_range(0..=9400)),
             Self::Power => SensorReading::Float(random_tenths(rng, 130.0..=780.0)),
             Self::Current => SensorReading::Float(random_tenths(rng, 1.5..=42.0)),
             Self::LeakDetector => SensorReading::Float(random_tenths(rng, 1.2..=1.85)),
@@ -368,10 +408,12 @@ impl SensorKind {
             Self::Temperature => Thresholds {
                 upper_caution: Some(38.0),
                 upper_critical: Some(40.0),
+                upper_fatal: Some(42.0),
                 ..Default::default()
             },
             Self::Fan => Thresholds {
-                lower_critical: Some(5000.0),
+                lower_critical: Some(500.0),
+                lower_fatal: Some(10.0),
                 ..Default::default()
             },
             Self::Power => Thresholds {
@@ -488,8 +530,8 @@ mod tests {
             *by_type.entry(reading_type.clone()).or_default() += 1;
 
             match reading_type.as_str() {
-                "Temperature" => assert!((28.0..=42.0).contains(&reading)),
-                "Rotational" => assert!((3800.0..=9400.0).contains(&reading)),
+                "Temperature" => assert!((25.0..=45.0).contains(&reading)),
+                "Rotational" => assert!((0.0..=9400.0).contains(&reading)),
                 "Power" => assert!((130.0..=780.0).contains(&reading)),
                 "Current" => assert!((1.5..=42.0).contains(&reading)),
                 "Voltage" => assert!((1.2..=1.85).contains(&reading)),
@@ -546,5 +588,21 @@ mod tests {
 
         let json = sensor.to_json();
         assert_eq!(json["Status"]["Health"], "Critical");
+    }
+
+    #[test]
+    fn sensor_status_is_fatal_when_crossing_fatal_threshold() {
+        let sensor = builder(&chassis_resource("System.Embedded.1", "Temp_1"))
+            .reading_f64(45.0)
+            .thresholds(Thresholds {
+                upper_critical: Some(40.0),
+                upper_fatal: Some(44.0),
+                ..Default::default()
+            })
+            .build();
+
+        let json = sensor.to_json();
+        assert_eq!(json["Status"]["Health"], "Critical");
+        assert_eq!(json["Thresholds"]["UpperFatal"]["Reading"], 44.0);
     }
 }
