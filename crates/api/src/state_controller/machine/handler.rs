@@ -3516,19 +3516,7 @@ impl DpuMachineStateHandler {
                     ));
                 }
 
-                // All DPUs are in Off state, turn off the host.
-                let host_redfish_client = ctx
-                    .services
-                    .create_redfish_client_from_machine(&state.host_snapshot)
-                    .await?;
-
-                host_redfish_client
-                    .power(SystemPowerControl::ForceOff)
-                    .await
-                    .map_err(|e| StateHandlerError::RedfishError {
-                        operation: "host_power_off",
-                        error: e,
-                    })?;
+                handler_host_power_control(state, ctx, SystemPowerControl::ForceOff).await?;
 
                 let next_state = DpuInitState::WaitingForPlatformPowercycle {
                     substate: PerformPowerOperation::On,
@@ -3540,18 +3528,21 @@ impl DpuMachineStateHandler {
             DpuInitState::WaitingForPlatformPowercycle {
                 substate: PerformPowerOperation::On,
             } => {
-                let host_redfish_client = ctx
-                    .services
-                    .create_redfish_client_from_machine(&state.host_snapshot)
-                    .await?;
+                let basetime = state
+                    .host_snapshot
+                    .last_reboot_requested
+                    .as_ref()
+                    .map(|x| x.time)
+                    .unwrap_or(state.host_snapshot.state.version.timestamp());
 
-                host_redfish_client
-                    .power(SystemPowerControl::On)
-                    .await
-                    .map_err(|e| StateHandlerError::RedfishError {
-                        operation: "host_power_on",
-                        error: e,
-                    })?;
+                if wait(&basetime, self.reachability_params.power_down_wait) {
+                    return Ok(StateHandlerOutcome::wait(format!(
+                        "Waiting for power_down_wait ({}m) to elapse before powering on host",
+                        self.reachability_params.power_down_wait.num_minutes(),
+                    )));
+                }
+
+                handler_host_power_control(state, ctx, SystemPowerControl::On).await?;
 
                 let next_state = DpuInitState::WaitingForPlatformConfiguration
                     .next_state_with_all_dpus_updated(&state.managed_state)?;
