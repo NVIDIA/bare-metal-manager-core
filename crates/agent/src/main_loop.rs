@@ -48,7 +48,7 @@ use crate::dpu::DpuNetworkInterfaces;
 use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::duppet::{SummaryFormat, SyncOptions};
-use crate::ethernet_virtualization::ServiceAddresses;
+use crate::ethernet_virtualization::{NvueUpdateFlavor, ServiceAddresses};
 use crate::fmds_client::FmdsUpdater;
 use crate::health::HealthCheckParams;
 use crate::host_machine_id::get_host_machine_id_retry;
@@ -202,9 +202,8 @@ pub async fn setup_and_run(
     let nvue_client = match options.hbn_config_mode {
         HbnConfigMode::ContainerExec => None,
         HbnConfigMode::NvueRest => {
-            let server_address = nvue_client::client::NvueServerAddress::https_from_env()
-                .wrap_err("Couldn't initialize NVUE client")?;
-            Some(nvue_client::NvueClient::new(server_address))
+            let nvue_client = nvue_client::NvueClient::new_https_from_env()?;
+            Some(nvue_client)
         }
     };
 
@@ -680,11 +679,17 @@ impl MainLoop {
                         };
 
                         if bridging_result.is_ok() {
+                            let update_flavor = match self.nvue_client.as_ref() {
+                                Some(nvue_client) => NvueUpdateFlavor::RestApi { nvue_client },
+                                None => NvueUpdateFlavor::StartupFile {
+                                    hbn_root: &self.agent_config.hbn.root_dir,
+                                    skip_post: self.agent_config.hbn.skip_reload,
+                                },
+                            };
                             ethernet_virtualization::update_nvue(
                                 virtualization_type,
-                                &self.agent_config.hbn.root_dir,
+                                update_flavor,
                                 &conf,
-                                self.agent_config.hbn.skip_reload,
                                 self.hbn_device_names.clone(),
                             )
                             .await

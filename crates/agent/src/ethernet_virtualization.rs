@@ -34,6 +34,7 @@ use carbide_network::ip::prefix::Ipv4Net;
 use carbide_network::virtualization::VpcVirtualizationType;
 use eyre::WrapErr;
 use mac_address::MacAddress;
+use nvue_client::{NvueClient, NvueConfig};
 use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
@@ -143,16 +144,27 @@ struct PostAction {
     path: FPath,
 }
 
-// Update network config using nvue (`nv`). Return Ok(true) if the config change, Ok(false) if not.
+pub enum NvueUpdateFlavor<'a> {
+    StartupFile { hbn_root: &'a Path, skip_post: bool },
+    RestApi { nvue_client: &'a NvueClient },
+}
+
+/// Update the NVUE network config. Returns Ok(true) if the configuration changed, and
+/// Ok(false) if not.
 pub async fn update_nvue(
     vpc_virtualization_type: VpcVirtualizationType,
-    hbn_root: &Path,
+    update_flavor: NvueUpdateFlavor<'_>,
     nc: &rpc::ManagedHostNetworkConfigResponse,
-    // if true don't run the `nv` commands after writing the file
-    skip_post: bool,
     hbn_device_names: HBNDeviceNames,
 ) -> eyre::Result<bool> {
-    let hbn_version = hbn::read_version().await?;
+    let hbn_version = match update_flavor {
+        NvueUpdateFlavor::StartupFile { .. } => hbn::read_version().await?,
+        NvueUpdateFlavor::RestApi { nvue_client } => nvue_client
+            .system_build_info()
+            .await
+            .map_err(|e| eyre::eyre!("Couldn't get HBN version from NVUE: {e}"))
+            .and_then(|build_value| hbn::parse_nvue_build_as_hbn_version(&build_value))?,
+    };
 
     let l_ip_str = match &nc.managed_host_config {
         None => {
@@ -407,69 +419,89 @@ pub async fn update_nvue(
         },
     };
 
-    // Cleanup non-NVUE ACL files
-    // We can remove this once az01 is upgraded
-    cleanup_old_acls(hbn_root);
-
-    // Write the extra ACL config
-    let path_acl = FPath(hbn_root.join(nvue::PATH_ACL));
-    path_acl.cleanup();
-    let mut rules = NVUED_BLOCK_RULE.to_string();
-    rules.push_str(acl_rules::ARP_SUPPRESSION_RULE);
-    match write(rules, &path_acl, "NVUE ACL", false) {
-        Ok(true) => {
-            if !skip_post {
-                let cmd = acl_rules::RELOAD_CMD;
-                if let Err(err) = hbn::run_in_container_shell(cmd).await {
-                    tracing::error!("running nvue extra acl post '{}': {err:#}", cmd);
-                }
-                path_acl.del("BAK");
-            }
-        }
-        // ACLs didn't need changing, should be always this except on first boot
-        Ok(false) => {}
-        // Log the error but continue so that we get network working
-        Err(err) => tracing::error!("write nvue extra ACL: {err:#}"),
-    }
-
-    // nvue can save a copy of the config here. If that exists nvue uses it on boot.
-    // We always want to use the most recent `nv config apply`, so ensure this doesn't exist.
-    let saved_config = hbn_root.join(nvue::SAVE_PATH);
-    if saved_config.exists()
-        && let Err(err) = fs::remove_file(&saved_config)
-    {
-        tracing::warn!(
-            "Failed removing old startup.yaml at {}: {err:#}",
-            saved_config.display()
-        );
-    }
-
-    // Write the config we're going to apply
+    // next_contents is a YAML-serialized NVUE config.
     let next_contents = nvue::build(conf)?;
-    let path = FPath(hbn_root.join(nvue::PATH));
-    path.cleanup();
-    // If switching to the admin network, we want to just force the write.
-    // We've seen a past incident where a tenant managed to create a config
-    // that exceeded MAX_EXPECTED_SIZE.  Because of the diff check failing, it
-    // also prevented a successful termination because the NVUE config couldn't
-    // be switched to the admin network.
-    if !write(
-        next_contents,
-        &path,
-        "NVUE",
-        nc.use_admin_network && path.0.exists() && path.0.metadata()?.len() > MAX_EXPECTED_SIZE,
-    )
-    .wrap_err(format!("NVUE config at {path}"))?
-    {
-        // config didn't change OR we are switching to the admin network.
-        return Ok(false);
-    };
 
-    if !skip_post {
-        // Make it so
-        nvue::apply(hbn_root, &path).await?;
+    match update_flavor {
+        NvueUpdateFlavor::StartupFile {
+            hbn_root,
+            skip_post,
+        } => {
+            // Cleanup non-NVUE ACL files
+            // We can remove this once az01 is upgraded
+            cleanup_old_acls(hbn_root);
+
+            // Write the extra ACL config
+            let path_acl = FPath(hbn_root.join(nvue::PATH_ACL));
+            path_acl.cleanup();
+            let mut rules = NVUED_BLOCK_RULE.to_string();
+            rules.push_str(acl_rules::ARP_SUPPRESSION_RULE);
+            match write(rules, &path_acl, "NVUE ACL", false) {
+                Ok(true) => {
+                    if !skip_post {
+                        let cmd = acl_rules::RELOAD_CMD;
+                        if let Err(err) = hbn::run_in_container_shell(cmd).await {
+                            tracing::error!("running nvue extra acl post '{}': {err:#}", cmd);
+                        }
+                        path_acl.del("BAK");
+                    }
+                }
+                // ACLs didn't need changing, should be always this except on first boot
+                Ok(false) => {}
+                // Log the error but continue so that we get network working
+                Err(err) => tracing::error!("write nvue extra ACL: {err:#}"),
+            }
+
+            // nvue can save a copy of the config here. If that exists nvue uses it on boot.
+            // We always want to use the most recent `nv config apply`, so ensure this doesn't exist.
+            let saved_config = hbn_root.join(nvue::SAVE_PATH);
+            if saved_config.exists()
+                && let Err(err) = fs::remove_file(&saved_config)
+            {
+                tracing::warn!(
+                    "Failed removing old startup.yaml at {}: {err:#}",
+                    saved_config.display()
+                );
+            }
+
+            // Write the config we're going to apply
+            let path = FPath(hbn_root.join(nvue::PATH));
+            path.cleanup();
+            // If switching to the admin network, we want to just force the write.
+            // We've seen a past incident where a tenant managed to create a config
+            // that exceeded MAX_EXPECTED_SIZE.  Because of the diff check failing, it
+            // also prevented a successful termination because the NVUE config couldn't
+            // be switched to the admin network.
+            if !write(
+                next_contents,
+                &path,
+                "NVUE",
+                nc.use_admin_network
+                    && path.0.exists()
+                    && path.0.metadata()?.len() > MAX_EXPECTED_SIZE,
+            )
+            .wrap_err(format!("NVUE config at {path}"))?
+            {
+                // config didn't change OR we are switching to the admin network.
+                return Ok(false);
+            };
+
+            if !skip_post {
+                // Make it so
+                nvue::apply(hbn_root, &path).await?;
+            }
+            Ok(true)
+        }
+        NvueUpdateFlavor::RestApi { nvue_client } => {
+            let config = NvueConfig::from_yaml(&next_contents)
+                .map_err(|e| eyre::eyre!("Couldn't parse NVUE config as YAML: {e}"))?;
+            let _result = nvue_client
+                .push_config(&config)
+                .await
+                .map_err(|e| eyre::eyre!("Couldn't push new config to NVUE server: {e}"));
+            Ok(true)
+        }
     }
-    Ok(true)
 }
 
 // Update internal bridge configuration for traffic-intercept routing and bridging.
@@ -1496,7 +1528,7 @@ mod tests {
     use ipnetwork::IpNetwork;
     use utils::models::dhcp::{DhcpConfig, HostConfig};
 
-    use super::FPath;
+    use super::*;
     use crate::ethernet_virtualization::{
         InterfaceState, ServiceAddresses, needed_interface_state,
     };
@@ -1531,12 +1563,15 @@ mod tests {
         let hbn_root = td.path();
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
+        let update_flavor = NvueUpdateFlavor::StartupFile {
+            hbn_root,
+            skip_post: true,
+        };
 
         let has_changes = super::update_nvue(
             virtualization_type,
-            hbn_root,
+            update_flavor,
             &network_config,
-            true,
             HBNDeviceNames::hbn_23(),
         )
         .await?;
@@ -1567,12 +1602,15 @@ mod tests {
         let hbn_root = td.path();
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
+        let update_flavor = NvueUpdateFlavor::StartupFile {
+            hbn_root,
+            skip_post: true,
+        };
 
         let has_changes = super::update_nvue(
             virtualization_type,
-            hbn_root,
+            update_flavor,
             &network_config,
-            true,
             HBNDeviceNames::hbn_23(),
         )
         .await?;
@@ -1614,12 +1652,15 @@ mod tests {
         let hbn_root = td.path();
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
+        let update_flavor = NvueUpdateFlavor::StartupFile {
+            hbn_root,
+            skip_post: true,
+        };
 
         let has_changes = super::update_nvue(
             virtualization_type,
-            hbn_root,
+            update_flavor,
             &network_config,
-            true,
             HBNDeviceNames::hbn_23(),
         )
         .await?;
@@ -1661,12 +1702,15 @@ mod tests {
         let hbn_root = td.path();
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
+        let update_flavor = NvueUpdateFlavor::StartupFile {
+            hbn_root,
+            skip_post: true,
+        };
 
         let has_changes = super::update_nvue(
             virtualization_type,
-            hbn_root,
+            update_flavor,
             &network_config,
-            true,
             HBNDeviceNames::hbn_23(),
         )
         .await?;
@@ -1697,12 +1741,15 @@ mod tests {
         let hbn_root = td.path();
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
+        let update_flavor = NvueUpdateFlavor::StartupFile {
+            hbn_root,
+            skip_post: true,
+        };
 
         let has_changes = super::update_nvue(
             virtualization_type,
-            hbn_root,
+            update_flavor,
             &network_config,
-            true,
             HBNDeviceNames::hbn_23(),
         )
         .await?;
@@ -1730,11 +1777,22 @@ mod tests {
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
+        // let has_changes = super::update_nvue(
+        //     virtualization_type,
+        //     hbn_root,
+        //     &network_config,
+        //     true,
+        //     HBNDeviceNames::hbn_23(),
+        // )
+        let update_flavor = NvueUpdateFlavor::StartupFile {
+            hbn_root,
+            skip_post: true,
+        };
+
         let has_changes = super::update_nvue(
             virtualization_type,
-            hbn_root,
+            update_flavor,
             &network_config,
-            true,
             HBNDeviceNames::hbn_23(),
         )
         .await?;
@@ -1773,11 +1831,22 @@ mod tests {
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
+        // let has_changes = super::update_nvue(
+        //     virtualization_type,
+        //     hbn_root,
+        //     &network_config,
+        //     true,
+        //     HBNDeviceNames::hbn_23(),
+        // )
+        let update_flavor = NvueUpdateFlavor::StartupFile {
+            hbn_root,
+            skip_post: true,
+        };
+
         let has_changes = super::update_nvue(
             virtualization_type,
-            hbn_root,
+            update_flavor,
             &network_config,
-            true,
             HBNDeviceNames::hbn_23(),
         )
         .await?;
@@ -1819,11 +1888,22 @@ mod tests {
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
+        // let has_changes = super::update_nvue(
+        //     virtualization_type,
+        //     hbn_root,
+        //     &network_config,
+        //     true,
+        //     HBNDeviceNames::hbn_23(),
+        // )
+        let update_flavor = NvueUpdateFlavor::StartupFile {
+            hbn_root,
+            skip_post: true,
+        };
+
         let has_changes = super::update_nvue(
             virtualization_type,
-            hbn_root,
+            update_flavor,
             &network_config,
-            true,
             HBNDeviceNames::hbn_23(),
         )
         .await?;
@@ -1874,11 +1954,22 @@ mod tests {
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
+        // let has_changes = super::update_nvue(
+        //     virtualization_type,
+        //     hbn_root,
+        //     &network_config,
+        //     true,
+        //     HBNDeviceNames::hbn_23(),
+        // )
+        let update_flavor = NvueUpdateFlavor::StartupFile {
+            hbn_root,
+            skip_post: true,
+        };
+
         let has_changes = super::update_nvue(
             virtualization_type,
-            hbn_root,
+            update_flavor,
             &network_config,
-            true,
             HBNDeviceNames::hbn_23(),
         )
         .await?;
@@ -1919,11 +2010,22 @@ mod tests {
         fs::create_dir_all(hbn_root.join("var/support"))?;
         fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
 
+        // let has_changes = super::update_nvue(
+        //     virtualization_type,
+        //     hbn_root,
+        //     &network_config,
+        //     true,
+        //     HBNDeviceNames::hbn_23(),
+        // )
+        let update_flavor = NvueUpdateFlavor::StartupFile {
+            hbn_root,
+            skip_post: true,
+        };
+
         let has_changes = super::update_nvue(
             virtualization_type,
-            hbn_root,
+            update_flavor,
             &network_config,
-            true,
             HBNDeviceNames::hbn_23(),
         )
         .await?;
