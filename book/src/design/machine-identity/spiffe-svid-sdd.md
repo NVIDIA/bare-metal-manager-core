@@ -474,8 +474,6 @@ PUT https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/identity/confi
 }
 ```
 
-Omit `subjectPrefix` (or send an empty value) to use the API default `spiffe://<trust-domain-from-issuer>/`.
-
 | Field | Type | Required | Description |
 | :---- | :--- | :------- | :---------- |
 | `orgId` | string | Yes | Org identifier |

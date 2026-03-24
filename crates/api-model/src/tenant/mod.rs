@@ -481,10 +481,21 @@ pub struct TenantIdentityConfig {
     pub token_endpoint: Option<String>,
     pub auth_method: Option<TokenDelegationAuthMethod>,
     /// Token delegation auth method secrets, **encrypted at rest**: standard base64 envelope v1
-    /// (`key_encryption::encrypt`) over JSON (e.g. client_id and client_secret). Not plaintext; do not log.
+    /// (`key_encryption::encrypt`) over JSON (e.g. client_id and client_secret). Loaded from DB as
+    /// ciphertext only; plaintext for gRPC mapping lives on [`TenantIdentityConfigDecrypted::auth_method_config`].
     pub encrypted_auth_method_config: Option<String>,
     pub subject_token_audience: Option<String>,
     pub token_delegation_created_at: Option<DateTime<Utc>>,
+}
+
+/// [`TenantIdentityConfig`] row plus decrypted token-delegation JSON for handlers / `TryInto` RPC.
+/// `row.encrypted_auth_method_config` stays ciphertext from the database; plaintext is only in
+/// `auth_method_config`. Do not log.
+#[derive(Debug)]
+pub struct TenantIdentityConfigDecrypted {
+    pub row: TenantIdentityConfig,
+    /// UTF-8 JSON from `TokenDelegation::to_db_format` after `key_encryption::decrypt`.
+    pub auth_method_config: Option<String>,
 }
 
 /// Key material for a new or rotated signing key.
@@ -736,19 +747,20 @@ impl TryFrom<rpc_forge::TokenDelegation> for TokenDelegation {
     }
 }
 
-impl TryFrom<TenantIdentityConfig> for rpc_forge::TokenDelegationResponse {
+impl TryFrom<TenantIdentityConfigDecrypted> for rpc_forge::TokenDelegationResponse {
     type Error = RpcDataConversionError;
 
-    fn try_from(value: TenantIdentityConfig) -> Result<Self, Self::Error> {
-        let token_endpoint = value
+    fn try_from(value: TenantIdentityConfigDecrypted) -> Result<Self, Self::Error> {
+        let row = value.row;
+        let token_endpoint = row
             .token_endpoint
             .ok_or(RpcDataConversionError::MissingArgument("token_delegation"))?;
-        let auth_method = value
+        let auth_method = row
             .auth_method
             .ok_or(RpcDataConversionError::MissingArgument("token_delegation"))?;
 
         let stored: Option<rpc_forge::ClientSecretBasic> = value
-            .encrypted_auth_method_config
+            .auth_method_config
             .as_ref()
             .and_then(|s| serde_json::from_str(s).ok());
 
@@ -763,15 +775,15 @@ impl TryFrom<TenantIdentityConfig> for rpc_forge::TokenDelegationResponse {
             ),
         };
 
-        let created_at = value.token_delegation_created_at.map(rpc::Timestamp::from);
+        let created_at = row.token_delegation_created_at.map(rpc::Timestamp::from);
 
         Ok(rpc_forge::TokenDelegationResponse {
-            organization_id: value.organization_id.as_str().to_string(),
+            organization_id: row.organization_id.as_str().to_string(),
             token_endpoint,
             auth_method_config,
-            subject_token_audience: value.subject_token_audience.unwrap_or_default(),
+            subject_token_audience: row.subject_token_audience.unwrap_or_default(),
             created_at,
-            updated_at: Some(rpc::Timestamp::from(value.updated_at)),
+            updated_at: Some(rpc::Timestamp::from(row.updated_at)),
         })
     }
 }
