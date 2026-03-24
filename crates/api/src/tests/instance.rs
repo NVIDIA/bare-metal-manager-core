@@ -6275,7 +6275,7 @@ async fn test_allocate_instance_with_invalid_ib_partition(
 }
 
 #[crate::sqlx_test]
-async fn test_can_not_create_instances_with_machine_in_qurantine(
+async fn test_can_not_create_instances_with_machine_in_quarantine(
     _: PgPoolOptions,
     options: PgConnectOptions,
 ) {
