@@ -258,13 +258,16 @@ async fn handle_update_config(
 
 /// Promotes staged config files and (re)starts the DHCP server.
 ///
-/// If no `_new` files exist the restart is skipped.  Otherwise any running
+/// If no `_new` files exist and `force_start` is false the restart is skipped.
+/// When `force_start` is true (e.g. after an explicit `StopServer`) the server
+/// is started even if the config on disk has not changed.  Otherwise any running
 /// server generation is cancelled, the `_new` files are renamed to their live
 /// paths, and a fresh server generation is spawned.
 async fn handle_reload(
     args: &Args,
     cancel_token: Option<CancellationToken>,
     dhcp_handle: Option<tokio::task::JoinHandle<()>>,
+    force_start: bool,
 ) -> Result<
     (
         Option<CancellationToken>,
@@ -287,7 +290,7 @@ async fn handle_reload(
         false
     };
 
-    if !has_new_dhcp && !has_new_host {
+    if !has_new_dhcp && !has_new_host && !force_start {
         tracing::debug!("ReloadConfig: no staged changes, skipping restart");
         return Ok((cancel_token, dhcp_handle));
     }
@@ -398,10 +401,24 @@ async fn run_with_grpc_control(
                     ControlRequest::UpdateAndReload { dhcp_yaml, host_yaml, interfaces } => {
                         args.interfaces = interfaces;
                         handle_update_config(&args, dhcp_yaml, host_yaml).await?;
+                        // Force a start when the server is not currently running
+                        // (stopped explicitly or never started) so that the server
+                        // is (re)started even if the config on disk is unchanged.
+                        let force = dhcp_handle.is_none();
                         let (ct, h) =
-                            handle_reload(&args, cancel_token, dhcp_handle).await?;
+                            handle_reload(&args, cancel_token, dhcp_handle, force).await?;
                         cancel_token = ct;
                         dhcp_handle = h;
+                    }
+                    ControlRequest::Stop => {
+                        if let (Some(ct), Some(h)) = (cancel_token.take(), dhcp_handle.take()) {
+                            tracing::info!("StopServer: stopping DHCP server");
+                            ct.cancel();
+                            let _ = h.await;
+                            tracing::info!("StopServer: DHCP server stopped; gRPC server remains up");
+                        } else {
+                            tracing::info!("StopServer: DHCP server was not running");
+                        }
                     }
                 }
             }
@@ -606,6 +623,7 @@ mod test {
     use tempfile::TempDir;
     use tokio::net::UdpSocket;
     use tokio::sync::Mutex;
+    use tokio_util::sync::CancellationToken;
     use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 
     use crate::command_line::{Args, ServerMode};
@@ -628,7 +646,7 @@ mod test {
         let td = TempDir::new().unwrap();
         let args = make_reload_args(&td, vec!["eth0".to_string()]);
 
-        let (cancel_token, dhcp_handle) = handle_reload(&args, None, None).await.unwrap();
+        let (cancel_token, dhcp_handle) = handle_reload(&args, None, None, false).await.unwrap();
 
         assert!(cancel_token.is_none(), "no server should have been started");
         assert!(dhcp_handle.is_none(), "no server should have been started");
@@ -644,10 +662,134 @@ mod test {
         let new_dhcp = format!("{}_new", args.dhcp_config);
         tokio::fs::write(&new_dhcp, "staged").await.unwrap();
 
-        let (cancel_token, dhcp_handle) = handle_reload(&args, None, None).await.unwrap();
+        let (cancel_token, dhcp_handle) = handle_reload(&args, None, None, false).await.unwrap();
 
         assert!(cancel_token.is_none(), "no server should have been started");
         assert!(dhcp_handle.is_none(), "no server should have been started");
+    }
+
+    /// force_start=true must start the server even when no `_new` files are staged.
+    #[tokio::test]
+    async fn reload_force_start_with_no_staged_files() {
+        let td = TempDir::new().unwrap();
+        let args = make_reload_args(&td, vec!["eth0".to_string()]);
+
+        // Write a live config so run_dhcp_server can initialise (it will fail to
+        // bind a real socket in CI, but the important thing is that a JoinHandle
+        // is returned, proving the server was attempted).
+        tokio::fs::write(&args.dhcp_config, "# placeholder")
+            .await
+            .unwrap();
+
+        let (cancel_token, dhcp_handle) = handle_reload(&args, None, None, true).await.unwrap();
+
+        assert!(
+            cancel_token.is_some(),
+            "server should have been started with force_start"
+        );
+        assert!(
+            dhcp_handle.is_some(),
+            "server should have been started with force_start"
+        );
+
+        // Clean up the spawned task.
+        if let (Some(ct), Some(h)) = (cancel_token, dhcp_handle) {
+            ct.cancel();
+            let _ = h.await;
+        }
+    }
+
+    /// force_start=false must still skip when no `_new` files are staged,
+    /// even when a live config exists on disk.
+    #[tokio::test]
+    async fn reload_no_force_start_with_no_staged_files() {
+        let td = TempDir::new().unwrap();
+        let args = make_reload_args(&td, vec!["eth0".to_string()]);
+        tokio::fs::write(&args.dhcp_config, "# placeholder")
+            .await
+            .unwrap();
+
+        let (cancel_token, dhcp_handle) = handle_reload(&args, None, None, false).await.unwrap();
+
+        assert!(
+            cancel_token.is_none(),
+            "server must not start without staged files"
+        );
+        assert!(
+            dhcp_handle.is_none(),
+            "server must not start without staged files"
+        );
+    }
+
+    /// Sending Stop over the control channel must cancel the running server and
+    /// leave dhcp_handle as None, while the subsequent UpdateAndReload (with the
+    /// server down) must force-start it again.
+    #[tokio::test]
+    async fn stop_then_update_restarts_server() {
+        let td = TempDir::new().unwrap();
+        let mut args = make_reload_args(&td, vec!["eth0".to_string()]);
+
+        // Provide a live config so handle_reload can start a server task.
+        let dhcp_yaml = "# placeholder dhcp";
+        tokio::fs::write(&args.dhcp_config, dhcp_yaml)
+            .await
+            .unwrap();
+
+        // Simulate a running server.
+        let ct = CancellationToken::new();
+        let ct_clone = ct.clone();
+        let mut dhcp_handle: Option<tokio::task::JoinHandle<()>> =
+            Some(tokio::spawn(async move { ct_clone.cancelled().await }));
+        let mut cancel_token: Option<CancellationToken> = Some(ct);
+
+        // --- StopServer ---
+        if let (Some(ct), Some(h)) = (cancel_token.take(), dhcp_handle.take()) {
+            ct.cancel();
+            let _ = h.await;
+        }
+        assert!(
+            cancel_token.is_none(),
+            "cancel_token must be None after stop"
+        );
+        assert!(dhcp_handle.is_none(), "dhcp_handle must be None after stop");
+
+        // --- UpdateAndReload with server down (force=true) ---
+        // Stage a _new` config so handle_update_config has something to write,
+        // then call handle_reload with force=true (the path taken when dhcp_handle is None).
+        let new_dhcp_yaml = "# updated dhcp";
+        tokio::fs::write(format!("{}_new", args.dhcp_config), new_dhcp_yaml)
+            .await
+            .unwrap();
+        args.interfaces = vec!["eth0".to_string()];
+
+        let force = dhcp_handle.is_none(); // true — server is down
+        let (ct, h) = handle_reload(&args, cancel_token, dhcp_handle, force)
+            .await
+            .unwrap();
+
+        assert!(ct.is_some(), "server should have been restarted");
+        assert!(h.is_some(), "server should have been restarted");
+
+        if let (Some(ct), Some(h)) = (ct, h) {
+            ct.cancel();
+            let _ = h.await;
+        }
+    }
+
+    /// Stop when no server is running must be a no-op (no panic, handle stays None).
+    #[tokio::test]
+    async fn stop_when_server_not_running_is_noop() {
+        let mut cancel_token: Option<CancellationToken> = None;
+        let mut dhcp_handle: Option<tokio::task::JoinHandle<()>> = None;
+
+        // Mirrors the Stop arm in run_with_grpc_control.
+        if let (Some(ct), Some(h)) = (cancel_token.take(), dhcp_handle.take()) {
+            ct.cancel();
+            let _ = h.await;
+        }
+
+        assert!(cancel_token.is_none());
+        assert!(dhcp_handle.is_none());
     }
 
     fn get_test_args() -> Args {

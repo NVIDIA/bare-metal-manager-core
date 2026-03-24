@@ -119,6 +119,24 @@ pub async fn get_dhcp_timestamps(
     Ok(requests)
 }
 
+/// Sends a stop request to the dhcp-server control service.
+///
+/// The gRPC control server remains running after this call so that a future
+/// [`update_and_reload`] call can restart the DHCP process.
+pub async fn stop_server(grpc_addr: &str) -> eyre::Result<()> {
+    let channel = tonic::transport::Endpoint::new(grpc_addr.to_string())?
+        .connect()
+        .await?;
+    let mut client = DhcpServerControlClient::new(channel);
+
+    client
+        .stop_server(proto::StopServerRequest {})
+        .await
+        .map_err(|s| eyre::eyre!("StopServer gRPC failed: {s}"))?;
+
+    Ok(())
+}
+
 /// Pushes new DHCP config to the dhcp-server control service and triggers an
 /// immediate reload in a single RPC.
 ///

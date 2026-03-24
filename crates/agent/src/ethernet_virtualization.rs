@@ -814,6 +814,18 @@ pub async fn update_interface_state(nc: &ManagedHostNetworkConfigResponse) -> ey
     InterfaceState::update_state(&needed_state).await
 }
 
+/// Stops the DHCP process via the dhcp-server gRPC control service.
+///
+/// The gRPC control server remains up after this call so that a future
+/// [`update_dhcp_via_grpc`] call can restart the DHCP process.
+///
+/// Returns `Ok(false)` (matching the file-write path convention) to signal
+/// that no active DHCP service reload occurred.
+async fn stop_dhcp_via_grpc(grpc_addr: &str) -> eyre::Result<bool> {
+    crate::dhcp_server_grpc_client::stop_server(grpc_addr).await?;
+    Ok(false)
+}
+
 /// Sends the current DHCP server config to the dhcp-server process via gRPC.
 ///
 /// Builds YAML representations of [`DhcpConfig`] and [`HostConfig`] from the
@@ -911,7 +923,11 @@ pub async fn update_dhcp(
     hbn_device_names: HBNDeviceNames,
     dhcp_grpc_server: Option<String>,
 ) -> eyre::Result<bool> {
+    let stop_server = network_config.use_admin_network && !network_config.is_primary_dpu;
     if let Some(ref addr) = dhcp_grpc_server {
+        if stop_server {
+            return stop_dhcp_via_grpc(addr).await;
+        }
         return update_dhcp_via_grpc(addr, network_config, service_addrs, hbn_device_names).await;
     }
 
@@ -928,7 +944,6 @@ pub async fn update_dhcp(
     // Delete NVUE relay config in case we used that previously
     let _ = fs::remove_file(path_dhcp_relay_nvue);
 
-    let stop_server = network_config.use_admin_network && !network_config.is_primary_dpu;
     // Start DHCP Server in HBN.
     let post_action = match write_dhcp_v4_server_config(
         &path_dhcp_relay,

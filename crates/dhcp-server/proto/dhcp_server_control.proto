@@ -28,6 +28,11 @@ service DhcpServerControl {
     // Used by the agent when the DHCP server runs in a separate container and
     // the timestamps file is not directly accessible on the DPU filesystem.
     rpc GetDhcpTimestamps(GetDhcpTimestampsRequest) returns (GetDhcpTimestampsResponse);
+
+    // Stop the DHCP server without terminating the gRPC control server.
+    // The gRPC server remains up to accept future requests.  The DHCP server
+    // will be restarted automatically by the next UpdateAndReloadConfig call.
+    rpc StopServer(StopServerRequest) returns (StopServerResponse);
 }
 
 // ── UpdateAndReloadConfig ─────────────────────────────────────────────────────
@@ -83,3 +88,9 @@ message DhcpTimestampEntry {
 message GetDhcpTimestampsResponse {
     repeated DhcpTimestampEntry entries = 1;
 }
+
+// ── StopServer ────────────────────────────────────────────────────────────────
+
+message StopServerRequest {}
+
+message StopServerResponse {}

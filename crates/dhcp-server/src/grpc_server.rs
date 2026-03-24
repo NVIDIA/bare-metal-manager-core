@@ -31,8 +31,8 @@ pub mod proto {
 
 use proto::dhcp_server_control_server::{DhcpServerControl, DhcpServerControlServer};
 use proto::{
-    GetDhcpTimestampsRequest, GetDhcpTimestampsResponse, UpdateAndReloadConfigRequest,
-    UpdateAndReloadConfigResponse,
+    GetDhcpTimestampsRequest, GetDhcpTimestampsResponse, StopServerRequest, StopServerResponse,
+    UpdateAndReloadConfigRequest, UpdateAndReloadConfigResponse,
 };
 
 use crate::errors::DhcpError;
@@ -48,6 +48,9 @@ pub enum ControlRequest {
         host_yaml: Option<String>,
         interfaces: Vec<String>,
     },
+    /// Stop the DHCP server.  The gRPC control server stays up so that a
+    /// subsequent UpdateAndReload can restart the DHCP server.
+    Stop,
 }
 
 // ── Proto → model conversions ─────────────────────────────────────────────────
@@ -158,6 +161,22 @@ impl DhcpServerControl for DhcpServerControlService {
 
         tracing::info!("UpdateAndReloadConfig accepted");
         Ok(Response::new(UpdateAndReloadConfigResponse {}))
+    }
+
+    /// Stops the DHCP server without terminating the gRPC control server.
+    /// The gRPC server remains up to accept future requests.  The next
+    /// UpdateAndReloadConfig call will restart the DHCP server.
+    async fn stop_server(
+        &self,
+        _request: Request<StopServerRequest>,
+    ) -> Result<Response<StopServerResponse>, Status> {
+        self.ctrl_tx
+            .send(ControlRequest::Stop)
+            .await
+            .map_err(|_| Status::internal("control channel closed"))?;
+
+        tracing::info!("StopServer accepted");
+        Ok(Response::new(StopServerResponse {}))
     }
 
     /// Returns the last DHCP request timestamp for every known host interface
