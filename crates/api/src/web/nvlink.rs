@@ -294,16 +294,9 @@ async fn fetch_logical_partitions(
 
         if detail {
             let request = tonic::Request::new(forgerpc::MachineSearchConfig {
-                include_dpus: false,
-                include_history: false,
-                include_predicted_host: false,
-                only_maintenance: false,
-                exclude_hosts: false,
-                only_quarantine: false,
-                instance_type_id: None,
                 mnnvl_only: true,
-                only_with_health_alert: None,
-                only_with_power_state: None,
+                include_predicted_host: true,
+                ..Default::default()
             });
 
             let machine_ids = api

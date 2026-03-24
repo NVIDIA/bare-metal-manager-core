@@ -2710,12 +2710,15 @@ message MachineSearchConfig {
   reserved 5; // Was: bool include_associated_machine_id = 5; Now always included
   bool exclude_hosts = 6;
   bool only_quarantine = 7;
+  // Returns machines only if they are assigned the given instance type
   optional string instance_type_id = 8;
   bool mnnvl_only = 9;
   // PowerState would mirror host_power_state_t, basically 'on' and 'off'
   optional string only_with_power_state = 10;
   // For example, to search for leak alerts, set the below to "hardware-health.tray-leak-detection"
   optional string only_with_health_alert = 11;
+  // Returns machines only if they are part of the given rack
+  optional common.RackId rack_id = 12;
 }
 
 message MachineStateHistoriesRequest {

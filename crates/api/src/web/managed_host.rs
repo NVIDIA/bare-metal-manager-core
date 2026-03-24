@@ -653,15 +653,8 @@ async fn fetch_managed_hosts_with_metadata(
     let machine_ids = api
         .find_machine_ids(tonic::Request::new(forgerpc::MachineSearchConfig {
             include_dpus: true,
-            include_history: false,
             include_predicted_host: true,
-            only_maintenance: false,
-            exclude_hosts: false,
-            only_quarantine: false,
-            instance_type_id: None,
-            mnnvl_only: false,
-            only_with_health_alert: None,
-            only_with_power_state: None,
+            ..Default::default()
         }))
         .await?
         .into_inner()

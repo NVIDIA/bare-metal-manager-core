@@ -32,7 +32,7 @@
                             <tbody>
                             {% for rack in racks %}
                             <tr>
-                                <td>{{ rack.rack_id }}</td>
+                                <td>{{ rack.rack_id|rack_id_link|safe }}</td>
                                 <td>{{ rack.rack_type }}</td>
                                 <td>{{ rack.compute_trays }}</td>
                                 <td>{{ rack.switches }}</td>

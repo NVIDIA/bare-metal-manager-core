@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use carbide_uuid::instance_type::InstanceTypeId;
+use carbide_uuid::rack::RackId;
 use rpc::errors::RpcDataConversionError;
 
 /// MachineSearchConfig: Search parameters
@@ -28,6 +29,7 @@ pub struct MachineSearchConfig {
     /// Only include quarantined machines
     pub only_quarantine: bool,
     pub exclude_hosts: bool,
+    /// Returns machines only if they are assigned the given instance type
     pub instance_type_id: Option<InstanceTypeId>,
 
     /// Whether the query results will be later
@@ -39,10 +41,12 @@ pub struct MachineSearchConfig {
     /// and any joined tables.  The value is *not*
     /// propagated to any additional underlying queries.
     pub for_update: bool,
-    // Only include NVLink capable machines (GB200/GB300 etc)
+    /// Only include NVLink capable machines (GB200/GB300 etc)
     pub mnnvl_only: bool,
     pub only_with_power_state: Option<String>,
     pub only_with_health_alert: Option<String>,
+    /// Returns machines only if they are part of the given rack
+    pub rack_id: Option<RackId>,
 }
 
 impl TryFrom<rpc::forge::MachineSearchConfig> for MachineSearchConfig {
@@ -67,6 +71,7 @@ impl TryFrom<rpc::forge::MachineSearchConfig> for MachineSearchConfig {
             mnnvl_only: value.mnnvl_only,
             only_with_power_state: value.only_with_power_state,
             only_with_health_alert: value.only_with_health_alert,
+            rack_id: value.rack_id,
         })
     }
 }

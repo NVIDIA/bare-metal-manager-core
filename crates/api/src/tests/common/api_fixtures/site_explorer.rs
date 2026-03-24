@@ -29,6 +29,7 @@ use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use futures_util::FutureExt;
 use health_report::HealthReport;
 use mac_address::MacAddress;
+use model::expected_machine::ExpectedMachine;
 use model::hardware_info::HardwareInfo;
 use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::{
@@ -1166,6 +1167,36 @@ impl<'a> MockExploredHost<'a> {
     }
 }
 
+pub async fn register_expected_machine(env: &'_ TestEnv, config: &ManagedHostConfig) {
+    let Some(data) = config.expected_machine_data.as_ref() else {
+        return;
+    };
+
+    let mut data = data.clone();
+    // Fill data from ManagedHostConfig
+    // TODO: Disambiguate chassis and product serial number
+    // We seem to set the product serial number here
+    data.serial_number = config.serial.clone();
+
+    let em = ExpectedMachine {
+        id: Some(uuid::Uuid::new_v4()),
+        bmc_mac_address: config.bmc_mac_address,
+        data,
+    };
+
+    env.api
+        .create_expected_machines(tonic::Request::new(
+            rpc::forge::BatchExpectedMachineOperationRequest {
+                expected_machines: Some(rpc::forge::ExpectedMachineList {
+                    expected_machines: vec![em.into()],
+                }),
+                accept_partial_results: false,
+            },
+        ))
+        .await
+        .expect("Expect expected machine to get registered");
+}
+
 /// Use this function to make a new managed host with a given number of DPUs, using site-explorer
 /// to ingest it into the database. Returns a MockExploredHost that you can call more methods on
 /// before finishing.
@@ -1178,6 +1209,9 @@ pub async fn new_mock_host(
     for ib_guid in config.ib_guids.iter() {
         mock_ib_fabric.register_port(ib_guid.clone());
     }
+
+    // Create an expected-machine record for the new machine
+    register_expected_machine(env, &config).await;
 
     // Set BMC credentials in vault
     for bmc_mac_address in vec![config.bmc_mac_address]
@@ -1653,6 +1687,9 @@ pub async fn new_mock_host_with_dpf(
     for ib_guid in config.ib_guids.iter() {
         mock_ib_fabric.register_port(ib_guid.clone());
     }
+
+    // Create an expected-machine record for the new machine
+    register_expected_machine(env, &config).await;
 
     // Set BMC credentials in vault
     for bmc_mac_address in vec![config.bmc_mac_address]

@@ -15,19 +15,22 @@
  * limitations under the License.
  */
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use askama::Template;
 use axum::Json;
-use axum::extract::State as AxumState;
+use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
+use carbide_uuid::rack::RackId;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
+use super::filters;
 use crate::api::Api;
 
 #[derive(Template)]
-#[template(path = "rack.html")]
+#[template(path = "rack_show.html")]
 struct Rack {
     racks: Vec<RackRecord>,
 }
@@ -40,6 +43,16 @@ struct RackRecord {
     current_compute_trays: String,
     expected_power_shelves: String,
     current_power_shelves: String,
+}
+
+#[derive(Template)]
+#[template(path = "rack_detail.html")]
+struct RackDetail {
+    id: String,
+    rack: Option<rpc::forge::Rack>,
+    associated_machines: Vec<String>,
+    associated_switches: Vec<String>,
+    associated_power_shelves: Vec<String>,
 }
 
 /// Show all racks
@@ -124,4 +137,110 @@ async fn fetch_racks(api: &Api) -> Result<Vec<RackRecord>, (http::StatusCode, St
         .collect();
 
     Ok(racks)
+}
+
+pub async fn fetch_rack(
+    api: &Api,
+    rack_id: &RackId,
+) -> Result<Option<::rpc::forge::Rack>, Response> {
+    let request = tonic::Request::new(rpc::forge::GetRackRequest {
+        id: Some(rack_id.to_string()),
+    });
+
+    // TODO: This should use FindRacksByIds
+    let rack = match api
+        .get_rack(request)
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(r) if r.rack.is_empty() => {
+            return Ok(None);
+        }
+        Ok(r) if r.rack.len() != 1 => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Rack list for {rack_id} returned {} racks", r.rack.len()),
+            )
+                .into_response());
+        }
+        Ok(mut r) => Some(r.rack.remove(0)),
+        Err(err) if err.code() == tonic::Code::NotFound => {
+            return Ok(None);
+        }
+        Err(err) => {
+            tracing::error!(%err, %rack_id, "find_racks_by_ids");
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
+        }
+    };
+
+    Ok(rack)
+}
+
+/// View details about a Rack
+pub async fn detail(
+    AxumState(api): AxumState<Arc<Api>>,
+    AxumPath(rack_id): AxumPath<String>,
+    Query(_params): Query<HashMap<String, String>>,
+) -> Response {
+    let (show_json, rack_id) = match rack_id.strip_suffix(".json") {
+        Some(rack_id) => (true, rack_id.to_string()),
+        None => (false, rack_id),
+    };
+
+    let rack_id = match rack_id.parse::<RackId>() {
+        Ok(rack_id) => rack_id,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
+
+    let maybe_rack = match fetch_rack(&api, &rack_id).await {
+        Ok(maybe_rack) => maybe_rack,
+        Err(response) => return response,
+    };
+
+    if show_json {
+        return (StatusCode::OK, Json(maybe_rack)).into_response();
+    };
+
+    let associated_machines = match fetch_machine_ids(api, rack_id.clone()).await {
+        Ok(m) => m,
+        Err(err) => {
+            tracing::error!(%err, "fetch_machine_ids");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error loading machine IDs",
+            )
+                .into_response();
+        }
+    };
+
+    let display = RackDetail {
+        id: rack_id.to_string(),
+        rack: maybe_rack,
+        associated_machines,
+        // TODO: Add discovered switches and powershelves
+        associated_power_shelves: vec![],
+        associated_switches: vec![],
+    };
+
+    (StatusCode::OK, Html(display.render().unwrap())).into_response()
+}
+
+pub async fn fetch_machine_ids(
+    api: Arc<Api>,
+    rack_id: RackId,
+) -> Result<Vec<String>, tonic::Status> {
+    let request = tonic::Request::new(rpc::forge::MachineSearchConfig {
+        include_predicted_host: true,
+        rack_id: Some(rack_id.clone()),
+        ..Default::default()
+    });
+
+    Ok(api
+        .find_machine_ids(request)
+        .await?
+        .into_inner()
+        .machine_ids
+        .into_iter()
+        .map(|id| id.to_string())
+        .collect())
 }

@@ -1723,6 +1723,11 @@ pub async fn find_machine_ids(
         qb.push_bind(id);
     }
 
+    if let Some(rack_id) = search_config.rack_id {
+        qb.push(" AND rack_id = ");
+        qb.push_bind(rack_id);
+    }
+
     if search_config.for_update {
         qb.push(" FOR UPDATE");
     }
