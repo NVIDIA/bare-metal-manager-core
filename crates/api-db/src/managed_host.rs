@@ -16,7 +16,6 @@
  */
 //!
 //! Database access methods for manipulating the state of a ManagedHost (Host+DPUs)
-//!
 
 use std::collections::HashMap;
 use std::ops::Deref;

@@ -26,7 +26,7 @@
  *  - `bundle show`: Show all details about measurement bundle(s).
  *  - `bundle list all`: List high level metadata about all bundles.
  *  - `bundle list machines`: List all matchines matching a given bundle.
-*/
+ */
 
 use std::str::FromStr;
 

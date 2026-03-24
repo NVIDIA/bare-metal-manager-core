@@ -113,7 +113,7 @@ impl Display for DnsResourceRecordType {
 /// # Example
 ///
 /// ```rust
-/// use dns_record::{SoaRecord, Seconds};
+/// use dns_record::{Seconds, SoaRecord};
 /// let soa = SoaRecord {
 ///     primary_ns: "ns1.example.com".to_string(),
 ///     contact: "hostmaster.example.com".to_string(),

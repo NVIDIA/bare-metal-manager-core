@@ -113,7 +113,6 @@ impl CarbideDhcpContext {
 /// # Safety
 /// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn carbide_set_config_api(api: *const c_char) {
     unsafe {
@@ -128,7 +127,6 @@ pub unsafe extern "C" fn carbide_set_config_api(api: *const c_char) {
 /// # Safety
 ///
 /// None, todo!()
-///
 #[unsafe(no_mangle)]
 pub extern "C" fn carbide_set_config_next_server_ipv4(next_server: u32) {
     CONFIG.write().unwrap().provisioning_server_ipv4 =
@@ -140,7 +138,6 @@ pub extern "C" fn carbide_set_config_next_server_ipv4(next_server: u32) {
 /// # Safety
 /// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn carbide_set_config_name_servers(nameservers: *const c_char) {
     unsafe {
@@ -154,7 +151,6 @@ pub unsafe extern "C" fn carbide_set_config_name_servers(nameservers: *const c_c
 /// # Safety
 /// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn carbide_set_config_mqtt_server(mqttserver: *const c_char) {
     unsafe {
@@ -168,7 +164,6 @@ pub unsafe extern "C" fn carbide_set_config_mqtt_server(mqttserver: *const c_cha
 /// # Safety
 /// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn carbide_set_config_ntp(ntpservers: *const c_char) {
     unsafe {
@@ -182,7 +177,6 @@ pub unsafe extern "C" fn carbide_set_config_ntp(ntpservers: *const c_char) {
 /// # Safety
 /// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn carbide_set_config_metrics_endpoint(endpoint: *const c_char) {
     unsafe {

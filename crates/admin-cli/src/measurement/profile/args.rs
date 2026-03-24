@@ -26,7 +26,7 @@
  *  - `profile list all`: List high level info about all profiles.
  *  - `profile list bundles`: List all bundles for a given profile.
  *  - `profile list machines`: List all machines for a given profile.
-*/
+ */
 
 use std::str::FromStr;
 

@@ -17,7 +17,6 @@
 
 //!
 //! `measurement journal` subcommand dispatcher + backing functions.
-//!
 
 use ::rpc::admin_cli::{
     CarbideCliError, CarbideCliResult, ToTable, cli_output, just_print_summary,

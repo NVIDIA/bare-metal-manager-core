@@ -16,7 +16,6 @@
  */
 //!
 //! Machine - represents a database-backed Machine object
-//!
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -83,7 +82,6 @@ lazy_static! {
 ///
 /// * `txn` - A reference to a currently open database transaction
 /// * `interface` - Network interface of the machine
-///
 pub async fn get_or_create(
     txn: &mut PgConnection,
     common_pools: Option<&CommonPools>,
@@ -185,7 +183,6 @@ pub async fn find_existing_machine(
 ///
 /// * `txn` - A reference to a currently open database transaction
 /// * `state` - A reference to a MachineState enum
-///
 // TODO: abhi, Make it private.
 pub async fn advance(
     machine: &Machine,
@@ -1820,7 +1817,6 @@ pub async fn update_failure_details_by_machine_id(
 /// Arguments
 ///
 /// * `txn` - A reference to currently open database transaction
-///
 pub async fn find_dpu_ids_and_loopback_ips(
     txn: &mut PgConnection,
 ) -> Result<Vec<DpuInfo>, DatabaseError> {

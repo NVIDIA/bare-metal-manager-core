@@ -18,7 +18,7 @@
 /*!
  *  Code for working the measurement_trusted_machines and measurement_trusted_profiles
  *  tables in the database, leveraging the site-specific record types.
-*/
+ */
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::measured_boot::{

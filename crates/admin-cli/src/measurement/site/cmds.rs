@@ -17,7 +17,6 @@
 
 //!
 //! `measurement site` subcommand dispatcher + backing functions.
-//!
 
 use std::fs::File;
 use std::io::BufReader;

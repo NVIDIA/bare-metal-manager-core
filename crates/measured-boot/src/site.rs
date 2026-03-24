@@ -20,7 +20,7 @@
  *  tables in the database, leveraging the site-specific record types.
  *
  * This also provides code for importing/exporting (and working with) SiteModels.
-*/
+ */
 
 use std::convert::{From, Into};
 use std::str::FromStr;

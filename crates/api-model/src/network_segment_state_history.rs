@@ -22,7 +22,6 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 
 /// A record of a past state of a NetworkSegment
-///
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkSegmentStateHistory {
     /// The numeric identifier of the state change. This is a global change number

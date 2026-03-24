@@ -54,7 +54,6 @@ impl From<DbMachineStateHistory> for model::machine::MachineStateHistory {
 /// Arguments:
 ///
 /// * `txn` - A reference to an open Transaction
-///
 pub async fn find_by_machine_ids(
     txn: &mut PgConnection,
     ids: &[MachineId],

@@ -91,7 +91,6 @@ impl Display for MachineArchitecture {
 
 ///
 /// Convert a string of the form A:B:C:D... to Self
-///
 impl FromStr for VendorClass {
     type Err = VendorClassParseError;
 

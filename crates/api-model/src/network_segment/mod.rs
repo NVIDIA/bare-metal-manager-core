@@ -483,7 +483,6 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
 /// subdomain_id - Converting from Protobuf UUID(String) to Rust UUID type can fail.
 /// Use try_from in order to return a Result where Result is an error if the conversion
 /// from String -> UUID fails
-///
 impl TryFrom<rpc::forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
     type Error = RpcDataConversionError;
 
@@ -541,7 +540,6 @@ impl TryFrom<rpc::forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
 /// Marshal a Data Object (NetworkSegment) into an RPC NetworkSegment
 ///
 /// subdomain_id - Rust UUID -> ProtoBuf UUID(String) cannot fail, so convert it or return None
-///
 impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
     type Error = RpcDataConversionError;
     fn try_from(src: NetworkSegment) -> Result<Self, Self::Error> {

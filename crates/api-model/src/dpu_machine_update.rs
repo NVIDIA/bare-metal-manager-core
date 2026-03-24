@@ -41,7 +41,6 @@ impl DpuMachineUpdate {
     /// 6. If some of the DPUs for a managed host need upgrade, put them in queue.
     ///    6.1. Make sure none of the DPU is under reprovisioning while queuing a new DPU for a
     ///    managedhost. This is done by confirming that Host is not marked for updates
-    ///
     pub fn find_available_outdated_dpus(
         limit: Option<i32>,
         dpu_nic_firmware_update_versions: &[String],

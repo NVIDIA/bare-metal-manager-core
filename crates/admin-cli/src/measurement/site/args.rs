@@ -27,7 +27,7 @@
  *  - `site trusted-profile approve`: Create a trusted profile approval.
  *  - `site trusted-profile remove`: Remove a trusted profile approval.
  *  - `site trusted-profile list`: List all trusted profile approvals.
-*/
+ */
 
 use ::rpc::protos::measured_boot::{
     AddMeasurementTrustedMachineRequest, AddMeasurementTrustedProfileRequest,

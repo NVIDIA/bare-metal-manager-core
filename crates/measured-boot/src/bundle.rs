@@ -18,7 +18,7 @@
 /*!
  *  Code for working the measurement_bundles and measurement_bundles_values
  *  tables in the database, leveraging the bundle-specific record types.
-*/
+ */
 
 use carbide_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 #[cfg(feature = "cli")]

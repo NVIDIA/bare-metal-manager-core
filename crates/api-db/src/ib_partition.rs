@@ -96,7 +96,6 @@ pub async fn create(
 /// Retrieves the IDs of all IB partition
 ///
 /// * `txn` - A reference to a currently open database transaction
-///
 pub async fn list_segment_ids(txn: &mut PgConnection) -> Result<Vec<IBPartitionId>, DatabaseError> {
     let query = "SELECT id FROM ib_partitions";
     let mut results = Vec::new();

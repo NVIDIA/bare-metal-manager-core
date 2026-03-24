@@ -61,7 +61,6 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Sum {
 ///   details about the ComputeAllocation
 /// * `count`                  - The amount of compute (# of machines) to allocate.
 /// * `instance_type_id`       - The type of machines being allocated.
-///
 pub async fn create(
     txn: &mut PgConnection,
     id: &ComputeAllocationId,
@@ -112,7 +111,6 @@ pub async fn create(
 ///   org to match against ComputeAllocation records.
 /// * `for_update`             - A boolean flag to acquire DB locks for
 ///   synchronization
-///
 pub async fn find_ids(
     txn: &mut PgConnection,
     name: Option<&str>,
@@ -247,7 +245,6 @@ pub async fn sum_allocations(
 ///   matches the record in advance.***
 /// * `updated_by`             - Optional String containing an ID to track the user who updated the
 ///   ComputeAllocation
-///
 pub async fn update(
     txn: &mut PgConnection,
     id: &ComputeAllocationId,
@@ -316,7 +313,6 @@ pub async fn update(
 ///   that owns the ComputeAllocation.  The delete will be ignored if this ID does not match that of
 ///   the requested record. ***Callers are expected to verify the relationship prior to calling this
 ///   function.***
-///
 pub async fn soft_delete(
     txn: &mut PgConnection,
     compute_allocation_id: &ComputeAllocationId,

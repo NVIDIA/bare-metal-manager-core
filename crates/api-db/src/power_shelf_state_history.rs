@@ -53,7 +53,6 @@ impl From<DbPowerShelfStateHistoryRecord> for PowerShelfStateHistoryRecord {
 /// Arguments:
 ///
 /// * `txn` - A reference to an open Transaction
-///
 pub async fn find_by_power_shelf_ids(
     txn: &mut PgConnection,
     ids: &[PowerShelfId],

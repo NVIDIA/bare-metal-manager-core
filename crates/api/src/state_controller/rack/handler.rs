@@ -687,7 +687,7 @@ impl StateHandler for RackStateHandler {
                         );
                         state.config.validation_run_id = Some(run_id);
                         let mut txn = ctx.services.db_pool.begin().await?;
-                        db_rack::update(&mut txn, *id, &state.config).await?;
+                        db_rack::update(&mut txn, id, &state.config).await?;
                         Ok(StateHandlerOutcome::transition(RackState::Validation {
                             rack_validation: RackValidationState::Pending,
                         })

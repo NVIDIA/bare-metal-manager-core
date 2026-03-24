@@ -486,7 +486,7 @@ description = "Format with nightly rustfmt options for grouping and sorting impo
 category = "Formatting"
 dependencies = ["setup-nightly-rust"]
 script = [
-  "cargo +${RUST_NIGHTLY} fmt --all -- --config imports_granularity=Module,group_imports=StdExternalCrate",
+  "cargo +${RUST_NIGHTLY} fmt --all",
 ]
 
 [tasks.check-format-nightly]
@@ -495,7 +495,7 @@ description = "Check format with nightly rustfmt options for grouping and sortin
 category = "Formatting"
 dependencies = ["setup-nightly-rust"]
 script = [
-  "cargo +${RUST_NIGHTLY} fmt --all -- --config imports_granularity=Module,group_imports=StdExternalCrate --check",
+  "cargo +${RUST_NIGHTLY} fmt --all -- --check",
 ]
 
 [tasks.setup-carbide-lints]

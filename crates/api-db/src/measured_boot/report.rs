@@ -18,7 +18,7 @@
 /*!
  *  Code for working the measuremment_reports and measurement_reports_values
  *  tables in the database, leveraging the report-specific record types.
-*/
+ */
 
 use std::collections::HashMap;
 

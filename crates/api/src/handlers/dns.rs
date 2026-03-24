@@ -113,7 +113,6 @@ async fn lookup_records_by_qname(
 /// 1. Queries the dns_records view for all matching records (A, AAAA, CNAME, etc.)
 /// 2. If the qname matches a domain we're authoritative for, includes the SOA record
 /// 3. Returns everything - PowerDNS decides what to include in the final packet
-///
 async fn lookup_any_record<DB>(
     txn: &mut DB,
     query_name: &str,

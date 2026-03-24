@@ -20,7 +20,6 @@
 /// last byte of the MAC address sent in the DISCOVERY packet.
 ///
 /// Module only included if #cfg(test)
-///
 use std::collections::HashMap;
 use std::net::{SocketAddr, SocketAddrV4};
 use std::str::FromStr;

@@ -489,7 +489,6 @@ impl From<DpaInterface> for rpc::forge::DpaInterface {
 }
 
 /// A record of a past state of a DpaInterface
-///
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct DpaInterfaceStateHistoryRecord {
     /// The UUID of the dpa interface that experienced the state change

@@ -18,7 +18,6 @@
 //!
 //! This module contains the gRPC and protocol buffer definitions to generate a client or server to
 //! interact with the API Service
-//!
 
 extern crate core;
 

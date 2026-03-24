@@ -43,7 +43,6 @@ use crate::DatabaseError;
 /// * `stateful_egress`        - Whether egress rules are stateful.
 /// * `rules`                  - A slice of NetworkSecurityGroupRule containing the ACLs
 ///   of the NetworkSecurityGroup
-///
 pub async fn create(
     txn: &mut PgConnection,
     id: &NetworkSecurityGroupId,
@@ -94,7 +93,6 @@ pub async fn create(
 ///   org to match against NetworkSecurityGroup records.
 /// * `for_update`             - A boolean flag to acquire DB locks for
 ///   synchronization
-///
 pub async fn find_ids(
     txn: &mut PgConnection,
     name: Option<&str>,
@@ -406,7 +404,6 @@ pub async fn get_propagation_status(
 ///   in advance.***
 /// * `updated_by`             - Optional String containing an ID to track the user who updated the
 ///   NetworkSecurityGroup
-///
 #[allow(clippy::too_many_arguments)]
 pub async fn update(
     txn: &mut PgConnection,
@@ -480,7 +477,6 @@ pub async fn update(
 ///   that owns the NetworkSecurityGroup.  The delete
 ///   will be ignored if this ID does not match that of the requested record.
 ///   ***Callers are expected to verify the relationship prior to calling this function.***
-///
 pub async fn soft_delete(
     txn: &mut PgConnection,
     network_security_group_id: &NetworkSecurityGroupId,

@@ -18,7 +18,7 @@
 /*!
  *  Code for working the machine_topologies table in the
  *  database, leveraging the machine-specific record types.
-*/
+ */
 
 use carbide_uuid::machine::MachineId;
 use measured_boot::records::{MeasurementJournalRecord, MeasurementMachineState};

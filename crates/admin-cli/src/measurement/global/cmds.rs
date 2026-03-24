@@ -18,7 +18,6 @@
 //!
 //! Global commands at the root of the CLI, as well as some helper
 //! functions used by main.
-//!
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 

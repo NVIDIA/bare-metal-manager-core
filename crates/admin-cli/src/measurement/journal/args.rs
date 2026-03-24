@@ -23,7 +23,7 @@
  *  - `journal show`: Show all info about journal entr(ies).
  *  - `journal list`: List all journal entries.
  *  - `journal promote`: Promote the report from a journal entry into a bundle.
-*/
+ */
 
 use ::rpc::admin_cli::CarbideCliError;
 use ::rpc::protos::measured_boot::{

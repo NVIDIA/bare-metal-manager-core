@@ -668,7 +668,6 @@ impl Default for MachineLastRebootRequested {
 
 ///
 /// A machine is a standalone system that performs network booting via normal DHCP processes.
-///
 #[derive(Debug, Clone)]
 pub struct Machine {
     /// The ID of the machine, this is an internal identifier in the database that's unique for

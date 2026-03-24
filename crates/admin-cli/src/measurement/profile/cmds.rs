@@ -17,7 +17,6 @@
 
 //!
 //! `measurement profile` subcommand dispatcher + backing functions.
-//!
 
 use std::str::FromStr;
 

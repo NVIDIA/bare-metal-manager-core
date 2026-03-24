@@ -18,7 +18,7 @@
 /*!
  *  Code for working the machine_topologies table in the
  *  database to match candidate machines to profiles and bundles.
-*/
+ */
 
 use std::collections::HashMap;
 

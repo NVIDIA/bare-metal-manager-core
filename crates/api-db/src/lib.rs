@@ -289,7 +289,6 @@ pub trait ColumnInfo<'a>: Clone + Copy {
 
 ///
 /// Wraps a sqlx::Error and records location and query
-///
 #[derive(Debug)]
 pub struct AnnotatedSqlxError {
     file: &'static str,

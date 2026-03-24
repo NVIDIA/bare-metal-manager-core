@@ -29,7 +29,7 @@
  *  - `report list all`: List high level info about all reports.
  *  - `report list machine`: List all reports for a given machine.
  *  - `report match``
-*/
+ */
 
 use ::rpc::protos::measured_boot::{
     CreateMeasurementReportRequest, DeleteMeasurementReportRequest, ListMeasurementReportRequest,

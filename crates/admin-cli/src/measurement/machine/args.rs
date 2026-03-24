@@ -24,7 +24,7 @@
  *  - `mock-machine attest`: Sends a measurement report for a mock machine.
  *  - `mock-machine show [id]`: Shows detailed info about mock machine(s).
  *  - `mock-machine list``: Lists all mock machines.
-*/
+ */
 
 use ::rpc::admin_cli::CarbideCliError;
 use ::rpc::protos::measured_boot::{

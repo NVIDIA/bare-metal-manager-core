@@ -129,7 +129,6 @@ where
 ///
 /// This function is only safe to be called on a `ctx` which is either a null pointer
 /// or a valid `DiscoveryBuilderFFI` object.
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn discovery_set_client_system(
     ctx: *mut DiscoveryBuilderFFI,
@@ -149,7 +148,6 @@ pub unsafe extern "C" fn discovery_set_client_system(
 ///
 /// This function is only safe to be called on a `ctx` which is either a null pointer
 /// or a valid `DiscoveryBuilderFFI` object.
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn discovery_set_vendor_class(
     ctx: *mut DiscoveryBuilderFFI,
@@ -177,7 +175,6 @@ pub unsafe extern "C" fn discovery_set_vendor_class(
 ///
 /// This function is only safe to be called on a `ctx` which is either a null pointer
 /// or a valid `DiscoveryBuilderFFI` object.
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn discovery_set_link_select(
     ctx: *mut DiscoveryBuilderFFI,
@@ -218,7 +215,6 @@ pub unsafe extern "C" fn discovery_set_desired_address(
 ///
 /// This function is only safe to be called on a `ctx` which is either a null pointer
 /// or a valid `DiscoveryBuilderFFI` object.
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn discovery_set_circuit_id(
     ctx: *mut DiscoveryBuilderFFI,
@@ -246,7 +242,6 @@ pub unsafe extern "C" fn discovery_set_circuit_id(
 ///
 /// This function is only safe to be called on a `ctx` which is either a null pointer
 /// or a valid `DiscoveryBuilderFFI` object.
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn discovery_set_remote_id(
     ctx: *mut DiscoveryBuilderFFI,
@@ -274,7 +269,6 @@ pub unsafe extern "C" fn discovery_set_remote_id(
 ///
 /// This function is only safe to be called on a `ctx` which is either a null pointer
 /// or a valid `DiscoveryBuilderFFI` object.
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn discovery_set_relay(
     ctx: *mut DiscoveryBuilderFFI,
@@ -297,7 +291,6 @@ pub unsafe extern "C" fn discovery_set_relay(
 ///
 /// `raw_parts` and `size` must describe a valid memory holding 6 bytes which make
 /// up a MAC address.
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn discovery_set_mac_address(
     ctx: *mut DiscoveryBuilderFFI,
@@ -509,7 +502,6 @@ unsafe fn discovery_fetch_machine_at(
 ///
 /// This does not forget the memory afterwards, so the opaque pointer in the C code is now
 /// unusable.
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn discovery_builder_free(ctx: *mut DiscoveryBuilderFFI) {
     unsafe {

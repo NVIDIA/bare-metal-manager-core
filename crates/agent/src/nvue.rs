@@ -514,7 +514,6 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
 /// exceed predefined limits.
 ///
 /// * `rules` - A list of network security group rules
-///
 #[allow(clippy::type_complexity)]
 fn prepare_network_security_group_rules(
     rules: Vec<NetworkSecurityGroupRule>,
@@ -603,7 +602,6 @@ fn prepare_network_security_group_rules(
 /// groups will be returned.
 ///
 /// * `nsgs` - A list of references to network security groups to expand.
-///
 fn expand_network_security_group_rules(
     rules: Vec<&NetworkSecurityGroupRule>,
 ) -> Vec<TmplNetworkSecurityGroupRule> {
@@ -1180,7 +1178,6 @@ struct TmplComputeTenant {
     /// a pool of VNIs to assign as we see fit, so we carve out blocks
     /// per-site, and then manage them via the VPC_VNI (vpc-vni) resource
     /// pool.
-    ///
     // TODO(chet): Does this need to be a string?
     L3VNI: String,
 

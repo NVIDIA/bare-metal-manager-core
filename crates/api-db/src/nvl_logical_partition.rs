@@ -83,7 +83,6 @@ pub async fn create(
 /// Retrieves the IDs of all NvLink partitions
 ///
 /// * `txn` - A reference to a currently open database transaction
-///
 pub async fn for_tenant(
     txn: impl DbReader<'_>,
     tenant_organization_id: String,

@@ -41,7 +41,6 @@ use crate::{DatabaseError, DatabaseResult};
 /// * `observability`          - Observability config for the extension service
 /// * `has_credential`         - Whether the initial extension service version has a credential
 ///   stored in the vault
-///
 #[allow(clippy::too_many_arguments)]
 pub async fn create(
     txn: &mut PgConnection,
@@ -122,7 +121,6 @@ pub async fn create(
 /// * `observability`          - Observability config for the extension service
 /// * `has_credential`         - Whether the new extension service version has a credential stored
 ///   in vault
-///
 #[allow(clippy::too_many_arguments)]
 pub async fn update(
     txn: &mut PgConnection,
@@ -267,7 +265,6 @@ pub async fn update_metadata(
 ///
 /// # Returns
 /// A vector of matching `ExtensionServiceId`s (may be empty).
-///
 pub async fn find_ids(
     txn: &mut PgConnection,
     service_type: Option<ExtensionServiceType>,
@@ -315,7 +312,6 @@ pub async fn find_ids(
 /// * `txn`        - A reference to an active DB transaction
 /// * `ids`        - A list of extension service IDs to query
 /// * `for_update` - Whether to lock the extension services for update
-///
 pub async fn find_by_ids(
     txn: &mut PgConnection,
     ids: &[ExtensionServiceId],
@@ -397,7 +393,6 @@ pub async fn find_snapshots_by_ids(
 /// * `txn`        - A reference to an active DB transaction
 /// * `service_id` - The ID of the extension service
 /// * `version`    - Optional specific version number to retrieve. If None, returns the latest version
-///
 pub async fn find_version_info(
     txn: &mut PgConnection,
     service_id: ExtensionServiceId,
@@ -462,7 +457,6 @@ pub async fn find_version_info(
 /// * `txn`        - A reference to an active DB transaction
 /// * `service_id` - The ID of the extension service
 /// * `versions`   - Optional slice of version numbers to filter by. If None, returns all version infos.
-///
 pub async fn find_versions_info(
     txn: &mut PgConnection,
     service_id: &ExtensionServiceId,
@@ -500,7 +494,6 @@ pub async fn find_versions_info(
 /// # Parameters
 /// * `txn`        - A reference to an active DB transaction
 /// * `service_id` - The ID of the extension service
-///
 pub async fn find_all_versions(
     txn: impl DbReader<'_>,
     service_id: ExtensionServiceId,
@@ -525,7 +518,6 @@ pub async fn find_all_versions(
 ///
 /// # Returns
 /// A map of extension service IDs to their active versions
-///
 pub async fn find_versions_by_service_ids(
     txn: &mut PgConnection,
     service_ids: &[ExtensionServiceId],
@@ -576,7 +568,6 @@ pub async fn find_versions_by_service_ids(
 /// * `Some(service_id)` if the service was successfully soft deleted
 /// * `None` if the service is already deleted or not found
 /// * `Err` if there is a database error other than RowNotFound
-///
 pub async fn soft_delete_service(
     txn: &mut PgConnection,
     service_id: ExtensionServiceId,
@@ -607,7 +598,6 @@ pub async fn soft_delete_service(
 /// # Returns
 /// A vector of version numbers that were successfully soft deleted (excluding ones that were
 /// already deleted or missing).
-///
 pub async fn soft_delete_versions(
     txn: &mut PgConnection,
     service_id: ExtensionServiceId,
@@ -643,7 +633,6 @@ pub async fn soft_delete_versions(
 /// * `txn`        - A reference to an active DB transaction
 /// * `service_id` - The ID of the extension service
 /// * `versions`   - Optional slice of version numbers to check if the service is in use by any instance
-///
 pub async fn is_service_in_use(
     txn: &mut PgConnection,
     service_id: ExtensionServiceId,
@@ -692,7 +681,6 @@ pub async fn is_service_in_use(
 /// * `txn`        - A reference to an active DB transaction
 /// * `service_id` - The ID of the extension service
 /// * `versions`   - Optional slice of version numbers to check if the service has credentials
-///
 pub async fn find_versions_with_credentials(
     txn: &mut PgConnection,
     service_id: ExtensionServiceId,

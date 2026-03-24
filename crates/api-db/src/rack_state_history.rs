@@ -30,7 +30,6 @@ use crate::{DatabaseError, DatabaseResult};
 /// Arguments:
 ///
 /// * `txn` - A reference to an open Transaction
-///
 pub async fn find_by_rack_ids(
     txn: &mut PgConnection,
     ids: &[RackId],

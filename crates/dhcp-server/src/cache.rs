@@ -20,7 +20,6 @@
 /// We usually get about four DHCP requests from the same host in rapid succession, so this
 /// prevents us asking the API server every time. Cache is optional, and contents should
 /// be short lived.
-///
 use std::{
     net::IpAddr,
     time::{Duration, Instant},

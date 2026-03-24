@@ -147,8 +147,6 @@ async fn persist_inner_with_metadata(
 /// * [`ObjectColumnFilter`] - An enum that determines the query criteria
 ///
 /// # Examples
-///
-///
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Domain>>(
     txn: impl DbReader<'_>,
     filter: ObjectColumnFilter<'a, C>,

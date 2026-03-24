@@ -966,7 +966,6 @@ impl Forge for Api {
     /// [vlan-id]
     /// type = "integer"
     /// ranges = [{ start = "100", end = "501" }]
-    ///
     async fn admin_grow_resource_pool(
         &self,
         request: Request<rpc::GrowResourcePoolRequest>,

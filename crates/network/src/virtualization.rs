@@ -39,7 +39,6 @@ pub const DEFAULT_NETWORK_VIRTUALIZATION_TYPE: VpcVirtualizationType =
 /// and plumb the value down to the DPU agent, which gets piped into
 /// the `update_nvue` function, which is then used to drive
 /// population of the appropriate template.
-///
 // TODO(chet): Rename
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]

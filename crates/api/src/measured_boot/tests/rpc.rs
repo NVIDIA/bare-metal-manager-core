@@ -17,7 +17,7 @@
 
 /*!
  *  RPC handler tests for measured boot.
-*/
+ */
 
 #[cfg(test)]
 mod tests {
