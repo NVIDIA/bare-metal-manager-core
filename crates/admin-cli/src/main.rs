@@ -68,6 +68,7 @@ mod machine;
 mod machine_interfaces;
 mod machine_validation;
 mod managed_host;
+mod managed_switch;
 mod measurement;
 mod metadata;
 mod mlx;
@@ -228,6 +229,7 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::MachineInterfaces(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::MachineValidation(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ManagedHost(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ManagedSwitch(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Measurement(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Mlx(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NetworkDevice(cmd) => cmd.dispatch(ctx).await?,
