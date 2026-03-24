@@ -34,7 +34,8 @@ use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::{
     BomValidating, BomValidatingContext, DpfState, DpuInitState, FailureCause, FailureDetails,
     FailureSource, LockdownInfo, LockdownMode, LockdownState, MachineState, MachineValidatingState,
-    ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ValidationState,
+    ManagedHostState, ManagedHostStateSnapshot, MeasuringState, SpdmMeasuringState,
+    ValidationState,
 };
 use model::power_shelf::power_shelf_id::from_hardware_info;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
@@ -639,6 +640,25 @@ impl<'a> MockExploredHost<'a> {
             }
 
             inject_machine_measurements(self.test_env, host_machine_id).await;
+        }
+
+        // if SPDM attestation is enabled, we need to drive it to completion
+        if self.test_env.config.spdm.enabled {
+            self.test_env
+                .run_machine_state_controller_iteration_until_state_matches(
+                    &host_machine_id,
+                    10,
+                    ManagedHostState::HostInit {
+                        machine_state: MachineState::SpdmMeasuring {
+                            spdm_measuring_state: SpdmMeasuringState::PollResult,
+                        },
+                    },
+                )
+                .await;
+
+            for _ in 0..10 {
+                self.test_env.run_spdm_controller_iteration().await;
+            }
         }
 
         self.test_env

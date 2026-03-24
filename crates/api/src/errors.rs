@@ -245,6 +245,9 @@ pub enum CarbideError {
 
     #[error("Permission denied: {0}")]
     PermissionDeniedError(String),
+
+    #[error("Attestation Error: {0}")]
+    AttestationError(String),
 }
 
 impl From<ModelError> for CarbideError {

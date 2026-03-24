@@ -15,62 +15,158 @@
  * limitations under the License.
  */
 use ::rpc::common::MachineIdList;
-use ::rpc::forge::{self as rpc, AttestationResponse};
+use ::rpc::forge::{self as rpc};
+use carbide_uuid::machine::MachineId;
+use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
-use db::attestation::spdm::{
-    insert_or_update_machine_attestation_request, load_details_for_machine_ids,
-};
+use db::ObjectFilter;
 use itertools::Itertools;
-use model::attestation::spdm::SpdmMachineAttestation;
+use libredfish::model::component_integrity::{ComponentIntegrities, ComponentIntegrity};
+use model::attestation::spdm::{SpdmAttestationState, SpdmDeviceAttestation};
+use model::bmc_info::BmcInfo;
+use model::machine::machine_search_config::MachineSearchConfig;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
-use crate::api::{Api, log_request_data};
+use crate::api::{Api, log_machine_id, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
 
 pub(crate) async fn trigger_machine_attestation(
     api: &Api,
-    request: Request<rpc::AttestationData>,
-) -> Result<Response<()>, Status> {
+    request: Request<MachineId>,
+) -> Result<Response<rpc::SpdmMachineAttestationTriggerResponse>, Status> {
     log_request_data(&request);
-    let request = request.get_ref();
-    let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
+
+    let machine_id = request.get_ref();
+    log_machine_id(machine_id);
 
     let mut txn = api.txn_begin().await?;
-    let machines = load_details_for_machine_ids(&mut txn, &[machine_id]).await?;
 
-    let state_version = if let Some(machine) = machines.first() {
-        machine.machine.state_version.increment()
-    } else {
-        ConfigVersion::initial()
+    let machines = db::machine::find(
+        &mut txn,
+        ObjectFilter::List(&[*machine_id]),
+        MachineSearchConfig::default(),
+    )
+    .await?;
+    let bmc_info = match machines.len() {
+        0 => {
+            return Err(Status::from(CarbideError::NotFoundError {
+                kind: "machine",
+                id: format!("{}", machine_id),
+            }));
+        }
+        1 => &machines[0].bmc_info,
+        _ => {
+            return Err(Status::from(CarbideError::Internal {
+                message: format!("Found more than one machine for machine id {}", machine_id),
+            }));
+        }
     };
 
-    let attestation_request = SpdmMachineAttestation {
-        machine_id,
-        requested_at: chrono::Utc::now(),
-        started_at: None,
-        canceled_at: None,
-        state: model::attestation::spdm::AttestationState::CheckIfAttestationSupported,
-        state_version,
-        state_outcome: None,
-        attestation_status: model::attestation::spdm::SpdmAttestationStatus::NotStarted,
-    };
-    insert_or_update_machine_attestation_request(&mut txn, &attestation_request).await?;
+    let redfish_client = api
+        .redfish_pool
+        .create_client_for_ingested_host(
+            bmc_info.ip_addr().map_err(|e| CarbideError::Internal {
+                message: format!("{}", e),
+            })?,
+            bmc_info.port,
+            &api.database_connection,
+        )
+        .await
+        .map_err(|e| CarbideError::RedfishClientCreation {
+            inner: Box::new(e),
+            machine_id: *machine_id,
+        })?;
+
+    let records_inserted =
+        trigger_attestation(&mut txn, redfish_client, bmc_info, machine_id).await?;
+
     txn.commit().await?;
 
-    Ok(Response::new(()))
+    Ok(Response::new(rpc::SpdmMachineAttestationTriggerResponse {
+        machine_id: Some(*machine_id),
+        devices_under_attestation: records_inserted as i32,
+    }))
+}
+
+pub async fn trigger_attestation(
+    txn: &mut sqlx::PgConnection,
+    redfish_client: Box<dyn libredfish::Redfish>,
+    bmc_info: &BmcInfo,
+    machine_id: &MachineId,
+) -> Result<u64, CarbideError> {
+    // retrieve bmc info for a machine and create redfish client
+    // get service root
+    // - absent -> return NotSupported
+    // get component integrities and create/insert device attestations
+    // - if none, return NotSupported
+
+    let service_root = redfish_client
+        .get_service_root()
+        .await
+        .map_err(CarbideError::RedfishError)?;
+
+    if service_root.component_integrity.is_none() {
+        // let's treat 0 devices under attestation as NotSupported
+        return Ok(0);
+    }
+
+    let component_integrities = redfish_client
+        .get_component_integrities()
+        .await
+        .map_err(|e| {
+            CarbideError::AttestationError(format!("Error getting component integrities: {}", e))
+        })?;
+
+    let components = get_components_supporting_spdm(&component_integrities);
+
+    if components.is_empty() {
+        // let's treat 0 devices under attestation as NotSupported
+        return Ok(0);
+    }
+
+    // The validation that list is not changed is done by SKU validation. SKU
+    // validation checks that the device profile is not changed over time. If any
+    // device list is changed and SKU validation is passed, means SRE has approved the
+    // change request.
+    // Validating again is not needed.
+    // Remove existing device list and over-write with this list.
+    let time_now = Utc::now();
+    let device_attestations = components
+        .into_iter()
+        .map(|x| from_component_integrity(x.clone(), machine_id, &time_now, bmc_info))
+        .collect_vec();
+
+    let records_inserted =
+        db::attestation::spdm::insert_device_attestations(txn, machine_id, device_attestations)
+            .await
+            .map_err(|e| {
+                CarbideError::AttestationError(format!(
+                    "Error inserting device attestations into DB: {}",
+                    e
+                ))
+            })?;
+
+    tracing::info!(
+        "SPDM attestation commenced for machine {}, scheduled {} SPDM device attestations",
+        machine_id,
+        records_inserted
+    );
+
+    Ok(records_inserted)
 }
 
 pub(crate) async fn cancel_machine_attestation(
     api: &Api,
-    request: Request<rpc::AttestationData>,
+    request: Request<MachineId>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
-    let request = request.get_ref();
-    let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
+
+    let machine_id = request.get_ref();
+    log_machine_id(machine_id);
 
     let mut txn = api.txn_begin().await?;
-    db::attestation::spdm::cancel_machine_attestation(&mut txn, &machine_id).await?;
+    db::attestation::spdm::cancel_machine_attestation(&mut txn, machine_id).await?;
     txn.commit().await?;
 
     Ok(Response::new(()))
@@ -78,31 +174,57 @@ pub(crate) async fn cancel_machine_attestation(
 
 pub(crate) async fn list_machine_ids_under_attestation(
     api: &Api,
-    _request: Request<rpc::AttestationIdsRequest>,
+    request: Request<()>,
 ) -> Result<Response<MachineIdList>, Status> {
-    log_request_data(&_request);
+    log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
-    let machine_ids = db::attestation::spdm::find_machine_ids(&mut txn).await?;
+    let machine_ids = db::attestation::spdm::list_machine_ids(&mut txn).await?;
     txn.commit().await?;
 
     Ok(Response::new(MachineIdList { machine_ids }))
 }
 
-pub(crate) async fn list_machines_under_attestation(
+pub(crate) async fn list_attestations_for_machine_id(
     api: &Api,
-    request: Request<rpc::AttestationMachineList>,
-) -> Result<Response<AttestationResponse>, Status> {
+    request: Request<MachineId>,
+) -> Result<Response<rpc::SpdmListAttestationsResponse>, Status> {
     log_request_data(&request);
-    let request = request.get_ref();
+
+    let machine_id = request.get_ref();
+    log_machine_id(machine_id);
 
     let mut txn = api.txn_begin().await?;
-    let details =
-        db::attestation::spdm::load_details_for_machine_ids(&mut txn, &request.machine_ids).await?;
+    let attestations_details =
+        db::attestation::spdm::get_attestations_for_machine_id(&mut txn, machine_id).await?;
+
+    Ok(Response::new(rpc::SpdmListAttestationsResponse {
+        attestations_details: attestations_details
+            .iter()
+            .map(|elem| {
+                std::convert::Into::<::rpc::forge::SpdmAttestationDetails>::into((*elem).clone())
+            })
+            .collect(),
+    }))
+}
+
+pub(crate) async fn get_machine_attestations_status(
+    api: &Api,
+    request: Request<MachineId>,
+) -> Result<Response<rpc::SpdmMachineAttestationStatusResponse>, Status> {
+    log_request_data(&request);
+
+    let machine_id = request.get_ref();
+    log_machine_id(machine_id);
+
+    let mut txn = api.txn_begin().await?;
+    let attestation_status =
+        db::attestation::spdm::get_attestation_status_for_machine_id(&mut txn, machine_id).await?;
     txn.commit().await?;
 
-    Ok(Response::new(AttestationResponse {
-        machines: details.into_iter().map(|x| x.into()).collect_vec(),
+    Ok(Response::new(rpc::SpdmMachineAttestationStatusResponse {
+        machine_id: Some(*machine_id),
+        attestation_status: attestation_status.into(),
     }))
 }
 
@@ -232,4 +354,80 @@ pub(crate) async fn attest_quote(
         success: true,
         machine_certificate: Some(certificate.into()),
     }))
+}
+
+// Rules:
+// ComponentIntegrityTypeVersion should be >= 1.1.0.
+// ComponentIntegrityType should be SPDM.
+// ComponentIntegrityEnabled should be true.
+// Once these all conditions are true, a device can be proceed with attestation.
+fn get_components_supporting_spdm(integrities: &ComponentIntegrities) -> Vec<&ComponentIntegrity> {
+    let supported_versions = ["1.1.0"]; // This can be configurable value.
+    let mut supported_components = vec![];
+
+    for component in &integrities.members {
+        if !component.component_integrity_enabled {
+            // Component Integrity is not enabled
+            continue;
+        }
+
+        if component.component_integrity_type != "SPDM" {
+            // Not SPDM, may be TPM.
+            continue;
+        }
+
+        if !supported_versions.contains(&component.component_integrity_type_version.as_str()) {
+            continue;
+        }
+
+        supported_components.push(component);
+    }
+
+    supported_components
+}
+
+fn from_component_integrity(
+    integrity: ComponentIntegrity,
+    machine_id: &MachineId,
+    time_now: &DateTime<Utc>,
+    bmc_info: &BmcInfo,
+) -> SpdmDeviceAttestation {
+    let ca_certificate_link = integrity
+        .spdm
+        .map(|x| x.identity_authentication)
+        .map(|x| x.component_certificate)
+        .map(|x| x.odata_id);
+
+    let evidence_target =
+        if let Some(Some(data)) = integrity.actions.map(|x| x.get_signed_measurements) {
+            Some(data.target)
+        } else {
+            None
+        };
+
+    SpdmDeviceAttestation {
+        machine_id: *machine_id,
+        device_id: integrity.id,
+        nonce: uuid::Uuid::new_v4(),
+        bmc_info: bmc_info.clone(),
+        state: SpdmAttestationState::FetchMetadata,
+        state_version: ConfigVersion::initial(),
+        state_outcome: None,
+        metadata: None,
+        ca_certificate_link,
+        ca_certificate: None,
+        evidence_target,
+        evidence: None,
+        started_at: *time_now,
+        cancelled_at: None,
+        completed_at: None,
+    }
+}
+
+#[cfg(not(feature = "linux-build"))]
+pub(crate) async fn attest_quote(
+    _api: &Api,
+    _request: Request<rpc::AttestQuoteRequest>,
+) -> std::result::Result<Response<rpc::AttestQuoteResponse>, Status> {
+    unimplemented!()
 }

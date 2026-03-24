@@ -16,47 +16,22 @@
  */
 
 use carbide_uuid::machine::MachineId;
-use config_version::ConfigVersion;
 use itertools::Itertools;
 use libredfish::model::component_integrity::{CaCertificate, Evidence};
 use model::attestation::spdm::{
-    AttestationState, SpdmAttestationStatus, SpdmMachineAttestation, SpdmMachineDetails,
-    SpdmMachineDeviceAttestation, SpdmMachineDeviceMetadata, SpdmMachineSnapshot,
-    SpdmMachineStateSnapshot, SpdmObjectId, SpdmObjectId_,
+    SpdmAttestationState, SpdmDeviceAttestation, SpdmDeviceAttestationDetails,
+    SpdmMachineDeviceMetadata, SpdmObjectId,
 };
 use model::controller_outcome::PersistentStateHandlerOutcome;
-use sqlx::PgConnection;
+use sqlx::{PgConnection, Row};
 
 use crate::{DatabaseError, DatabaseResult};
 
-pub async fn insert_or_update_machine_attestation_request(
-    txn: &mut PgConnection,
-    attestation_request: &SpdmMachineAttestation,
-) -> DatabaseResult<()> {
-    let query = r#"INSERT INTO spdm_machine_attestation (machine_id, requested_at, state, state_version)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (machine_id) DO UPDATE SET
-            requested_at = $2,
-            state = $3,
-            state_version = $4
-        RETURNING *"#;
-    let _res: SpdmMachineAttestation = sqlx::query_as(query)
-        .bind(attestation_request.machine_id)
-        .bind(attestation_request.requested_at)
-        .bind(sqlx::types::Json(&attestation_request.state))
-        .bind(attestation_request.state_version)
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::query(query, e))?;
-
-    Ok(())
-}
-
-pub async fn insert_devices(
+pub async fn insert_device_attestations(
     txn: &mut PgConnection,
     machine_id: &MachineId,
-    devices: Vec<SpdmMachineDeviceAttestation>,
-) -> DatabaseResult<()> {
+    devices: Vec<SpdmDeviceAttestation>,
+) -> DatabaseResult<u64> {
     let query = "DELETE FROM spdm_machine_devices_attestation WHERE machine_id=$1";
     sqlx::query(query)
         .bind(machine_id)
@@ -76,15 +51,16 @@ pub async fn insert_devices(
         .collect_vec();
     let ca_certificate_links = devices.iter().map(|x| &x.ca_certificate_link).collect_vec();
     let evidence_targets = devices.iter().map(|x| &x.evidence_target).collect_vec();
+    let started_at_timestamps = devices.iter().map(|x| &x.started_at).collect_vec();
 
-    let query = r#"INSERT INTO spdm_machine_devices_attestation (machine_id, device_id, nonce, state, state_version, ca_certificate_link, evidence_target)
+    let query = r#"INSERT INTO spdm_machine_devices_attestation (machine_id, device_id, nonce, state, state_version, ca_certificate_link, evidence_target, started_at)
         SELECT 
-            $1 as machine_id, device_id, nonce, state, state_version, ca_certificate_link, evidence_target 
+            $1 as machine_id, device_id, nonce, state, state_version, ca_certificate_link, evidence_target, started_at
         FROM 
-            UNNEST($2::TEXT[], $3::uuid[], $4::JSONB[], $5::TEXT[], $6::TEXT[], $7::TEXT[])
-            AS t(device_id, nonce, state, state_version, ca_certificate_link, evidence_target)
+            UNNEST($2::TEXT[], $3::uuid[], $4::JSONB[], $5::TEXT[], $6::TEXT[], $7::TEXT[], $8::timestamptz[])
+            AS t(device_id, nonce, state, state_version, ca_certificate_link, evidence_target, started_at)
         "#;
-    sqlx::query(query)
+    let res = sqlx::query(query)
         .bind(machine_id)
         .bind(device_ids)
         .bind(nonces)
@@ -92,11 +68,12 @@ pub async fn insert_devices(
         .bind(state_versions)
         .bind(ca_certificate_links)
         .bind(evidence_targets)
+        .bind(started_at_timestamps)
         .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
-    Ok(())
+    Ok(res.rows_affected())
 }
 
 pub async fn cancel_machine_attestation(
@@ -104,16 +81,38 @@ pub async fn cancel_machine_attestation(
     machine_id: &MachineId,
 ) -> DatabaseResult<()> {
     let current_time = chrono::Utc::now();
-    let query = r#"UPDATE spdm_machine_attestation
-        SET canceled_at = $2
+    let query = r#"UPDATE spdm_machine_devices_attestation
+        SET cancelled_at = $2
         WHERE machine_id = $1
-        RETURNING *"#;
-    let _res: SpdmMachineAttestation = sqlx::query_as(query)
+        "#;
+    let _ = sqlx::query(query)
         .bind(machine_id)
         .bind(current_time)
-        .fetch_one(txn)
+        .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(())
+}
+
+pub async fn set_completed_at(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    device_id: &str,
+) -> DatabaseResult<()> {
+    let current_time = chrono::Utc::now();
+    let query = r#"UPDATE spdm_machine_devices_attestation
+        SET completed_at = $3
+        WHERE machine_id = $1 and device_id = $2
+        "#;
+    let _rows_affected = sqlx::query(query)
+        .bind(machine_id)
+        .bind(device_id)
+        .bind(current_time)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?
+        .rows_affected();
 
     Ok(())
 }
@@ -133,7 +132,8 @@ pub async fn update_metadata(
         .bind(sqlx::types::Json(metadata))
         .execute(txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?
+        .rows_affected();
 
     Ok(())
 }
@@ -153,7 +153,8 @@ pub async fn update_certificate(
         .bind(sqlx::types::Json(certificate))
         .execute(txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?
+        .rows_affected();
 
     Ok(())
 }
@@ -173,186 +174,140 @@ pub async fn update_evidence(
         .bind(sqlx::types::Json(evidence))
         .execute(txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?
+        .rows_affected();
 
     Ok(())
 }
 
-pub async fn update_started_time(
-    txn: &mut PgConnection,
-    machine_id: &MachineId,
-) -> DatabaseResult<()> {
-    let current_time = chrono::Utc::now();
-    let query = r#"UPDATE spdm_machine_attestation
-        SET started_at = $2
-        WHERE machine_id = $1
-        RETURNING *"#;
-    let _res: SpdmMachineAttestation = sqlx::query_as(query)
-        .bind(machine_id)
-        .bind(current_time)
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::query(query, e))?;
-
-    Ok(())
-}
-
-pub async fn update_attestation_status(
-    txn: &mut PgConnection,
-    machine_id: &MachineId,
-    status: &SpdmAttestationStatus,
-) -> DatabaseResult<()> {
-    let query = r#"UPDATE spdm_machine_attestation
-        SET attestation_status = $2
-        WHERE machine_id = $1
-        RETURNING *"#;
-    let _res: SpdmMachineAttestation = sqlx::query_as(query)
-        .bind(machine_id)
-        .bind(status)
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::query(query, e))?;
-
-    Ok(())
-}
-
-// This function has to find two sets of ids,
-// 1. The machine_ids for which the attestation has to be started. Here device_ids will be None.
-//      a. machine_ids where status is `not-started`.
-//      b. machine_ids where cancellation is not triggered.
-//      c. machine_ids where device/component fetching is pending.
-// 2. The (machine_ids, device_ids) pair for which:
-//      a. machine_ids not in above group (to leave devices for which re-attestation is triggered)
-//      b. Attestation is not yet completed. (machine.status != completed)
-//      c. Cancellation request is not received.
+/// returns all device attestations that are not completed
 pub async fn find_machine_ids_for_attestation(
     txn: &mut PgConnection,
 ) -> Result<Vec<SpdmObjectId>, DatabaseError> {
-    let state = AttestationState::FetchAttestationTargetsAndUpdateDb;
     let query = r#"
-        SELECT 
-            m.machine_id
-        FROM spdm_machine_attestation AS m
+        SELECT
+            machine_id, device_id
+        FROM spdm_machine_devices_attestation
         WHERE
-            (
-                m.requested_at > m.started_at 
-                OR
-                m.attestation_status = 'not_started'
-                OR
-                m.state = $1
-            ) 
-            AND 
-            (   
-                m.canceled_at is NULL 
-                OR 
-                m.requested_at > m.canceled_at
-            )
+            completed_at is NULL
     "#;
 
-    // ids for which attestation has to be (re)started.
-    let res: Vec<MachineId> = sqlx::query_as(query)
-        .bind(sqlx::types::Json(state))
+    let object_ids: Vec<SpdmObjectId> = sqlx::query_as(query)
         .fetch_all(&mut *txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
+    Ok(object_ids)
+}
+
+pub async fn get_attestation_status_for_machine_id(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<rpc::forge::SpdmAttestationStatus, DatabaseError> {
+    // get states for all devices under attestation for a given
+    // machine
     let query = r#"
-        SELECT 
-            md.machine_id, md.device_id 
-        FROM 
-            spdm_machine_devices_attestation AS md
-        LEFT JOIN spdm_machine_attestation m ON m.machine_id=md.machine_id
+        SELECT
+            state
+        FROM
+            spdm_machine_devices_attestation
         WHERE
-            md.machine_id NOT IN (SELECT unnest($1::text[]))
-            AND
-            m.attestation_status != 'completed'
-            AND
-            (
-                m.canceled_at is NULL 
-                OR 
-                m.requested_at > m.canceled_at
-            )
+            machine_id = $1
     "#;
 
-    let devices: Vec<SpdmObjectId_> = sqlx::query_as(query)
-        .bind(&res)
+    let attestation_status_rows = sqlx::query(query)
+        .bind(machine_id)
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
-    // collect the data
-    let res = res.into_iter().map(|x| SpdmObjectId(x, None));
-    let object_ids = devices
-        .into_iter()
-        .map(|x| SpdmObjectId(x.machine_id, Some(x.device_id)))
-        .chain(res)
-        .collect_vec();
+    // if all passed - PASSED
+    // if all cancelled - CANCELLED
+    // if any failed && none not in progress - FAILED
+    // else - IN PROGRESS
 
-    Ok(object_ids)
+    // define masks
+    const PASSED_MASK: u8 = 0b0000_0001;
+    const CANCELLELD_MASK: u8 = 0b0000_0010;
+    const FAILED_MASK: u8 = 0b0000_0100;
+    const INPROGRESS_MASK: u8 = 0b0000_1000;
+
+    // this is a bitfield to keep track occurrences
+    // of values
+    let mut flags: u8 = 0;
+
+    for pg_row in attestation_status_rows {
+        let state_json: sqlx::types::Json<SpdmAttestationState> =
+            pg_row
+                .try_get("state")
+                .map_err(|e| DatabaseError::Internal {
+                    message: format!("Could not get SpdmAttestationState from DB record: {}", e),
+                })?;
+        let state = state_json.0;
+        match state {
+            SpdmAttestationState::Passed => {
+                flags |= PASSED_MASK;
+            }
+            SpdmAttestationState::Cancelled => {
+                flags |= CANCELLELD_MASK;
+            }
+            SpdmAttestationState::Failed { .. } => {
+                flags |= FAILED_MASK;
+            }
+            _ => {
+                flags |= INPROGRESS_MASK;
+            }
+        }
+    }
+
+    // some failed and none in progress
+    if FAILED_MASK & flags != 0 && INPROGRESS_MASK & flags == 0 {
+        return Ok(rpc::forge::SpdmAttestationStatus::SpdmAttFailed);
+    }
+    match flags {
+        PASSED_MASK => Ok(rpc::forge::SpdmAttestationStatus::SpdmAttPassed),
+        CANCELLELD_MASK => Ok(rpc::forge::SpdmAttestationStatus::SpdmAttCancelled),
+        _ => Ok(rpc::forge::SpdmAttestationStatus::SpdmAttInProgress),
+    }
 }
 
-pub async fn load_snapshot_for_machine_with_no_device(
+pub async fn get_attestations_for_machine_id(
     txn: &mut PgConnection,
     machine_id: &MachineId,
-) -> Result<SpdmMachineSnapshot, DatabaseError> {
+) -> Result<Vec<SpdmDeviceAttestationDetails>, DatabaseError> {
     let query = r#"
-        SELECT
-  null AS device,
-  '{}'::jsonb AS devices_state,
-
-  (
-    SELECT row_to_json(m.*)
-    FROM spdm_machine_attestation m
-    WHERE m.machine_id = $1
-  ) AS machine,
-
-  (
-    SELECT to_jsonb(mt.topology->'bmc_info') as bmc_info
-    FROM machine_topologies mt WHERE mt.machine_id = $1
-  ) AS bmc_info
+        SELECT machine_id, device_id, ca_certificate, state, metadata, evidence, started_at, cancelled_at, completed_at
+        FROM spdm_machine_devices_attestation
+        WHERE machine_id = $1
     "#;
 
-    let res: SpdmMachineSnapshot = sqlx::query_as(query)
+    let attestation_details: Vec<SpdmDeviceAttestationDetails> = sqlx::query_as(query)
         .bind(machine_id)
-        .fetch_one(txn)
+        .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
-    Ok(res)
+    Ok(attestation_details)
 }
 
+/// this loads a device attestation from the DB
 pub async fn load_snapshot_for_machine_and_device_id(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     device_id: &String,
-) -> Result<SpdmMachineSnapshot, DatabaseError> {
+) -> Result<SpdmDeviceAttestation, DatabaseError> {
     let query = r#"
         SELECT
-  (
-    SELECT to_jsonb(d.*)
-    FROM spdm_machine_devices_attestation d
-    WHERE d.machine_id = $1 AND d.device_id = $2
-  ) AS device,
-
-  (
-    SELECT row_to_json(m.*)
-    FROM spdm_machine_attestation m
-    WHERE m.machine_id = $1
-  ) AS machine,
-
-  (
-    SELECT jsonb_object_agg(d2.device_id, d2.state)
-    FROM spdm_machine_devices_attestation d2
-    WHERE d2.machine_id = $1
-  ) AS devices_state,
-
-  (
-    SELECT to_jsonb(mt.topology->'bmc_info') as bmc_info
-    FROM machine_topologies mt WHERE mt.machine_id = $1
-  ) AS bmc_info
+            mda.*,
+            to_jsonb(mt.topology->'bmc_info') AS bmc_info
+        FROM spdm_machine_devices_attestation AS mda
+        JOIN machine_topologies AS mt
+            ON mt.machine_id = mda.machine_id
+        WHERE mda.machine_id = $1
+            AND mda.device_id  = $2;
     "#;
 
-    let res: SpdmMachineSnapshot = sqlx::query_as(query)
+    let res: SpdmDeviceAttestation = sqlx::query_as(query)
         .bind(machine_id)
         .bind(device_id)
         .fetch_one(txn)
@@ -362,39 +317,14 @@ pub async fn load_snapshot_for_machine_and_device_id(
     Ok(res)
 }
 
-pub async fn load_details_for_machine_ids(
-    txn: &mut PgConnection,
-    machine_ids: &[MachineId],
-) -> Result<Vec<SpdmMachineDetails>, DatabaseError> {
+pub async fn list_machine_ids(txn: &mut PgConnection) -> Result<Vec<MachineId>, DatabaseError> {
     let query = r#"
-        SELECT 
-            to_jsonb(m) as machine,
-            COALESCE(d.devices, '[]'::jsonb) as devices,
-            to_jsonb(mt.topology->'bmc_info') as bmc_info
-        FROM spdm_machine_attestation AS m
-        LEFT JOIN LATERAL (
-            SELECT jsonb_agg(to_jsonb(d) ORDER BY d.device_id) AS devices
-            FROM spdm_machine_devices_attestation AS d
-            WHERE d.machine_id = m.machine_id
-        ) AS d ON TRUE
-        LEFT JOIN machine_topologies mt ON mt.machine_id = m.machine_id
-        WHERE
-            m.machine_id = ANY($1)
-    "#;
-
-    sqlx::query_as(query)
-        .bind(machine_ids)
-        .fetch_all(txn)
-        .await
-        .map_err(|e| DatabaseError::query(query, e))
-}
-
-pub async fn find_machine_ids(txn: &mut PgConnection) -> Result<Vec<MachineId>, DatabaseError> {
-    let query = r#"
-        SELECT 
+        SELECT DISTINCT
             machine_id
         FROM 
-            spdm_machine_attestation
+            spdm_machine_devices_attestation
+        WHERE
+            completed_at is NULL
     "#;
 
     let res: Vec<MachineId> = sqlx::query_as(query)
@@ -410,13 +340,6 @@ pub async fn persist_outcome(
     object_id: &SpdmObjectId,
     outcome: PersistentStateHandlerOutcome,
 ) -> Result<(), DatabaseError> {
-    let query_machine = r#"
-        UPDATE 
-            spdm_machine_attestation
-        SET state_outcome = $1
-        WHERE machine_id = $2
-    "#;
-
     let query_device = r#"
         UPDATE 
             spdm_machine_devices_attestation
@@ -424,139 +347,51 @@ pub async fn persist_outcome(
         WHERE machine_id = $2 AND device_id = $3
     "#;
 
-    if let Some(device_id) = &object_id.1 {
-        sqlx::query(query_device)
-            .bind(sqlx::types::Json(outcome))
-            .bind(object_id.0)
-            .bind(device_id)
-            .execute(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query_device, e))?;
-    } else {
-        sqlx::query(query_machine)
-            .bind(sqlx::types::Json(outcome))
-            .bind(object_id.0)
-            .execute(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query_machine, e))?;
-    }
+    sqlx::query(query_device)
+        .bind(sqlx::types::Json(outcome))
+        .bind(object_id.0)
+        .bind(object_id.1.clone())
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query_device, e))?
+        .rows_affected();
 
     Ok(())
 }
 
+/// stores the controller state inside device attestation
+/// if the state has changed, the ConfigVersion is incremented
 pub async fn persist_controller_state(
     txn: &mut PgConnection,
     object_id: &SpdmObjectId,
-    new_state: &SpdmMachineStateSnapshot,
+    new_state: &SpdmAttestationState,
 ) -> Result<(), DatabaseError> {
-    // This is a major state change. This means sync state is achieved if devices exist.
-    // Update machine state as well all devices state.
-    if new_state.update_machine_version {
-        let new_version = new_state.machine_version.increment();
-        let query = r#"
+    // fetch the existing device attestation to access its ConfigVersion
+    let device_attestation =
+        load_snapshot_for_machine_and_device_id(txn, &object_id.0, &object_id.1).await?;
+
+    // increment ConfigVersion if the state has changed
+    let new_version = if &device_attestation.state != new_state {
+        device_attestation.state_version.increment()
+    } else {
+        device_attestation.state_version
+    };
+
+    let query = r#"
             UPDATE 
-                spdm_machine_attestation
-            SET state= $1, state_version = $2
-            WHERE machine_id = $3 AND state_version=$4
+                spdm_machine_devices_attestation
+            SET state= $1, state_version=$2
+            WHERE machine_id = $3 AND device_id = $4
         "#;
-
-        let result = sqlx::query(query)
-            .bind(sqlx::types::Json(&new_state.machine_state))
-            .bind(new_version)
-            .bind(object_id.0)
-            .bind(new_state.machine_version)
-            .execute(&mut *txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
-
-        // Check if the update actually affected any rows (optimistic lock check)
-        // If 0 rows were affected, another device already performed this transition
-        if result.rows_affected() == 0 {
-            // This is not an error - just skip device updates and history recording
-            // The other device that won the race will handle updating devices and history
-            return Ok(());
-        }
-
-        // Sync state is achieved, update all devices state .
-        if new_state.update_device_version {
-            let query = r#"
-                UPDATE 
-                    spdm_machine_devices_attestation
-                SET state= $1, state_version=$2
-                WHERE machine_id = $3 AND device_id = $4
-            "#;
-
-            // Not the initial phase. Devices to be updated.
-            if !new_state.devices_state.is_empty() {
-                let details = load_details_for_machine_ids(&mut *txn, &[object_id.0]).await?;
-                let Some(details) = details.first() else {
-                    return Err(DatabaseError::GenericErrorFromReport(eyre::eyre!(
-                        "no device info is found."
-                    )));
-                };
-
-                for (device_id, state) in &new_state.devices_state {
-                    let current_version = details.devices.iter().find_map(|x| {
-                        if &x.device_id == device_id {
-                            Some(x.state_version)
-                        } else {
-                            None
-                        }
-                    });
-
-                    let new_version = if let Some(current_version) = current_version {
-                        current_version.increment()
-                    } else {
-                        ConfigVersion::initial() // It should never happen.
-                    };
-
-                    sqlx::query(query)
-                        .bind(sqlx::types::Json(state))
-                        .bind(new_version)
-                        .bind(object_id.0)
-                        .bind(device_id)
-                        .execute(&mut *txn)
-                        .await
-                        .map_err(|e| DatabaseError::query(query, e))?;
-                }
-            }
-        }
-    } else if new_state.update_device_version {
-        // Update device state only for the given device
-        let Some(device_version) = &new_state.device_version else {
-            return Err(DatabaseError::GenericErrorFromReport(eyre::eyre!(
-                "device version not found."
-            )));
-        };
-
-        let Some(device_state) = &new_state.device_state else {
-            return Err(DatabaseError::GenericErrorFromReport(eyre::eyre!(
-                "device state not found."
-            )));
-        };
-
-        let Some(device_id) = &object_id.1 else {
-            return Err(DatabaseError::GenericErrorFromReport(eyre::eyre!(
-                "device id not found."
-            )));
-        };
-
-        let new_version = device_version.increment();
-        let query = r#"
-                UPDATE 
-                    spdm_machine_devices_attestation
-                SET state= $1, state_version=$2
-                WHERE machine_id = $3 AND device_id = $4
-            "#;
-        sqlx::query(query)
-            .bind(sqlx::types::Json(device_state))
-            .bind(new_version)
-            .bind(object_id.0)
-            .bind(device_id)
-            .execute(&mut *txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
-    }
+    let _rows_affected = sqlx::query(query)
+        .bind(sqlx::types::Json(new_state))
+        .bind(new_version)
+        .bind(object_id.0)
+        .bind(object_id.1.clone())
+        .execute(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?
+        .rows_affected();
 
     update_history(txn, object_id, new_state).await
 }
@@ -564,25 +399,15 @@ pub async fn persist_controller_state(
 async fn update_history(
     txn: &mut PgConnection,
     object_id: &SpdmObjectId,
-    state_snapshot: &SpdmMachineStateSnapshot,
+    state_snapshot: &SpdmAttestationState,
 ) -> Result<(), DatabaseError> {
-    let query = r#"INSERT INTO spdm_machine_attestation_history (machine_id, updated_at, state_snapshot)
-    VALUES($1, now(),  $2)
+    let query = r#"INSERT INTO spdm_device_attestation_history (machine_id, device_id, updated_at, state_snapshot)
+    VALUES($1, $2, now(),  $3)
     "#;
-
-    let mut state_snapshot = state_snapshot.clone();
-
-    // force update correct state for the device_id.
-    // This is not updated by state handler if only device state has to be updated.
-    if let Some(device_id) = object_id.1.clone()
-        && state_snapshot.update_device_version
-        && let Some(device_state) = state_snapshot.device_state.clone()
-    {
-        state_snapshot.devices_state.insert(device_id, device_state);
-    }
 
     sqlx::query(query)
         .bind(object_id.0)
+        .bind(object_id.1.clone())
         .bind(sqlx::types::Json(state_snapshot))
         .execute(&mut *txn)
         .await

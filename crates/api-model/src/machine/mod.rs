@@ -1322,12 +1322,31 @@ pub enum ManagedHostState {
         measuring_state: MeasuringState,
     },
 
+    // this includes MeasuredBoot and SPDM attestations
     PostAssignedMeasuring {
-        measuring_state: MeasuringState,
+        attestation_mode: AttestationMode,
     },
+
+    // Ready -> PreAssignedMeasuring -> StartAssignmentCycle -> Move into Assigned State(s)
+    PreAssignedMeasuring {
+        spdm_measuring_state: SpdmMeasuringState,
+    },
+
+    StartAssignmentCycle,
 
     BomValidating {
         bom_validating_state: BomValidating,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum AttestationMode {
+    MeasuredBoot {
+        measuring_state: MeasuringState,
+    },
+    SpdmAttestation {
+        spdm_measuring_state: SpdmMeasuringState,
     },
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -1512,6 +1531,13 @@ pub enum MeasuringState {
     PendingBundle,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum SpdmMeasuringState {
+    TriggerMeasurements,
+    PollResult,
+}
+
 /// Tenant has requested network config update for the existing instance.
 /// At this point, instance config, instance network config version are already increased.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -1636,6 +1662,8 @@ pub enum FailureCause {
     MeasurementsCAValidationFailed { err: String },
 
     DpfProvisioning { err: String },
+
+    SpdmAttestationFailed { err: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -1788,6 +1816,9 @@ pub enum MachineState {
     },
     Measuring {
         measuring_state: MeasuringState,
+    },
+    SpdmMeasuring {
+        spdm_measuring_state: SpdmMeasuringState,
     },
     WaitingForDiscovery,
     Discovered {
@@ -2121,6 +2152,9 @@ impl Display for FailureCause {
                 write!(f, "MeasurementsCAValidationFailed")
             }
             FailureCause::DpfProvisioning { .. } => write!(f, "DpfProvisioning"),
+            FailureCause::SpdmAttestationFailed { .. } => {
+                write!(f, "SpdmAttestationFailed")
+            }
         }
     }
 }
@@ -2144,6 +2178,12 @@ impl Display for HostReprovisionState {
 }
 
 impl Display for MeasuringState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl Display for SpdmMeasuringState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
     }
@@ -2217,8 +2257,23 @@ impl Display for ManagedHostState {
             ManagedHostState::Measuring { measuring_state } => {
                 write!(f, "Measuring/{measuring_state}")
             }
-            ManagedHostState::PostAssignedMeasuring { measuring_state } => {
-                write!(f, "PostAssignedMeasuring/{measuring_state}")
+            ManagedHostState::PostAssignedMeasuring { attestation_mode } => {
+                match attestation_mode {
+                    AttestationMode::MeasuredBoot { measuring_state } => {
+                        write!(f, "PostAssignedMeasuring/MeasuredBoot/{measuring_state}")
+                    }
+                    AttestationMode::SpdmAttestation {
+                        spdm_measuring_state,
+                    } => write!(
+                        f,
+                        "PostAssignedMeasuring/SpdmAttestation/{spdm_measuring_state}"
+                    ),
+                }
+            }
+            ManagedHostState::PreAssignedMeasuring {
+                spdm_measuring_state,
+            } => {
+                write!(f, "PreAssignedMeasuring/{spdm_measuring_state}")
             }
             ManagedHostState::Created => write!(f, "Created"),
             ManagedHostState::BomValidating {
@@ -2228,6 +2283,9 @@ impl Display for ManagedHostState {
             }
             ManagedHostState::Validation { validation_state } => {
                 write!(f, "{validation_state}")
+            }
+            ManagedHostState::StartAssignmentCycle => {
+                write!(f, "StartAssignmentCycle")
             }
         }
     }
@@ -2293,8 +2351,20 @@ impl ManagedHostState {
             ManagedHostState::Measuring { measuring_state } => {
                 format!("Measuring/{measuring_state}")
             }
-            ManagedHostState::PostAssignedMeasuring { measuring_state } => {
-                format!("PostAssignedMeasuring/{measuring_state}")
+            ManagedHostState::PostAssignedMeasuring { attestation_mode } => {
+                match attestation_mode {
+                    AttestationMode::MeasuredBoot { measuring_state } => {
+                        format!("PostAssignedMeasuring/MeasuredBoot/{measuring_state}")
+                    }
+                    AttestationMode::SpdmAttestation {
+                        spdm_measuring_state,
+                    } => format!("PostAssignedMeasuring/SpdmAttestation/{spdm_measuring_state}"),
+                }
+            }
+            ManagedHostState::PreAssignedMeasuring {
+                spdm_measuring_state,
+            } => {
+                format!("PreAssignedMeasuring/{spdm_measuring_state}")
             }
             ManagedHostState::Created => "Created".to_string(),
             ManagedHostState::BomValidating {
@@ -2303,6 +2373,7 @@ impl ManagedHostState {
             ManagedHostState::Validation { validation_state } => {
                 format!("{validation_state}")
             }
+            ManagedHostState::StartAssignmentCycle => "StartAssignmentCycle".to_string(),
         }
     }
 }
@@ -2597,20 +2668,45 @@ pub fn state_sla(
             // is sitting there).
             MeasuringState::PendingBundle => StateSla::no_sla(),
         },
-        ManagedHostState::PostAssignedMeasuring { measuring_state } => match measuring_state {
-            // The API shouldn't be waiting for measurements for long. As soon
-            // as it transitions into this state, Scout should get an Action::Measure
-            // action, and it should pretty quickly send measurements in (~seconds).
-            MeasuringState::WaitingForMeasurements => {
-                StateSla::with_sla(slas::MEASUREMENT_WAIT_FOR_MEASUREMENT, time_in_state)
-            }
-            // If the machine is waiting for a matching bundle, this could
-            // take a bit, since it means either auto-bundle generation OR
-            // manual bundle generation needs to happen. In the case of new
-            // turn ups, this could take hours or even days (e.g. if new gear
-            // is sitting there).
-            MeasuringState::PendingBundle => StateSla::no_sla(),
+        ManagedHostState::PostAssignedMeasuring { attestation_mode } => match attestation_mode {
+            AttestationMode::MeasuredBoot { measuring_state } => match measuring_state {
+                // The API shouldn't be waiting for measurements for long. As soon
+                // as it transitions into this state, Scout should get an Action::Measure
+                // action, and it should pretty quickly send measurements in (~seconds).
+                MeasuringState::WaitingForMeasurements => {
+                    StateSla::with_sla(slas::MEASUREMENT_WAIT_FOR_MEASUREMENT, time_in_state)
+                }
+                // If the machine is waiting for a matching bundle, this could
+                // take a bit, since it means either auto-bundle generation OR
+                // manual bundle generation needs to happen. In the case of new
+                // turn ups, this could take hours or even days (e.g. if new gear
+                // is sitting there).
+                MeasuringState::PendingBundle => StateSla::no_sla(),
+            },
+            AttestationMode::SpdmAttestation {
+                spdm_measuring_state,
+            } => match spdm_measuring_state {
+                SpdmMeasuringState::PollResult => {
+                    StateSla::with_sla(slas::SPDM_ATTESTATION_RESULT_POLL, time_in_state)
+                }
+                SpdmMeasuringState::TriggerMeasurements => {
+                    StateSla::with_sla(slas::SPDM_ATTESTATION_TRIGGER, time_in_state)
+                }
+            },
         },
+        ManagedHostState::PreAssignedMeasuring {
+            spdm_measuring_state,
+        } => match spdm_measuring_state {
+            SpdmMeasuringState::PollResult => {
+                StateSla::with_sla(slas::SPDM_ATTESTATION_RESULT_POLL, time_in_state)
+            }
+            SpdmMeasuringState::TriggerMeasurements => {
+                StateSla::with_sla(slas::SPDM_ATTESTATION_TRIGGER, time_in_state)
+            }
+        },
+        ManagedHostState::StartAssignmentCycle => {
+            StateSla::with_sla(slas::START_ASSIGNMENT_CYCLE, time_in_state)
+        }
         ManagedHostState::BomValidating {
             bom_validating_state,
         } => match bom_validating_state {

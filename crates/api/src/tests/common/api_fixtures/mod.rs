@@ -24,6 +24,7 @@ use std::default::Default;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
@@ -107,7 +108,7 @@ use crate::nvl_partition_monitor::NvlPartitionMonitor;
 use crate::nvlink::NmxmClientPool;
 use crate::nvlink::test_support::NmxmSimClient;
 use crate::rack::rms_client::test_support::RmsSim;
-use crate::redfish::test_support::RedfishSim;
+use crate::redfish::test_support::{RedfishSim, RedfishSimState};
 use crate::scout_stream;
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::common_services::CommonStateHandlerServices;
@@ -255,6 +256,15 @@ pub struct TestEnvOverrides {
     // After n create_requests succeed, they will start failing.
     pub nmxm_fail_after_n_creates: Option<usize>,
     pub compute_allocation_enforcement: Option<ComputeAllocationEnforcement>,
+    pub redfish_overrides: Option<RedfishOverrides>,
+    pub nras_should_fail_parsing: Option<Arc<AtomicBool>>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RedfishOverrides {
+    pub no_component_integrities: bool,
+    pub firmware_for_component_error: bool,
+    pub get_task_trigger_evidence_returns_interrupted: bool,
 }
 
 impl TestEnvOverrides {
@@ -406,6 +416,7 @@ impl TestEnv {
                     model::machine::MachineState::Discovered { .. } => machine_state,
                     model::machine::MachineState::WaitingForLockdown { .. } => machine_state,
                     model::machine::MachineState::Measuring { .. } => machine_state,
+                    model::machine::MachineState::SpdmMeasuring { .. } => machine_state,
 
                     model::machine::MachineState::EnableIpmiOverLan => machine_state,
                 };
@@ -432,6 +443,8 @@ impl TestEnv {
             ManagedHostState::DPUReprovision { .. } => state.clone(),
             ManagedHostState::Measuring { .. } => state.clone(),
             ManagedHostState::PostAssignedMeasuring { .. } => state.clone(),
+            ManagedHostState::PreAssignedMeasuring { .. } => state.clone(),
+            ManagedHostState::StartAssignmentCycle => state.clone(),
             ManagedHostState::HostReprovision { .. } => state.clone(),
             ManagedHostState::BomValidating { .. } => state.clone(),
             ManagedHostState::Validation { validation_state } => match validation_state {
@@ -1202,7 +1215,7 @@ pub fn get_config() -> CarbideConfig {
             controller: StateControllerConfig::default(),
         },
         spdm: SpdmConfig {
-            enabled: true,
+            enabled: false,
             nras_config: Some(nras::Config::default()),
         },
         machine_identity: crate::cfg::file::MachineIdentityConfig::default(),
@@ -1250,7 +1263,9 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
 }
 
 #[derive(Debug, Default)]
-pub struct VerifierSimImpl {}
+pub struct VerifierSimImpl {
+    should_fail_parsing: Arc<AtomicBool>,
+}
 
 #[async_trait::async_trait]
 impl Verifier for VerifierSimImpl {
@@ -1262,10 +1277,17 @@ impl Verifier for VerifierSimImpl {
         _nras_config: &nras::Config,
         _state: &RawAttestationOutcome,
     ) -> Result<ProcessedAttestationOutcome, NrasError> {
-        Ok(ProcessedAttestationOutcome {
-            attestation_passed: true,
-            devices: HashMap::new(),
-        })
+        if self.should_fail_parsing.load(Ordering::Relaxed) {
+            Ok(ProcessedAttestationOutcome {
+                attestation_passed: false,
+                devices: HashMap::new(),
+            })
+        } else {
+            Ok(ProcessedAttestationOutcome {
+                attestation_passed: true,
+                devices: HashMap::new(),
+            })
+        }
     }
 }
 
@@ -1328,7 +1350,22 @@ pub async fn create_test_env_with_overrides(
     ));
 
     let certificate_provider = Arc::new(TestCertificateProvider::new());
-    let redfish_sim = Arc::new(RedfishSim::default());
+
+    let redfish_sim = if let Some(redfish_overrides) = overrides.redfish_overrides {
+        Arc::new(RedfishSim {
+            state: Arc::new(std::sync::Mutex::new(RedfishSimState {
+                no_component_integrities: redfish_overrides.no_component_integrities,
+                firmware_for_component_error: redfish_overrides.firmware_for_component_error,
+                get_task_trigger_evidence_returns_interrupted: redfish_overrides
+                    .get_task_trigger_evidence_returns_interrupted,
+                ..Default::default()
+            })),
+            ..Default::default()
+        })
+    } else {
+        Arc::new(RedfishSim::default())
+    };
+
     let nmxm_sim: Arc<dyn NmxmClientPool> =
         Arc::new(if let Some(n) = overrides.nmxm_fail_after_n_creates {
             NmxmSimClient::with_fail_after_n_creates(n)
@@ -1530,9 +1567,15 @@ pub async fn create_test_env_with_overrides(
         )),
     };
 
+    let verifier = VerifierSimImpl {
+        should_fail_parsing: overrides
+            .nras_should_fail_parsing
+            .unwrap_or(Arc::new(AtomicBool::new(false))),
+    };
+
     let spdm_swap = SwapHandler {
         inner: Arc::new(Mutex::new(SpdmAttestationStateHandler::new(
-            Arc::new(VerifierSimImpl::default()),
+            Arc::new(verifier),
             nras::Config::default(),
         ))),
     };

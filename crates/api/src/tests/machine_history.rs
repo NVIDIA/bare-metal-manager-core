@@ -56,6 +56,8 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"retry_count": 0, "set_boot_order_state": {"state": "reboothost"}}}},
         {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"retry_count": 0, "set_boot_order_state": {"state": "waitforsetbootorderjobcompletion"}}}},
         {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"retry_count": 0, "set_boot_order_state": {"state": "checkbootorder"}}}},
+        {"state": "hostinit", "machine_state": {"state": "measuring", "measuring_state": "waitingformeasurements"}},
+        {"state": "hostinit", "machine_state": {"state": "spdmmeasuring", "spdm_measuring_state": "triggermeasurements"}},
         {"state": "hostinit", "machine_state": {"state": "waitingfordiscovery"}},
     ]);
     let expected_initial_states: Vec<serde_json::Value> =

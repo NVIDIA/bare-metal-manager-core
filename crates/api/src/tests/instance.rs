@@ -18,6 +18,8 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::ops::DerefMut;
 use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 
 use ::rpc::forge::forge_server::Forge;
@@ -58,8 +60,9 @@ use model::instance::status::network::{
     InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
 };
 use model::machine::{
-    CleanupState, FailureDetails, InstanceState, MachineState, MachineValidatingState,
-    ManagedHostState, MeasuringState, NetworkConfigUpdateState, ValidationState,
+    AttestationMode, CleanupState, FailureDetails, InstanceState, MachineState,
+    MachineValidatingState, ManagedHostState, MeasuringState, NetworkConfigUpdateState,
+    SpdmMeasuringState, ValidationState,
 };
 use model::metadata::Metadata;
 use model::network_security_group::NetworkSecurityGroupStatusObservation;
@@ -79,9 +82,11 @@ use crate::tests::common;
 use crate::tests::common::api_fixtures::instance::{
     advance_created_instance_into_state, single_interface_network_config_with_vfs,
 };
+use crate::tests::common::api_fixtures::rpc_instance::RpcInstance;
 use crate::tests::common::api_fixtures::{
     TestEnv, create_managed_host_multi_dpu, create_managed_host_with_ek, update_time_params,
 };
+use crate::tests::common::attestation::spdm_attestation_run_to_failed_then_to_success;
 use crate::tests::common::rpc_builder::{
     InstanceAllocationRequest, InstanceConfig, VpcCreationRequest,
 };
@@ -314,7 +319,16 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     let mut config = get_config();
     config.attestation_enabled = true;
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+    config.spdm.enabled = true;
+
+    // set the NRAS Verifier Mock Verifier to satisfy requests, but we'll later
+    // flip it to fail them
+    let mut overrides = TestEnvOverrides::with_config(config);
+    let nras_should_fail_parsing_flag = Arc::new(AtomicBool::new(false));
+
+    overrides.nras_should_fail_parsing = Some(nras_should_fail_parsing_flag.clone());
+
+    let env = create_test_env_with_overrides(pool, overrides).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
     // add CA cert to pass attestation process
     let add_ca_request = tonic::Request::new(TpmCaCert {
@@ -349,16 +363,70 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     let device_locator = host_machine
         .get_device_locator_for_dpu_id(&mh.dpu().id)
         .unwrap();
-    let tinstance = mh
-        .instance_builer(&env)
-        .network(interface_network_config_with_devices(
+
+    // send the request to create the instance
+    let instance_config = rpc::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(default_os_config()),
+        network: Some(interface_network_config_with_devices(
             &[segment_id],
             std::slice::from_ref(&device_locator),
-        ))
-        .build()
-        .await;
+        )),
+        infiniband: None,
+        network_security_group_id: None,
+        dpu_extension_services: None,
+        nvlink: None,
+    };
+    let instance_id = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            instance_id: None,
+            machine_id: Some(mh.host().id),
+            instance_type_id: None,
+            config: Some(instance_config),
+            metadata: None,
+            allow_unhealthy_machine: false,
+        }))
+        .await
+        .expect("Create instance failed.")
+        .into_inner()
+        .id
+        .expect("Missing instance ID");
 
-    let instance = tinstance.rpc_instance().await;
+    // Do SPDM attestation: first to failed, then to success
+    let mut txn = env.db_txn().await;
+    nras_should_fail_parsing_flag.store(true, Ordering::Relaxed);
+
+    spdm_attestation_run_to_failed_then_to_success(
+        &env,
+        nras_should_fail_parsing_flag.clone(),
+        &mh,
+        &mut txn,
+        ManagedHostState::PreAssignedMeasuring {
+            spdm_measuring_state: SpdmMeasuringState::PollResult,
+        },
+    )
+    .await;
+
+    advance_created_instance_into_ready_state(&env, &mh).await;
+
+    // fetch the rpc instance from the db
+    let get_rpc_instance = async || {
+        let mut result = env
+            .api
+            .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+                instance_ids: vec![instance_id],
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(result.instances.len(), 1);
+        RpcInstance::new(result.instances.remove(0))
+    };
+
+    let instance = get_rpc_instance().await;
+
+    // ------
 
     assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
@@ -458,7 +526,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     // from delete_instance()
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
-            id: Some(tinstance.id),
+            id: Some(instance_id),
             issue: None,
             is_repair_tenant: None,
         }))
@@ -466,7 +534,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .expect("Delete instance failed.");
 
     // The instance should show up immediatly as terminating - even if the state handler didn't yet run
-    let instance = tinstance.rpc_instance().await;
+    let instance = get_rpc_instance().await;
     assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
 
     env.run_machine_state_controller_iteration_until_state_matches(
@@ -534,7 +602,9 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         &mh.host().id,
         2,
         ManagedHostState::PostAssignedMeasuring {
-            measuring_state: MeasuringState::WaitingForMeasurements,
+            attestation_mode: AttestationMode::MeasuredBoot {
+                measuring_state: MeasuringState::WaitingForMeasurements,
+            },
         },
     )
     .await;
@@ -580,9 +650,27 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .await
         .expect("Failed to add CA cert");
 
+    // perform SPDM attestation, set up the NRAS Verifier Mock
+    // to fail
+    let mut txn = env.db_txn().await;
+    nras_should_fail_parsing_flag.store(true, Ordering::Relaxed);
+
+    spdm_attestation_run_to_failed_then_to_success(
+        &env,
+        nras_should_fail_parsing_flag,
+        &mh,
+        &mut txn,
+        ManagedHostState::PostAssignedMeasuring {
+            attestation_mode: AttestationMode::SpdmAttestation {
+                spdm_measuring_state: SpdmMeasuringState::PollResult,
+            },
+        },
+    )
+    .await;
+
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
-        3,
+        5,
         ManagedHostState::WaitingForCleanup {
             cleanup_state: CleanupState::HostCleanup {
                 boss_controller_id: None,
@@ -675,7 +763,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     // end of handle_delete_post_bootingwithdiscoveryimage()
 
     assert!(
-        env.find_instances(vec![tinstance.id])
+        env.find_instances(vec![instance_id])
             .await
             .instances
             .is_empty()

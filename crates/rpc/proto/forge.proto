@@ -696,10 +696,11 @@ service Forge {
   rpc FindInstancesByDpuExtensionService(FindInstancesByDpuExtensionServiceRequest) returns (FindInstancesByDpuExtensionServiceResponse);
 
   // SPDM attestation APIs start
-  rpc TriggerMachineAttestation(AttestationData) returns (google.protobuf.Empty);
-  rpc CancelMachineAttestation(AttestationData) returns (google.protobuf.Empty);
-  rpc FindMachineIdsUnderAttestation(AttestationIdsRequest) returns (common.MachineIdList);
-  rpc FindMachinesUnderAttestation(AttestationMachineList) returns (AttestationResponse);
+  rpc TriggerMachineAttestation(common.MachineId) returns (SpdmMachineAttestationTriggerResponse);
+  rpc CancelMachineAttestation(common.MachineId) returns (google.protobuf.Empty);
+  rpc FindMachineIdsUnderAttestation(google.protobuf.Empty) returns (common.MachineIdList);
+  rpc ListAttestationsForMachineId(common.MachineId) returns (SpdmListAttestationsResponse);
+  rpc GetMachineAttestationStatus(common.MachineId) returns (SpdmMachineAttestationStatusResponse);
   // SPDM attestation APIs end
 
   // SPIFFE Machine Identity APIs
@@ -833,37 +834,35 @@ service Forge {
   rpc ListComponentFirmwareVersions(ListComponentFirmwareVersionsRequest) returns (ListComponentFirmwareVersionsResponse);
 }
 
-message AttestationIdsRequest {
-
+enum SpdmAttestationStatus{
+  SPDM_ATT_IN_PROGRESS = 0;
+  SPDM_ATT_CANCELLED = 1;
+  SPDM_ATT_PASSED = 2;
+  SPDM_ATT_FAILED = 3;
 }
 
-message AttestationData {
+message SpdmMachineAttestationStatusResponse {
   common.MachineId machine_id = 1;
+  SpdmAttestationStatus attestation_status = 2;
 }
 
-message AttestationMachineList {
-  repeated common.MachineId machine_ids = 1;
+message SpdmMachineAttestationTriggerResponse {
+  common.MachineId machine_id = 1;
+  int32 devices_under_attestation = 2;
 }
 
-message AttestationResponse {
-  message AttestationDeviceData {
-    string device_id = 1;
-    common.UUID nonce = 2;
-    string state = 3;
-    optional string metadata = 4;
-  }
-  message AttestationMachineData {
-    common.MachineId machine_id = 1;
-    google.protobuf.Timestamp requested_at = 2;
-    optional google.protobuf.Timestamp started_at = 3;
-    optional google.protobuf.Timestamp canceled_at = 4;
-    string state = 5;
-    string state_version = 6;
-    optional string state_outcome = 7;
-    string status = 8;
-    repeated AttestationDeviceData device_data = 9;
-  }
-  repeated AttestationMachineData machines = 1;
+message SpdmAttestationDetails{
+  common.MachineId machine_id = 1;
+  string device_id = 2;
+  string state = 3;
+
+  google.protobuf.Timestamp started_at = 7;
+  optional google.protobuf.Timestamp cancelled_at = 8;
+  optional google.protobuf.Timestamp completed_at = 9;
+}
+
+message SpdmListAttestationsResponse {
+  repeated SpdmAttestationDetails attestations_details = 1;
 }
 
 // Machine Identity - JWT-SVID token signing

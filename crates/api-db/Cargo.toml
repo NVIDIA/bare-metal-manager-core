@@ -39,6 +39,7 @@ carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 carbide-measured-boot = { path = "../measured-boot", features = ["sqlx"] }
 dns-record = { path = "../dns-record" }
 carbide-api-model = { path = "../api-model", default-features = false }
+carbide-rpc = { path = "../rpc", features = ["sqlx"] }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized

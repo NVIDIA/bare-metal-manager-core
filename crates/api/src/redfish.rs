@@ -652,16 +652,21 @@ pub mod test_support {
 
     use super::*;
 
+    const TRIGGER_EVIDENCE_TASK_ID: &str = "SpdmTriggerEvidenceTaskId";
+
     #[derive(Default)]
-    struct RedfishSimState {
-        hosts: HashMap<String, RedfishSimHostState>,
-        users: HashMap<String, String>,
-        fw_version: Arc<String>,
-        secure_boot: AtomicBool,
+    pub struct RedfishSimState {
+        pub hosts: HashMap<String, RedfishSimHostState>,
+        pub users: HashMap<String, String>,
+        pub fw_version: Arc<String>,
+        pub secure_boot: AtomicBool,
+        pub no_component_integrities: bool,
+        pub firmware_for_component_error: bool,
+        pub get_task_trigger_evidence_returns_interrupted: bool,
     }
 
     #[derive(Debug)]
-    struct RedfishSimHostState {
+    pub struct RedfishSimHostState {
         power: PowerState,
         lockdown: libredfish::EnabledDisabled,
         actions: Vec<RedfishSimAction>,
@@ -679,8 +684,8 @@ pub mod test_support {
 
     #[derive(Default)]
     pub struct RedfishSim {
-        state: Arc<Mutex<RedfishSimState>>,
-        credential_manager: TestCredentialManager,
+        pub state: Arc<Mutex<RedfishSimState>>,
+        pub credential_manager: TestCredentialManager,
     }
 
     impl RedfishSim {
@@ -1010,20 +1015,42 @@ pub mod test_support {
             .unwrap())
         }
 
-        async fn get_task(&self, _id: &str) -> Result<libredfish::model::task::Task, RedfishError> {
-            Ok(serde_json::from_str(
-                "{
-            \"@odata.id\": \"/redfish/v1/TaskService/Tasks/0\",
-            \"@odata.type\": \"#Task.v1_4_3.Task\",
-            \"Id\": \"0\",
-            \"PercentComplete\": 100,
-            \"StartTime\": \"2024-01-30T09:00:52+00:00\",
-            \"TaskMonitor\": \"/redfish/v1/TaskService/Tasks/0/Monitor\",
-            \"TaskState\": \"Completed\",
-            \"TaskStatus\": \"OK\"
-            }",
-            )
-            .unwrap())
+        async fn get_task(&self, id: &str) -> Result<libredfish::model::task::Task, RedfishError> {
+            if self
+                .state
+                .lock()
+                .unwrap()
+                .get_task_trigger_evidence_returns_interrupted
+                && id == TRIGGER_EVIDENCE_TASK_ID
+            {
+                Ok(serde_json::from_str(
+                    "{
+                    \"@odata.id\": \"/redfish/v1/TaskService/Tasks/0\",
+                    \"@odata.type\": \"#Task.v1_4_3.Task\",
+                    \"Id\": \"0\",
+                    \"PercentComplete\": 100,
+                    \"StartTime\": \"2024-01-30T09:00:52+00:00\",
+                    \"TaskMonitor\": \"/redfish/v1/TaskService/Tasks/0/Monitor\",
+                    \"TaskState\": \"Interrupted\",
+                    \"TaskStatus\": \"OK\"
+                    }",
+                )
+                .unwrap())
+            } else {
+                Ok(serde_json::from_str(
+                    "{
+                    \"@odata.id\": \"/redfish/v1/TaskService/Tasks/0\",
+                    \"@odata.type\": \"#Task.v1_4_3.Task\",
+                    \"Id\": \"0\",
+                    \"PercentComplete\": 100,
+                    \"StartTime\": \"2024-01-30T09:00:52+00:00\",
+                    \"TaskMonitor\": \"/redfish/v1/TaskService/Tasks/0/Monitor\",
+                    \"TaskState\": \"Completed\",
+                    \"TaskStatus\": \"OK\"
+                    }",
+                )
+                .unwrap())
+            }
         }
 
         async fn get_chassis_all(&self) -> Result<Vec<String>, RedfishError> {
@@ -1637,7 +1664,14 @@ pub mod test_support {
             &self,
         ) -> Result<libredfish::model::component_integrity::ComponentIntegrities, RedfishError>
         {
-            Ok(ComponentIntegrities {
+            if self.state.lock().unwrap().no_component_integrities {
+                Ok(ComponentIntegrities {
+                    members: Vec::new(),
+                    name: "ComponentIntegrities".to_string(),
+                    count: 0,
+                })
+            } else {
+                Ok(ComponentIntegrities {
                 members: vec![ComponentIntegrity {
                     component_integrity_enabled: true,
                     component_integrity_type: "SPDM".to_string(),
@@ -1846,6 +1880,7 @@ pub mod test_support {
                 name: "ComponentIntegrities".to_string(),
                 count: 6,
             })
+            }
         }
 
         async fn get_firmware_for_component(
@@ -1853,6 +1888,12 @@ pub mod test_support {
             component_integrity_id: &str,
         ) -> Result<libredfish::model::software_inventory::SoftwareInventory, RedfishError>
         {
+            if self.state.lock().unwrap().firmware_for_component_error {
+                return Err(RedfishError::GenericError {
+                    error: "Firmware for Component Error".to_string(),
+                });
+            }
+
             if !component_integrity_id.contains("HGX_IRoT_GPU_") {
                 return Err(RedfishError::NotSupported(
                     "not supported device".to_string(),
@@ -1899,14 +1940,24 @@ pub mod test_support {
             _url: &str,
             _nonce: &str,
         ) -> Result<Task, RedfishError> {
-            Ok(serde_json::from_str(
+            let task_str = format!(
+                r##"{{
+                    "@odata.id": "/redfish/v1/TaskService/Tasks/{TRIGGER_EVIDENCE_TASK_ID}",
+                    "@odata.type": "#Task.v1_4_3.Task",
+                    "Id": "{TRIGGER_EVIDENCE_TASK_ID}"
+                }}"##
+            );
+
+            Ok(serde_json::from_str(&task_str).unwrap())
+
+            /*Ok(serde_json::from_str(
                 "{
             \"@odata.id\": \"/redfish/v1/TaskService/Tasks/0\",
             \"@odata.type\": \"#Task.v1_4_3.Task\",
             \"Id\": \"0\"
             }",
             )
-            .unwrap())
+            .unwrap())*/
         }
 
         async fn get_evidence(

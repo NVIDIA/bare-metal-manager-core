@@ -18,6 +18,7 @@
 //! Contains common functionality between integration tests
 
 pub mod api_fixtures;
+pub mod attestation;
 pub mod endpoint;
 pub mod ib_guid_pool;
 pub mod mac_address_pool;

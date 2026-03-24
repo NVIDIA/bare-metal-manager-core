@@ -19,13 +19,9 @@
 
 use config_version::{ConfigVersion, Versioned};
 use db::DatabaseError;
-use db::attestation::spdm::{
-    load_snapshot_for_machine_and_device_id, load_snapshot_for_machine_with_no_device,
-};
+use db::attestation::spdm::load_snapshot_for_machine_and_device_id;
 use model::StateSla;
-use model::attestation::spdm::{
-    AttestationState, SpdmMachineSnapshot, SpdmMachineStateSnapshot, SpdmObjectId,
-};
+use model::attestation::spdm::{SpdmAttestationState, SpdmDeviceAttestation, SpdmObjectId};
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use sqlx::PgConnection;
 
@@ -40,8 +36,8 @@ pub struct SpdmStateControllerIO {}
 #[async_trait::async_trait]
 impl StateControllerIO for SpdmStateControllerIO {
     type ObjectId = SpdmObjectId; // tuple of machine id and device id
-    type State = SpdmMachineSnapshot;
-    type ControllerState = SpdmMachineStateSnapshot;
+    type State = SpdmDeviceAttestation;
+    type ControllerState = SpdmAttestationState;
     type MetricsEmitter = SpdmMetricsEmitter;
     type ContextObjects = SpdmStateHandlerContextObjects;
 
@@ -57,42 +53,40 @@ impl StateControllerIO for SpdmStateControllerIO {
         db::attestation::spdm::find_machine_ids_for_attestation(txn).await
     }
 
-    /// Loads a state snapshot from the database
+    /// Load SpdmDeviceAttestation
     async fn load_object_state(
         &self,
         txn: &mut PgConnection,
         object_id: &Self::ObjectId,
     ) -> Result<Option<Self::State>, DatabaseError> {
-        Ok(Some(match (object_id.0, object_id.1.clone()) {
-            (machine_id, Some(device_id)) => {
-                load_snapshot_for_machine_and_device_id(txn, &machine_id, &device_id).await?
-            }
-            (machine_id, None) => {
-                load_snapshot_for_machine_with_no_device(txn, &machine_id).await?
-            }
-        }))
+        Ok(Some(
+            load_snapshot_for_machine_and_device_id(txn, &object_id.0, &object_id.1).await?,
+        ))
     }
 
+    // Load AttestationState
     async fn load_controller_state(
         &self,
         _txn: &mut PgConnection,
         _object_id: &Self::ObjectId,
-        state: &Self::State,
+        snapshot: &Self::State,
     ) -> Result<Versioned<Self::ControllerState>, DatabaseError> {
-        let version = state.machine.state_version;
-        Ok(Versioned::new(state.clone().into(), version))
+        let version = snapshot.state_version;
+        Ok(Versioned::new(snapshot.state.clone(), version))
     }
 
+    // Store AttestationState
     async fn persist_controller_state(
         &self,
         txn: &mut PgConnection,
         object_id: &Self::ObjectId,
         _old_version: ConfigVersion,
-        new_state: &Self::ControllerState,
+        new_controller_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        db::attestation::spdm::persist_controller_state(txn, object_id, new_state).await
+        db::attestation::spdm::persist_controller_state(txn, object_id, new_controller_state).await
     }
 
+    // Store outcome
     async fn persist_outcome(
         &self,
         txn: &mut PgConnection,
@@ -103,19 +97,20 @@ impl StateControllerIO for SpdmStateControllerIO {
     }
 
     fn metric_state_names(
-        state: &model::attestation::spdm::SpdmMachineStateSnapshot,
+        state: &model::attestation::spdm::SpdmAttestationState,
     ) -> (&'static str, &'static str) {
-        match state.machine_state {
-            AttestationState::CheckIfAttestationSupported => ("checkifattestationsupported", ""),
-            AttestationState::FetchAttestationTargetsAndUpdateDb => {
-                ("fetchattestationtargetsandupdatedb", "")
+        match state {
+            SpdmAttestationState::FetchMetadata => ("fetchmetadata", ""),
+            SpdmAttestationState::FetchCertificate => ("fetchcertificate", ""),
+            SpdmAttestationState::TriggerEvidenceCollection { .. } => {
+                ("triggerevidencecollection", "")
             }
-            AttestationState::FetchData => ("fetchdata", ""),
-            AttestationState::Verification => ("verification", ""),
-            AttestationState::ApplyEvidenceResultAppraisalPolicy => {
-                ("applyevidenceresultappraisalpolicy", "")
-            }
-            AttestationState::Completed => ("completed", ""),
+            SpdmAttestationState::PollEvidenceCollection { .. } => ("pollevidencecolletion", ""),
+            SpdmAttestationState::NrasVerification => ("nrasverification", ""),
+            SpdmAttestationState::ApplyAppraisalPolicy => ("applyappraisalpolicy", ""),
+            SpdmAttestationState::Failed(_) => ("failed", ""),
+            SpdmAttestationState::Passed => ("passed", ""),
+            SpdmAttestationState::Cancelled => ("cancelled", ""),
         }
     }
 

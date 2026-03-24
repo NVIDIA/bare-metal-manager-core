@@ -848,7 +848,7 @@ pub async fn initialize_and_start_controllers(
     if carbide_config.spdm.enabled {
         let Some(nras_config) = carbide_config.spdm.nras_config.clone() else {
             return Err(eyre::eyre!(
-                "SPDm attestation is enabled but NRAS Config is missing!!"
+                "SPDM attestation is enabled but NRAS Config is missing!!"
             ));
         };
 

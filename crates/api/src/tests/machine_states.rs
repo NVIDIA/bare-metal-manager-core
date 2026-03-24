@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use chrono::Duration;
 use common::api_fixtures::dpu::{
@@ -36,7 +38,8 @@ use model::hardware_info::TpmEkCertificate;
 use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::{
     DpuInitState, FailureCause, FailureDetails, FailureSource, InstanceState, LockdownMode,
-    MachineState, MachineValidatingState, ManagedHostState, MeasuringState, ValidationState,
+    MachineState, MachineValidatingState, ManagedHostState, MeasuringState, SpdmMeasuringState,
+    ValidationState,
 };
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{HealthReportOverride, InsertHealthReportOverrideRequest, TpmCaCert, TpmCaCertId};
@@ -62,6 +65,7 @@ use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host_with_ek, discovery_completed, forge_agent_control,
     on_demand_machine_validation, update_time_params,
 };
+use crate::tests::common::attestation::spdm_attestation_run_to_failed_then_to_success;
 
 #[crate::sqlx_test]
 async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
@@ -1092,7 +1096,16 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 ) {
     let mut config = get_config();
     config.attestation_enabled = true;
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+    config.spdm.enabled = true;
+
+    let mut overrides = TestEnvOverrides::with_config(config);
+
+    // set NRAS verifier to fail
+    let nras_should_fail_parsing_flag = Arc::new(AtomicBool::new(true));
+
+    overrides.nras_should_fail_parsing = Some(nras_should_fail_parsing_flag.clone());
+
+    let env = create_test_env_with_overrides(pool, overrides).await;
 
     // 1. create_dpu as usual
     // 2. start creating host until ca validation failure is encountered
@@ -1223,7 +1236,22 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
         ))
         .await
         .unwrap();
-    txn.commit().await.unwrap();
+
+    // ---------
+    // now do the spdm attestation
+
+    spdm_attestation_run_to_failed_then_to_success(
+        env,
+        nras_should_fail_parsing_flag,
+        &mh,
+        &mut txn,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::SpdmMeasuring {
+                spdm_measuring_state: SpdmMeasuringState::PollResult,
+            },
+        },
+    )
+    .await;
 
     // ---------
     // after the measurements are in, we should proceed to ready state

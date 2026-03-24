@@ -574,11 +574,15 @@ impl InternalRBACRules {
         x.perm("TriggerMachineAttestation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CancelMachineAttestation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm(
-            "FindMachineIdsUnderAttestation",
+            "ListAttestationsForMachineId",
             vec![ForgeAdminCLI, SiteAgent],
         );
         x.perm(
-            "FindMachinesUnderAttestation",
+            "GetMachineAttestationStatus",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm(
+            "FindMachineIdsUnderAttestation",
             vec![ForgeAdminCLI, SiteAgent],
         );
         x.perm("FindPowerShelves", vec![ForgeAdminCLI, Machineatron, Rla]);
