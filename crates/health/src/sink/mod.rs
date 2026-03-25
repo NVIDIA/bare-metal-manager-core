@@ -21,6 +21,9 @@ mod health_override;
 mod prometheus;
 mod tracing;
 
+use std::sync::Arc;
+use std::time::Instant;
+
 pub use composite::CompositeDataSink;
 pub use events::{
     Classification, CollectorEvent, EventContext, FirmwareInfo, HealthReport, HealthReportAlert,
@@ -30,8 +33,40 @@ pub use health_override::HealthOverrideSink;
 pub use prometheus::PrometheusSink;
 pub use tracing::TracingSink;
 
+use crate::metrics::{ComponentKind, ComponentMetrics};
+
 pub trait DataSink: Send + Sync {
+    fn sink_type(&self) -> &'static str;
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent);
+}
+
+pub struct InstrumentedDataSink {
+    inner: Arc<dyn DataSink>,
+    metrics: Arc<ComponentMetrics>,
+    sink_type: &'static str,
+}
+
+impl InstrumentedDataSink {
+    pub fn wrap(inner: Arc<dyn DataSink>, metrics: Arc<ComponentMetrics>) -> Arc<dyn DataSink> {
+        Arc::new(Self {
+            sink_type: inner.sink_type(),
+            inner,
+            metrics,
+        })
+    }
+}
+
+impl DataSink for InstrumentedDataSink {
+    fn sink_type(&self) -> &'static str {
+        self.sink_type
+    }
+
+    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
+        let start = Instant::now();
+        self.inner.handle_event(context, event);
+        self.metrics
+            .record_operation(ComponentKind::Sink, self.sink_type, start.elapsed(), true);
+    }
 }
 
 #[cfg(test)]
@@ -55,6 +90,10 @@ mod tests {
     }
 
     impl DataSink for CountingSink {
+        fn sink_type(&self) -> &'static str {
+            "counting_sink"
+        }
+
         fn handle_event(&self, _context: &EventContext, _event: &CollectorEvent) {
             self.counter.fetch_add(1, Ordering::SeqCst);
         }
@@ -63,6 +102,10 @@ mod tests {
     struct NoopSink;
 
     impl DataSink for NoopSink {
+        fn sink_type(&self) -> &'static str {
+            "noop_sink"
+        }
+
         fn handle_event(&self, _context: &EventContext, _event: &CollectorEvent) {}
     }
 

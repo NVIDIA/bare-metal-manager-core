@@ -20,6 +20,10 @@ use super::{CollectorEvent, DataSink, EventContext};
 pub struct TracingSink;
 
 impl DataSink for TracingSink {
+    fn sink_type(&self) -> &'static str {
+        "tracing_sink"
+    }
+
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         match event {
             CollectorEvent::MetricCollectionStart => {

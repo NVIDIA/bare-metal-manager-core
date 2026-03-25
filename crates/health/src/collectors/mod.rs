@@ -26,5 +26,5 @@ pub use firmware::{FirmwareCollector, FirmwareCollectorConfig};
 pub use logs::{LogFileWriter, LogsCollector, LogsCollectorConfig, create_log_file_writer};
 pub use nmxt::{NmxtCollector, NmxtCollectorConfig};
 pub use nvue::rest::collector::{NvueRestCollector, NvueRestCollectorConfig};
-pub use runtime::{Collector, IterationResult, PeriodicCollector};
+pub use runtime::{Collector, CollectorStartContext, IterationResult, PeriodicCollector};
 pub use sensors::{SensorCollector, SensorCollectorConfig};

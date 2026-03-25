@@ -74,6 +74,7 @@ impl<B: Bmc + 'static> FirmwareCollector<B> {
             return Ok(IterationResult {
                 refresh_triggered: true,
                 entity_count: Some(0),
+                fetch_failures: 0,
             });
         };
         let firmware_inventories = update_service.firmware_inventories().await?;
@@ -108,6 +109,7 @@ impl<B: Bmc + 'static> FirmwareCollector<B> {
         Ok(IterationResult {
             refresh_triggered: true,
             entity_count: Some(firmware_count),
+            fetch_failures: 0,
         })
     }
 }

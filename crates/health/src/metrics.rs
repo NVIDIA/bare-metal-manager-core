@@ -31,7 +31,9 @@ use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use prometheus::core::{Collector, Desc};
 use prometheus::proto::LabelPair;
-use prometheus::{Encoder, Registry, TextEncoder, proto};
+use prometheus::{
+    Encoder, HistogramOpts, HistogramVec, IntCounterVec, Registry, TextEncoder, proto,
+};
 use tokio::net::TcpListener;
 
 use crate::HealthError;
@@ -43,6 +45,127 @@ pub fn operation_duration_buckets_seconds() -> Vec<f64> {
     vec![
         1.0, 2.0, 5.0, 10.0, 15.0, 20.0, 30.0, 45.0, 60.0, 90.0, 120.0, 180.0, 240.0, 300.0,
     ]
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ComponentKind {
+    Collector,
+    Processor,
+    Sink,
+}
+
+impl ComponentKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Collector => "collector",
+            Self::Processor => "processor",
+            Self::Sink => "sink",
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ComponentMetrics {
+    operations_total: IntCounterVec,
+    failures_total: IntCounterVec,
+    fetch_failures_total: IntCounterVec,
+    emitted_events_total: IntCounterVec,
+    duration_seconds: HistogramVec,
+}
+
+impl ComponentMetrics {
+    pub fn new(registry: &Registry, prefix: &str) -> Result<Self, prometheus::Error> {
+        let operations_total = IntCounterVec::new(
+            prometheus::Opts::new(
+                format!("{prefix}_component_operations_total"),
+                "Count of component operations",
+            ),
+            &["component_kind", "component_name"],
+        )?;
+        registry.register(Box::new(operations_total.clone()))?;
+
+        let failures_total = IntCounterVec::new(
+            prometheus::Opts::new(
+                format!("{prefix}_component_failures_total"),
+                "Count of component operation failures",
+            ),
+            &["component_kind", "component_name"],
+        )?;
+        registry.register(Box::new(failures_total.clone()))?;
+
+        let fetch_failures_total = IntCounterVec::new(
+            prometheus::Opts::new(
+                format!("{prefix}_component_fetch_failures_total"),
+                "Count of partial fetch failures reported by a component",
+            ),
+            &["component_kind", "component_name"],
+        )?;
+        registry.register(Box::new(fetch_failures_total.clone()))?;
+
+        let emitted_events_total = IntCounterVec::new(
+            prometheus::Opts::new(
+                format!("{prefix}_component_emitted_events_total"),
+                "Count of events emitted by a component",
+            ),
+            &["component_kind", "component_name"],
+        )?;
+        registry.register(Box::new(emitted_events_total.clone()))?;
+
+        let duration_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                format!("{prefix}_component_duration_seconds"),
+                "Duration of component operations",
+            )
+            .buckets(operation_duration_buckets_seconds()),
+            &["component_kind", "component_name"],
+        )?;
+        registry.register(Box::new(duration_seconds.clone()))?;
+
+        Ok(Self {
+            operations_total,
+            failures_total,
+            fetch_failures_total,
+            emitted_events_total,
+            duration_seconds,
+        })
+    }
+
+    pub fn record_operation(
+        &self,
+        kind: ComponentKind,
+        name: &str,
+        duration: std::time::Duration,
+        success: bool,
+    ) {
+        let labels = [kind.as_str(), name];
+        self.operations_total.with_label_values(&labels).inc();
+        self.duration_seconds
+            .with_label_values(&labels)
+            .observe(duration.as_secs_f64());
+        if !success {
+            self.failures_total.with_label_values(&labels).inc();
+        }
+    }
+
+    pub fn record_fetch_failures(&self, kind: ComponentKind, name: &str, count: u64) {
+        if count == 0 {
+            return;
+        }
+
+        self.fetch_failures_total
+            .with_label_values(&[kind.as_str(), name])
+            .inc_by(count);
+    }
+
+    pub fn record_emitted_events(&self, kind: ComponentKind, name: &str, count: u64) {
+        if count == 0 {
+            return;
+        }
+
+        self.emitted_events_total
+            .with_label_values(&[kind.as_str(), name])
+            .inc_by(count);
+    }
 }
 
 pub struct MetricsManager {

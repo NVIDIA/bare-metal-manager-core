@@ -36,6 +36,10 @@ const MACHINE_ID: &str = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6r
 struct CountingSink;
 
 impl DataSink for CountingSink {
+    fn sink_type(&self) -> &'static str {
+        "counting_sink"
+    }
+
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         std::hint::black_box(context);
         std::hint::black_box(event);
@@ -45,6 +49,10 @@ impl DataSink for CountingSink {
 struct NoopProcessor;
 
 impl EventProcessor for NoopProcessor {
+    fn processor_type(&self) -> &'static str {
+        "noop_processor"
+    }
+
     fn process_event(
         &self,
         _context: &EventContext,
@@ -57,6 +65,10 @@ impl EventProcessor for NoopProcessor {
 struct ReemitProcessor;
 
 impl EventProcessor for ReemitProcessor {
+    fn processor_type(&self) -> &'static str {
+        "reemit_processor"
+    }
+
     fn process_event(
         &self,
         _context: &EventContext,

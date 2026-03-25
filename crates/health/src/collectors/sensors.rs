@@ -19,6 +19,7 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 use std::convert::identity;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use futures::{StreamExt, stream};
@@ -256,19 +257,30 @@ impl<B: Bmc> SensorRecordable<B> for MonitoredEntity<B> {
 }
 
 trait ResultExt<T, E> {
-    fn log_and_ok(self, context: &str, bmc_addr: &BmcAddr) -> Option<T>
+    fn log_and_ok(
+        self,
+        context: &str,
+        bmc_addr: &BmcAddr,
+        fetch_failures: &AtomicUsize,
+    ) -> Option<T>
     where
         E: std::fmt::Debug;
 }
 
 impl<T, E> ResultExt<T, E> for Result<T, E> {
-    fn log_and_ok(self, context: &str, bmc_addr: &BmcAddr) -> Option<T>
+    fn log_and_ok(
+        self,
+        context: &str,
+        bmc_addr: &BmcAddr,
+        fetch_failures: &AtomicUsize,
+    ) -> Option<T>
     where
         E: std::fmt::Debug,
     {
         match self {
             Ok(val) => Some(val),
             Err(e) => {
+                fetch_failures.fetch_add(1, Ordering::Relaxed);
                 tracing::warn!(error = ?e, context, bmc_addr=?bmc_addr, "Operation failed");
                 None
             }
@@ -297,10 +309,11 @@ impl<B: Bmc + 'static> SensorCollector<B> {
 
         let mut refresh_triggered = false;
         let mut entity_count = None;
+        let fetch_failures = AtomicUsize::new(0);
 
         if needs_entity_refresh {
             tracing::info!("Refreshing entity state for BMC: {}", self.endpoint.addr.ip);
-            match self.discover_entities().await {
+            match self.discover_entities(&fetch_failures).await {
                 Ok(entities) => {
                     let count = entities.len();
                     tracing::info!("Entity refresh complete. Found {} entities", count);
@@ -322,24 +335,32 @@ impl<B: Bmc + 'static> SensorCollector<B> {
         }
 
         if let Some(state) = &self.state {
-            let processed_sensors = self.fetch_and_update_sensors(state).await?;
+            let processed_sensors = self
+                .fetch_and_update_sensors(state, &fetch_failures)
+                .await?;
             entity_count = Some(processed_sensors);
         }
 
         Ok(IterationResult {
             refresh_triggered,
             entity_count,
+            fetch_failures: fetch_failures.load(Ordering::Relaxed),
         })
     }
 
     async fn discover_processor_entities(
         &self,
         system: Arc<ComputerSystem<B>>,
+        fetch_failures: &AtomicUsize,
     ) -> Vec<MonitoredEntity<B>> {
         let processors = system
             .processors()
             .await
-            .log_and_ok("Failed to get processors", &self.endpoint.addr)
+            .log_and_ok(
+                "Failed to get processors",
+                &self.endpoint.addr,
+                fetch_failures,
+            )
             .and_then(identity)
             .unwrap_or_default();
 
@@ -352,6 +373,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                     .log_and_ok(
                         "Failed to get processors enviroment sensors",
                         &self.endpoint.addr,
+                        fetch_failures,
                     )
                     .unwrap_or_default();
                 let metric_sensors = processor
@@ -360,6 +382,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                     .log_and_ok(
                         "Failed to get processors metric sensors",
                         &self.endpoint.addr,
+                        fetch_failures,
                     )
                     .unwrap_or_default();
                 (processor, env_sensors.into_iter().chain(metric_sensors))
@@ -379,11 +402,16 @@ impl<B: Bmc + 'static> SensorCollector<B> {
     async fn discover_memory_entities(
         &self,
         system: Arc<ComputerSystem<B>>,
+        fetch_failures: &AtomicUsize,
     ) -> Vec<MonitoredEntity<B>> {
         let memory_modules = system
             .memory_modules()
             .await
-            .log_and_ok("Failed to get memory modules", &self.endpoint.addr)
+            .log_and_ok(
+                "Failed to get memory modules",
+                &self.endpoint.addr,
+                fetch_failures,
+            )
             .and_then(identity)
             .unwrap_or_default();
 
@@ -396,6 +424,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                     .log_and_ok(
                         "Failed to get memory enviroment sensors",
                         &self.endpoint.addr,
+                        fetch_failures,
                     )
                     .unwrap_or_default();
                 (memory, env_sensors.into_iter())
@@ -415,11 +444,12 @@ impl<B: Bmc + 'static> SensorCollector<B> {
     async fn discover_drive_entities(
         &self,
         system: Arc<ComputerSystem<B>>,
+        fetch_failures: &AtomicUsize,
     ) -> Vec<MonitoredEntity<B>> {
         let storage_list = system
             .storage_controllers()
             .await
-            .log_and_ok("Failed to get storage", &self.endpoint.addr)
+            .log_and_ok("Failed to get storage", &self.endpoint.addr, fetch_failures)
             .and_then(identity)
             .unwrap_or_default();
 
@@ -429,7 +459,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                 let drives = storage
                     .drives()
                     .await
-                    .log_and_ok("Failed to get drives", &self.endpoint.addr)
+                    .log_and_ok("Failed to get drives", &self.endpoint.addr, fetch_failures)
                     .and_then(identity)
                     .unwrap_or_default();
                 (storage, drives)
@@ -447,6 +477,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                             .log_and_ok(
                                 "Failed to get drives enviroment sensors",
                                 &self.endpoint.addr,
+                                fetch_failures,
                             )
                             .unwrap_or_default();
                         (drive, storage, system, env_sensors.into_iter())
@@ -468,11 +499,16 @@ impl<B: Bmc + 'static> SensorCollector<B> {
     async fn discover_power_supply_entities(
         &self,
         chassis: Arc<Chassis<B>>,
+        fetch_failures: &AtomicUsize,
     ) -> Vec<MonitoredEntity<B>> {
         let power_supplies = chassis
             .power_supplies()
             .await
-            .log_and_ok("Failed to get power supplies", &self.endpoint.addr)
+            .log_and_ok(
+                "Failed to get power supplies",
+                &self.endpoint.addr,
+                fetch_failures,
+            )
             .unwrap_or_default();
 
         stream::iter(power_supplies)
@@ -484,6 +520,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                     .log_and_ok(
                         "Failed to get power supplies metrics sensors",
                         &self.endpoint.addr,
+                        fetch_failures,
                     )
                     .unwrap_or_default();
                 (ps, metric_sensors.into_iter())
@@ -500,21 +537,32 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             .await
     }
 
-    async fn discover_chassis_entities(&self, chassis: Arc<Chassis<B>>) -> Vec<MonitoredEntity<B>> {
-        if let Ok(Some(sensors)) = chassis.sensors().await {
-            sensors
+    async fn discover_chassis_entities(
+        &self,
+        chassis: Arc<Chassis<B>>,
+        fetch_failures: &AtomicUsize,
+    ) -> Vec<MonitoredEntity<B>> {
+        match chassis.sensors().await {
+            Ok(Some(sensors)) => sensors
                 .into_iter()
                 .map(move |sensor| MonitoredEntity::Chassis {
                     entity: chassis.clone(),
                     sensor,
                 })
-                .collect()
-        } else {
-            Vec::new()
+                .collect(),
+            Ok(None) => Vec::new(),
+            Err(error) => {
+                fetch_failures.fetch_add(1, Ordering::Relaxed);
+                tracing::warn!(error = ?error, bmc_addr=?self.endpoint.addr, "Failed to get chassis sensors");
+                Vec::new()
+            }
         }
     }
 
-    async fn discover_entities(&self) -> Result<Vec<MonitoredEntity<B>>, HealthError> {
+    async fn discover_entities(
+        &self,
+        fetch_failures: &AtomicUsize,
+    ) -> Result<Vec<MonitoredEntity<B>>, HealthError> {
         let service_root = ServiceRoot::new(self.bmc.clone()).await?;
 
         let mut entities = Vec::new();
@@ -524,17 +572,23 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             for system in systems.members().await? {
                 let system = Arc::new(system);
 
-                for entity in self.discover_processor_entities(system.clone()).await {
+                for entity in self
+                    .discover_processor_entities(system.clone(), fetch_failures)
+                    .await
+                {
                     sensor_ids.insert(entity.sensor().odata_id().clone());
                     entities.push(entity);
                 }
 
-                for entity in self.discover_memory_entities(system.clone()).await {
+                for entity in self
+                    .discover_memory_entities(system.clone(), fetch_failures)
+                    .await
+                {
                     sensor_ids.insert(entity.sensor().odata_id().clone());
                     entities.push(entity);
                 }
 
-                for entity in self.discover_drive_entities(system).await {
+                for entity in self.discover_drive_entities(system, fetch_failures).await {
                     sensor_ids.insert(entity.sensor().odata_id().clone());
                     entities.push(entity);
                 }
@@ -545,12 +599,18 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             for chassis in chassis_list.members().await? {
                 let chassis = Arc::new(chassis);
 
-                for entity in self.discover_power_supply_entities(chassis.clone()).await {
+                for entity in self
+                    .discover_power_supply_entities(chassis.clone(), fetch_failures)
+                    .await
+                {
                     sensor_ids.insert(entity.sensor().odata_id().clone());
                     entities.push(entity);
                 }
 
-                for entity in self.discover_chassis_entities(chassis).await {
+                for entity in self
+                    .discover_chassis_entities(chassis, fetch_failures)
+                    .await
+                {
                     // Only add not discovered sensors
                     if sensor_ids.insert(entity.sensor().odata_id().clone()) {
                         entities.push(entity);
@@ -575,6 +635,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                     }
                     // We will treat http errors as transient, and assume sensor is valid
                     Err(e) => {
+                        fetch_failures.fetch_add(1, Ordering::Relaxed);
                         tracing::warn!(error = ?e, bmc_addr=?self.endpoint.addr,
                             "Could not get sensor data for validation, assuming sensor is valid");
                         (entity, true)
@@ -604,12 +665,13 @@ impl<B: Bmc + 'static> SensorCollector<B> {
     async fn fetch_and_update_sensors(
         &self,
         state: &SensorCollectorState<B>,
+        fetch_failures: &AtomicUsize,
     ) -> Result<usize, HealthError> {
         self.emit_event(CollectorEvent::MetricCollectionStart);
         let futures: Vec<_> = state
             .entities
             .iter()
-            .map(|entity| self.update_sensor(entity))
+            .map(|entity| self.update_sensor(entity, fetch_failures))
             .collect();
 
         let processed: Vec<_> = stream::iter(futures)
@@ -621,10 +683,15 @@ impl<B: Bmc + 'static> SensorCollector<B> {
         Ok(processed.into_iter().sum())
     }
 
-    async fn update_sensor(&self, entity: &MonitoredEntity<B>) -> usize {
+    async fn update_sensor(
+        &self,
+        entity: &MonitoredEntity<B>,
+        fetch_failures: &AtomicUsize,
+    ) -> usize {
         let sensor = match entity.sensor().fetch().await {
             Ok(s) => s,
             Err(e) => {
+                fetch_failures.fetch_add(1, Ordering::Relaxed);
                 tracing::warn!(
                     sensor_id = %entity.sensor().odata_id(),
                     entity_type = entity.metric_prefix(),

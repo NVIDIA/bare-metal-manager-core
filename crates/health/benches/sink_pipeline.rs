@@ -40,6 +40,10 @@ const MACHINE_IDS: [&str; 3] = [
 struct CountingSink;
 
 impl DataSink for CountingSink {
+    fn sink_type(&self) -> &'static str {
+        "counting_sink"
+    }
+
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         std::hint::black_box(context);
         std::hint::black_box(event);

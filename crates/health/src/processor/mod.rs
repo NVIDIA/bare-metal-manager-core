@@ -18,15 +18,56 @@
 use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::Instant;
+
 mod health_report;
 mod leak_events;
 pub use health_report::HealthReportProcessor;
 pub use leak_events::LeakEventProcessor;
 
+use crate::metrics::{ComponentKind, ComponentMetrics};
 use crate::sink::{CollectorEvent, DataSink, EventContext};
 
 pub trait EventProcessor: Send + Sync {
+    fn processor_type(&self) -> &'static str;
     fn process_event(&self, context: &EventContext, event: &CollectorEvent) -> Vec<CollectorEvent>;
+}
+
+pub struct InstrumentedEventProcessor {
+    inner: Arc<dyn EventProcessor>,
+    metrics: Arc<ComponentMetrics>,
+    processor_type: &'static str,
+}
+
+impl InstrumentedEventProcessor {
+    pub fn wrap(
+        inner: Arc<dyn EventProcessor>,
+        metrics: Arc<ComponentMetrics>,
+    ) -> Arc<dyn EventProcessor> {
+        Arc::new(Self {
+            processor_type: inner.processor_type(),
+            inner,
+            metrics,
+        })
+    }
+}
+
+impl EventProcessor for InstrumentedEventProcessor {
+    fn processor_type(&self) -> &'static str {
+        self.processor_type
+    }
+
+    fn process_event(&self, context: &EventContext, event: &CollectorEvent) -> Vec<CollectorEvent> {
+        let start = Instant::now();
+        let result = self.inner.process_event(context, event);
+        self.metrics.record_operation(
+            ComponentKind::Processor,
+            self.processor_type,
+            start.elapsed(),
+            true,
+        );
+        result
+    }
 }
 
 struct PendingEvent<'a> {
@@ -80,6 +121,10 @@ impl EventProcessingPipeline {
 }
 
 impl DataSink for EventProcessingPipeline {
+    fn sink_type(&self) -> &'static str {
+        "event_processing_pipeline"
+    }
+
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         if self.processors.is_empty() {
             self.deliver_to_sinks(context, event);
@@ -120,6 +165,10 @@ mod tests {
     }
 
     impl DataSink for CountingSink {
+        fn sink_type(&self) -> &'static str {
+            "counting_sink"
+        }
+
         fn handle_event(&self, _context: &EventContext, _event: &CollectorEvent) {
             self.counter.fetch_add(1, Ordering::SeqCst);
         }
@@ -130,6 +179,10 @@ mod tests {
     }
 
     impl EventProcessor for SelfReemittingProcessor {
+        fn processor_type(&self) -> &'static str {
+            "self_reemitting_processor"
+        }
+
         fn process_event(
             &self,
             _context: &EventContext,

@@ -25,7 +25,7 @@ use crate::HealthError;
 use crate::metrics::{CollectorRegistry, GaugeMetrics, GaugeReading, MetricsManager};
 
 pub struct PrometheusSink {
-    collector_registry: Arc<CollectorRegistry>, // Hold onto the registry to ensure it lives as long as the sink
+    collector_registry: Arc<CollectorRegistry>,
     stream_metrics: DashMap<String, DashMap<&'static str, Arc<GaugeMetrics>>>,
 }
 
@@ -136,6 +136,10 @@ impl PrometheusSink {
 }
 
 impl DataSink for PrometheusSink {
+    fn sink_type(&self) -> &'static str {
+        "prometheus_sink"
+    }
+
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         match event {
             CollectorEvent::MetricCollectionStart => {

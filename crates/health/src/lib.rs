@@ -41,12 +41,15 @@ use crate::api_client::ApiClientWrapper;
 use crate::config::Configurable;
 use crate::endpoint::{CompositeEndpointSource, EndpointSource, StaticEndpointSource};
 use crate::limiter::{BucketLimiter, NoopLimiter, RateLimiter};
-use crate::metrics::{MetricsManager, run_metrics_server};
+use crate::metrics::{ComponentMetrics, MetricsManager, run_metrics_server};
 use crate::processor::{
-    EventProcessingPipeline, EventProcessor, HealthReportProcessor, LeakEventProcessor,
+    EventProcessingPipeline, EventProcessor, HealthReportProcessor, InstrumentedEventProcessor,
+    LeakEventProcessor,
 };
 use crate::sharding::ShardManager;
-use crate::sink::{DataSink, HealthOverrideSink, PrometheusSink, TracingSink};
+use crate::sink::{
+    DataSink, HealthOverrideSink, InstrumentedDataSink, PrometheusSink, TracingSink,
+};
 
 #[derive(thiserror::Error, Debug)]
 pub enum HealthError {
@@ -136,32 +139,48 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
 fn build_data_sink(
     config: &Config,
     metrics_manager: Arc<MetricsManager>,
+    component_metrics: Arc<ComponentMetrics>,
 ) -> Result<Option<Arc<dyn DataSink>>, HealthError> {
     let mut sinks: Vec<Arc<dyn DataSink>> = Vec::new();
     let mut processors: Vec<Arc<dyn EventProcessor>> = Vec::new();
 
     if let Configurable::Enabled(_) = &config.sinks.tracing {
-        sinks.push(Arc::new(TracingSink));
+        sinks.push(InstrumentedDataSink::wrap(
+            Arc::new(TracingSink),
+            component_metrics.clone(),
+        ));
     }
 
     if let Configurable::Enabled(_) = &config.sinks.prometheus {
-        sinks.push(Arc::new(PrometheusSink::new(
-            metrics_manager,
-            &config.metrics.prefix,
-        )?));
+        sinks.push(InstrumentedDataSink::wrap(
+            Arc::new(PrometheusSink::new(
+                metrics_manager,
+                &config.metrics.prefix,
+            )?),
+            component_metrics.clone(),
+        ));
     }
 
     // Unconditionally enable HealthReport processor
-    processors.push(Arc::new(HealthReportProcessor::new()));
+    processors.push(InstrumentedEventProcessor::wrap(
+        Arc::new(HealthReportProcessor::new()),
+        component_metrics.clone(),
+    ));
 
     if let Configurable::Enabled(ref leak_detection_cfg) = config.processors.leak_detection {
-        processors.push(Arc::new(LeakEventProcessor::new(
-            leak_detection_cfg.minimum_alerts_per_report,
-        )));
+        processors.push(InstrumentedEventProcessor::wrap(
+            Arc::new(LeakEventProcessor::new(
+                leak_detection_cfg.minimum_alerts_per_report,
+            )),
+            component_metrics.clone(),
+        ));
     }
 
     if let Configurable::Enabled(ref sink_cfg) = config.sinks.health_override {
-        sinks.push(Arc::new(HealthOverrideSink::new(sink_cfg)?));
+        sinks.push(InstrumentedDataSink::wrap(
+            Arc::new(HealthOverrideSink::new(sink_cfg)?),
+            component_metrics,
+        ));
     }
 
     let data_sink = if sinks.is_empty() {
@@ -176,6 +195,10 @@ fn build_data_sink(
 pub async fn run_service(config: Config) -> Result<(), HealthError> {
     let metrics_endpoint = config.metrics_addr()?;
     let metrics_manager = Arc::new(MetricsManager::new());
+    let component_metrics = Arc::new(ComponentMetrics::new(
+        metrics_manager.global_registry(),
+        &config.metrics.prefix,
+    )?);
 
     let join_listener = tokio::spawn(run_metrics_server(
         metrics_endpoint,
@@ -208,7 +231,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
         source: endpoint_source,
     } = build_endpoint_wiring(&config)?;
 
-    let data_sink = build_data_sink(&config, metrics_manager.clone())?;
+    let data_sink = build_data_sink(&config, metrics_manager.clone(), component_metrics.clone())?;
 
     let config_arc = Arc::new(config);
 
@@ -234,7 +257,12 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
         let endpoint_source = endpoint_source.clone();
         let data_sink = data_sink.clone();
 
-        let mut ctx = DiscoveryLoopContext::new(limiter, metrics_manager, config.clone())?;
+        let mut ctx = DiscoveryLoopContext::new(
+            limiter,
+            metrics_manager,
+            component_metrics.clone(),
+            config.clone(),
+        )?;
 
         async move {
             loop {

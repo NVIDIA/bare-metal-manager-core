@@ -35,6 +35,10 @@ const MACHINE_ID: &str = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6r
 struct CountingSink;
 
 impl DataSink for CountingSink {
+    fn sink_type(&self) -> &'static str {
+        "counting_sink"
+    }
+
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         black_box(context);
         black_box(event);

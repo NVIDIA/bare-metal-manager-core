@@ -172,6 +172,10 @@ impl HealthOverrideSink {
 }
 
 impl DataSink for HealthOverrideSink {
+    fn sink_type(&self) -> &'static str {
+        "health_override_sink"
+    }
+
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         if let CollectorEvent::HealthReport(report) = event {
             if let Some(machine_id) = context.machine_id() {

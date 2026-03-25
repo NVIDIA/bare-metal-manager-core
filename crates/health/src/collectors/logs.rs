@@ -401,26 +401,28 @@ impl<B: Bmc + 'static> LogsCollector<B> {
             }
         }
 
-        let log_count = self.collect_logs_from_services().await?;
+        let (log_count, fetch_failures) = self.collect_logs_from_services().await?;
         self.save_persistent_state().await?;
 
         Ok(IterationResult {
             refresh_triggered,
             entity_count: Some(log_count),
+            fetch_failures,
         })
     }
 
-    async fn collect_logs_from_services(&mut self) -> Result<usize, HealthError> {
+    async fn collect_logs_from_services(&mut self) -> Result<(usize, usize), HealthError> {
         let Some(EndpointMetadata::Machine(machine)) = &self.endpoint.metadata else {
-            return Ok(0);
+            return Ok((0, 0));
         };
         let machine_id = machine.machine_id.to_string();
 
         let Some(state) = self.state.as_mut() else {
-            return Ok(0);
+            return Ok((0, 0));
         };
 
         let mut total_log_count = 0;
+        let mut fetch_failures = 0;
 
         for service in &state.discovered_services {
             let service_id = service.odata_id().to_string();
@@ -445,6 +447,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                                 Ok(Some(e)) => e,
                                 Ok(None) => continue,
                                 Err(error) => {
+                                    fetch_failures += 1;
                                     tracing::warn!(
                                         %service_id,
                                         ?error,
@@ -482,6 +485,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                         continue;
                     }
                     Err(error) => {
+                        fetch_failures += 1;
                         tracing::warn!(
                             %service_id,
                             ?error,
@@ -598,6 +602,6 @@ impl<B: Bmc + 'static> LogsCollector<B> {
             }
         }
 
-        Ok(total_log_count)
+        Ok((total_log_count, fetch_failures))
     }
 }

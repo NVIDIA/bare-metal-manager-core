@@ -63,6 +63,10 @@ fn leak_details(alerts: &[&HealthReportAlert]) -> String {
 }
 
 impl EventProcessor for LeakEventProcessor {
+    fn processor_type(&self) -> &'static str {
+        "leak_event_processor"
+    }
+
     fn process_event(
         &self,
         _context: &EventContext,

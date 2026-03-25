@@ -30,6 +30,10 @@ impl CompositeDataSink {
 }
 
 impl DataSink for CompositeDataSink {
+    fn sink_type(&self) -> &'static str {
+        "composite_sink"
+    }
+
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         for sink in &self.sinks {
             sink.handle_event(context, event);
