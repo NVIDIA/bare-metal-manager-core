@@ -33,18 +33,15 @@ use utils::models::arch::CpuArchitecture;
 use version_compare::{Part, Version};
 
 use crate::duppet::{SummaryFormat, SyncOptions};
-use crate::frr::FrrVlanConfig;
 use crate::health::HealthCheckParams;
 use crate::host_machine_id::get_host_machine_id_retry;
 
 pub mod dpu;
 
-pub mod acl;
 mod acl_rules;
 pub mod agent_platform;
 mod command_line;
 pub mod containerd;
-mod daemons;
 mod dhcp;
 mod dhcp_server_grpc_client;
 mod ethernet_virtualization;
@@ -54,13 +51,11 @@ pub mod extension_services;
 mod fmds_client;
 
 pub mod duppet;
-mod frr;
 mod hbn;
 mod health;
 mod host_machine_id;
 mod instance_metadata_endpoint;
 pub mod instrumentation;
-mod interfaces;
 pub mod lldp;
 mod machine_inventory_updater;
 mod main_loop;
@@ -82,7 +77,8 @@ pub mod util;
 /// The minimum version of HBN that FMDS supports
 pub const FMDS_MINIMUM_HBN_VERSION: &str = "1.5.0-doca2.2.0";
 
-/// The minimum version of HBN that has compatible NVUE
+/// The minimum version of HBN that supports NVUE. Since NVUE is now the only
+/// supported configuration path, DPUs running older HBN versions cannot be configured.
 pub const NVUE_MINIMUM_HBN_VERSION: &str = "2.0.0-doca2.5.0";
 
 pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
@@ -263,76 +259,12 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // Output a templated file
         // Normally this is (will be) done when receiving requests from carbide-api
         Some(AgentCommand::Write(target)) => match target {
-            // Example:
-            // forge-dpu-agent
-            //     --config-path example_agent_config.toml
-            //     write frr
-            //     --path ~/Temp/frr.conf
-            //     --asn 1234
-            //     --loopback-ip 10.11.12.13
-            //     --vlan 1,bob
-            //     --vlan 2,bill
-            WriteTarget::Frr(opts) => {
-                let access_vlans = opts
-                    .vlan
-                    .into_iter()
-                    .map(|s| {
-                        let mut parts = s.split(',');
-                        let vlan_id = parts.next().unwrap().parse().unwrap();
-                        let ip = parts.next().unwrap().to_string();
-                        FrrVlanConfig {
-                            vlan_id,
-                            network: ip.clone() + "/32",
-                            ip,
-                        }
-                    })
-                    .collect();
-                let contents = frr::build(frr::FrrConfig {
-                    asn: opts.asn,
-                    uplinks: HBNDeviceNames::hbn_23()
-                        .uplinks
-                        .iter()
-                        .map(|x| x.to_string())
-                        .collect(),
-                    loopback_ip: opts.loopback_ip,
-                    access_vlans,
-                    vpc_vni: Some(opts.vpc_vni),
-                    route_servers: opts.route_servers.clone(),
-                    use_admin_network: opts.admin,
-                })?;
-                std::fs::write(&opts.path, contents)?;
-                println!("Wrote {}", opts.path);
+            // Legacy ETV write targets are no longer supported
+            WriteTarget::Frr(_) | WriteTarget::Interfaces(_) | WriteTarget::Dhcp(_) => {
+                eyre::bail!(
+                    "Legacy ETV write targets (frr, interfaces, dhcp) are no longer supported. Use 'write nvue' instead."
+                );
             }
-
-            // Example:
-            // forge-dpu-agent
-            //    --config-path example_agent_config.toml
-            //    write interfaces
-            //    --path /home/graham/Temp/if
-            //    --loopback-ip 1.2.3.4
-            //    --vni-device ""
-            //    --network '{"interface_name": "pf0hpf", "vlan": 1, "vni": 3042, "gateway_cidr": "6.5.4.3/24"}'`
-            WriteTarget::Interfaces(opts) => {
-                let mut networks = Vec::with_capacity(opts.network.len());
-                for net_json in opts.network {
-                    let c: interfaces::Network = serde_json::from_str(&net_json)?;
-                    networks.push(c);
-                }
-                let contents = interfaces::build(interfaces::InterfacesConfig {
-                    uplinks: HBNDeviceNames::hbn_23()
-                        .uplinks
-                        .iter()
-                        .map(|x| x.to_string())
-                        .collect(),
-                    loopback_ip: opts.loopback_ip,
-                    vni_device: opts.vni_device,
-                    networks,
-                })?;
-                std::fs::write(&opts.path, contents)?;
-                println!("Wrote {}", opts.path);
-            }
-
-            WriteTarget::Dhcp(_opts) => {}
 
             // Example:
             // forge-dpu-agent write nvue

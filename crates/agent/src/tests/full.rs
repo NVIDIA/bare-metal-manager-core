@@ -62,37 +62,6 @@ struct TestOut {
     hbn_root_dir: Option<tempfile::TempDir>,
 }
 
-// test_etv is different than the other tests (which all leverage
-// test_nvue_generic), because it writes out a bunch of additional
-// files (vs. the nvue-based mechanism, which just provides us with
-// a single nvue_startup.yaml config).
-#[tokio::test(flavor = "multi_thread")]
-pub async fn test_etv() -> eyre::Result<()> {
-    let out = run_common_parts(VpcVirtualizationType::EthernetVirtualizer, false).await?;
-    if out.is_skip {
-        return Ok(());
-    }
-
-    // Make sure all of the files that we expect (in the non-nvue
-    // world) are being written out.
-    let td = out.hbn_root_dir.unwrap();
-    let hbn_root = td.path();
-    assert!(hbn_root.join("etc/frr/frr.conf").exists());
-    assert!(hbn_root.join("etc/network/interfaces").exists());
-    assert!(
-        hbn_root
-            .join("etc/supervisor/conf.d/default-isc-dhcp-relay.conf")
-            .exists()
-    );
-    assert!(
-        hbn_root
-            .join("etc/cumulus/acl/policy.d/60-forge.rules")
-            .exists()
-    );
-
-    Ok(())
-}
-
 // test_etv_nvue tests that config is being generated successfully
 // for the OG networking config, but using nvue templating mechanism.
 // NOTE: This is currently a _very_ light test because it takes the
@@ -193,7 +162,7 @@ async fn test_nvue_generic(
 #[tokio::test(flavor = "multi_thread")]
 // Test retrieving instance metadata using FMDS
 pub async fn test_fmds_get_data() -> eyre::Result<()> {
-    let out = run_common_parts(VpcVirtualizationType::EthernetVirtualizer, true).await?;
+    let out = run_common_parts(VpcVirtualizationType::EthernetVirtualizerWithNvue, true).await?;
     if out.is_skip {
         return Ok(());
     }
@@ -443,24 +412,24 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     let config_version = format!("V{}-T{}", 1, now().timestamp_micros());
 
     let vpc_peer_prefixes = match virtualization_type {
-        VpcVirtualizationType::EthernetVirtualizer
-        | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
+        VpcVirtualizationType::EthernetVirtualizerWithNvue => {
             vec!["10.217.6.176/29".to_string()]
         }
         VpcVirtualizationType::Fnn => {
             vec![]
         }
+        _ => vec![],
     };
 
     let vpc_peer_vnis = match virtualization_type {
-        VpcVirtualizationType::EthernetVirtualizer
-        | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
+        VpcVirtualizationType::EthernetVirtualizerWithNvue => {
             vec![]
         }
         VpcVirtualizationType::Fnn => {
             println!("Setting vpc_peer_vnis to fnn");
             vec![1025186, 1025197]
         }
+        _ => vec![],
     };
 
     let admin_interface_prefix: IpNetwork = "192.168.0.12/32".parse().unwrap();

@@ -485,28 +485,20 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         IncludeBridge: include_bridge,
     };
 
-    // Returns the full content of the nvue template for the forge-dpu-agent
-    // to load for the given virtualization type. Since `EthernetVirtualizer`
-    // (non-nvue) is still in the mix, this is an Option<String>. However, once
-    // we're fully moved away from ETV (and everything is nvue), this can simply
-    // become a String.
     let virtualization_template = match conf.vpc_virtualization_type {
-        VpcVirtualizationType::EthernetVirtualizer => None,
-        VpcVirtualizationType::EthernetVirtualizerWithNvue => Some(TMPL_ETV_WITH_NVUE),
-        VpcVirtualizationType::Fnn => Some(TMPL_FNN),
+        VpcVirtualizationType::EthernetVirtualizerWithNvue => TMPL_ETV_WITH_NVUE,
+        VpcVirtualizationType::Fnn => TMPL_FNN,
+        VpcVirtualizationType::EthernetVirtualizer => {
+            return Err(eyre::eyre!(
+                "EthernetVirtualizer is not supported -- this shouldn't have snuck in here"
+            ));
+        }
     };
 
-    if let Some(template) = virtualization_template {
-        gtmpl::template(template, params).map_err(|e| {
-            println!("ERR filling template: {e}",);
-            e.into()
-        })
-    } else {
-        Err(eyre::eyre!(
-            "cannot nvue::build. no nvue template configured for virtualization type: {}",
-            conf.vpc_virtualization_type
-        ))
-    }
+    gtmpl::template(virtualization_template, params).map_err(|e| {
+        println!("ERR filling template: {e}",);
+        e.into()
+    })
 }
 
 /// Prepares a set of network security groups rules for template use.
@@ -1499,6 +1491,18 @@ mod tests {
             eprintln!("Golden file diff:\n{}", r.report());
             panic!("build output does not match golden file");
         }
+    }
+
+    #[test]
+    fn test_build_rejects_legacy_ethernet_virtualizer() {
+        let mut conf = minimal_nvue_config();
+        conf.vpc_virtualization_type = VpcVirtualizationType::EthernetVirtualizer;
+        let err = build(conf).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("does not support nvue"),
+            "unexpected error message: {msg}"
+        );
     }
 
     #[test]

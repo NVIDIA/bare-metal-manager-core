@@ -263,9 +263,10 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 None
             };
 
-            // Use the virtualization type from the VPC, upgrading legacy ETV to ETV_NVUE,
-            // which shouldn't actually be something that happens now, but it's good to
-            // cover our bases.
+            // EthernetVirtualizer is treated as EthernetVirtualizerWithNvue — NVUE is
+            // always enabled, and the non-NVUE ETV agent code path has been removed.
+            // In practice the DB decode already maps "etv" -> EthernetVirtualizerWithNvue,
+            // so EthernetVirtualizer shouldn't appear here, but we handle it defensively.
             network_virtualization_type = match vpc.network_virtualization_type {
                 VpcVirtualizationType::EthernetVirtualizer
                 | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
