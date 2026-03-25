@@ -3,7 +3,7 @@
 - [Introduction](README.md)
 - [Hardware Compatbility List](hcl.md)
 - [Release Notes](release-notes.md)
-- [FAQs](faqs.md)
+- [FAQs](faq.md)
 
 # Architecture
 
