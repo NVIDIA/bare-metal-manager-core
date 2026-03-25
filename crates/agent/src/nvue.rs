@@ -35,6 +35,17 @@ pub const PATH_ACL: &str = "etc/cumulus/acl/policy.d/70-forge_nvue.rules";
 const TMPL_ETV_WITH_NVUE: &str = include_str!("../templates/nvue_startup_etv.conf");
 const TMPL_FNN: &str = include_str!("../templates/nvue_startup_fnn.conf");
 
+/// Returns the NVUE template for the given virtualization type.
+pub fn template_for(vtype: VpcVirtualizationType) -> eyre::Result<&'static str> {
+    match vtype {
+        VpcVirtualizationType::EthernetVirtualizerWithNvue => Ok(TMPL_ETV_WITH_NVUE),
+        VpcVirtualizationType::Fnn => Ok(TMPL_FNN),
+        VpcVirtualizationType::EthernetVirtualizer => Err(eyre::eyre!(
+            "Legacy EthernetVirtualizer is no longer supported"
+        )),
+    }
+}
+
 /// This value is added to the priority value specified
 /// by users for their NSG rules.
 const NETWORK_SECURITY_GROUP_RULE_PRIORITY_START: u32 = 2000;
@@ -93,13 +104,7 @@ fn split_prefixes_by_family(prefixes: &[String], start_index: usize) -> (Vec<Pre
 }
 
 pub fn build(conf: NvueConfig) -> eyre::Result<String> {
-    if !conf.vpc_virtualization_type.supports_nvue() {
-        return Err(eyre::eyre!(
-            "cannot nvue::build. provided virtualizaton type does not support nvue: {}",
-            conf.vpc_virtualization_type,
-        ));
-    }
-
+    let template = template_for(conf.vpc_virtualization_type)?;
     let host_interfaces: Vec<TmplHostInterfaces> = conf
         .ct_access_vlans
         .into_iter()
@@ -485,17 +490,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         IncludeBridge: include_bridge,
     };
 
-    let virtualization_template = match conf.vpc_virtualization_type {
-        VpcVirtualizationType::EthernetVirtualizerWithNvue => TMPL_ETV_WITH_NVUE,
-        VpcVirtualizationType::Fnn => TMPL_FNN,
-        VpcVirtualizationType::EthernetVirtualizer => {
-            return Err(eyre::eyre!(
-                "EthernetVirtualizer is not supported -- this shouldn't have snuck in here"
-            ));
-        }
-    };
-
-    gtmpl::template(virtualization_template, params).map_err(|e| {
+    gtmpl::template(template, params).map_err(|e| {
         println!("ERR filling template: {e}",);
         e.into()
     })
@@ -1481,6 +1476,25 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_template_for_etv_nvue() {
+        assert!(template_for(VpcVirtualizationType::EthernetVirtualizerWithNvue).is_ok());
+    }
+
+    #[test]
+    fn test_template_for_fnn() {
+        assert!(template_for(VpcVirtualizationType::Fnn).is_ok());
+    }
+
+    #[test]
+    fn test_template_for_rejects_legacy_etv() {
+        let err = template_for(VpcVirtualizationType::EthernetVirtualizer).unwrap_err();
+        assert!(
+            err.to_string().contains("EthernetVirtualizer"),
+            "unexpected error: {err}"
+        );
+    }
+
     /// Helper to compare build() output against a golden file, using the same
     /// diff-based comparison as the ethernet_virtualization tests.
     fn assert_build_matches_golden(conf: NvueConfig, golden_file: &str) {
@@ -1500,7 +1514,7 @@ mod tests {
         let err = build(conf).unwrap_err();
         let msg = err.to_string();
         assert!(
-            msg.contains("does not support nvue"),
+            msg.contains("EthernetVirtualizer"),
             "unexpected error message: {msg}"
         );
     }
