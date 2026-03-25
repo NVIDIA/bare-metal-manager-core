@@ -18,19 +18,21 @@ use std::str::FromStr;
 
 use ::rpc::forge::{self as rpc, HealthReportOverride};
 use carbide_uuid::rack::RackId;
-use db::{WithTransaction, rack as db_rack};
+use db::{ObjectColumnFilter, WithTransaction, rack as db_rack};
 use futures_util::FutureExt;
 use health_report::OverrideMode;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
-use crate::api::Api;
+use crate::api::{Api, log_request_data};
 use crate::auth::AuthContext;
 
 pub async fn get_rack(
     api: &Api,
     request: Request<rpc::GetRackRequest>,
 ) -> Result<Response<rpc::GetRackResponse>, Status> {
+    log_request_data(&request);
+
     let req = request.into_inner();
     let rack = if let Some(id) = req.id {
         let rack_id = RackId::from_str(&id)
@@ -50,10 +52,62 @@ pub async fn get_rack(
     Ok(Response::new(rpc::GetRackResponse { rack }))
 }
 
+pub async fn find_ids(
+    api: &Api,
+    request: Request<rpc::RackSearchFilter>,
+) -> Result<Response<rpc::RackIdList>, Status> {
+    log_request_data(&request);
+
+    let filter: model::rack::RackSearchFilter = request.into_inner().into();
+
+    let rack_ids = db::rack::find_ids(&api.database_connection, filter).await?;
+
+    Ok(Response::new(rpc::RackIdList { rack_ids }))
+}
+
+pub async fn find_by_ids(
+    api: &Api,
+    request: Request<rpc::RacksByIdsRequest>,
+) -> Result<Response<rpc::RackList>, Status> {
+    log_request_data(&request);
+
+    let rack_ids = request.into_inner().rack_ids;
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if rack_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if rack_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    let mut txn = api.txn_begin().await?;
+
+    let racks = db::rack::find_by(
+        &mut txn,
+        ObjectColumnFilter::List(db::rack::IdColumn, &rack_ids),
+    )
+    .await?;
+
+    let _ = txn.rollback().await;
+
+    let mut result = Vec::with_capacity(racks.len());
+    for rack in racks {
+        result.push(rack.into());
+    }
+
+    Ok(Response::new(rpc::RackList { racks: result }))
+}
+
 pub async fn find_rack_state_histories(
     api: &Api,
     request: Request<rpc::RackStateHistoriesRequest>,
 ) -> Result<Response<rpc::RackStateHistories>, Status> {
+    log_request_data(&request);
     let request = request.into_inner();
     let rack_ids = request.rack_ids;
 
@@ -94,18 +148,20 @@ pub async fn delete_rack(
     api: &Api,
     request: Request<rpc::DeleteRackRequest>,
 ) -> Result<Response<()>, Status> {
+    log_request_data(&request);
+
     let req = request.into_inner();
     api.with_txn(|txn| {
         async move {
             let rack_id = RackId::from_str(&req.id)
                 .map_err(|e| CarbideError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
-            let rack =
+            let _rack =
                 db_rack::get(txn.as_mut(), &rack_id)
                     .await
                     .map_err(|e| CarbideError::Internal {
                         message: format!("Getting rack {}", e),
                     })?;
-            db_rack::mark_as_deleted(&rack, txn)
+            db_rack::mark_as_deleted(&rack_id, txn)
                 .await
                 .map_err(|e| CarbideError::Internal {
                     message: format!("Marking rack deleted {}", e),
@@ -122,6 +178,8 @@ pub async fn list_rack_health_report_overrides(
     api: &Api,
     request: Request<rpc::ListRackHealthReportOverridesRequest>,
 ) -> Result<Response<rpc::ListHealthReportOverrideResponse>, Status> {
+    log_request_data(&request);
+
     let req = request.into_inner();
     let rack_id = req
         .rack_id
@@ -147,6 +205,8 @@ pub async fn insert_rack_health_report_override(
     api: &Api,
     request: Request<rpc::InsertRackHealthReportOverrideRequest>,
 ) -> Result<Response<()>, Status> {
+    log_request_data(&request);
+
     let triggered_by = request
         .extensions()
         .get::<AuthContext>()
@@ -200,6 +260,8 @@ pub async fn remove_rack_health_report_override(
     api: &Api,
     request: Request<rpc::RemoveRackHealthReportOverrideRequest>,
 ) -> Result<Response<()>, Status> {
+    log_request_data(&request);
+
     let rpc::RemoveRackHealthReportOverrideRequest { rack_id, source } = request.into_inner();
     let rack_id = rack_id.ok_or_else(|| CarbideError::MissingArgument("rack_id"))?;
 

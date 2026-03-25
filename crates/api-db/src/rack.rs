@@ -39,17 +39,33 @@ impl ColumnInfo<'_> for IdColumn {
     }
 }
 
-pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Rack>>(
-    txn: &mut PgConnection,
+pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Rack>, DB>(
+    conn: &mut DB,
     filter: ObjectColumnFilter<'a, C>,
-) -> DatabaseResult<Vec<Rack>> {
+) -> DatabaseResult<Vec<Rack>>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     let mut query = FilterableQueryBuilder::new("SELECT * FROM racks").filter(&filter);
 
     query
         .build_query_as()
-        .fetch_all(txn)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| DatabaseError::new(query.sql(), e))
+}
+
+pub async fn find_ids(
+    txn: impl DbReader<'_>,
+    _filter: model::rack::RackSearchFilter,
+) -> Result<Vec<RackId>, DatabaseError> {
+    let mut builder = sqlx::QueryBuilder::new("SELECT id FROM racks WHERE TRUE "); // The TRUE will be optimized away.
+
+    let query = builder.build_query_as();
+    query
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::new("instance::find_ids", e))
 }
 
 pub async fn list(txn: impl DbReader<'_>) -> DatabaseResult<Vec<Rack>> {
@@ -224,10 +240,10 @@ pub async fn update_controller_state_outcome(
     Ok(())
 }
 
-pub async fn mark_as_deleted(rack: &Rack, txn: &mut PgConnection) -> DatabaseResult<Rack> {
+pub async fn mark_as_deleted(rack_id: &RackId, txn: &mut PgConnection) -> DatabaseResult<Rack> {
     let query = "UPDATE racks SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
     let updated_rack = sqlx::query_as(query)
-        .bind(&rack.id)
+        .bind(rack_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;

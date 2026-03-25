@@ -15,18 +15,11 @@
  * limitations under the License.
  */
 
+use carbide_uuid::rack::RackId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
 pub struct Args {
-    #[clap(help = "Rack ID or name to show (leave empty for all)")]
-    pub identifier: Option<String>,
-}
-
-impl From<Args> for ::rpc::forge::GetRackRequest {
-    fn from(args: Args) -> Self {
-        Self {
-            id: args.identifier,
-        }
-    }
+    #[clap(help = "Rack ID to show (leave empty for all)")]
+    pub rack: Option<RackId>,
 }

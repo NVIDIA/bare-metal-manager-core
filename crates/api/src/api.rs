@@ -1050,6 +1050,20 @@ impl Forge for Api {
         crate::handlers::rack::get_rack(self, request).await
     }
 
+    async fn find_rack_ids(
+        &self,
+        request: Request<rpc::RackSearchFilter>,
+    ) -> Result<Response<rpc::RackIdList>, Status> {
+        crate::handlers::rack::find_ids(self, request).await
+    }
+
+    async fn find_racks_by_ids(
+        &self,
+        request: Request<rpc::RacksByIdsRequest>,
+    ) -> Result<Response<rpc::RackList>, Status> {
+        crate::handlers::rack::find_by_ids(self, request).await
+    }
+
     async fn delete_rack(
         &self,
         request: Request<rpc::DeleteRackRequest>,

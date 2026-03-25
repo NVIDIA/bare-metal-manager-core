@@ -52,7 +52,7 @@ fn parse_show_no_args() {
 
     match cmd {
         Cmd::Show(args) => {
-            assert!(args.identifier.is_none());
+            assert!(args.rack.is_none());
         }
         _ => panic!("expected Show variant"),
     }
@@ -66,7 +66,7 @@ fn parse_show_with_identifier() {
 
     match cmd {
         Cmd::Show(args) => {
-            assert_eq!(args.identifier, Some("rack-123".to_string()));
+            assert_eq!(args.rack, Some("rack-123".parse().unwrap()));
         }
         _ => panic!("expected Show variant"),
     }

@@ -88,6 +88,15 @@ impl From<Rack> for rpc::forge::Rack {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct RackSearchFilter {}
+
+impl From<rpc::forge::RackSearchFilter> for RackSearchFilter {
+    fn from(_filter: rpc::forge::RackSearchFilter) -> Self {
+        RackSearchFilter {}
+    }
+}
+
 fn derive_rack_aggregate_health(overrides: &HealthReportOverrides) -> health_report::HealthReport {
     if let Some(replace) = &overrides.replace {
         return replace.clone();

@@ -41,7 +41,7 @@ use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 
 mod fixtures;
 mod handler;
-use fixtures::rack::{mark_rack_as_deleted, set_rack_controller_state};
+use fixtures::rack::set_rack_controller_state;
 
 #[derive(Debug, Default, Clone)]
 pub struct TestRackStateHandler {
@@ -63,7 +63,7 @@ impl StateHandler for TestRackStateHandler {
         rack_id: &RackId,
         state: &mut Rack,
         controller_state: &Self::ControllerState,
-        _ctx: &mut StateHandlerContext<Self::ContextObjects>,
+        ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
         assert_eq!(state.id, *rack_id);
         self.count.fetch_add(1, Ordering::SeqCst);
@@ -107,6 +107,12 @@ impl StateHandler for TestRackStateHandler {
                 RackValidationState::Validated => RackState::Ready,
                 _ => return Ok(StateHandlerOutcome::do_nothing()),
             },
+            RackState::Deleting => {
+                // Rack is being deleted
+                let mut txn = ctx.services.db_pool.begin().await?;
+                db::rack::final_delete(&mut txn, rack_id).await?;
+                return Ok(StateHandlerOutcome::deleted().with_txn(txn));
+            }
             _ => return Ok(StateHandlerOutcome::do_nothing()),
         };
 
@@ -267,78 +273,6 @@ async fn test_rack_state_transitions(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     let rack_id_str = rack_id.to_string();
     let count = guard.get(&rack_id_str).copied().unwrap_or_default();
     assert!(count > 0, "Rack ID should have been processed");
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_rack_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-
-    // Create a rack
-    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
-    let mut txn = pool.acquire().await?;
-    TestRackDbBuilder::new()
-        .with_rack_id(rack_id.clone())
-        .persist(&mut txn)
-        .await?;
-
-    // Verify rack exists
-    let rack = db_rack::get(&mut *txn, &rack_id).await?;
-    assert_eq!(rack.id, rack_id);
-
-    // Start the state controller to process the rack while it's active
-    let rack_handler = Arc::new(TestRackStateHandler::default());
-    const ITERATION_TIME: Duration = Duration::from_millis(50);
-
-    let handler_services = Arc::new(env.state_handler_services());
-
-    let cancel_token = CancellationToken::new();
-    let mut controller = StateController::<RackStateControllerIO>::builder()
-        .iteration_config(IterationConfig {
-            iteration_time: ITERATION_TIME,
-            processor_dispatch_interval: Duration::from_millis(10),
-            ..Default::default()
-        })
-        .database(pool.clone(), env.api.work_lock_manager_handle.clone())
-        .processor_id(uuid::Uuid::new_v4().to_string())
-        .services(handler_services.clone())
-        .state_handler(rack_handler.clone())
-        .build_for_manual_iterations(cancel_token.clone())
-        .unwrap();
-
-    controller.run_single_iteration().await;
-
-    // Verify that the handler was called while the rack was active
-    let count_before_deletion = rack_handler.count.load(Ordering::SeqCst);
-    assert!(
-        count_before_deletion > 0,
-        "State handler should have been called while rack was active"
-    );
-
-    // Mark the rack as deleted
-    mark_rack_as_deleted(pool.acquire().await?.as_mut(), &rack_id).await?;
-
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-    controller.run_single_iteration().await;
-
-    // Verify that the handler count didn't increase significantly after deletion
-    // (since deleted racks should not be processed)
-    let count_after_deletion = rack_handler.count.load(Ordering::SeqCst);
-    let count_increase = count_after_deletion - count_before_deletion;
-
-    // The count might increase slightly due to timing, but should not increase significantly
-    // since deleted racks are excluded from processing
-    assert!(
-        count_increase < 5,
-        "State handler should not process deleted racks significantly. Count increase: {}",
-        count_increase
-    );
 
     Ok(())
 }
@@ -505,17 +439,10 @@ async fn test_rack_deletion_with_state_controller(
 
     controller.run_single_iteration().await;
 
-    // Verify that the handler was called while the rack was active
-    let count_before_deletion = rack_handler.count.load(Ordering::SeqCst);
-    assert!(
-        count_before_deletion > 0,
-        "State handler should have been called while rack was active"
-    );
-
     // Mark the rack as deleted
-    mark_rack_as_deleted(pool.acquire().await?.as_mut(), &rack_id).await?;
+    db::rack::mark_as_deleted(&rack_id, pool.acquire().await?.as_mut()).await?;
 
-    // Let the controller run for a bit more after marking as deleted
+    // Let the controller continue to run
     controller.run_single_iteration().await;
     controller.run_single_iteration().await;
     controller.run_single_iteration().await;
@@ -530,18 +457,16 @@ async fn test_rack_deletion_with_state_controller(
     controller.run_single_iteration().await;
     controller.run_single_iteration().await;
 
-    // Verify that the handler count didn't increase significantly after marking as deleted
-    // (since deleted racks should not be processed)
-    let count_after_deletion = rack_handler.count.load(Ordering::SeqCst);
-    let count_increase = count_after_deletion - count_before_deletion;
-
-    // The count might increase slightly due to timing, but should not increase significantly
-    // since deleted racks are excluded from processing
-    assert!(
-        count_increase <= 5, // Allow for some timing-related calls
-        "State handler should not process deleted racks significantly. Count increase: {}",
-        count_increase
-    );
+    // Verify that the DB object is gone
+    let racks = env
+        .api
+        .find_racks_by_ids(tonic::Request::new(rpc::forge::RacksByIdsRequest {
+            rack_ids: vec![rack_id],
+        }))
+        .await?
+        .into_inner()
+        .racks;
+    assert!(racks.is_empty());
 
     Ok(())
 }

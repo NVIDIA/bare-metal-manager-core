@@ -90,6 +90,7 @@ mod nvl_logical_partition;
 mod power_shelf;
 mod power_shelf_state_controller;
 mod prevent_duplicate_mac_addresses;
+mod rack_find;
 mod rack_firmware;
 mod rack_health;
 mod rack_state_controller;

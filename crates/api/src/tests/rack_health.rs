@@ -578,7 +578,7 @@ async fn test_dsx_consumer_contract(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 }
 
 #[crate::sqlx_test]
-async fn test_rack_health_visible_in_get_rack(
+async fn test_rack_health_visible_in_find_racks_by_ids(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env =
@@ -604,14 +604,14 @@ async fn test_rack_health_visible_in_get_rack(
 
     let rack_resp = env
         .api
-        .get_rack(Request::new(rpc_forge::GetRackRequest {
-            id: Some(rack_id.to_string()),
+        .find_racks_by_ids(Request::new(rpc_forge::RacksByIdsRequest {
+            rack_ids: vec![rack_id.clone()],
         }))
         .await?
         .into_inner();
 
-    assert_eq!(rack_resp.rack.len(), 1);
-    let rack = &rack_resp.rack[0];
+    assert_eq!(rack_resp.racks.len(), 1);
+    let rack = &rack_resp.racks[0];
 
     assert!(rack.health.is_some(), "Rack should have health field");
     let health: HealthReport = rack.health.clone().unwrap().try_into().unwrap();

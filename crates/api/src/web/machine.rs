@@ -410,7 +410,7 @@ pub async fn fetch_machines(
         const PAGE_SIZE: usize = 100;
         let page_size = PAGE_SIZE.min(machine_ids.len() - offset);
         let next_ids = &machine_ids[offset..offset + page_size];
-        let next_vpcs = api
+        let next_machines = api
             .find_machines_by_ids(tonic::Request::new(forgerpc::MachinesByIdsRequest {
                 machine_ids: next_ids.to_vec(),
                 include_history,
@@ -418,7 +418,7 @@ pub async fn fetch_machines(
             .await?
             .into_inner();
 
-        machines.extend(next_vpcs.machines.into_iter());
+        machines.extend(next_machines.machines.into_iter());
         offset += page_size;
     }
 

@@ -23,7 +23,7 @@ use db::rack::IdColumn;
 use db::{DatabaseError, ObjectColumnFilter, rack as db_rack};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::rack::{Rack, RackState, RackValidationState, state_sla};
+use model::rack::{Rack, RackSearchFilter, RackState, RackValidationState, state_sla};
 use sqlx::PgConnection;
 
 use crate::state_controller::io::StateControllerIO;
@@ -51,9 +51,7 @@ impl StateControllerIO for RackStateControllerIO {
         &self,
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        db_rack::list(txn)
-            .await
-            .map(|racks| racks.into_iter().map(|r| r.id).collect())
+        db_rack::find_ids(txn, RackSearchFilter {}).await
     }
 
     /// Loads a state snapshot from the database

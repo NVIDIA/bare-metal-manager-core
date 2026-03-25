@@ -695,6 +695,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Deserialize,serde::Serialize)]",
         )
         .type_attribute(
+            "forge.RackList",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .type_attribute(
             "common.Uint32List",
             "#[derive(serde::Deserialize,serde::Serialize)]",
         )

@@ -641,6 +641,9 @@ service Forge {
   rpc DetermineMachineIngestionState(BmcEndpointRequest) returns (MachineIngestionStateResponse);
 
   // Rack
+  rpc FindRackIds(RackSearchFilter) returns (RackIdList);
+  rpc FindRacksByIds(RacksByIdsRequest) returns (RackList);
+  // Deprecated: Use FindRackIds
   rpc GetRack(GetRackRequest) returns (GetRackResponse);
   rpc DeleteRack(DeleteRackRequest) returns (google.protobuf.Empty);
 
@@ -5992,6 +5995,21 @@ message GetRackRequest {
 
 message GetRackResponse {
   repeated Rack rack = 1;
+}
+
+message RackList {
+  repeated Rack racks = 1;
+}
+
+message RackSearchFilter {
+}
+
+message RackIdList {
+  repeated common.RackId rack_ids = 1;
+}
+
+message RacksByIdsRequest {
+  repeated common.RackId rack_ids = 1;
 }
 
 message Rack {

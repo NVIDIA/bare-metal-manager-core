@@ -31,7 +31,7 @@ use crate::api::Api;
 
 #[derive(Template)]
 #[template(path = "rack_show.html")]
-struct Rack {
+struct Racks {
     racks: Vec<RackRecord>,
 }
 
@@ -59,39 +59,14 @@ struct RackDetail {
 pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
     let racks = match fetch_racks(&state).await {
         Ok(racks) => racks,
-        Err((code, msg)) => return (code, msg).into_response(),
-    };
-
-    let display = Rack { racks };
-    (StatusCode::OK, Html(display.render().unwrap())).into_response()
-}
-
-/// Show all racks as JSON
-pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
-    let racks = match fetch_racks(&state).await {
-        Ok(racks) => racks,
-        Err((code, msg)) => return (code, msg).into_response(),
-    };
-    (StatusCode::OK, Json(racks)).into_response()
-}
-
-async fn fetch_racks(api: &Api) -> Result<Vec<RackRecord>, (http::StatusCode, String)> {
-    let response = match api
-        .get_rack(tonic::Request::new(rpc::forge::GetRackRequest { id: None }))
-        .await
-    {
-        Ok(response) => response.into_inner(),
         Err(err) => {
-            tracing::error!(%err, "list_racks");
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to list racks".to_string(),
-            ));
+            tracing::error!(%err, "fetch_racks");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading racks").into_response();
         }
     };
 
-    let racks = response
-        .rack
+    let racks = racks
+        .racks
         .into_iter()
         .map(|rack| {
             let expected_compute_trays = rack.expected_compute_trays.join(", ");
@@ -136,34 +111,71 @@ async fn fetch_racks(api: &Api) -> Result<Vec<RackRecord>, (http::StatusCode, St
         })
         .collect();
 
-    Ok(racks)
+    let display = Racks { racks };
+    (StatusCode::OK, Html(display.render().unwrap())).into_response()
+}
+
+/// Show all racks as JSON
+pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
+    let racks = match fetch_racks(&state).await {
+        Ok(racks) => racks,
+        Err(err) => {
+            tracing::error!(%err, "fetch_racks");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading racks").into_response();
+        }
+    };
+    (StatusCode::OK, Json(racks)).into_response()
+}
+
+pub async fn fetch_racks(api: &Api) -> Result<rpc::forge::RackList, tonic::Status> {
+    let request = tonic::Request::new(rpc::forge::RackSearchFilter {});
+
+    let rack_ids = api.find_rack_ids(request).await?.into_inner().rack_ids;
+
+    let mut racks = Vec::new();
+    let mut offset = 0;
+    while offset != rack_ids.len() {
+        const PAGE_SIZE: usize = 100;
+        let page_size = PAGE_SIZE.min(rack_ids.len() - offset);
+        let next_ids = &rack_ids[offset..offset + page_size];
+        let next_racks = api
+            .find_racks_by_ids(tonic::Request::new(rpc::forge::RacksByIdsRequest {
+                rack_ids: next_ids.to_vec(),
+            }))
+            .await?
+            .into_inner();
+
+        racks.extend(next_racks.racks.into_iter());
+        offset += page_size;
+    }
+
+    Ok(rpc::forge::RackList { racks })
 }
 
 pub async fn fetch_rack(
     api: &Api,
     rack_id: &RackId,
 ) -> Result<Option<::rpc::forge::Rack>, Response> {
-    let request = tonic::Request::new(rpc::forge::GetRackRequest {
-        id: Some(rack_id.to_string()),
+    let request = tonic::Request::new(rpc::forge::RacksByIdsRequest {
+        rack_ids: vec![rack_id.clone()],
     });
 
-    // TODO: This should use FindRacksByIds
     let rack = match api
-        .get_rack(request)
+        .find_racks_by_ids(request)
         .await
         .map(|response| response.into_inner())
     {
-        Ok(r) if r.rack.is_empty() => {
+        Ok(r) if r.racks.is_empty() => {
             return Ok(None);
         }
-        Ok(r) if r.rack.len() != 1 => {
+        Ok(r) if r.racks.len() != 1 => {
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Rack list for {rack_id} returned {} racks", r.rack.len()),
+                format!("Rack list for {rack_id} returned {} racks", r.racks.len()),
             )
                 .into_response());
         }
-        Ok(mut r) => Some(r.rack.remove(0)),
+        Ok(mut r) => Some(r.racks.remove(0)),
         Err(err) if err.code() == tonic::Code::NotFound => {
             return Ok(None);
         }

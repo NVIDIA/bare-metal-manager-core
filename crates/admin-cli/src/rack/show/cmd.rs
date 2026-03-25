@@ -18,11 +18,16 @@
 use color_eyre::Result;
 
 use super::args::Args;
+use crate::cfg::runtime::RuntimeConfig;
 use crate::rpc::ApiClient;
 
-pub async fn show_rack(api_client: &ApiClient, show_opts: Args) -> Result<()> {
-    let response = api_client.0.get_rack(show_opts).await?;
-    let racks = response.rack;
+pub async fn show_rack(api_client: &ApiClient, args: Args, config: &RuntimeConfig) -> Result<()> {
+    let racks = match args.rack {
+        Some(rack_id) => api_client.get_one_rack(rack_id).await?,
+        None => api_client.get_all_racks(config.page_size).await?,
+    }
+    .racks;
+
     if racks.is_empty() {
         println!("No racks found");
         return Ok(());

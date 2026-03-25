@@ -33,16 +33,3 @@ pub async fn set_rack_controller_state(
 
     Ok(())
 }
-
-/// Helper function to mark rack as deleted
-pub async fn mark_rack_as_deleted(
-    txn: &mut PgConnection,
-    rack_id: &RackId,
-) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE racks SET deleted = NOW() WHERE id = $1")
-        .bind(rack_id)
-        .execute(txn)
-        .await?;
-
-    Ok(())
-}

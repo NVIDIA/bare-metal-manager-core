@@ -787,9 +787,10 @@ impl StateHandler for RackStateHandler {
             }
 
             RackState::Deleting => {
-                // Rack is being deleted - no action needed for now
-                // TODO[#416]: add escape condition in case rack is recreated
-                Ok(StateHandlerOutcome::do_nothing())
+                // Rack is being deleted
+                let mut txn = ctx.services.db_pool.begin().await?;
+                db::rack::final_delete(&mut txn, id).await?;
+                Ok(StateHandlerOutcome::deleted().with_txn(txn))
             }
         }
     }
