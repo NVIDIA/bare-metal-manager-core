@@ -21,31 +21,80 @@
 //! directly on a DNS port (53 or custom) and handles DNS queries using trust-dns-server.
 //! This is maintained for backward compatibility during migration to the PowerDNS backend.
 
+use std::collections::HashMap;
 use std::iter;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use eyre::Report;
+use metrics_endpoint::{MetricsEndpointConfig, new_metrics_setup, run_metrics_endpoint};
+use opentelemetry::KeyValue;
+use opentelemetry::metrics::{Counter, Meter};
 use rpc::forge_tls_client::{ApiConfig, ForgeClientT, ForgeTlsClient};
 use rpc::protos::forge;
 use tokio::net::{TcpListener, UdpSocket};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tracing::{error, info, warn};
 use trust_dns_resolver::proto::op::{Header, ResponseCode};
 use trust_dns_resolver::proto::rr::{DNSClass, Name, RData};
 use trust_dns_server::ServerFuture;
 use trust_dns_server::authority::MessageResponseBuilder;
-use trust_dns_server::proto::rr::Record;
 use trust_dns_server::proto::rr::RecordType::{A, AAAA};
+use trust_dns_server::proto::rr::{Record, RecordType};
 use trust_dns_server::server::{Request, RequestHandler, ResponseHandler, ResponseInfo};
 
 use crate::config::Config;
 
+/// Metrics for the legacy DNS server, created from an OpenTelemetry `Meter`.
+struct LegacyDnsMetrics {
+    negative_cache_hit: Counter<u64>,
+    negative_cache_miss: Counter<u64>,
+    negative_cache_eviction: Counter<u64>,
+}
+
+impl LegacyDnsMetrics {
+    fn new(meter: &Meter) -> Self {
+        Self {
+            negative_cache_hit: meter
+                .u64_counter("carbide_dns_negative_cache_hit_count")
+                .build(),
+            negative_cache_miss: meter
+                .u64_counter("carbide_dns_negative_cache_miss_count")
+                .build(),
+            negative_cache_eviction: meter
+                .u64_counter("carbide_dns_negative_cache_eviction_count")
+                .build(),
+        }
+    }
+}
+
+// LegacyDnsMetrics contains OpenTelemetry instrument types which don't implement Debug.
+impl std::fmt::Debug for LegacyDnsMetrics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LegacyDnsMetrics").finish()
+    }
+}
+
 #[derive(Debug)]
 pub struct LegacyDnsServer {
     forge_client: Arc<Mutex<ForgeClientT>>,
+    negative_cache: Arc<RwLock<HashMap<CacheKey, NegativeEntry>>>,
+    negative_ttl: Duration,
+    metrics: LegacyDnsMetrics,
+}
+
+#[derive(Debug)]
+struct NegativeEntry {
+    reason_code: ResponseCode,
+    expires_at: Instant,
+}
+
+#[derive(Hash, Debug, Eq, PartialEq)]
+struct CacheKey {
+    qname: String,
+    qtype: RecordType,
 }
 
 #[async_trait::async_trait]
@@ -61,29 +110,55 @@ impl RequestHandler for LegacyDnsServer {
 
         let message = MessageResponseBuilder::from_message_request(request);
 
-        let query_type = request.query().query_type();
-        match query_type {
+        let qtype = request.query().query_type();
+        let qname = request_info.query.name().to_string();
+
+        let cache_key = CacheKey {
+            qname: qname.clone(),
+            qtype,
+        };
+
+        match qtype {
             A | AAAA => {
-                let q_type_num = match query_type {
+                let q_type_num = match qtype {
                     AAAA => 28,
                     _ => 1,
                 };
 
-                // Build the legacy DnsQuestion request
-                let carbide_dns_request = tonic::Request::new(forge::dns_message::DnsQuestion {
-                    q_name: Some(request_info.query.name().to_string()),
-                    q_class: Some(1),
-                    q_type: Some(q_type_num),
-                });
+                let cached = {
+                    let cache = self.negative_cache.read().await;
+                    cache
+                        .get(&cache_key)
+                        .filter(|e| e.expires_at > Instant::now())
+                        .map(|e| e.reason_code)
+                };
 
-                info!("Sending {} to api server", request_info.query.original());
+                let (response_code, record) = if let Some(code) = cached {
+                    self.metrics
+                        .negative_cache_hit
+                        .add(1, &[KeyValue::new("response_code", format!("{code:?}"))]);
+                    tracing::debug!(%qname, %qtype, "negative cache hit");
+                    tracing::info!(
+                        "Returning {} from negative cache for {:?}",
+                        format!("{code:?}"),
+                        cache_key
+                    );
+                    (code, None)
+                } else {
+                    // Build the legacy DnsQuestion request
+                    let carbide_dns_request =
+                        tonic::Request::new(forge::dns_message::DnsQuestion {
+                            q_name: Some(request_info.query.name().to_string()),
+                            q_class: Some(1),
+                            q_type: Some(q_type_num),
+                        });
 
-                let record: Option<Record> =
+                    info!("Sending {} to api server", request_info.query.original());
+
                     match Self::retrieve_record(self.forge_client.clone(), carbide_dns_request)
                         .await
                     {
                         Ok(ip) => {
-                            response_header.set_response_code(ResponseCode::NoError);
                             let (rtype, rdata) = match ip {
                                 IpAddr::V4(v4) => (A, RData::A(v4.into())),
                                 IpAddr::V6(v6) => (AAAA, RData::AAAA(v6.into())),
@@ -95,7 +170,7 @@ impl RequestHandler for LegacyDnsServer {
                                 .set_dns_class(DNSClass::IN)
                                 .set_data(Some(rdata))
                                 .clone();
-                            Some(dns_record)
+                            (ResponseCode::NoError, Some(dns_record))
                         }
                         Err(e) => {
                             warn!(
@@ -103,15 +178,38 @@ impl RequestHandler for LegacyDnsServer {
                                 request_info.query.name(),
                                 e
                             );
-                            response_header.set_response_code(match e.code() {
+                            let code = match e.code() {
                                 tonic::Code::NotFound => ResponseCode::NXDomain,
                                 tonic::Code::InvalidArgument => ResponseCode::Refused,
-                                _ => ResponseCode::ServFail, // All kinds of internal errors
-                            });
+                                _ => ResponseCode::ServFail,
+                            };
 
-                            None
+                            if matches!(code, ResponseCode::NXDomain | ResponseCode::Refused) {
+                                tracing::debug!(%qname, %qtype, "negative cache miss");
+                                tracing::info!(
+                                    "Adding {} for {:?} to negative cache",
+                                    format!("{code:?}"),
+                                    cache_key
+                                );
+                                let mut cache = self.negative_cache.write().await;
+                                cache.insert(
+                                    cache_key,
+                                    NegativeEntry {
+                                        reason_code: code,
+                                        expires_at: Instant::now() + self.negative_ttl,
+                                    },
+                                );
+                                self.metrics
+                                    .negative_cache_miss
+                                    .add(1, &[KeyValue::new("response_code", format!("{code:?}"))]);
+                            }
+
+                            (code, None)
                         }
-                    };
+                    }
+                };
+
+                response_header.set_response_code(response_code);
 
                 let message = message.build(
                     response_header,
@@ -121,8 +219,7 @@ impl RequestHandler for LegacyDnsServer {
                     iter::empty(),
                 );
 
-                let response_info = response_handle.send_response(message).await;
-                response_info.unwrap()
+                response_handle.send_response(message).await.unwrap()
             }
             _ => {
                 warn!("Unsupported query type: {}", request.query());
@@ -137,8 +234,17 @@ impl RequestHandler for LegacyDnsServer {
 }
 
 impl LegacyDnsServer {
-    pub fn new(forge_client: Arc<Mutex<ForgeClientT>>) -> Self {
-        Self { forge_client }
+    pub fn new(
+        forge_client: Arc<Mutex<ForgeClientT>>,
+        negative_ttl: Duration,
+        meter: &Meter,
+    ) -> Self {
+        Self {
+            forge_client,
+            negative_cache: Arc::new(RwLock::new(HashMap::new())),
+            negative_ttl,
+            metrics: LegacyDnsMetrics::new(meter),
+        }
     }
 
     async fn retrieve_record(
@@ -177,10 +283,50 @@ impl LegacyDnsServer {
 
         let client = Arc::new(Mutex::new(ForgeTlsClient::retry_build(&api_config).await?));
 
-        let api = LegacyDnsServer::new(client);
+        // TODO: make negative_cache_ttl configurable via Config
+        let negative_ttl = Duration::from_secs(120);
+
+        let metrics_setup = new_metrics_setup("carbide-dns", "carbide", true)?;
+
+        // Must keep meter_provider alive for the lifetime of the server,
+        // otherwise SdkMeterProvider::drop() shuts down the Prometheus exporter.
+        let _metrics_guard = metrics_setup.meter_provider;
+
+        let metrics_config = MetricsEndpointConfig {
+            address: SocketAddr::from_str("0.0.0.0:8844").expect("Invalid address socket address"),
+            registry: metrics_setup.registry,
+            health_controller: Some(metrics_setup.health_controller),
+        };
+
+        tokio::spawn(async move {
+            tracing::info!("Spawning metrics endpoint on {}", metrics_config.address);
+            if let Err(e) = run_metrics_endpoint(&metrics_config).await {
+                tracing::error!("Metrics endpoint error: {}", e);
+            }
+        });
+
+        let api = LegacyDnsServer::new(client, negative_ttl, &metrics_setup.meter);
+
+        let cache = api.negative_cache.clone();
+
+        let cache_eviction_counter = api.metrics.negative_cache_eviction.clone();
+
+        // Spawn thread to remove cache entries that have expired
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(negative_ttl);
+            loop {
+                interval.tick().await;
+                let mut cache = cache.write().await;
+                let before = cache.len();
+                cache.retain(|_, entry| entry.expires_at > Instant::now());
+                let evicted = before - cache.len();
+                if evicted > 0 {
+                    cache_eviction_counter.add(evicted as u64, &[]);
+                }
+            }
+        });
 
         let mut server = ServerFuture::new(api);
-
         let udp_socket = UdpSocket::bind(&listen).await?;
         server.register_socket(udp_socket);
 

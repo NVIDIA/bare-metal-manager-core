@@ -38,7 +38,7 @@ tracing-subscriber = { features = [
   "local-time",
   "json",
 ], workspace = true }
-opentelemetry = { workspace = true }
+opentelemetry = { workspace = true, features = ["metrics"] }
 opentelemetry_sdk = { workspace = true }
 opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
 tracing-opentelemetry = { workspace = true }
@@ -51,6 +51,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 toml = { workspace = true }
 local-ip-address = { workspace = true }
+metrics-endpoint = { path = "../metrics-endpoint" }
 carbide-tls = { path = "../tls" }
 carbide-version = { path = "../version" }
 carbide-rpc = { path = "../rpc" }
