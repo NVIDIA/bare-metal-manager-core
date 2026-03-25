@@ -1475,6 +1475,7 @@ dependencies = [
  "carbide-macros",
  "carbide-measured-boot",
  "carbide-network",
+ "carbide-rpc",
  "carbide-sqlx-testing",
  "carbide-utils",
  "carbide-uuid",
