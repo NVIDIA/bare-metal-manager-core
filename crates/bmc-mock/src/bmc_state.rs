@@ -34,6 +34,7 @@ pub struct BmcState {
     pub chassis_state: Arc<ChassisState>,
     pub update_service_state: Arc<UpdateServiceState>,
     pub injected_bugs: Arc<InjectedBugs>,
+    pub power_control: Option<Arc<dyn crate::PowerControl>>,
 }
 
 impl BmcState {

@@ -124,6 +124,15 @@ async fn test_integration() -> eyre::Result<()> {
         )
         .boxed(),
         test_machine_a_tron_multidpu(
+            HostHardwareType::NvidiaDgxH100,
+            &test_env,
+            &bmc_address_registry,
+            &managed_segment_id,
+            // Relay IP in admin net
+            Ipv4Addr::new(172, 20, 0, 2),
+        )
+        .boxed(),
+        test_machine_a_tron_multidpu(
             HostHardwareType::WiwynnGB200Nvl,
             &test_env,
             &bmc_address_registry,

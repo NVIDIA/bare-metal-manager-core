@@ -97,6 +97,14 @@ impl BootOptionBuilder {
         self.add_str_field("UefiDevicePath", value)
     }
 
+    pub fn alias(self, value: &str) -> Self {
+        self.add_str_field("Alias", value)
+    }
+
+    pub fn odata_etag(self, value: &str) -> Self {
+        self.add_str_field("@odata.etag", value)
+    }
+
     pub fn build(self) -> BootOption {
         BootOption {
             id: self.id,

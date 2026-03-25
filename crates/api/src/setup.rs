@@ -20,6 +20,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use db::machine::update_dpu_asns;
 use db::resource_pool::DefineResourcePoolError;
 use db::{Transaction, work_lock_manager};
@@ -44,6 +45,7 @@ use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing_log::AsLog as _;
+use utils::HostPortPair;
 
 use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
@@ -55,7 +57,7 @@ use crate::firmware_downloader::FirmwareDownloader;
 use crate::handlers::machine_validation::apply_config_on_startup;
 use crate::ib::{self, IBFabricManager};
 use crate::ib_fabric_monitor::IbFabricMonitor;
-use crate::ipmitool::{IPMITool, IPMIToolImpl, IPMIToolTestImpl};
+use crate::ipmitool::{IPMITool, IPMIToolHttpImpl, IPMIToolImpl, IPMIToolTestImpl};
 use crate::listener::ApiListenMode;
 use crate::logging::log_limiter::LogLimiter;
 use crate::logging::service_health_metrics::{
@@ -159,22 +161,26 @@ pub fn parse_carbide_config(
 pub fn create_ipmi_tool(
     credential_reader: Arc<dyn CredentialReader>,
     carbide_config: &CarbideConfig,
+    bmc_proxy: Arc<ArcSwap<Option<HostPortPair>>>,
 ) -> Arc<dyn IPMITool> {
-    if carbide_config
-        .dpu_ipmi_tool_impl
-        .as_ref()
-        .is_some_and(|tool| tool == "test")
-    {
-        tracing::trace!("Disabling ipmitool");
-        Arc::new(IPMIToolTestImpl {})
-    } else {
-        Arc::new(IPMIToolImpl::new(
-            credential_reader,
-            &carbide_config.dpu_ipmi_reboot_attempts,
-        ))
+    match carbide_config.dpu_ipmi_tool_impl.as_deref() {
+        Some("test") => {
+            tracing::info!("Disabling ipmitool");
+            Arc::new(IPMIToolTestImpl {})
+        }
+        Some("bmc-mock") => {
+            tracing::info!("Using HTTP IPMI transport via bmc_proxy");
+            Arc::new(IPMIToolHttpImpl::new(bmc_proxy))
+        }
+        _ => {
+            tracing::info!("Using lanplus IPMI transport (/usr/bin/ipmitool)");
+            Arc::new(IPMIToolImpl::new(
+                credential_reader,
+                &carbide_config.dpu_ipmi_reboot_attempts,
+            ))
+        }
     }
 }
-
 /// Configure and create a postgres connection pool
 ///
 /// This connects to the database to verify settings
@@ -215,7 +221,11 @@ pub async fn start_api(
     cancel_token: CancellationToken,
     ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
-    let ipmi_tool = create_ipmi_tool(credential_manager.clone(), &carbide_config);
+    let ipmi_tool = create_ipmi_tool(
+        credential_manager.clone(),
+        &carbide_config,
+        dynamic_settings.bmc_proxy.clone(),
+    );
 
     let db_pool = create_and_connect_postgres_pool(&carbide_config).await?;
 

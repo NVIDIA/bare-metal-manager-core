@@ -20,6 +20,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
+pub mod ipmi;
 
 mod bmc_state;
 mod bug;

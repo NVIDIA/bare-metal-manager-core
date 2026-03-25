@@ -130,10 +130,19 @@ impl NvidiaDgxH100<'_> {
         .enumerate()
         .map(|(n, nic)| {
             let id = format!("{:04X}", n + 10); // Starting with 000A
+            // TODO should be taken from NIC:
+            let pci_path = "PciRoot(0x0)/Pci(0x10,0x0)/Pci(0x0,0x0)";
             redfish::boot_option::builder(&redfish::boot_option::resource(system_id, &id))
                 .boot_option_reference(&format!("Boot{id}"))
                 // Real DisplayName: "UEFI P0: HTTP IPv4 Nvidia Network Adapter - 94:6D:AE:00:00:00"
                 .display_name(&format!("UEFI Pn: HTTP IPv4 - {}", nic.mac_address))
+                .alias("UefiHttp")
+                .uefi_device_path(&format!(
+                    "{pci_path}/MAC({},0x1)/IPv4(0.0.0.0,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)/Uri()",
+                    nic.mac_address.to_string().replace(":", "")
+                ))
+                // libredfish model requires @odata.etag field.
+                .odata_etag("MakeLibRedfishHappy")
                 .build()
         })
         .chain(std::iter::once(
@@ -315,7 +324,12 @@ impl NvidiaDgxH100<'_> {
     pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: [
-                ("CPLDMB_0", "0.2.1.9"), // version required carbide to pass ingestion test in site explorer.
+                // version required carbide to pass ingestion test in site explorer.
+                ("CPLDMB_0", "0.2.1.9"),
+                // This one is needed for libredfish to setup lockdown
+                ("HostBIOS_0", "01.05.03"),
+                // This one is needed for libredfish to setup lockdown
+                ("HostBMC_0", "24.09.17"),
             ]
             .iter()
             .map(|(id, version)| {

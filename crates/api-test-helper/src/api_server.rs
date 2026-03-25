@@ -83,7 +83,7 @@ pub async fn start(
         enable_route_servers = false
         deny_prefixes = []
         site_fabric_prefixes = []
-        dpu_ipmi_tool_impl = "test"
+        dpu_ipmi_tool_impl = "bmc-mock"
         initial_domain_name = "{DOMAIN_NAME}"
         initial_dpu_agent_upgrade_policy = "off"
         max_concurrent_machine_updates = 1
