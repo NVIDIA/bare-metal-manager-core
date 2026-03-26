@@ -3771,6 +3771,18 @@ mod tests {
             MlxValueType::Integer(4)
         );
         assert!(mlxconfig_profile.get_variable("NONEXISTENT_GOO").is_none());
+
+        assert_eq!(config.rack_types.rack_types.len(), 2);
+        let nvl72 = config.rack_types.get("NVL72").unwrap();
+        assert_eq!(nvl72.compute.count, 18);
+        assert_eq!(nvl72.compute.name.as_deref(), Some("GB200"));
+        assert_eq!(nvl72.compute.vendor.as_deref(), Some("NVIDIA"));
+        assert_eq!(nvl72.switch.count, 9);
+        assert_eq!(nvl72.power_shelf.count, 8);
+        let nvl36 = config.rack_types.get("NVL36").unwrap();
+        assert_eq!(nvl36.compute.count, 9);
+        assert_eq!(nvl36.switch.count, 9);
+        assert_eq!(nvl36.power_shelf.count, 2);
     }
 
     #[test]

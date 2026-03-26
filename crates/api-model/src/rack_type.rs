@@ -138,7 +138,7 @@ pub struct RackCapabilitiesSet {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RackTypeConfig {
     /// Map of rack type name to its capabilities set.
-    #[serde(default)]
+    #[serde(default, flatten)]
     pub rack_types: HashMap<String, RackCapabilitiesSet>,
 }
 
@@ -173,7 +173,7 @@ mod tests {
                 },
                 power_shelf: RackCapabilityPowerShelf {
                     name: None,
-                    count: 4,
+                    count: 8,
                     vendor: None,
                     slot_ids: None,
                 },
@@ -183,7 +183,7 @@ mod tests {
         let def = config.get("NVL72").unwrap();
         assert_eq!(def.compute.count, 18);
         assert_eq!(def.switch.count, 9);
-        assert_eq!(def.power_shelf.count, 4);
+        assert_eq!(def.power_shelf.count, 8);
 
         assert!(config.get("nonexistent").is_none());
     }
@@ -191,27 +191,27 @@ mod tests {
     #[test]
     fn test_rack_type_config_toml_deserialization() {
         let toml_str = r#"
-[rack_types.NVL72]
-[rack_types.NVL72.compute]
+[NVL72]
+[NVL72.compute]
 name = "GB200"
 count = 18
 vendor = "NVIDIA"
 
-[rack_types.NVL72.switch]
+[NVL72.switch]
 count = 9
 
-[rack_types.NVL72.power_shelf]
-count = 4
+[NVL72.power_shelf]
+count = 8
 
-[rack_types.NVL36x2]
-[rack_types.NVL36x2.compute]
+[NVL36]
+[NVL36.compute]
 count = 9
 
-[rack_types.NVL36x2.switch]
+[NVL36.switch]
 count = 9
 
-[rack_types.NVL36x2.power_shelf]
-count = 4
+[NVL36.power_shelf]
+count = 2
 "#;
         let config: RackTypeConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.rack_types.len(), 2);
@@ -220,7 +220,9 @@ count = 4
         assert_eq!(nvl72.compute.count, 18);
         assert_eq!(nvl72.compute.name.as_deref(), Some("GB200"));
 
-        let nvl36x2 = config.get("NVL36x2").unwrap();
-        assert_eq!(nvl36x2.compute.count, 9);
+        let nvl36 = config.get("NVL36").unwrap();
+        assert_eq!(nvl36.compute.count, 9);
+        assert_eq!(nvl36.switch.count, 9);
+        assert_eq!(nvl36.power_shelf.count, 2);
     }
 }
