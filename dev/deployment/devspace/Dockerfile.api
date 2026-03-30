@@ -32,6 +32,5 @@ RUN mkdir -p /opt/carbide /opt/carbide/firmware /mnt/persistence /var/run/kea
 
 COPY --from=builder /artifacts/carbide-api /opt/carbide/carbide-api
 COPY crates/api/casbin-policy.csv /opt/carbide/casbin-policy.csv
-COPY pxe/static/blobs/internal/aarch64/secure-boot-pk.pem /forge-boot-artifacts/blobs/internal/aarch64/secure-boot-pk.pem
 
 ENV CASBIN_POLICY_FILE=/opt/carbide/casbin-policy.csv

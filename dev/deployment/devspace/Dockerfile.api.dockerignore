@@ -17,12 +17,3 @@ pxe/**
 !pxe/templates
 !pxe/templates/
 !pxe/templates/**
-!pxe/static
-pxe/static/**
-!pxe/static/blobs
-pxe/static/blobs/**
-!pxe/static/blobs/internal
-pxe/static/blobs/internal/**
-!pxe/static/blobs/internal/aarch64
-pxe/static/blobs/internal/aarch64/**
-!pxe/static/blobs/internal/aarch64/secure-boot-pk.pem
