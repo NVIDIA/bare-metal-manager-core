@@ -117,7 +117,6 @@ pub(crate) async fn spdm_attestation_run_to_failed_then_to_success(
         .await;
 
     // move the spdm state controller until it reaches the Passed state
-    // move the attestation until it reaches the Failed state
     for _ in 0..10 {
         env.run_spdm_controller_iteration_no_requeue().await;
     }
