@@ -604,9 +604,7 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
                 .map_err(|e| CarbideError::internal(e.to_string()))?;
         if let Some(host_ep) = host_endpoints.first() {
             match &host_ep.preingestion_state {
-                PreingestionState::Initial
-                | PreingestionState::Complete
-                | PreingestionState::Failed { .. } => {}
+                PreingestionState::Complete | PreingestionState::Failed { .. } => {}
                 other => {
                     return Err(CarbideError::InvalidArgument(format!(
                         "Cannot power-cycle host: host {host_ip} is in state {other:?}. \
@@ -620,14 +618,23 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
 
     api.database_connection
         .with_txn(|txn| {
-            Box::pin(
+            Box::pin(async move {
                 db::explored_endpoints::set_preingestion_bfb_recovery_needed(
                     dpu_ip,
                     "Triggered via CLI".to_string(),
                     host_bmc_ip,
                     txn,
-                ),
-            )
+                )
+                .await?;
+
+                // Pause site explorer remediation on the host so it doesn't
+                // issue BMC resets during the DPU power-cycle.
+                if let Some(host_ip) = host_bmc_ip {
+                    db::explored_endpoints::set_pause_remediation(host_ip, true, txn).await?;
+                }
+
+                Ok::<(), db::DatabaseError>(())
+            })
         })
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?

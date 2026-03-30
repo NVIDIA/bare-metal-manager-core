@@ -2107,7 +2107,7 @@ impl FirmwareGlobal {
         Duration::seconds(30)
     }
     pub fn bfb_copy_limit_default() -> usize {
-        5
+        10
     }
 }
 

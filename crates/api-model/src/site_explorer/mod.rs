@@ -377,9 +377,9 @@ pub enum PreingestionState {
         #[serde(skip_serializing_if = "Option::is_none")]
         host_bmc_ip: Option<IpAddr>,
     },
-    BfbHostPowerCycleWait {
+    BfbWaitingForPlatformPowercycle {
         host_bmc_ip: IpAddr,
-        started_at: DateTime<Utc>,
+        phase: BfbPlatformPowercyclePhase,
     },
     BfbCopyInProgress {
         started_at: DateTime<Utc>,
@@ -421,6 +421,14 @@ pub enum PreingestionState {
         reason: String,
     },
     Complete,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum BfbPlatformPowercyclePhase {
+    PowerOff,
+    PowerOn,
+    WaitingForDpuBmc,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

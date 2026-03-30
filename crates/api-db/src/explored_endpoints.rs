@@ -463,15 +463,13 @@ pub async fn set_preingestion_bfb_recovery_needed(
     set_preingestion(address, state, txn).await
 }
 
-pub async fn set_preingestion_bfb_host_power_cycle_wait(
+pub async fn set_preingestion_bfb_waiting_for_platform_powercycle(
     address: IpAddr,
     host_bmc_ip: IpAddr,
+    phase: model::site_explorer::BfbPlatformPowercyclePhase,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
-    let state = PreingestionState::BfbHostPowerCycleWait {
-        host_bmc_ip,
-        started_at: Utc::now(),
-    };
+    let state = PreingestionState::BfbWaitingForPlatformPowercycle { host_bmc_ip, phase };
     set_preingestion(address, state, txn).await
 }
 

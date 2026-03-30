@@ -2418,30 +2418,37 @@ impl SiteExplorer {
         let mut ingest_host = true;
 
         if !matches!(system.power_state, PowerState::On) {
-            tracing::warn!(
-                "Site Explorer found an uningested host (bmc_ip_address: {}) that isnt on: {:#?}",
-                host_endpoint.address,
-                system.power_state
-            );
+            if host_endpoint.pause_remediation {
+                tracing::info!(
+                    "Site Explorer found an uningested host (bmc_ip_address: {}) that is off, but remediation is paused — skipping power-on",
+                    host_endpoint.address,
+                );
+            } else {
+                tracing::warn!(
+                    "Site Explorer found an uningested host (bmc_ip_address: {}) that isnt on: {:#?}",
+                    host_endpoint.address,
+                    system.power_state
+                );
 
-            let interface = self
-                .find_machine_interface_for_ip(host_endpoint.address)
-                .await?;
+                let interface = self
+                    .find_machine_interface_for_ip(host_endpoint.address)
+                    .await?;
 
-            self.endpoint_explorer
-                .redfish_power_control(
-                    bmc_target_addr,
-                    &interface,
-                    libredfish::SystemPowerControl::On,
-                )
-                .await
-                .map_err(|err| {
-                    tracing::error!(
-                        "Site Explorer failed to turn on host (bmc_ip_address: {}) through redfish: {}",
-                        host_endpoint.address,
-                        err
+                self.endpoint_explorer
+                    .redfish_power_control(
+                        bmc_target_addr,
+                        &interface,
+                        libredfish::SystemPowerControl::On,
                     )
-                }).ok();
+                    .await
+                    .map_err(|err| {
+                        tracing::error!(
+                            "Site Explorer failed to turn on host (bmc_ip_address: {}) through redfish: {}",
+                            host_endpoint.address,
+                            err
+                        )
+                    }).ok();
+            }
 
             ingest_host = false;
         }

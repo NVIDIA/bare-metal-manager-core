@@ -62,13 +62,10 @@ const BFB_COPY_TIMEOUT_MINS: i64 = 35;
 const BFB_COPY_TIMEOUT_MINS_BF2: i64 = 85;
 
 /// Minimum wait time before checking if BFB installation completed.
-const BFB_INSTALLATION_MIN_WAIT_MINS: i64 = 7;
+const BFB_INSTALLATION_MIN_WAIT_MINS: i64 = 10;
 
 /// Timeout for waiting for DPU to report valid firmware after BFB installation.
 const BFB_INSTALLATION_TIMEOUT_MINS: i64 = 45;
-
-/// Timeout for waiting for DPU BMC to come back online after host power-cycle.
-const BFB_HOST_POWER_CYCLE_TIMEOUT_MINS: i64 = 15;
 
 pub struct PreingestionManager {
     static_info: Arc<PreingestionManagerStatic>,
@@ -420,12 +417,9 @@ async fn one_endpoint(
                 .await?;
             false
         }
-        PreingestionState::BfbHostPowerCycleWait {
-            host_bmc_ip: _,
-            started_at,
-        } => {
+        PreingestionState::BfbWaitingForPlatformPowercycle { host_bmc_ip, phase } => {
             static_info
-                .in_bfb_host_power_cycle_wait(db, endpoint, started_at)
+                .in_bfb_waiting_for_platform_powercycle(db, endpoint, host_bmc_ip, phase)
                 .await?;
             false
         }
@@ -1757,32 +1751,12 @@ impl PreingestionManagerStatic {
         self.bfb_copy_state.clear(&address.to_string());
 
         if let Some(host_ip) = host_bmc_ip {
-            let redfish_client = match self
-                .redfish_client_pool
-                .create_client_for_ingested_host(*host_ip, None, db)
-                .await
-            {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::error!(%address, host_ip=%host_ip, error=%e, "failed to create Redfish client for host, will retry");
-                    return Ok(());
-                }
-            };
-
-            tracing::info!(%address, host_ip=%host_ip, "power-cycling host for DPU BFB recovery");
-            if let Err(e) = redfish_client.power(SystemPowerControl::ForceOff).await {
-                tracing::error!(%address, host_ip=%host_ip, error=%e, "failed to power off host, will retry");
-                return Ok(());
-            }
-            tokio::time::sleep(Duration::from_secs(10)).await;
-            if let Err(e) = redfish_client.power(SystemPowerControl::On).await {
-                tracing::error!(%address, host_ip=%host_ip, error=%e, "failed to power on host, will retry");
-                return Ok(());
-            }
-
             db.with_txn(|txn| {
-                db::explored_endpoints::set_preingestion_bfb_host_power_cycle_wait(
-                    address, *host_ip, txn,
+                db::explored_endpoints::set_preingestion_bfb_waiting_for_platform_powercycle(
+                    address,
+                    *host_ip,
+                    model::site_explorer::BfbPlatformPowercyclePhase::PowerOff,
+                    txn,
                 )
                 .boxed()
             })
@@ -1793,46 +1767,107 @@ impl PreingestionManagerStatic {
         self.start_bfb_copy(db, endpoint).await
     }
 
-    async fn in_bfb_host_power_cycle_wait(
+    async fn in_bfb_waiting_for_platform_powercycle(
         &self,
         db: &PgPool,
         endpoint: &ExploredEndpoint,
-        started_at: &DateTime<Utc>,
+        host_bmc_ip: &std::net::IpAddr,
+        phase: &model::site_explorer::BfbPlatformPowercyclePhase,
     ) -> Result<(), DatabaseError> {
-        let elapsed_mins = Utc::now().signed_duration_since(*started_at).num_minutes();
-        if elapsed_mins > BFB_HOST_POWER_CYCLE_TIMEOUT_MINS {
-            let address = endpoint.address;
-            tracing::error!(%address, elapsed_mins, "host power-cycle timeout for DPU");
-            db.with_txn(|txn| {
-                db::explored_endpoints::set_preingestion_failed(
-                    endpoint.address,
-                    format!(
-                        "DPU BMC not reachable after host power-cycle (timed out after {} minutes). \
-                         Delete the explored endpoint to retry.",
-                        elapsed_mins
-                    ),
-                    txn,
-                )
-                .boxed()
-            })
-            .await??;
-            return Ok(());
+        use model::site_explorer::BfbPlatformPowercyclePhase;
+
+        let address = endpoint.address;
+
+        match phase {
+            BfbPlatformPowercyclePhase::PowerOff => {
+                let redfish_client = match self
+                    .redfish_client_pool
+                    .create_client_for_ingested_host(*host_bmc_ip, None, db)
+                    .await
+                {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::error!(%address, host_ip=%host_bmc_ip, error=%e, "failed to create Redfish client for host, will retry");
+                        return Ok(());
+                    }
+                };
+
+                tracing::info!(%address, host_ip=%host_bmc_ip, "powering off host to release DPU rshim");
+                if let Err(e) = redfish_client.power(SystemPowerControl::ForceOff).await {
+                    tracing::error!(%address, host_ip=%host_bmc_ip, error=%e, "failed to power off host, will retry");
+                    return Ok(());
+                }
+
+                db.with_txn(|txn| {
+                    db::explored_endpoints::set_preingestion_bfb_waiting_for_platform_powercycle(
+                        address,
+                        *host_bmc_ip,
+                        BfbPlatformPowercyclePhase::PowerOn,
+                        txn,
+                    )
+                    .boxed()
+                })
+                .await??;
+            }
+            BfbPlatformPowercyclePhase::PowerOn => {
+                let redfish_client = match self
+                    .redfish_client_pool
+                    .create_client_for_ingested_host(*host_bmc_ip, None, db)
+                    .await
+                {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::error!(%address, host_ip=%host_bmc_ip, error=%e, "failed to create Redfish client for host, will retry");
+                        return Ok(());
+                    }
+                };
+
+                tracing::info!(%address, host_ip=%host_bmc_ip, "powering on host after rshim release");
+                match redfish_client.power(SystemPowerControl::On).await {
+                    Ok(()) => {}
+                    Err(e) => {
+                        tracing::error!(%address, host_ip=%host_bmc_ip, error=%e, "failed to power on host, will retry");
+                        return Ok(());
+                    }
+                }
+
+                db.with_txn(|txn| {
+                    db::explored_endpoints::set_preingestion_bfb_waiting_for_platform_powercycle(
+                        address,
+                        *host_bmc_ip,
+                        BfbPlatformPowercyclePhase::WaitingForDpuBmc,
+                        txn,
+                    )
+                    .boxed()
+                })
+                .await??;
+            }
+            BfbPlatformPowercyclePhase::WaitingForDpuBmc => {
+                let dpu_addr = std::net::SocketAddr::new(address, 443);
+                match self
+                    .endpoint_explorer
+                    .probe_redfish_endpoint(dpu_addr)
+                    .await
+                {
+                    Ok(()) => {
+                        tracing::info!(%address, "DPU BMC online after host power-cycle, starting BFB copy");
+
+                        // Resume site explorer remediation on the host.
+                        db.with_txn(|txn| {
+                            db::explored_endpoints::set_pause_remediation(*host_bmc_ip, false, txn)
+                                .boxed()
+                        })
+                        .await??;
+
+                        self.start_bfb_copy(db, endpoint).await?;
+                    }
+                    Err(_) => {
+                        tracing::debug!(%address, "DPU BMC not yet reachable after host power-cycle");
+                    }
+                }
+            }
         }
 
-        let dpu_addr = std::net::SocketAddr::new(endpoint.address, 443);
-        match self
-            .endpoint_explorer
-            .probe_redfish_endpoint(dpu_addr)
-            .await
-        {
-            Ok(()) => {
-                tracing::info!(address=%endpoint.address, "DPU BMC online after host power-cycle, starting BFB copy");
-                self.start_bfb_copy(db, endpoint).await?;
-            }
-            Err(_) => {
-                tracing::debug!(address=%endpoint.address, elapsed_mins, "DPU BMC not yet reachable after host power-cycle");
-            }
-        }
         Ok(())
     }
 
@@ -1844,7 +1879,7 @@ impl PreingestionManagerStatic {
         let address = endpoint.address;
 
         let Ok(permit) = self.bfb_copy_limiter.clone().try_acquire_owned() else {
-            tracing::debug!(%address, "deferring BFB copy, too many copies already active");
+            tracing::warn!(%address, "deferring BFB copy, too many copies already active");
             return Ok(());
         };
 
