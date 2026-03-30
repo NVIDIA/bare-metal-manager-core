@@ -385,6 +385,8 @@ pub async fn update_nvue(
             ));
         } else {
             nc.routing_profile.as_ref().map(|rp| nvue::RoutingProfile {
+                leak_default_route_from_underlay: rp.leak_default_route_from_underlay,
+                leak_tenant_host_routes_to_underlay: rp.leak_tenant_host_routes_to_underlay,
                 route_target_imports: rp
                     .route_target_imports
                     .iter()
@@ -1523,7 +1525,7 @@ mod tests {
 
         // Test without an NSG to make sure there are no changes for pre-FNN users
         // if they don't opt-in to a network security group.
-        let network_config = netconf(virtualization_type, 32, 24, false, None, true);
+        let network_config = netconf(virtualization_type, 32, 24, false, None, true, false);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -1559,7 +1561,7 @@ mod tests {
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
 
         // Both interfaces are L2 segments, so IncludeBridge is true and the bridge block is emitted.
-        let network_config = netconf(virtualization_type, 32, 24, false, None, true);
+        let network_config = netconf(virtualization_type, 32, 24, false, None, true, false);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -1595,7 +1597,7 @@ mod tests {
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
 
         let network_config = {
-            let mut cfg = netconf(virtualization_type, 32, 24, true, None, false);
+            let mut cfg = netconf(virtualization_type, 32, 24, true, None, false, false);
             match cfg.managed_host_config.as_mut() {
                 Some(c) => {
                     c.quarantine_state = Some(rpc::ManagedHostQuarantineState {
@@ -1642,7 +1644,7 @@ mod tests {
         let virtualization_type = VpcVirtualizationType::Fnn;
 
         let network_config = {
-            let mut cfg = netconf(virtualization_type, 32, 24, true, None, false);
+            let mut cfg = netconf(virtualization_type, 32, 24, true, None, false, false);
             match cfg.managed_host_config.as_mut() {
                 Some(c) => {
                     c.quarantine_state = Some(rpc::ManagedHostQuarantineState {
@@ -1686,11 +1688,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_with_tenant_fnn_with_leaks() -> Result<(), Box<dyn std::error::Error>> {
+        let virtualization_type = VpcVirtualizationType::Fnn;
+
+        let network_config = netconf(virtualization_type, 32, 24, false, None, false, true);
+
+        let td = tempfile::tempdir()?;
+        let hbn_root = td.path();
+        fs::create_dir_all(hbn_root.join("var/support"))?;
+        fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
+
+        let has_changes = super::update_nvue(
+            virtualization_type,
+            hbn_root,
+            &network_config,
+            true,
+            HBNDeviceNames::hbn_23(),
+        )
+        .await?;
+        assert!(
+            has_changes,
+            "update_nvue should have written the file, there should be changes"
+        );
+
+        // check startup.yaml
+        let expected = include_str!("../templates/tests/nvue_startup_fnn_with_leaks.yaml.expected");
+        compare_diffed(hbn_root.join(nvue::PATH), expected)?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_with_tenant_nvue_with_nsg() -> Result<(), Box<dyn std::error::Error>> {
         // Test WITH an NSG
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
 
-        let network_config = netconf(virtualization_type, 32, 24, true, None, false);
+        let network_config = netconf(virtualization_type, 32, 24, true, None, false, false);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -1725,7 +1758,7 @@ mod tests {
     async fn test_with_tenant_nvue_with_empty_nsg_default_deny()
     -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
-        let mut network_config = netconf(virtualization_type, 32, 24, true, None, false);
+        let mut network_config = netconf(virtualization_type, 32, 24, true, None, false, false);
 
         // Empty out all NSG rules.  This should result in config that
         // just has a single default deny.
@@ -1779,7 +1812,7 @@ mod tests {
     async fn test_with_tenant_nvue_fnn_classic_with_nsg() -> Result<(), Box<dyn std::error::Error>>
     {
         let virtualization_type = VpcVirtualizationType::Fnn;
-        let network_config = netconf(virtualization_type, 32, 24, true, None, false);
+        let network_config = netconf(virtualization_type, 32, 24, true, None, false, false);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -1825,7 +1858,8 @@ mod tests {
     async fn test_with_tenant_nvue_fnn_classic_with_empty_nsg_default_deny()
     -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::Fnn;
-        let mut network_config = netconf(virtualization_type, 32, 24, true, Some(3109), false);
+        let mut network_config =
+            netconf(virtualization_type, 32, 24, true, Some(3109), false, false);
 
         // Empty out all NSG rules.  This should result in config that
         // just has a single default deny.
@@ -1878,7 +1912,7 @@ mod tests {
     #[tokio::test]
     async fn test_with_tenant_nvue_fnn_classic() -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::Fnn;
-        let network_config = netconf(virtualization_type, 32, 24, false, None, false);
+        let network_config = netconf(virtualization_type, 32, 24, false, None, false, false);
 
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -1924,6 +1958,7 @@ mod tests {
         include_network_security_group: bool,
         site_global_vpc_vni: Option<u32>,
         second_interface_l2: bool,
+        include_network_host_route_and_default_leaking: bool,
     ) -> rpc::ManagedHostNetworkConfigResponse {
         // The config we received from API server
         // Admin won't be used
@@ -2208,6 +2243,8 @@ mod tests {
                 vni: 22222,
             }],
             routing_profile: Some(rpc::RoutingProfile {
+                leak_default_route_from_underlay: include_network_host_route_and_default_leaking,
+                leak_tenant_host_routes_to_underlay: include_network_host_route_and_default_leaking,
                 route_target_imports: vec![rpc_common::RouteTarget {
                     asn: 44444,
                     vni: 55555,
@@ -2454,6 +2491,8 @@ mod tests {
                 ip: "10.217.4.70".to_string(),
             }],
             ct_routing_profile: Some(nvue::RoutingProfile {
+                leak_default_route_from_underlay: false,
+                leak_tenant_host_routes_to_underlay: false,
                 route_target_imports: vec![nvue::RouteTargetConfig {
                     asn: 44444,
                     vni: 55555,
@@ -2679,6 +2718,8 @@ mod tests {
             anycast_site_prefixes: vec!["5.255.255.0/24".to_string()],
             tenant_host_asn: Some(65100),
             routing_profile: Some(rpc::RoutingProfile {
+                leak_default_route_from_underlay: false,
+                leak_tenant_host_routes_to_underlay: false,
                 route_target_imports: vec![rpc_common::RouteTarget {
                     asn: 44444,
                     vni: 55555,

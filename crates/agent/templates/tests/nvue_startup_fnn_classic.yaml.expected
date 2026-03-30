@@ -113,6 +113,14 @@
                 action: permit
                 match:
                   10.255.254.253/32: {}
+
+          ALLOW_TO_UNDERLAY_PREFIX_LIST_IPV6:
+            type: ipv6
+            rule:
+              '65535':
+                action: deny
+                match:
+                  any: {}
           DPU_FROM_INSTANCE_PREFIX_LIST:
             rule:
               '1000':
@@ -135,12 +143,14 @@
                 match:
                   any: {}
           DPU_FROM_INSTANCE_PREFIX_LIST_IPV6:
+            type: ipv6
             rule:
               '65535':
                 action: deny
                 match:
                   any: {}
           DPU_FROM_TRAFFIC_INTERCEPT_PEER_PREFIX_LIST_IPV6:
+            type: ipv6
             rule:
               '65535':
                 action: deny
@@ -193,6 +203,32 @@
                 match:
                   type: ipv4
                   ip-prefix-list: ALLOW_TO_UNDERLAY_PREFIX_LIST
+                set:
+                  community:
+                    none: {}
+                  large-community:
+                    none: {}
+              '65534':
+                action:
+                  permit: {}
+                match:
+                  tag: 65100
+                set:
+                  community:
+                    none: {}
+                  large-community:
+                    none: {}
+              '65535':
+                action:
+                  deny: {}
+          leak_to_underlay_ipv6:
+            rule:
+              '65533':
+                action:
+                  permit: {}
+                match:
+                  type: ipv6
+                  ip-prefix-list: ALLOW_TO_UNDERLAY_PREFIX_LIST_IPV6
                 set:
                   community:
                     none: {}
@@ -364,6 +400,14 @@
                 redistribute:
                   connected:
                     enable: on
+
+                route-import:
+                  from-vrf:
+                    route-map: leak_to_underlay
+                    enable: on
+                    list:
+                      vpc_1025186: {}
+                      vpc_1025197: {}
               ipv6-unicast:
                 enable: on
                 multipaths:
@@ -371,6 +415,14 @@
                 redistribute:
                   connected:
                     enable: on
+
+                route-import:
+                  from-vrf:
+                    route-map: leak_to_underlay_ipv6
+                    enable: on
+                    list:
+                      vpc_1025186: {}
+                      vpc_1025197: {}
               l2vpn-evpn:
                 enable: on
             enable: on
@@ -417,7 +469,7 @@
                     enable: on
                     policy:
                       outbound:
-                        route-map: leak_to_underlay
+                        route-map: leak_to_underlay_ipv6
 
 
       vpc_1025186: 

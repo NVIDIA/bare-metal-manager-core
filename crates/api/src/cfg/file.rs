@@ -765,6 +765,16 @@ pub struct FnnRoutingProfileConfig {
     /// Is this an internal or external tenant/VPC profile
     #[serde(default)]
     pub internal: bool,
+
+    /// Should DPUs leak the default route from the
+    /// underlay into the tenant VRF?
+    #[serde(default)]
+    pub leak_default_route_from_underlay: bool,
+
+    /// Should DPUs leak the routes for the host IPs into
+    /// into the underlay?
+    #[serde(default)]
+    pub leak_tenant_host_routes_to_underlay: bool,
 }
 
 /// FNN configuration specific to the admin network.

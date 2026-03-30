@@ -283,6 +283,8 @@ impl TestEnvOverrides {
                             internal: false,
                             route_target_imports: vec![],
                             route_targets_on_exports: vec![],
+                            leak_default_route_from_underlay: false,
+                            leak_tenant_host_routes_to_underlay: false,
                         },
                     ),
                     (
@@ -291,6 +293,8 @@ impl TestEnvOverrides {
                             internal: true,
                             route_target_imports: vec![],
                             route_targets_on_exports: vec![],
+                            leak_default_route_from_underlay: false,
+                            leak_tenant_host_routes_to_underlay: false,
                         },
                     ),
                 ]),

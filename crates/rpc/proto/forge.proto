@@ -6736,6 +6736,8 @@ enum RoutingProfileType {
 message RoutingProfile {
   repeated common.RouteTarget route_target_imports     = 1;
   repeated common.RouteTarget route_targets_on_exports = 2;
+  bool leak_default_route_from_underlay                = 3;
+  bool leak_tenant_host_routes_to_underlay             = 4;
 }
 
 // ============================================================================

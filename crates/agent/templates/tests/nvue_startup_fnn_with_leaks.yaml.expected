@@ -30,13 +30,7 @@
         acl: 
           p0000_deny_prefixes_ipv4:
             inbound: {}
-          p0004_security_policy_override_ipv4_host_egress:          
-            inbound: {}
-          p0004_security_policy_override_ipv6_host_egress:
-            inbound: {}
           p0004_security_policy_override_ipv4_host_ingress:
-            outbound: {}
-          p0004_security_policy_override_ipv6_host_ingress:
             outbound: {}
           p0009_vpc_1025197_peer_egress_from_host:
             inbound: {}
@@ -69,21 +63,7 @@
         acl: 
           p0000_deny_prefixes_ipv4:
             inbound: {}
-          p0004_security_policy_override_ipv4_host_egress:          
-            inbound: {}
-          p0004_security_policy_override_ipv6_host_egress:
-            inbound: {}
           p0004_security_policy_override_ipv4_host_ingress:
-            outbound: {}
-          p0004_security_policy_override_ipv6_host_ingress:
-            outbound: {}
-          p0005_0_security_group_ipv4_host_egress: 
-            inbound: {}
-          p0005_0_security_group_ipv6_host_egress:
-            inbound: {}
-          p0005_0_security_group_ipv4_host_ingress: 
-            outbound: {}
-          p0005_0_security_group_ipv6_host_ingress: 
             outbound: {}
           p0009_vpc_1025186_peer_egress_from_host:
             inbound: {}
@@ -133,6 +113,11 @@
                 action: permit
                 match:
                   10.255.254.253/32: {}
+              '65002':
+                action: permit
+                match:
+                  10.217.5.161/30: {}
+                  10.217.5.169/29: {}
 
           ALLOW_TO_UNDERLAY_PREFIX_LIST_IPV6:
             type: ipv6
@@ -187,6 +172,32 @@
                 action: deny
                 match:
                   any: {}
+          FROM_DEFAULT_VRF_TO_vpc_1025186_PREFIX_LIST:
+            rule:
+              '65534':
+                action: permit
+                match:
+                  0.0.0.0/0: {}
+          FROM_DEFAULT_VRF_TO_vpc_1025197_PREFIX_LIST:
+            rule:
+              '65534':
+                action: permit
+                match:
+                  0.0.0.0/0: {}
+          FROM_DEFAULT_VRF_TO_vpc_1025186_PREFIX_LIST_IPV6:
+            type: ipv6
+            rule:
+              '65534':
+                action: permit
+                match:
+                  '::/0': {}
+          FROM_DEFAULT_VRF_TO_vpc_1025197_PREFIX_LIST_IPV6:
+            type: ipv6
+            rule:
+              '65534':
+                action: permit
+                match:
+                  '::/0': {}
         route-map:
           dpu_to_evpn:
             rule:
@@ -337,6 +348,38 @@
               '10':
                 action:
                   deny: {}
+          FROM_DEFAULT_VRF_TO_vpc_1025186_MAP:
+            rule:
+              '10':
+                action:
+                  permit: {}
+                match:
+                  ip-prefix-list: FROM_DEFAULT_VRF_TO_vpc_1025186_PREFIX_LIST
+                  type: ipv4
+          FROM_DEFAULT_VRF_TO_vpc_1025197_MAP:
+            rule:
+              '10':
+                action:
+                  permit: {}
+                match:
+                  ip-prefix-list: FROM_DEFAULT_VRF_TO_vpc_1025197_PREFIX_LIST
+                  type: ipv4
+          FROM_DEFAULT_VRF_TO_vpc_1025186_MAP_IPV6:
+            rule:
+              '10':
+                action:
+                  permit: {}
+                match:
+                  ip-prefix-list: FROM_DEFAULT_VRF_TO_vpc_1025186_PREFIX_LIST_IPV6
+                  type: ipv6
+          FROM_DEFAULT_VRF_TO_vpc_1025197_MAP_IPV6:
+            rule:
+              '10':
+                action:
+                  permit: {}
+                match:
+                  ip-prefix-list: FROM_DEFAULT_VRF_TO_vpc_1025197_PREFIX_LIST_IPV6
+                  type: ipv6
           dpu_from_instance_ipv6:
             rule:
               '10':
@@ -397,9 +440,6 @@
               '65535':
                 action:
                   deny: {}
-    system:
-      reflexive-acl:
-        enable: on
     vrf:
       default:
         router:
@@ -518,6 +558,12 @@
                 route-export:
                   to-evpn:
                     enable: on
+                route-import:
+                  from-vrf:
+                    route-map: FROM_DEFAULT_VRF_TO_vpc_1025186_MAP
+                    enable: on
+                    list:
+                      default: {}
               ipv6-unicast:
                 enable: on
                 redistribute:
@@ -621,6 +667,12 @@
                 route-export:
                   to-evpn:
                     enable: on
+                route-import:
+                  from-vrf:
+                    route-map: FROM_DEFAULT_VRF_TO_vpc_1025197_MAP
+                    enable: on
+                    list:
+                      default: {}
               ipv6-unicast:
                 enable: on
                 redistribute:
@@ -817,280 +869,7 @@
                 dest-ip: 10.217.0.0/16
 
 
-      p0005_0_security_group_ipv4_host_egress: 
-        rule:
-          '2000':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: 1.0.0.0/0
-                dest-port:
-                  '80': {} 
-                protocol: tcp
-                source-ip: 0.0.0.0/0
-                source-port:
-                  '80': {}
-          '2001':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: 1.0.0.0/0
-                dest-port:
-                  '81': {} 
-                protocol: tcp
-                source-ip: 0.0.0.0/0
-                source-port:
-                  '80': {}
-          '2002':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: 1.0.0.0/0
-                dest-port:
-                  '80': {} 
-                protocol: tcp
-                source-ip: 0.0.0.0/0
-                source-port:
-                  '81': {}
-          '2003':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: 1.0.0.0/0
-                dest-port:
-                  '81': {} 
-                protocol: tcp
-                source-ip: 0.0.0.0/0
-                source-port:
-                  '81': {}
-          '2004':
-            action:
-              deny: {}
-            match:
-              conntrack:
-                new: {}
-                established: {}
-              ip:
-                dest-ip: 1.0.0.0/0
-                dest-port:
-                  '8080': {} 
-                protocol: tcp
-                source-ip: 0.0.0.0/0
-          '65535':
-            action:
-              deny: {}
-        type: ipv4
-      p0005_0_security_group_ipv6_host_egress: 
-        rule:
-          '2000':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: 2001:db8:3333:4444:5555:6666:7777:9999/128
-                dest-port:
-                  '80': {} 
-                protocol: tcp
-                source-ip: 2001:db8:3333:4444:5555:6666:7777:8888/128
-                source-port:
-                  '80': {}
-          '2001':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: 2001:db8:3333:4444:5555:6666:7777:9999/128
-                dest-port:
-                  '81': {} 
-                protocol: tcp
-                source-ip: 2001:db8:3333:4444:5555:6666:7777:8888/128
-                source-port:
-                  '80': {}
-          '2002':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: 2001:db8:3333:4444:5555:6666:7777:9999/128
-                dest-port:
-                  '80': {} 
-                protocol: tcp
-                source-ip: 2001:db8:3333:4444:5555:6666:7777:8888/128
-                source-port:
-                  '81': {}
-          '2003':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: 2001:db8:3333:4444:5555:6666:7777:9999/128
-                dest-port:
-                  '81': {} 
-                protocol: tcp
-                source-ip: 2001:db8:3333:4444:5555:6666:7777:8888/128
-                source-port:
-                  '81': {}
-          '65535':
-            action:
-              deny: {}
-        type: ipv6
-      p0005_0_security_group_ipv4_host_ingress: 
-        rule:
-          '2000':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: 1.0.0.0/0
-                dest-port:
-                  '80': {} 
-                protocol: tcp
-                source-ip: 0.0.0.0/0
-                source-port:
-                  '80': {}
-          '2001':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: 1.0.0.0/0
-                dest-port:
-                  '81': {} 
-                protocol: tcp
-                source-ip: 0.0.0.0/0
-                source-port:
-                  '80': {}
-          '2002':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: 1.0.0.0/0
-                dest-port:
-                  '80': {} 
-                protocol: tcp
-                source-ip: 0.0.0.0/0
-                source-port:
-                  '81': {}
-          '2003':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: 1.0.0.0/0
-                dest-port:
-                  '81': {} 
-                protocol: tcp
-                source-ip: 0.0.0.0/0
-                source-port:
-                  '81': {}
-          '65532':
-            action:
-              permit: {}
-            match:
-              ip:
-                protocol: tcp
-              conntrack:
-                established: {}
-          '65533':
-            action:
-              permit: {}
-            match:
-              ip:
-                protocol: udp
-              conntrack:
-                established: {}
-          '65534':
-            action:
-              permit: {}
-            match:
-              ip:
-                protocol: icmp
-              conntrack:
-                established: {}
-          '65535':
-            action:
-              deny: {}
-        type: ipv4
-      p0005_0_security_group_ipv6_host_ingress: 
-        rule:
-          '2000':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: 2001:db8:3333:4444:5555:6666:7777:9999/128
-                dest-port:
-                  '80': {} 
-                protocol: tcp
-                source-ip: 2001:db8:3333:4444:5555:6666:7777:8888/128
-                source-port:
-                  '80': {}
-          '2001':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: 2001:db8:3333:4444:5555:6666:7777:9999/128
-                dest-port:
-                  '81': {} 
-                protocol: tcp
-                source-ip: 2001:db8:3333:4444:5555:6666:7777:8888/128
-                source-port:
-                  '80': {}
-          '2002':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: 2001:db8:3333:4444:5555:6666:7777:9999/128
-                dest-port:
-                  '80': {} 
-                protocol: tcp
-                source-ip: 2001:db8:3333:4444:5555:6666:7777:8888/128
-                source-port:
-                  '81': {}
-          '2003':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: 2001:db8:3333:4444:5555:6666:7777:9999/128
-                dest-port:
-                  '81': {} 
-                protocol: tcp
-                source-ip: 2001:db8:3333:4444:5555:6666:7777:8888/128
-                source-port:
-                  '81': {}
-          '65535':
-            action:
-              deny: {}
-        type: ipv6
 
-      p0004_security_policy_override_ipv4_host_egress:
-        type: ipv4
-        rule:
-          '2000':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: 0.0.0.0/0
-                source-ip: 0.0.0.0/0
-      p0004_security_policy_override_ipv6_host_egress:
-        type: ipv6
-        rule:
-          '2000':
-            action:
-              deny: {}
-            match:
-              ip:
-                dest-ip: ::/0
-                source-ip: ::/0
       p0004_security_policy_override_ipv4_host_ingress:
         type: ipv4
         rule:
@@ -1099,15 +878,46 @@
               deny: {}
             match:
               ip:
-                dest-ip: 0.0.0.0/0
-                source-ip: 0.0.0.0/0
-      p0004_security_policy_override_ipv6_host_ingress:
-        type: ipv6
-        rule:
-          '2000':
+                dest-ip: 7.7.7.0/24
+                dest-port:
+                  '80': {} 
+                protocol: tcp
+                source-ip: 7.7.7.0/24
+                source-port:
+                  '80': {}
+          '2001':
             action:
               deny: {}
             match:
               ip:
-                dest-ip: ::/0
-                source-ip: ::/0
+                dest-ip: 7.7.7.0/24
+                dest-port:
+                  '81': {} 
+                protocol: tcp
+                source-ip: 7.7.7.0/24
+                source-port:
+                  '80': {}
+          '2002':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 7.7.7.0/24
+                dest-port:
+                  '80': {} 
+                protocol: tcp
+                source-ip: 7.7.7.0/24
+                source-port:
+                  '81': {}
+          '2003':
+            action:
+              deny: {}
+            match:
+              ip:
+                dest-ip: 7.7.7.0/24
+                dest-port:
+                  '81': {} 
+                protocol: tcp
+                source-ip: 7.7.7.0/24
+                source-port:
+                  '81': {}
