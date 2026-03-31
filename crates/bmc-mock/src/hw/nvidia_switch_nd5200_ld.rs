@@ -94,7 +94,7 @@ impl NvidiaSwitchNd5200Ld<'_> {
                     manufacturer: Some("NVIDIA".into()),
                     part_number: Some("692-13809-1404-000".into()),
                     model: Some("P3809".into()),
-                    serial_number: Some(self.bmc_serial_number.to_string().into()), // 1320325107073
+                    serial_number: Some(self.bmc_serial_number.to_string().into()),
                     network_adapters: None,
                     pcie_devices: None,
                     sensors: Some(vec![]),

@@ -316,6 +316,18 @@ impl HostMachineInfo {
         hw::wiwynn_gb200_nvl::WiwynnGB200Nvl {
             system_serial_number: Cow::Borrowed(&self.serial),
             chassis_serial_number: Cow::Borrowed(&self.serial),
+            compute_board: [
+                hw::nvidia_gb200::BiancaBoard {
+                    index: hw::nvidia_gb200::BoardIndex::Board0,
+                    cpu_serial_number: "0x000000017FFFFFFFFF00000000000001".into(),
+                    gpu_serial_number: "165300000001".into(),
+                },
+                hw::nvidia_gb200::BiancaBoard {
+                    index: hw::nvidia_gb200::BoardIndex::Board1,
+                    cpu_serial_number: "0x000000017FFFFFFFFF00000000000002".into(),
+                    gpu_serial_number: "165300000002".into(),
+                },
+            ],
             dpu1: dpus
                 .next()
                 .expect("Two DPUs must present for GB200 NVL")
@@ -324,6 +336,16 @@ impl HostMachineInfo {
                 .next()
                 .expect("Two DPUs must present for GB200 NVL")
                 .bluefield3(),
+            io_board: [
+                hw::nvidia_gb200::IoBoard {
+                    index: hw::nvidia_gb200::BoardIndex::Board0,
+                    serial_number: "MT0000000001".into(),
+                },
+                hw::nvidia_gb200::IoBoard {
+                    index: hw::nvidia_gb200::BoardIndex::Board1,
+                    serial_number: "MT0000000002".into(),
+                },
+            ],
             topology: hw::nvidia_gbx00::Topology {
                 chassis_physical_slot_number: 24,
                 compute_tray_index: 14,

@@ -18,10 +18,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use rpc::machine_discovery::{
-    BlockDevice, CpuInfo, DiscoveryInfo, DmiData, Gpu, GpuPlatformInfo, InfinibandInterface,
-    MemoryDevice, NvmeDevice, PciDeviceProperties,
-};
+use rpc::machine_discovery::{BlockDevice, CpuInfo, DiscoveryInfo, DmiData, NvmeDevice};
 use serde_json::json;
 use utils::models::arch::CpuArchitecture;
 
@@ -30,9 +27,11 @@ use crate::{PowerControl, hw, redfish};
 pub struct WiwynnGB200Nvl<'a> {
     pub system_serial_number: Cow<'a, str>,
     pub chassis_serial_number: Cow<'a, str>,
+    pub compute_board: [hw::nvidia_gb200::BiancaBoard<'a>; 2],
     pub dpu1: hw::bluefield3::Bluefield3<'a>,
     pub dpu2: hw::bluefield3::Bluefield3<'a>,
     pub topology: hw::nvidia_gbx00::Topology,
+    pub io_board: [hw::nvidia_gb200::IoBoard<'a>; 2],
 }
 
 impl WiwynnGB200Nvl<'_> {
@@ -168,53 +167,97 @@ impl WiwynnGB200Nvl<'_> {
             }
         };
         redfish::chassis::ChassisConfig {
-            chassis: vec![
-                redfish::chassis::SingleChassisConfig {
-                    id: "BMC_0".into(),
-                    chassis_type: "Module".into(),
-                    manufacturer: Some("WIWYNN".into()),
-                    part_number: Some("B81.11810.0005".into()),
-                    model: Some("GB200 NVL".into()),
-                    serial_number: None,
-                    network_adapters: None,
-                    pcie_devices: Some(vec![]),
-                    sensors: None,
-                    assembly: None,
-                    oem: None,
-                },
-                redfish::chassis::SingleChassisConfig {
-                    id: "Chassis_0".into(),
-                    chassis_type: "RackMount".into(),
-                    manufacturer: Some("NVIDIA".into()),
-                    part_number: Some("B81.11810.000D".into()),
-                    model: Some("GB200 NVL".into()),
-                    serial_number: None,
-                    network_adapters: None,
-                    pcie_devices: None,
-                    sensors: Some(redfish::sensor::generate_chassis_sensors(
-                        "Chassis_0",
-                        Self::sensor_layout(),
-                    )),
-                    assembly: Some(
-                        redfish::assembly::builder(&redfish::assembly::chassis_resource(
-                            "Chassis_0",
-                        ))
+            chassis: std::iter::once(redfish::chassis::SingleChassisConfig {
+                id: "BMC_0".into(),
+                chassis_type: "Module".into(),
+                manufacturer: Some("WIWYNN".into()),
+                part_number: Some("B81.11810.0005".into()),
+                model: Some("GB200 NVL".into()),
+                serial_number: None,
+                network_adapters: None,
+                pcie_devices: Some(vec![]),
+                sensors: None,
+                assembly: None,
+                oem: None,
+            })
+            .chain(std::iter::once(redfish::chassis::SingleChassisConfig {
+                id: "Chassis_0".into(),
+                chassis_type: "RackMount".into(),
+                manufacturer: Some("NVIDIA".into()),
+                part_number: Some("B81.11810.000D".into()),
+                model: Some("GB200 NVL".into()),
+                serial_number: None,
+                network_adapters: None,
+                pcie_devices: None,
+                sensors: Some(redfish::sensor::generate_chassis_sensors(
+                    "Chassis_0",
+                    Self::sensor_layout(),
+                )),
+                assembly: Some(
+                    redfish::assembly::builder(&redfish::assembly::chassis_resource("Chassis_0"))
                         .add_data(
                             redfish::assembly::data_builder("0".into())
                                 .serial_number(&self.chassis_serial_number)
                                 .build(),
                         )
                         .build(),
+                ),
+                oem: None,
+            }))
+            .chain((0..4).map(|index| {
+                hw::nvidia_gbx00::cbc_chassis(format!("CBC_{index}").into(), &self.topology)
+            }))
+            .chain(
+                [(0, "HGX_CPU_0"), (1, "HGX_CPU_1")]
+                    .map(|(index, id)| self.compute_board[index].hgx_cpu_chassis(id.into())),
+            )
+            .chain(
+                [
+                    (
+                        0,
+                        [
+                            hw::nvidia_gb200::GpuChassisIds {
+                                chassis_id: "HGX_GPU_0".into(),
+                                pcie_device_id: "GPU_0".into(),
+                            },
+                            hw::nvidia_gb200::GpuChassisIds {
+                                chassis_id: "HGX_GPU_1".into(),
+                                pcie_device_id: "GPU_1".into(),
+                            },
+                        ],
                     ),
-                    oem: None,
-                },
-                hw::nvidia_gbx00::cbc_chassis("CBC_0".into(), &self.topology),
-                hw::nvidia_gbx00::cbc_chassis("CBC_1".into(), &self.topology),
-                hw::nvidia_gbx00::cbc_chassis("CBC_2".into(), &self.topology),
-                hw::nvidia_gbx00::cbc_chassis("CBC_3".into(), &self.topology),
-                dpu_chassis("Riser_Slot1_BlueField_3_Card", &self.dpu1),
-                dpu_chassis("Riser_Slot2_BlueField_3_Card", &self.dpu2),
-            ],
+                    (
+                        1,
+                        [
+                            hw::nvidia_gb200::GpuChassisIds {
+                                chassis_id: "HGX_GPU_2".into(),
+                                pcie_device_id: "GPU_2".into(),
+                            },
+                            hw::nvidia_gb200::GpuChassisIds {
+                                chassis_id: "HGX_GPU_3".into(),
+                                pcie_device_id: "GPU_3".into(),
+                            },
+                        ],
+                    ),
+                ]
+                .into_iter()
+                .flat_map(|(index, ids)| self.compute_board[index].hgx_gpu_chassis(ids)),
+            )
+            .chain(
+                self.io_board
+                    .iter()
+                    .zip(["IO_Board_0", "IO_Board_1"])
+                    .map(|(board, id)| board.as_chassis(id.into())),
+            )
+            .chain(std::iter::once(dpu_chassis(
+                "Riser_Slot1_BlueField_3_Card",
+                &self.dpu1,
+            )))
+            .chain(std::iter::once(dpu_chassis(
+                "Riser_Slot2_BlueField_3_Card",
+                &self.dpu2,
+            )))
+            .collect(),
         }
     }
 
@@ -251,26 +294,10 @@ impl WiwynnGB200Nvl<'_> {
                 self.dpu1.host_nic().discovery_info(0x0603),
                 self.dpu2.host_nic().discovery_info(0x1603),
             ],
-            infiniband_interfaces: (0..4)
-                .map(|n| {
-                    let (domain, numa_node) = [(0x0000, 0), (0x0002, 0), (0x0010, 1), (0x0012, 1)][n];
-                    let device_name = if domain == 0 {
-                        Cow::Borrowed("ibp3s0")
-                    } else {
-                        format!("ibP{domain}p3s0").into()
-                    };
-                    InfinibandInterface {
-                        pci_properties: Some(PciDeviceProperties {
-                            vendor: "Mellanox Technologies".into(),
-                            device: "MT2910 Family [ConnectX-7]".into(),
-                            path: format!("/devices/pci{domain:02x}:00/{domain:02x}:00:00.0/{domain:02x}:01:00.0/{domain:02x}:02:00.0/{domain:02x}:03:00.0/infiniband/{device_name}"),
-                            numa_node,
-                            description: Some("MT2910 Family [ConnectX-7]".into()),
-                            slot: format!("{domain}:03:00.0").into(),
-                        }),
-                        guid: format!("7c8c09000000000{n}"),
-                    }
-                })
+            infiniband_interfaces: self
+                .io_board
+                .iter()
+                .flat_map(|board| board.discovery_infiniband())
                 .collect(),
             cpu_info: vec![CpuInfo {
                 model: "Neoverse-V2".into(),
@@ -308,32 +335,15 @@ impl WiwynnGB200Nvl<'_> {
                 sys_vendor: "NVIDIA".into(),
             }),
             dpu_info: None,
-            gpus: (0..4).map(|n| {
-                let module_id = [2, 1, 4, 3][n];
-                let pci_bus_id = ["00000008:01:00.0", "00000009:01:00.0", "00000018:01:00.0", "00000019:01:00.0"][n];
-                Gpu {
-                    name: "NVIDIA GB200".into(),
-                    serial: format!("165000000000{n}"),
-                    driver_version: "580.126.16".into(),
-                    vbios_version: "97.00.B9.00.76".into(),
-                    inforom_version: "G548.0201.00.06".into(),
-                    total_memory: "189471 MiB".into(),
-                    frequency: "2062 MHz".into(),
-                    pci_bus_id: pci_bus_id.into(),
-                    platform_info: Some(GpuPlatformInfo {
-                        chassis_serial: format!("182100000000{n}"),
-                        slot_number: 24,
-                        tray_index: 14,
-                        host_id: 1,
-                        module_id,
-                        fabric_guid: format!("0xfeeeeeeeeeeeee{n:02x}"),
-                    })
-                }}).collect(),
-            memory_devices: (0..2)
-                .map(|_| MemoryDevice {
-                    size_mb: Some(491520),
-                    mem_type: Some("LPDDR5".into()),
-                })
+            gpus: self
+                .compute_board
+                .iter()
+                .flat_map(|board| board.discovery_gpu())
+                .collect(),
+            memory_devices: self
+                .compute_board
+                .iter()
+                .map(|board| board.discovery_memory())
                 .collect(),
             tpm_ek_certificate: None,
             tpm_description: None,

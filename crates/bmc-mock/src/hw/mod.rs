@@ -45,6 +45,9 @@ pub mod nvidia_dgx_h100;
 /// Common support of GB200 and GB300
 pub mod nvidia_gbx00;
 
+/// GB200 CPU/GPU
+pub mod nvidia_gb200;
+
 /// GB300 CPU/GPU
 pub mod nvidia_gb300;
 
