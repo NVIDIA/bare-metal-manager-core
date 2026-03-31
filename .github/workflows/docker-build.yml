@@ -146,19 +146,29 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Expose GitHub Actions cache env vars
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env['ACTIONS_CACHE_URL'] || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env['ACTIONS_RUNTIME_TOKEN'] || '');
+
       - name: Parse build arguments
         id: parse-args
         run: |
           BUILD_ARGS='${{ inputs.build_args }}'
 
-          # Convert JSON to docker build-arg format
-          if [ "${BUILD_ARGS}" != "{}" ] && [ -n "${BUILD_ARGS}" ]; then
-            echo "build_args<<EOF" >> $GITHUB_OUTPUT
-            echo "${BUILD_ARGS}" | jq -r 'to_entries | .[] | "\(.key)=\(.value)"' >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          else
-            echo "build_args=" >> $GITHUB_OUTPUT
-          fi
+          # Convert JSON to docker build-arg format, always include GHA cache
+          # credentials so sccache can use GitHub Actions cache inside Docker builds.
+          {
+            echo "build_args<<EOF"
+            if [ "${BUILD_ARGS}" != "{}" ] && [ -n "${BUILD_ARGS}" ]; then
+              echo "${BUILD_ARGS}" | jq -r 'to_entries | .[] | "\(.key)=\(.value)"'
+            fi
+            echo "ACTIONS_CACHE_URL=${ACTIONS_CACHE_URL}"
+            echo "ACTIONS_RUNTIME_TOKEN=${ACTIONS_RUNTIME_TOKEN}"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
 
       - name: Build and optionally push Docker image
         id: build

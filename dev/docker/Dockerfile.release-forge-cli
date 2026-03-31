@@ -8,15 +8,24 @@ ENV CI_COMMIT_SHORT_SHA $CI_COMMIT_SHORT_SHA
 ARG VERSION
 ENV VERSION $VERSION
 ENV CONTAINER_REPO_ROOT=/carbide
+
+# sccache GitHub Actions cache support
+ARG ACTIONS_CACHE_URL
+ARG ACTIONS_RUNTIME_TOKEN
+
 #RUN USER=root cargo new --bin carbide
 RUN mkdir /carbide
 WORKDIR ./carbide
 COPY . ./
 
 RUN cd /carbide && \
-export SCCACHE_DIR=/sccache && \
-export RUST_WRAPPER=sccache && \
-cargo build --release -p carbide-admin-cli
+if [ -n "${ACTIONS_CACHE_URL}" ]; then export SCCACHE_GHA_ENABLED=true; fi && \
+export RUSTC_WRAPPER=sccache && \
+# If the GHA cache is unreachable, fall back to compiling without cache instead of failing the build.
+export SCCACHE_IGNORE_SERVER_IO_ERROR=1 && \
+echo "=== sccache config ===" && sccache --show-stats 2>&1 || true && \
+cargo build --release -p carbide-admin-cli && \
+echo "=== sccache stats ===" && sccache --show-stats
 
 FROM debian:12-slim
 

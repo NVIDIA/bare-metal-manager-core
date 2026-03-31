@@ -27,19 +27,27 @@ ARG VERSION
 ENV VERSION $VERSION
 ENV CONTAINER_REPO_ROOT=/carbide
 
+# sccache GitHub Actions cache support
+ARG ACTIONS_CACHE_URL
+ARG ACTIONS_RUNTIME_TOKEN
+
 RUN USER=root cargo new --bin carbide
 WORKDIR ./carbide
 COPY . ./
 
 RUN export CARGO_MAKE_SKIP_CODECOV="true" && \
   export DATABASE_URL="postgresql://%2Fvar%2Frun%2Fpostgresql" && \
-  export SCCACHE_DIR=/sccache && \
-  export RUST_WRAPPER=sccache && \
+  if [ -n "${ACTIONS_CACHE_URL}" ]; then export SCCACHE_GHA_ENABLED=true; fi && \
+  export RUSTC_WRAPPER=sccache && \
+  # If the GHA cache is unreachable, fall back to compiling without cache instead of failing the build.
+  export SCCACHE_IGNORE_SERVER_IO_ERROR=1 && \
+  echo "=== sccache config ===" && sccache --show-stats 2>&1 || true && \
   /etc/init.d/postgresql start && \
   sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;" && \
   createdb root && \
   cargo make build-and-test-release-container-services && \
-  echo "$(date): Finished cargo make build-and-test-release-container-services\n" && \
+  echo "$(date): Finished cargo make build-and-test-release-container-services" && \
+  echo "=== sccache stats ===" && sccache --show-stats && \
   mkdir -p /carbide/target/bin && \
   find /carbide/target/release -maxdepth 1 -type f -exec cp -t /carbide/target/bin {} + && \
   rm -rf /carbide/target/debug && \

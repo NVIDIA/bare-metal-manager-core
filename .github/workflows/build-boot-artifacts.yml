@@ -163,6 +163,13 @@ jobs:
           echo "Pulling build container: ${{ inputs.build_container }}"
           docker pull ${{ inputs.build_container }}
 
+      - name: Expose GitHub Actions cache env vars
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env['ACTIONS_CACHE_URL'] || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env['ACTIONS_RUNTIME_TOKEN'] || '');
+
       - name: Set up environment variables
         run: |
           echo "CARGO_HOME=${{ github.workspace }}/cargo" >> $GITHUB_ENV
@@ -175,6 +182,14 @@ jobs:
           echo "REPO_ROOT=${{ github.workspace }}" >> $GITHUB_ENV
           echo "VERSION=${{ inputs.version }}" >> $GITHUB_ENV
           echo "FORGE_CA=prod" >> $GITHUB_ENV
+
+          # Use GitHub Actions cache backend with sccache (only if cache service is available).
+          if [ -n "${ACTIONS_CACHE_URL}" ]; then
+            echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+          fi
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          # If the GHA cache is unreachable, fall back to compiling without cache instead of failing the build.
+          echo "SCCACHE_IGNORE_SERVER_IO_ERROR=1" >> $GITHUB_ENV
 
           # Add cargo and sbin to PATH (needed for mkosi)
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
@@ -312,6 +327,16 @@ jobs:
           ENV_ARGS="$ENV_ARGS -e VERSION=${{ inputs.version }}"
           ENV_ARGS="$ENV_ARGS -e FORGE_CA=prod"
 
+          # Use GitHub Actions cache backend with sccache (only if cache service is available).
+          if [ -n "${ACTIONS_CACHE_URL}" ]; then
+            ENV_ARGS="$ENV_ARGS -e SCCACHE_GHA_ENABLED=true"
+            ENV_ARGS="$ENV_ARGS -e ACTIONS_CACHE_URL=${ACTIONS_CACHE_URL}"
+            ENV_ARGS="$ENV_ARGS -e ACTIONS_RUNTIME_TOKEN=${ACTIONS_RUNTIME_TOKEN}"
+          fi
+          ENV_ARGS="$ENV_ARGS -e RUSTC_WRAPPER=sccache"
+          # If the GHA cache is unreachable, fall back to compiling without cache instead of failing the build.
+          ENV_ARGS="$ENV_ARGS -e SCCACHE_IGNORE_SERVER_IO_ERROR=1"
+
           echo "============================================"
           echo "Running in container: ${{ inputs.build_container }}"
           echo "VERSION=${{ inputs.version }}"
@@ -350,7 +375,7 @@ jobs:
             -w /workspace \
             ${ENV_ARGS} \
             ${{ inputs.build_container }} \
-            bash -c "git config --global --add safe.directory /workspace && git config --global --add safe.directory /workspace/pxe/ipxe/upstream && echo 'VERSION in container: '\${VERSION} && cargo make --cwd pxe ${SA_ENABLEMENT_ARG} ${{ inputs.cargo_make_task }}"
+            bash -c "git config --global --add safe.directory /workspace && git config --global --add safe.directory /workspace/pxe/ipxe/upstream && echo 'VERSION in container: '\${VERSION} && cargo make --cwd pxe ${SA_ENABLEMENT_ARG} ${{ inputs.cargo_make_task }} && echo '=== sccache stats ===' && sccache --show-stats"
 
       # Run build directly on runner (for ephemeral images with mkosi)
       - name: Run cargo make task (shell mode)
@@ -378,6 +403,9 @@ jobs:
 
           # Run the cargo make task with full output
           cargo make --cwd pxe ${SA_ENABLEMENT_ARG} ${{ inputs.cargo_make_task }} 2>&1 | tee build.log
+
+          echo "=== sccache stats ==="
+          sccache --show-stats || true
 
           echo "Build completed!"
 
