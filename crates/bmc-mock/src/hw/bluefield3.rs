@@ -36,8 +36,10 @@ pub struct Bluefield3<'a> {
 }
 
 pub enum Mode {
-    B3240ColdAisle,              // => P/N 900-9D3B6-00CN-PA0. Installed on WIWYNN GB200s.
-    SuperNIC { nic_mode: bool }, // => P/N 900-9D3B4-00CC-EA0 & 900-9D3B6-00CV-AA0
+    // P/N 900-9D3B6-00CN-PA0. Installed on WIWYNN GB200s / Lenovo GB300s.
+    B3240ColdAisle,
+    // P/N 900-9D3B4-00CC-EA0 & 900-9D3B6-00CV-AA0
+    SuperNIC { nic_mode: bool },
 }
 
 pub struct FirmwareVersions {
@@ -210,6 +212,7 @@ impl Bluefield3<'_> {
                     .interface_enabled(true)
                     .build(),
                 ]),
+                host_interfaces: None,
                 firmware_version: Some("BF-23.10-4"),
                 oem: None,
             }],

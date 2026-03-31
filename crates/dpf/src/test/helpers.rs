@@ -250,10 +250,7 @@ pub(crate) fn make_dpu_labeled(
     mid: &str,
 ) -> DPU {
     let mut dpu = make_dpu(ns, name, device, node, phase);
-    dpu.metadata.labels = Some(BTreeMap::from([(
-        "carbide.nvidia.com/dpu-machine-id".into(),
-        mid.into(),
-    )]));
+    dpu.metadata.labels = Some(BTreeMap::from([("test/dpu-machine-id".into(), mid.into())]));
     dpu
 }
 

@@ -55,6 +55,7 @@ impl LiteOnPowerShelf<'_> {
                     .interface_enabled(true)
                     .build(),
                 ]),
+                host_interfaces: None,
                 firmware_version: Some("r1.3.9"),
                 oem: None,
             }],

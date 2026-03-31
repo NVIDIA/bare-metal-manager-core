@@ -65,6 +65,19 @@ impl<B: Bmc> ExploredChassisCollection<B> {
             .any(|m| m.chassis.id().into_inner() == "powershelf")
     }
 
+    pub fn is_gb300(&self) -> bool {
+        self.members.iter().any(|m| {
+            m.chassis.hardware_id().manufacturer == Some(Manufacturer::new("NVIDIA"))
+                && m.chassis.hardware_id().model == Some(Model::new("NVIDIA GB300"))
+        })
+    }
+
+    pub fn is_lenovo(&self) -> bool {
+        self.members
+            .iter()
+            .any(|m| m.chassis.hardware_id().manufacturer == Some(Manufacturer::new("Lenovo")))
+    }
+
     pub fn is_bluefield2(&self) -> bool {
         self.members
             .iter()

@@ -227,9 +227,9 @@ async fn test_create_initialization_objects() {
 
     let config = InitDpfResourcesConfig {
         bfb_url: "http://example.com/test.bfb".to_string(),
-        deployment_name: "carbide-deployment".to_string(),
         ..Default::default()
     };
+    let deployment_name = config.deployment_name.clone();
 
     let sdk = crate::sdk::DpfSdkBuilder::new(mock.clone(), TEST_NS, "test-password".to_string())
         .initialize(&config)
@@ -239,12 +239,12 @@ async fn test_create_initialization_objects() {
     let bfbs = BfbRepository::list(&mock, TEST_NS).await.unwrap();
     assert_eq!(bfbs.len(), 1);
 
-    let flavor = DpuFlavorRepository::get(&mock, "carbide-dpu-flavor", TEST_NS)
+    let flavor = DpuFlavorRepository::get(&mock, crate::flavor::DEFAULT_FLAVOR_NAME, TEST_NS)
         .await
         .unwrap();
     assert!(flavor.is_some());
 
-    let deployment = DpuDeploymentRepository::get(&mock, "carbide-deployment", TEST_NS)
+    let deployment = DpuDeploymentRepository::get(&mock, &deployment_name, TEST_NS)
         .await
         .unwrap();
     assert!(deployment.is_some());

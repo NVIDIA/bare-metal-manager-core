@@ -22,6 +22,7 @@ use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::rack::RackId;
 use mac_address::MacAddress;
 use url::Url;
 
@@ -55,15 +56,26 @@ impl CredentialProvider for FixedCredentialProvider {
 pub struct BmcEndpoint {
     pub addr: BmcAddr,
     pub metadata: Option<EndpointMetadata>,
+    pub rack_id: Option<RackId>,
     pub(crate) credentials: Arc<RwLock<BmcCredentials>>,
     pub(crate) provider: Arc<dyn CredentialProvider>,
 }
 
 impl BmcEndpoint {
+    pub fn hash_key(&self) -> Cow<'static, str> {
+        Cow::Owned(
+            self.rack_id
+                .as_ref()
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| self.addr.mac.to_string()),
+        )
+    }
+
     pub fn with_fixed_credentials(
         addr: BmcAddr,
         credentials: BmcCredentials,
         metadata: Option<EndpointMetadata>,
+        rack_id: Option<RackId>,
     ) -> Self {
         let provider = Arc::new(FixedCredentialProvider {
             credentials: credentials.clone(),
@@ -72,6 +84,7 @@ impl BmcEndpoint {
         Self {
             addr,
             metadata,
+            rack_id,
             credentials: Arc::new(RwLock::new(credentials)),
             provider,
         }
@@ -81,7 +94,7 @@ impl BmcEndpoint {
         match &self.metadata {
             Some(EndpointMetadata::Machine(machine)) => Cow::Owned(machine.machine_id.to_string()),
             Some(EndpointMetadata::Switch(switch)) => Cow::Borrowed(&switch.serial),
-            None => self.addr.hash_key(),
+            None => Cow::Owned(self.addr.mac.to_string()),
         }
     }
 
@@ -135,10 +148,6 @@ pub struct BmcAddr {
 }
 
 impl BmcAddr {
-    pub fn hash_key(&self) -> Cow<'static, str> {
-        Cow::Owned(self.mac.to_string())
-    }
-
     pub fn to_url(&self) -> Result<Url, url::ParseError> {
         let scheme = if self.port.is_some_and(|v| v == 80) {
             "http"

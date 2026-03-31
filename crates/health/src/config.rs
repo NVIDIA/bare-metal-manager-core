@@ -100,6 +100,8 @@ pub struct StaticBmcEndpoint {
     pub username: String,
     pub password: Option<String>,
     pub switch_serial: Option<String>,
+    pub machine_id: Option<String>,
+    pub rack_id: Option<String>,
 }
 
 impl Debug for StaticBmcEndpoint {
@@ -109,6 +111,8 @@ impl Debug for StaticBmcEndpoint {
             .field("port", &self.port)
             .field("mac", &self.mac)
             .field("switch_serial", &self.switch_serial)
+            .field("machine_id", &self.machine_id)
+            .field("rack_id", &self.rack_id)
             .finish()
     }
 }
@@ -126,6 +130,9 @@ pub struct SinksConfig {
     /// Health override sink: sends health override events to Carbide API.
     #[serde(alias = "carbide_override")]
     pub health_override: Configurable<HealthOverrideSinkConfig>,
+
+    /// Rack health override sink: sends rack-level health overrides to Carbide API.
+    pub rack_health_override: Configurable<RackHealthOverrideSinkConfig>,
 }
 
 impl Default for SinksConfig {
@@ -134,6 +141,7 @@ impl Default for SinksConfig {
             tracing: Configurable::Disabled,
             prometheus: Configurable::Enabled(PrometheusSinkConfig::default()),
             health_override: Configurable::Enabled(HealthOverrideSinkConfig::default()),
+            rack_health_override: Configurable::Enabled(RackHealthOverrideSinkConfig::default()),
         }
     }
 }
@@ -195,6 +203,25 @@ impl Default for HealthOverrideSinkConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+pub struct RackHealthOverrideSinkConfig {
+    #[serde(flatten)]
+    pub connection: CarbideApiConnectionConfig,
+
+    /// Number of concurrent workers submitting rack-level reports to Carbide API.
+    pub workers: usize,
+}
+
+impl Default for RackHealthOverrideSinkConfig {
+    fn default() -> Self {
+        Self {
+            connection: CarbideApiConnectionConfig::default(),
+            workers: 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RateLimitConfig {
     /// Burst value for explorations, optimal to set to max rate limit.
     pub bucket_burst: usize,
@@ -246,12 +273,16 @@ impl Default for CollectorsConfig {
 pub struct ProcessorsConfig {
     /// Leak detection processor configuration (if present, leak detection is enabled)
     pub leak_detection: Configurable<LeakDetectionProcessorConfig>,
+
+    /// Rack-level leak processor: aggregates tray leak reports per rack.
+    pub rack_leak: Configurable<RackLeakProcessorConfig>,
 }
 
 impl Default for ProcessorsConfig {
     fn default() -> Self {
         Self {
             leak_detection: Configurable::Enabled(LeakDetectionProcessorConfig::default()),
+            rack_leak: Configurable::Enabled(RackLeakProcessorConfig::default()),
         }
     }
 }
@@ -268,6 +299,21 @@ impl Default for LeakDetectionProcessorConfig {
     fn default() -> Self {
         Self {
             minimum_alerts_per_report: 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RackLeakProcessorConfig {
+    /// Number of leaking trays in a rack required to trigger a rack-level leak override.
+    pub leaking_tray_threshold: usize,
+}
+
+impl Default for RackLeakProcessorConfig {
+    fn default() -> Self {
+        Self {
+            leaking_tray_threshold: 2,
         }
     }
 }

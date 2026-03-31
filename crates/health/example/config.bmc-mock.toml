@@ -22,9 +22,17 @@ port = 1266
 mac = "aa:bb:cc:dd:ee:ff"
 username = "admin"
 password = "secret"
+rack_id = "RACK-1"
 
 [endpoint_sources.carbide_api]
 enabled = false
+
+[processors.leak_detection]
+enabled = true
+minimum_alerts_per_report = 2
+
+[processors.rack_leak]
+leaking_tray_threshold = 1
 
 [sinks.tracing]
 enabled = true
@@ -33,4 +41,7 @@ enabled = true
 enabled = true
 
 [sinks.health_override]
+enabled = false
+
+[sinks.rack_health_override]
 enabled = false

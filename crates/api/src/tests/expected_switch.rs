@@ -848,3 +848,65 @@ async fn test_replace_all_expected_switches(pool: sqlx::PgPool) {
             .any(|s| s.switch_serial_number == expected_switch_2.switch_serial_number)
     );
 }
+
+/// Verify that find_all_linked joins on bmc_mac_address (not serial_number = config.name).
+#[crate::sqlx_test]
+async fn test_find_all_linked_joins_on_bmc_mac(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    // new_switch creates expected switches and a managed switch linked by bmc_mac_address.
+    // The managed switch config.name is the expected switch's metadata name, NOT the serial number.
+    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None)
+        .await
+        .unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let linked = db::expected_switch::find_all_linked(&mut txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    // At least one expected switch should be linked to the managed switch.
+    let linked_switch = linked.iter().find(|l| l.switch_id.is_some());
+    assert!(
+        linked_switch.is_some(),
+        "expected at least one linked switch, but all were unlinked"
+    );
+    assert_eq!(
+        linked_switch.unwrap().switch_id.unwrap().to_string(),
+        switch_id.to_string(),
+    );
+}
+
+/// Verify that update persists nvos_mac_addresses.
+#[crate::sqlx_test]
+async fn test_update_persists_nvos_mac_addresses(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let switches = create_expected_switches(&mut txn).await;
+    txn.commit().await.unwrap();
+
+    let original = &switches[0];
+    let new_nvos_mac: MacAddress = "AA:BB:CC:DD:EE:FF".parse().unwrap();
+
+    // Update with new nvos_mac_addresses.
+    let mut updated = original.clone();
+    updated.nvos_mac_addresses = vec![new_nvos_mac];
+
+    let mut txn = env.pool.begin().await.unwrap();
+    db::expected_switch::update(&mut txn, &updated)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    // Read back and verify.
+    let mut txn = env.pool.begin().await.unwrap();
+    let fetched = db::expected_switch::find_by_bmc_mac_address(&mut txn, original.bmc_mac_address)
+        .await
+        .unwrap()
+        .expect("expected switch should exist");
+    txn.commit().await.unwrap();
+
+    assert_eq!(fetched.nvos_mac_addresses, vec![new_nvos_mac]);
+}

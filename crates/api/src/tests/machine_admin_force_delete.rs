@@ -740,6 +740,7 @@ async fn test_admin_force_delete_with_dpf_uses_bmc_mac(pool: sqlx::PgPool) {
     mock.expect_register_dpu_node().returning(|_| Ok(()));
     mock.expect_release_maintenance_hold().returning(|_| Ok(()));
     mock.expect_is_reboot_required().returning(|_| Ok(false));
+    mock.expect_verify_node_labels().returning(|_| Ok(true));
     mock.expect_get_dpu_phase()
         .returning(|_, _| Ok(carbide_dpf::DpuPhase::Ready));
 
@@ -757,8 +758,7 @@ async fn test_admin_force_delete_with_dpf_uses_bmc_mac(pool: sqlx::PgPool) {
     config.dpf = crate::cfg::file::DpfConfig {
         enabled: true,
         bfb_url: "http://example.com/test.bfb".to_string(),
-        deployment_name: None,
-        services: None,
+        ..Default::default()
     };
 
     let env = create_test_env_with_overrides(

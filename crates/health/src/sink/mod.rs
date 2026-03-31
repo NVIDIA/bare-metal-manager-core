@@ -18,7 +18,9 @@
 mod composite;
 mod events;
 mod health_override;
+mod override_queue;
 mod prometheus;
+mod rack_health_override;
 mod tracing;
 
 pub use composite::CompositeDataSink;
@@ -28,9 +30,11 @@ pub use events::{
 };
 pub use health_override::HealthOverrideSink;
 pub use prometheus::PrometheusSink;
+pub use rack_health_override::RackHealthOverrideSink;
 pub use tracing::TracingSink;
 
 pub trait DataSink: Send + Sync {
+    fn sink_type(&self) -> &'static str;
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent);
 }
 
@@ -55,6 +59,10 @@ mod tests {
     }
 
     impl DataSink for CountingSink {
+        fn sink_type(&self) -> &'static str {
+            "counting_sink"
+        }
+
         fn handle_event(&self, _context: &EventContext, _event: &CollectorEvent) {
             self.counter.fetch_add(1, Ordering::SeqCst);
         }
@@ -63,12 +71,18 @@ mod tests {
     struct NoopSink;
 
     impl DataSink for NoopSink {
+        fn sink_type(&self) -> &'static str {
+            "noop_sink"
+        }
+
         fn handle_event(&self, _context: &EventContext, _event: &CollectorEvent) {}
     }
 
     #[tokio::test]
     async fn test_composite_sink_fanout_with_noop_sink() {
         let success_counter = Arc::new(AtomicUsize::new(0));
+        let metrics_manager =
+            Arc::new(MetricsManager::new("test").expect("should create metrics manager"));
 
         let sink_ok_1 = Arc::new(CountingSink {
             counter: success_counter.clone(),
@@ -78,7 +92,8 @@ mod tests {
             counter: success_counter.clone(),
         });
 
-        let composite = CompositeDataSink::new(vec![sink_ok_1, sink_noop, sink_ok_2]);
+        let composite =
+            CompositeDataSink::new(vec![sink_ok_1, sink_noop, sink_ok_2], metrics_manager);
 
         let context = EventContext {
             endpoint_key: "42:9e:b1:bd:9d:dd".to_string(),
@@ -89,6 +104,7 @@ mod tests {
             },
             collector_type: "test",
             metadata: None,
+            rack_id: None,
         };
 
         let event = CollectorEvent::Metric(
@@ -110,7 +126,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_prometheus_sink_only_records_metric_events() {
-        let metrics_manager = Arc::new(MetricsManager::new());
+        let metrics_manager =
+            Arc::new(MetricsManager::new("test").expect("should create metrics manager"));
         let sink = PrometheusSink::new(metrics_manager.clone(), "test_sink")
             .expect("sink should initialize");
 
@@ -128,6 +145,7 @@ mod tests {
                     .expect("valid machine id"),
                 machine_serial: None,
             })),
+            rack_id: None,
         };
 
         let log_event = CollectorEvent::Log(
@@ -168,7 +186,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_prometheus_sink_sweeps_stale_metrics_per_collection_window() {
-        let metrics_manager = Arc::new(MetricsManager::new());
+        let metrics_manager =
+            Arc::new(MetricsManager::new("test").expect("should create metrics manager"));
         let sink = PrometheusSink::new(metrics_manager.clone(), "test_sink")
             .expect("sink should initialize");
 
@@ -186,6 +205,7 @@ mod tests {
                     .expect("valid machine id"),
                 machine_serial: None,
             })),
+            rack_id: None,
         };
 
         let start_event = CollectorEvent::MetricCollectionStart;

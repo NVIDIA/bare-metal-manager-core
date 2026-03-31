@@ -390,6 +390,29 @@ pub async fn handle_dpf_state(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     dpf_sdk: &dyn DpfOperations,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
+    if !dpf_sdk.verify_node_labels(&node_name).await? {
+        tracing::error!(
+            host = %state.host_snapshot.id,
+            node = %node_name,
+            "DPUNode has stale labels, failing for reprovisioning"
+        );
+        return Ok(StateHandlerOutcome::transition(ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: FailureCause::DpfProvisioning {
+                    err: format!(
+                        "DPUNode {node_name} has stale labels; \
+                         must be deleted and reprovisioned"
+                    ),
+                },
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+            },
+            machine_id: state.host_snapshot.id,
+            retry_count: 0,
+        }));
+    }
+
     match dpf_state {
         DpfState::Provisioning => handle_dpf_provisioning(state, dpf_sdk).await,
         DpfState::WaitingForReady { phase_detail } => {

@@ -199,6 +199,10 @@ impl HealthReportProcessor {
 }
 
 impl EventProcessor for HealthReportProcessor {
+    fn processor_type(&self) -> &'static str {
+        "health_report_processor"
+    }
+
     fn process_event(&self, context: &EventContext, event: &CollectorEvent) -> Vec<CollectorEvent> {
         match event {
             CollectorEvent::MetricCollectionStart => {
@@ -270,6 +274,7 @@ mod tests {
                     .expect("valid machine id"),
                 machine_serial: None,
             })),
+            rack_id: None,
         }
     }
 

@@ -405,6 +405,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/rack/{rack_id}", get(rack::detail))
             .route("/switch", get(switch::show_html))
             .route("/switch.json", get(switch::show_json))
+            .route("/switch/{switch_id}", get(switch::detail))
             .route(
                 "/switch/{switch_id}/state-history",
                 get(switch_state_history::show_state_history),

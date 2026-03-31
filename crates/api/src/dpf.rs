@@ -83,7 +83,6 @@ pub async fn resolve_bfb_url() -> Result<String, DpfError> {
 /// reacts to watcher callbacks, and performs reprovision/force-delete.
 ///
 /// Reboot handling is managed via the watcher's `on_reboot_required` callback.
-#[allow(dead_code)] // we're mocking the entire dpf sdk, even if we don't use all methods yet.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait DpfOperations: Send + Sync + std::fmt::Debug {
@@ -114,34 +113,15 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
         node_name: &str,
     ) -> Result<DpuPhase, DpfError>;
 
-    /// Update the BFB reference in a DPUDeployment (for BFB upgrade).
-    async fn update_deployment_bfb(
-        &self,
-        deployment_name: &str,
-        bfb_name: &str,
-    ) -> Result<(), DpfError>;
-
-    /// Force delete a single DPU and its device (e.g. when removing one DPU from a host).
-    async fn force_delete_dpu(
-        &self,
-        dpu_device_name: &str,
-        node_name: &str,
-    ) -> Result<(), DpfError>;
-
     /// Check if a DPU node is waiting for external reboot.
     async fn is_reboot_required(&self, node_name: &str) -> Result<bool, DpfError>;
 
     /// Mark DPU node as rebooted (clear the external reboot required annotation).
     async fn reboot_complete(&self, node_name: &str) -> Result<(), DpfError>;
 
-    /// Delete a DPU device.
-    async fn delete_dpu_device(&self, dpu_device_name: &str) -> Result<(), DpfError>;
-
-    /// Delete a DPU node and associated resources.
-    async fn delete_dpu_node(&self, node_name: &str) -> Result<(), DpfError>;
-
-    /// Force delete a DPU node and all its DPU devices.
-    async fn force_delete_dpu_node(&self, node_name: &str) -> Result<(), DpfError>;
+    /// Check that a DPUNode's labels match the current expected labels.
+    /// Returns `false` when the node exists but has stale labels.
+    async fn verify_node_labels(&self, node_name: &str) -> Result<bool, DpfError>;
 }
 
 /// Applies carbide-specific labels to DPF resources.
@@ -152,7 +132,15 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
 ///   `dpuNodeSelector` to match nodes, and also propagate to DPU CRs.
 /// - DPUNode contextual labels (`node_context_labels`) are only set at
 ///   creation and propagate to DPU CRs, but are not part of selectors.
-pub struct CarbideDPFLabeler;
+pub struct CarbideDPFLabeler {
+    node_label_key: String,
+}
+
+impl CarbideDPFLabeler {
+    pub fn new(node_label_key: String) -> Self {
+        Self { node_label_key }
+    }
+}
 
 impl ResourceLabeler for CarbideDPFLabeler {
     fn device_labels(&self, info: &DpuDeviceInfo) -> BTreeMap<String, String> {
@@ -178,10 +166,7 @@ impl ResourceLabeler for CarbideDPFLabeler {
 
     fn node_labels(&self) -> BTreeMap<String, String> {
         BTreeMap::from([
-            (
-                "carbide.nvidia.com/controlled.node.v1".to_string(),
-                "true".to_string(),
-            ),
+            (self.node_label_key.clone(), "true".to_string()),
             (
                 "feature.node.kubernetes.io/dpu-enabled".to_string(),
                 "true".to_string(),
@@ -422,24 +407,6 @@ impl DpfOperations for DpfSdkOps {
         self.sdk.get_dpu_phase(dpu_device_name, node_name).await
     }
 
-    async fn update_deployment_bfb(
-        &self,
-        deployment_name: &str,
-        bfb_name: &str,
-    ) -> Result<(), DpfError> {
-        self.sdk
-            .update_deployment_bfb(deployment_name, bfb_name)
-            .await
-    }
-
-    async fn force_delete_dpu(
-        &self,
-        dpu_device_name: &str,
-        node_name: &str,
-    ) -> Result<(), DpfError> {
-        self.sdk.force_delete_dpu(dpu_device_name, node_name).await
-    }
-
     async fn is_reboot_required(&self, node_name: &str) -> Result<bool, DpfError> {
         self.sdk.is_reboot_required(node_name).await
     }
@@ -448,16 +415,8 @@ impl DpfOperations for DpfSdkOps {
         self.sdk.reboot_complete(node_name).await
     }
 
-    async fn delete_dpu_device(&self, dpu_device_name: &str) -> Result<(), DpfError> {
-        self.sdk.delete_dpu_device(dpu_device_name).await
-    }
-
-    async fn delete_dpu_node(&self, node_name: &str) -> Result<(), DpfError> {
-        self.sdk.delete_dpu_node(node_name).await
-    }
-
-    async fn force_delete_dpu_node(&self, node_name: &str) -> Result<(), DpfError> {
-        self.sdk.force_delete_dpu_node(node_name).await
+    async fn verify_node_labels(&self, node_name: &str) -> Result<bool, DpfError> {
+        self.sdk.verify_node_labels(node_name).await
     }
 }
 

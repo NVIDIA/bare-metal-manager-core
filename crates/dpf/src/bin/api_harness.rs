@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-//! Carbide DPF API harness.
+//! DPF API harness.
 //!
-//! Exercises the DPF SDK using the same surface as Carbide API against a real DPF operator,
-//! without a full Carbide deployment. Used to validate provisioning flows.
+//! Exercises the DPF SDK against a real DPF operator. Used to validate
+//! provisioning flows.
 
 use std::io::Read;
 use std::sync::Arc;
@@ -38,8 +38,8 @@ const BMC_SECRET_NAME: &str = "bmc-shared-password";
 const DEFAULT_BMC_USERNAME: &str = "root";
 
 #[derive(Parser)]
-#[command(name = "carbide-dpf-api-harness")]
-#[command(about = "Exercise DPF SDK (same surface as Carbide API) against a real DPF operator", long_about = None)]
+#[command(name = "dpf-api-harness")]
+#[command(about = "Exercise DPF SDK against a real DPF operator", long_about = None)]
 struct Cli {
     #[arg(short, long, default_value = NAMESPACE)]
     namespace: String,
@@ -119,7 +119,7 @@ enum Commands {
 
     /// Update the BFB reference in a DPUDeployment
     UpdateBfb {
-        #[arg(long, default_value = "carbide-deployment")]
+        #[arg(long, default_value = "dpu-deployment")]
         deployment_name: String,
         /// Name of an existing BFB CR
         #[arg(long)]
@@ -708,9 +708,8 @@ async fn run_provisioning_flow(
     tracing::info!("[1/4] Initializing DPF resources...");
     let init_config = InitDpfResourcesConfig {
         bfb_url: bfb_url.to_string(),
-        deployment_name: "carbide-deployment".to_string(),
         services: services.to_vec(),
-        bfcfg_template: None,
+        ..Default::default()
     };
     sdk.create_initialization_objects(&init_config).await?;
     tracing::info!("BFB, DPUFlavor, and DPUDeployment created");

@@ -75,7 +75,7 @@ pub use sdk::{
     DpfSdk, DpfSdkBuilder, NoLabels, ResourceLabeler, dpu_cr_name, dpu_device_cr_name,
     dpu_node_cr_name, node_id_from_dpu_node_cr_name,
 };
-pub use services::ServiceRegistryConfig;
+pub use services::{DEFAULT_DOCA_HELM_REGISTRY, ServiceRegistryConfig};
 pub use types::{
     BmcPasswordProvider, ConfigPortsServiceType, DpuDeviceInfo, DpuErrorEvent, DpuEvent,
     DpuNodeInfo, DpuPhase, DpuReadyEvent, InitDpfResourcesConfig, MaintenanceEvent,

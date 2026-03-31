@@ -64,6 +64,13 @@ impl NvidiaDgxH100<'_> {
                             .interface_enabled(true)
                             .build(),
                     ]),
+                    host_interfaces: Some(vec![
+                        redfish::host_interface::builder(
+                            &redfish::host_interface::manager_resource(bmc_manager_id, "Self"),
+                        )
+                        .interface_enabled(true)
+                        .build(),
+                    ]),
                     firmware_version: Some("25.02.12"),
                     oem: None,
                 },
@@ -77,12 +84,14 @@ impl NvidiaDgxH100<'_> {
                         .interface_enabled(true)
                         .build(),
                     ]),
+                    host_interfaces: None,
                     firmware_version: Some("HGX-22.10-1-rc67"),
                     oem: None,
                 },
                 redfish::manager::SingleConfig {
                     id: "HGX_FabricManager_0",
                     eth_interfaces: None,
+                    host_interfaces: None,
                     firmware_version: None,
                     oem: None,
                 },

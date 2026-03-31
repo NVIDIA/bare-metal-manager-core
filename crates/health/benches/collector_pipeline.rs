@@ -35,6 +35,10 @@ const MACHINE_ID: &str = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6r
 struct CountingSink;
 
 impl DataSink for CountingSink {
+    fn sink_type(&self) -> &'static str {
+        "counting_sink"
+    }
+
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         black_box(context);
         black_box(event);
@@ -54,6 +58,7 @@ fn event_context() -> EventContext {
             machine_id: MACHINE_ID.parse().expect("valid machine id"),
             machine_serial: None,
         })),
+        rack_id: None,
     }
 }
 
@@ -195,7 +200,9 @@ fn bench_collector_build_and_emit_prometheus(c: &mut Criterion) {
     group.throughput(Throughput::Elements(batch_size as u64));
 
     for (scenario, unique_keys) in [("low_cardinality", 64usize), ("high_cardinality", 2_000)] {
-        let metrics_manager = Arc::new(MetricsManager::new());
+        let metrics_manager = Arc::new(
+            MetricsManager::new("bench_collector").expect("metrics manager should initialize"),
+        );
         let sink = PrometheusSink::new(metrics_manager, "bench_collector")
             .expect("prometheus sink should initialize");
         let context = event_context();
@@ -224,7 +231,10 @@ impl CompositeBuildEmitState {
             sinks.push(Arc::new(CountingSink));
         }
 
-        let sink = CompositeDataSink::new(sinks);
+        let metrics_manager = Arc::new(
+            MetricsManager::new("bench_collector").expect("metrics manager should initialize"),
+        );
+        let sink = CompositeDataSink::new(sinks, metrics_manager);
 
         Self {
             sink,

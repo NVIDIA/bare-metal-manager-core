@@ -45,14 +45,14 @@ const TEST_TIMEOUT: Duration = Duration::from_secs(30);
 fn expect_provisioning(mock: &mut MockDpfOperations) {
     mock.expect_register_dpu_device().returning(|_| Ok(()));
     mock.expect_register_dpu_node().returning(|_| Ok(()));
+    mock.expect_verify_node_labels().returning(|_| Ok(true));
 }
 
 fn dpf_config() -> crate::cfg::file::DpfConfig {
     crate::cfg::file::DpfConfig {
         enabled: true,
         bfb_url: "http://example.com/test.bfb".to_string(),
-        deployment_name: None,
-        services: None,
+        ..Default::default()
     }
 }
 

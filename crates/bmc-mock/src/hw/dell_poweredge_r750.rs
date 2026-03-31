@@ -61,6 +61,14 @@ impl DellPowerEdgeR750<'_> {
                     .interface_enabled(true)
                     .build(),
                 ]),
+                host_interfaces: Some(vec![
+                    redfish::host_interface::builder(&redfish::host_interface::manager_resource(
+                        "iDRAC.Embedded.1",
+                        "Host.1",
+                    ))
+                    .interface_enabled(false)
+                    .build(),
+                ]),
                 firmware_version: Some("6.00.30.00"),
                 oem: Some(redfish::manager::Oem::Dell),
             }],

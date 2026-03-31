@@ -119,6 +119,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NvueRestCollector {
     async fn run_iteration(&mut self) -> Result<IterationResult, HealthError> {
         self.emit_event(CollectorEvent::MetricCollectionStart);
         let mut entity_count = 0usize;
+        let mut fetch_failures = 0usize;
 
         match self.client.get_system_health().await {
             Ok(Some(health)) => {
@@ -127,11 +128,14 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NvueRestCollector {
                 entity_count += 1;
             }
             Ok(None) => {}
-            Err(e) => tracing::warn!(
+            Err(e) => {
+                fetch_failures += 1;
+                tracing::warn!(
                 error = ?e,
                 switch_id = %self.switch_id,
                 "nvue_rest: failed to collect system health"
-            ),
+                );
+            }
         }
 
         match self.client.get_cluster_apps().await {
@@ -149,11 +153,14 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NvueRestCollector {
                 }
             }
             Ok(None) => {}
-            Err(e) => tracing::warn!(
+            Err(e) => {
+                fetch_failures += 1;
+                tracing::warn!(
                 error = ?e,
                 switch_id = %self.switch_id,
                 "nvue_rest: failed to collect cluster apps"
-            ),
+                );
+            }
         }
 
         match self.client.get_sdn_partitions().await {
@@ -185,11 +192,14 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NvueRestCollector {
                 }
             }
             Ok(None) => {}
-            Err(e) => tracing::warn!(
+            Err(e) => {
+                fetch_failures += 1;
+                tracing::warn!(
                 error = ?e,
                 switch_id = %self.switch_id,
                 "nvue_rest: failed to collect SDN partitions"
-            ),
+                );
+            }
         }
 
         match self.client.get_link_diagnostics().await {
@@ -210,11 +220,14 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NvueRestCollector {
                     entity_count += 1;
                 }
             }
-            Err(e) => tracing::warn!(
+            Err(e) => {
+                fetch_failures += 1;
+                tracing::warn!(
                 error = ?e,
                 switch_id = %self.switch_id,
                 "nvue_rest: failed to collect link diagnostics"
-            ),
+                );
+            }
         }
 
         self.emit_event(CollectorEvent::MetricCollectionEnd);
@@ -228,6 +241,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NvueRestCollector {
         Ok(IterationResult {
             refresh_triggered: true,
             entity_count: Some(entity_count),
+            fetch_failures,
         })
     }
 

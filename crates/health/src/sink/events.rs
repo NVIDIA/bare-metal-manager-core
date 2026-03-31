@@ -18,6 +18,7 @@
 use std::sync::Arc;
 
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::rack::RackId;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess,
     HealthReport as CarbideHealthReport, HealthReportConversionError,
@@ -33,15 +34,17 @@ pub struct EventContext {
     pub addr: BmcAddr,
     pub collector_type: &'static str,
     pub metadata: Option<EndpointMetadata>,
+    pub rack_id: Option<RackId>,
 }
 
 impl EventContext {
     pub fn from_endpoint(endpoint: &BmcEndpoint, collector_type: &'static str) -> Self {
         Self {
-            endpoint_key: endpoint.addr.hash_key().into_owned(),
+            endpoint_key: endpoint.hash_key().into_owned(),
             addr: endpoint.addr.clone(),
             collector_type,
             metadata: endpoint.metadata.clone(),
+            rack_id: endpoint.rack_id.clone(),
         }
     }
 
@@ -61,6 +64,10 @@ impl EventContext {
             Some(EndpointMetadata::Switch(switch)) => Some(switch.serial.as_str()),
             _ => None,
         }
+    }
+
+    pub fn rack_id(&self) -> Option<&RackId> {
+        self.rack_id.as_ref()
     }
 }
 
@@ -140,6 +147,7 @@ pub enum CollectorEvent {
 pub enum ReportSource {
     BmcSensors,
     TrayLeakDetection,
+    RackLeakDetection,
 }
 
 impl ReportSource {
@@ -147,6 +155,7 @@ impl ReportSource {
         match self {
             Self::BmcSensors => "bmc-sensors",
             Self::TrayLeakDetection => "tray-leak-detection",
+            Self::RackLeakDetection => "rack-leak-detection",
         }
     }
 }

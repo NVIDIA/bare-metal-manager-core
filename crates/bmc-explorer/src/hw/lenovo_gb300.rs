@@ -15,16 +15,15 @@
  * limitations under the License.
  */
 
-mod firmware;
-mod logs;
-mod nmxt;
-mod nvue;
-mod runtime;
-mod sensors;
+use crate::hw::BiosAttr;
 
-pub use firmware::{FirmwareCollector, FirmwareCollectorConfig};
-pub use logs::{LogFileWriter, LogsCollector, LogsCollectorConfig, create_log_file_writer};
-pub use nmxt::{NmxtCollector, NmxtCollectorConfig};
-pub use nvue::rest::collector::{NvueRestCollector, NvueRestCollectorConfig};
-pub use runtime::{Collector, CollectorStartContext, IterationResult, PeriodicCollector};
-pub use sensors::{SensorCollector, SensorCollectorConfig};
+pub const EXPECTED_BIOS_ATTRS: [BiosAttr; 8] = [
+    BiosAttr::new_str("PCIS007", "PCIS007Enabled"), // SR-IOV Support
+    BiosAttr::new_int("LEM0001", 3),                // PXE retry count
+    BiosAttr::new_str("NWSK000", "NWSK000Enabled"), // Network Stack
+    BiosAttr::new_str("NWSK001", "NWSK001Disabled"), // IPv4 PXE Support
+    BiosAttr::new_str("NWSK006", "NWSK006Enabled"), // IPv4 HTTP Support
+    BiosAttr::new_str("NWSK002", "NWSK002Disabled"), // IPv6 PXE Support
+    BiosAttr::new_str("NWSK007", "NWSK007Disabled"), // IPv6 HTTP Support
+    BiosAttr::new_int("LEM0003", 50),               // Infinite Boot
+];

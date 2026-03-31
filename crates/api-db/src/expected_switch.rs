@@ -137,7 +137,7 @@ pub async fn find_all_linked(txn: &mut PgConnection) -> DatabaseResult<Vec<Linke
   host(ee.address) AS address,
   es.rack_id
  FROM expected_switches es
-  LEFT JOIN switches s ON es.serial_number = s.config->>'name'
+  LEFT JOIN switches s ON es.bmc_mac_address = s.bmc_mac_address
   LEFT JOIN machine_interfaces mi ON es.bmc_mac_address = mi.mac_address
   LEFT JOIN machine_interface_addresses mia ON mi.id = mia.interface_id
   LEFT JOIN explored_endpoints ee ON mia.address = ee.address
@@ -159,7 +159,7 @@ pub async fn find_one_linked(
   s.id AS switch_id,
   es.expected_switch_id
  FROM expected_switches es
-  LEFT JOIN switches s ON es.serial_number = s.config->>'name'
+  LEFT JOIN switches s ON es.bmc_mac_address = s.bmc_mac_address
   ORDER BY es.bmc_mac_address
  LIMIT 1
  "#;
@@ -303,9 +303,9 @@ pub async fn clear(txn: &mut PgConnection) -> Result<(), DatabaseError> {
 /// matches by ID; otherwise matches by bmc_mac_address.
 pub async fn update(txn: &mut PgConnection, switch: &ExpectedSwitch) -> DatabaseResult<()> {
     let (where_clause, target_id) = match switch.expected_switch_id {
-        Some(id) => ("expected_switch_id=$10::uuid", id.to_string()),
+        Some(id) => ("expected_switch_id=$11::uuid", id.to_string()),
         None => (
-            "bmc_mac_address=$10::macaddr",
+            "bmc_mac_address=$11::macaddr",
             switch.bmc_mac_address.to_string(),
         ),
     };
@@ -314,7 +314,7 @@ pub async fn update(txn: &mut PgConnection, switch: &ExpectedSwitch) -> Database
         "UPDATE expected_switches \
          SET bmc_username=$1, bmc_password=$2, serial_number=$3, \
              metadata_name=$4, metadata_description=$5, metadata_labels=$6, \
-             rack_id=$7, nvos_username=$8, nvos_password=$9 \
+             rack_id=$7, nvos_username=$8, nvos_password=$9, nvos_mac_addresses=$10::macaddr[] \
          WHERE {where_clause}"
     );
 
@@ -328,6 +328,7 @@ pub async fn update(txn: &mut PgConnection, switch: &ExpectedSwitch) -> Database
         .bind(&switch.rack_id)
         .bind(&switch.nvos_username)
         .bind(&switch.nvos_password)
+        .bind(&switch.nvos_mac_addresses)
         .bind(&target_id)
         .execute(&mut *txn)
         .await

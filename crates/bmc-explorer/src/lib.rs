@@ -89,7 +89,7 @@ pub async fn nv_generate_exploration_report_from_root<B: Bmc>(
         root = root.restrict_expand();
     }
 
-    let system = root
+    let mut systems_iter = root
         .systems()
         .await
         .map_err(Error::nv_redfish("systems"))?
@@ -97,9 +97,13 @@ pub async fn nv_generate_exploration_report_from_root<B: Bmc>(
         .members()
         .await
         .map_err(Error::nv_redfish("systems members"))?
-        .into_iter()
+        .into_iter();
+
+    let first_system = systems_iter
         .next()
         .ok_or_else(Error::bmc_not_provided("at least one computer system"))?;
+    let other_system_with_bios = systems_iter.find(|system| system.raw().bios.is_some());
+    let system = other_system_with_bios.unwrap_or(first_system);
 
     let manager = root
         .managers()
@@ -165,6 +169,10 @@ pub async fn nv_generate_exploration_report_from_root<B: Bmc>(
             ) => chassis.chassis.id().into_inner() == explored_system.system.id().into_inner(),
             // Provides only one Chassis.
             Some(hw::HwType::LenovoAmi) => true,
+            Some(hw::HwType::LenovoGb300) => {
+                let chassis_id = chassis.chassis.id().into_inner();
+                chassis_id.starts_with("HGX_GPU_")
+            }
             // No meaningful PCIeDevices.
             Some(
                 hw::HwType::Bluefield
@@ -246,6 +254,9 @@ pub(crate) fn hw_type<B: Bmc>(
         .or_else(|| (oem_id == Some("Supermicro")).then_some("Supermicro"))
         .and_then(|vendor_id| match vendor_id {
             "AMI" if system.id().into_inner() == "DGX" => Some(hw::HwType::Viking),
+            "AMI" if explored_chassis.is_gb300() && explored_chassis.is_lenovo() => {
+                Some(hw::HwType::LenovoGb300)
+            }
             "AMI" => Some(hw::HwType::Ami),
             "Dell" => Some(hw::HwType::Dell),
             "Lenovo" if oem_id == Some("Ami") => Some(hw::HwType::LenovoAmi),
@@ -705,6 +716,20 @@ fn machine_setup_status<B: Bmc>(
                     expected: expected_name.to_string(),
                     actual: actual_opt.name().to_string(),
                 });
+            }
+        }
+
+        hw::HwType::LenovoGb300 => {
+            // Check BIOS configuration:
+            diffs.extend(
+                hw::lenovo_gb300::EXPECTED_BIOS_ATTRS
+                    .iter()
+                    .flat_map(|expected| explored_system.verify_bios_attr(expected)),
+            );
+            if let Some(mac) = boot_interface_mac
+                && let Some(diff) = explored_system.check_boot_by_uefi_prefix(mac)
+            {
+                diffs.push(diff)
             }
         }
 

@@ -421,23 +421,22 @@ async fn create_bfb<R: BfbRepository>(
 async fn create_dpu_flavor<R: DpuFlavorRepository>(
     repo: &R,
     namespace: &str,
+    flavor_name: &str,
 ) -> Result<(), DpfError> {
-    let flavor = crate::flavor::default_flavor(namespace);
+    let flavor = crate::flavor::default_flavor(namespace, flavor_name);
     match DpuFlavorRepository::create(repo, &flavor).await {
         Ok(_) => Ok(()),
         Err(DpfError::KubeError(kube::Error::Api(ref err)))
             if err.is_already_exists() || err.is_conflict() =>
         {
-            let existing =
-                DpuFlavorRepository::get(repo, crate::flavor::DPUFLAVOR_NAME, namespace).await?;
+            let existing = DpuFlavorRepository::get(repo, flavor_name, namespace).await?;
             if existing
                 .as_ref()
                 .is_some_and(|f| f.metadata.deletion_timestamp.is_some())
             {
                 return Err(DpfError::InvalidState(format!(
-                    "DPUFlavor {} is being deleted (has deletionTimestamp); \
+                    "DPUFlavor {flavor_name} is being deleted (has deletionTimestamp); \
                      cannot re-create until the old resource is fully removed",
-                    crate::flavor::DPUFLAVOR_NAME
                 )));
             }
             tracing::debug!("DPU flavor already exists");
@@ -456,6 +455,7 @@ async fn create_services_and_deployment<
     labeler: &L,
     services: &[ServiceDefinition],
     deployment_name: &str,
+    flavor_name: &str,
     bfb_name: &str,
 ) -> Result<(), DpfError> {
     for svc in services {
@@ -668,7 +668,7 @@ async fn create_services_and_deployment<
                         })
                     },
                 }]),
-                flavor: crate::flavor::DPUFLAVOR_NAME.to_string(),
+                flavor: flavor_name.to_string(),
                 node_effect: Some(DpuDeploymentDpusNodeEffect {
                     custom_action: None,
                     custom_label: None,
@@ -712,7 +712,7 @@ impl<
         config: &InitDpfResourcesConfig,
     ) -> Result<(), DpfError> {
         let bfb_name = create_bfb(&*self.repo, &self.namespace, &config.bfb_url).await?;
-        create_dpu_flavor(&*self.repo, &self.namespace).await?;
+        create_dpu_flavor(&*self.repo, &self.namespace, &config.flavor_name).await?;
         let services = if config.services.is_empty() {
             crate::services::default_services(&crate::services::ServiceRegistryConfig::default())
         } else {
@@ -724,6 +724,7 @@ impl<
             &self.labeler,
             &services,
             &config.deployment_name,
+            &config.flavor_name,
             &bfb_name,
         )
         .await?;
@@ -731,7 +732,7 @@ impl<
             let data = BTreeMap::from([("BF_CFG_TEMPLATE".to_string(), bfcfg.clone())]);
             K8sConfigRepository::apply_configmap(
                 &*self.repo,
-                "carbide-dpf-bf-cfg-template",
+                "dpf-bf-cfg-template",
                 &self.namespace,
                 data,
             )
@@ -898,6 +899,29 @@ impl<R: DpuNodeRepository, L: ResourceLabeler> DpfSdk<R, L> {
             }
             Err(e) => Err(e),
         }
+    }
+
+    /// Check that a DPUNode's labels contain all entries from the current
+    /// labeler's `node_labels()`. Returns `false` when the node exists but
+    /// has stale labels (e.g. from a previous label version). Returns `true`
+    /// when the node does not exist yet.
+    pub async fn verify_node_labels(&self, node_name: &str) -> Result<bool, DpfError> {
+        let node = DpuNodeRepository::get(&*self.repo, node_name, &self.namespace).await?;
+
+        let Some(node) = node else {
+            return Ok(true);
+        };
+
+        let required_labels = self.labeler.node_labels();
+        let node_labels = node.metadata.labels.as_ref();
+
+        Ok(required_labels.iter().all(|(key, required_value)| {
+            node_labels.is_some_and(|labels| {
+                labels
+                    .get(key)
+                    .is_some_and(|node_value| node_value == required_value)
+            })
+        }))
     }
 
     /// Check if reboot is required for a DPU node.
@@ -1752,7 +1776,7 @@ mod tests {
                 bmc_ip: None,
                 cluster: None,
                 dpu_device_name: "dpu-001".to_string(),
-                dpu_flavor: Some("carbide-dpu-flavor".to_string()),
+                dpu_flavor: Some(crate::flavor::DEFAULT_FLAVOR_NAME.to_string()),
                 dpu_node_name: "node-dpu-001".to_string(),
                 node_effect: None,
                 pci_address: None,
@@ -1935,8 +1959,9 @@ mod tests {
     #[tokio::test]
     async fn test_init_config_defaults() {
         let config = InitDpfResourcesConfig::default();
-        assert!(!config.bfb_url.is_empty());
-        assert_eq!(config.deployment_name, "carbide-deployment");
+        assert!(config.bfb_url.is_empty());
+        assert_eq!(config.deployment_name, "dpu-deployment");
+        assert_eq!(config.flavor_name, crate::flavor::DEFAULT_FLAVOR_NAME);
         assert!(config.services.is_empty());
     }
 
@@ -1945,12 +1970,14 @@ mod tests {
         let config = InitDpfResourcesConfig {
             bfb_url: "http://example.com/test.bfb".to_string(),
             deployment_name: "my-deployment".to_string(),
+            flavor_name: "my-flavor".to_string(),
             services: vec![],
             bfcfg_template: None,
         };
 
         assert_eq!(config.bfb_url, "http://example.com/test.bfb");
         assert_eq!(config.deployment_name, "my-deployment");
+        assert_eq!(config.flavor_name, "my-flavor");
     }
 
     fn terminating_timestamp() -> k8s_openapi::apimachinery::pkg::apis::meta::v1::Time {
@@ -2126,7 +2153,8 @@ mod tests {
     #[tokio::test]
     async fn test_create_dpu_flavor_fails_when_terminating() {
         let mock = SdkMock::new();
-        let flavor = crate::flavor::default_flavor(TEST_NAMESPACE);
+        let flavor =
+            crate::flavor::default_flavor(TEST_NAMESPACE, crate::flavor::DEFAULT_FLAVOR_NAME);
         let mut terminating_flavor = flavor.clone();
         terminating_flavor.metadata.deletion_timestamp = Some(terminating_timestamp());
         mock.flavors
@@ -2134,7 +2162,9 @@ mod tests {
             .unwrap()
             .insert(SdkMock::key(&terminating_flavor), terminating_flavor);
 
-        let err = create_dpu_flavor(&mock, TEST_NAMESPACE).await.unwrap_err();
+        let err = create_dpu_flavor(&mock, TEST_NAMESPACE, crate::flavor::DEFAULT_FLAVOR_NAME)
+            .await
+            .unwrap_err();
         assert!(
             matches!(err, DpfError::InvalidState(_)),
             "expected InvalidState, got: {err:?}"
@@ -2144,13 +2174,16 @@ mod tests {
     #[tokio::test]
     async fn test_create_dpu_flavor_ok_when_existing_not_terminating() {
         let mock = SdkMock::new();
-        let flavor = crate::flavor::default_flavor(TEST_NAMESPACE);
+        let flavor =
+            crate::flavor::default_flavor(TEST_NAMESPACE, crate::flavor::DEFAULT_FLAVOR_NAME);
         mock.flavors
             .write()
             .unwrap()
             .insert(SdkMock::key(&flavor), flavor);
 
-        create_dpu_flavor(&mock, TEST_NAMESPACE).await.unwrap();
+        create_dpu_flavor(&mock, TEST_NAMESPACE, crate::flavor::DEFAULT_FLAVOR_NAME)
+            .await
+            .unwrap();
     }
 
     #[derive(Clone, Default)]
@@ -2258,6 +2291,190 @@ mod tests {
             mock.bfbs.read().unwrap().len(),
             1,
             "only one BFB should exist"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_verify_node_labels_current_labels_returns_true() {
+        let mock = SdkMock::new();
+        let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NAMESPACE, String::new())
+            .with_labeler(TestLabeler)
+            .build_without_resources()
+            .await
+            .unwrap();
+
+        let info = DpuNodeInfo {
+            node_id: "host-001".to_string(),
+            host_bmc_ip: "10.0.0.1".to_string(),
+            device_ids: vec!["dpu-001".to_string()],
+            host_machine_id: "host-aaa".to_string(),
+        };
+        sdk.register_dpu_node(info).await.unwrap();
+
+        assert!(sdk.verify_node_labels("node-host-001").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_verify_node_labels_missing_node_returns_true() {
+        let mock = SdkMock::new();
+        let sdk = DpfSdkBuilder::new(mock, TEST_NAMESPACE, String::new())
+            .with_labeler(TestLabeler)
+            .build_without_resources()
+            .await
+            .unwrap();
+
+        assert!(
+            sdk.verify_node_labels("node-does-not-exist").await.unwrap(),
+            "non-existent node should return true (will be created with current labels)"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_verify_node_labels_stale_labels_returns_false() {
+        let mock = SdkMock::new();
+
+        let stale_node = DPUNode {
+            metadata: ObjectMeta {
+                name: Some("node-host-001".to_string()),
+                namespace: Some(TEST_NAMESPACE.to_string()),
+                labels: Some(BTreeMap::from([(
+                    "old/stale-label".to_string(),
+                    "true".to_string(),
+                )])),
+                ..Default::default()
+            },
+            spec: DpuNodeSpec {
+                dpus: Some(vec![]),
+                node_dms_address: None,
+                node_reboot_method: None,
+            },
+            status: None,
+        };
+        mock.nodes
+            .write()
+            .unwrap()
+            .insert(SdkMock::key(&stale_node), stale_node);
+
+        let sdk = DpfSdkBuilder::new(mock, TEST_NAMESPACE, String::new())
+            .with_labeler(TestLabeler)
+            .build_without_resources()
+            .await
+            .unwrap();
+
+        assert!(
+            !sdk.verify_node_labels("node-host-001").await.unwrap(),
+            "node with stale labels should return false"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_verify_node_labels_no_labels_returns_false() {
+        let mock = SdkMock::new();
+
+        let bare_node = DPUNode {
+            metadata: ObjectMeta {
+                name: Some("node-host-001".to_string()),
+                namespace: Some(TEST_NAMESPACE.to_string()),
+                labels: None,
+                ..Default::default()
+            },
+            spec: DpuNodeSpec {
+                dpus: Some(vec![]),
+                node_dms_address: None,
+                node_reboot_method: None,
+            },
+            status: None,
+        };
+        mock.nodes
+            .write()
+            .unwrap()
+            .insert(SdkMock::key(&bare_node), bare_node);
+
+        let sdk = DpfSdkBuilder::new(mock, TEST_NAMESPACE, String::new())
+            .with_labeler(TestLabeler)
+            .build_without_resources()
+            .await
+            .unwrap();
+
+        assert!(
+            !sdk.verify_node_labels("node-host-001").await.unwrap(),
+            "node with no labels should return false when labeler expects labels"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_verify_node_labels_superset_returns_true() {
+        let mock = SdkMock::new();
+
+        let superset_node = DPUNode {
+            metadata: ObjectMeta {
+                name: Some("node-host-001".to_string()),
+                namespace: Some(TEST_NAMESPACE.to_string()),
+                labels: Some(BTreeMap::from([
+                    ("test/node".to_string(), "true".to_string()),
+                    ("extra/label".to_string(), "extra-value".to_string()),
+                ])),
+                ..Default::default()
+            },
+            spec: DpuNodeSpec {
+                dpus: Some(vec![]),
+                node_dms_address: None,
+                node_reboot_method: None,
+            },
+            status: None,
+        };
+        mock.nodes
+            .write()
+            .unwrap()
+            .insert(SdkMock::key(&superset_node), superset_node);
+
+        let sdk = DpfSdkBuilder::new(mock, TEST_NAMESPACE, String::new())
+            .with_labeler(TestLabeler)
+            .build_without_resources()
+            .await
+            .unwrap();
+
+        assert!(
+            sdk.verify_node_labels("node-host-001").await.unwrap(),
+            "node with a superset of expected labels should return true"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_verify_node_labels_wrong_value_returns_false() {
+        let mock = SdkMock::new();
+
+        let wrong_value_node = DPUNode {
+            metadata: ObjectMeta {
+                name: Some("node-host-001".to_string()),
+                namespace: Some(TEST_NAMESPACE.to_string()),
+                labels: Some(BTreeMap::from([(
+                    "test/node".to_string(),
+                    "false".to_string(),
+                )])),
+                ..Default::default()
+            },
+            spec: DpuNodeSpec {
+                dpus: Some(vec![]),
+                node_dms_address: None,
+                node_reboot_method: None,
+            },
+            status: None,
+        };
+        mock.nodes
+            .write()
+            .unwrap()
+            .insert(SdkMock::key(&wrong_value_node), wrong_value_node);
+
+        let sdk = DpfSdkBuilder::new(mock, TEST_NAMESPACE, String::new())
+            .with_labeler(TestLabeler)
+            .build_without_resources()
+            .await
+            .unwrap();
+
+        assert!(
+            !sdk.verify_node_labels("node-host-001").await.unwrap(),
+            "node with correct key but wrong value should return false"
         );
     }
 }

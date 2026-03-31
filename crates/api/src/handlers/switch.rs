@@ -20,7 +20,7 @@ use db::switch as db_switch;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
-use crate::api::Api;
+use crate::api::{Api, log_request_data};
 
 pub async fn find_switch(
     api: &Api,
@@ -114,6 +114,47 @@ pub async fn find_switch(
         })?;
 
     Ok(Response::new(rpc::SwitchList { switches }))
+}
+
+pub async fn find_switch_state_histories(
+    api: &Api,
+    request: Request<rpc::SwitchStateHistoriesRequest>,
+) -> Result<Response<rpc::SwitchStateHistories>, Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+    let switch_ids = request.switch_ids;
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if switch_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if switch_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    let mut txn = api.txn_begin().await?;
+
+    let results = db::switch_state_history::find_by_switch_ids(&mut txn, &switch_ids)
+        .await
+        .map_err(CarbideError::from)?;
+
+    let mut response = rpc::SwitchStateHistories::default();
+    for (switch_id, records) in results {
+        response.histories.insert(
+            switch_id.to_string(),
+            ::rpc::forge::SwitchStateHistoryRecords {
+                records: records.into_iter().map(Into::into).collect(),
+            },
+        );
+    }
+
+    txn.commit().await?;
+
+    Ok(tonic::Response::new(response))
 }
 
 // TODO: block if switch is in use (firmware update, etc.)

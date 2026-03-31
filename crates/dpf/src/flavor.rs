@@ -23,13 +23,13 @@ use crate::crds::dpuflavors_generated::{
     DPUFlavor, DpuFlavorConfigFiles, DpuFlavorConfigFilesOperation, DpuFlavorDpuMode, DpuFlavorSpec,
 };
 
-pub const DPUFLAVOR_NAME: &str = "carbide-dpu-flavor";
+pub const DEFAULT_FLAVOR_NAME: &str = "dpu-flavor";
 
-/// Build the default DPUFlavor CR for Carbide.
-pub fn default_flavor(namespace: &str) -> DPUFlavor {
+/// Build the default DPUFlavor CR.
+pub fn default_flavor(namespace: &str, name: &str) -> DPUFlavor {
     DPUFlavor {
         metadata: ObjectMeta {
-            name: Some(DPUFLAVOR_NAME.to_string()),
+            name: Some(name.to_string()),
             namespace: Some(namespace.to_string()),
             ..Default::default()
         },

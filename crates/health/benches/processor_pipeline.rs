@@ -21,12 +21,16 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
+use carbide_health::metrics::MetricsManager;
 use carbide_health::processor::{
     EventProcessingPipeline, EventProcessor, HealthReportProcessor, LeakEventProcessor,
+    RackLeakProcessor,
 };
 use carbide_health::sink::{
-    CollectorEvent, DataSink, EventContext, SensorHealthContext, SensorHealthData,
+    CollectorEvent, CompositeDataSink, DataSink, EventContext, SensorHealthContext,
+    SensorHealthData,
 };
+use carbide_uuid::rack::RackId;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use mac_address::MacAddress;
 use nv_redfish::resource::Health as BmcHealth;
@@ -36,6 +40,10 @@ const MACHINE_ID: &str = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6r
 struct CountingSink;
 
 impl DataSink for CountingSink {
+    fn sink_type(&self) -> &'static str {
+        "counting_sink"
+    }
+
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         std::hint::black_box(context);
         std::hint::black_box(event);
@@ -45,6 +53,10 @@ impl DataSink for CountingSink {
 struct NoopProcessor;
 
 impl EventProcessor for NoopProcessor {
+    fn processor_type(&self) -> &'static str {
+        "noop_processor"
+    }
+
     fn process_event(
         &self,
         _context: &EventContext,
@@ -57,6 +69,10 @@ impl EventProcessor for NoopProcessor {
 struct ReemitProcessor;
 
 impl EventProcessor for ReemitProcessor {
+    fn processor_type(&self) -> &'static str {
+        "reemit_processor"
+    }
+
     fn process_event(
         &self,
         _context: &EventContext,
@@ -79,15 +95,16 @@ fn event_context() -> EventContext {
             machine_id: MACHINE_ID.parse().expect("valid machine id"),
             machine_serial: None,
         })),
+        rack_id: None,
     }
 }
 
-fn make_sinks(count: usize) -> Vec<Arc<dyn DataSink>> {
+fn make_composite_sink(count: usize, metrics_manager: Arc<MetricsManager>) -> Arc<dyn DataSink> {
     let mut sinks: Vec<Arc<dyn DataSink>> = Vec::with_capacity(count);
     for _ in 0..count {
         sinks.push(Arc::new(CountingSink));
     }
-    sinks
+    Arc::new(CompositeDataSink::new(sinks, metrics_manager))
 }
 
 fn metric_events(
@@ -150,13 +167,23 @@ fn bench_pipeline_baseline(c: &mut Criterion) {
     let mut group = c.benchmark_group("processor_pipeline_baseline");
     let batch_size = 2_000usize;
     group.throughput(Throughput::Elements(batch_size as u64));
-
     for (scenario, processor_count) in [("no_processors", 0usize), ("two_noops", 2usize)] {
+        let metrics_manager: Arc<MetricsManager> =
+            Arc::new(MetricsManager::new("bench").expect("metrics manager should initialize"));
+        let sink = make_composite_sink(2, metrics_manager.clone());
         let mut processors: Vec<Arc<dyn EventProcessor>> = Vec::with_capacity(processor_count);
         for _ in 0..processor_count {
             processors.push(Arc::new(NoopProcessor));
         }
-        let pipeline = EventProcessingPipeline::new(processors, make_sinks(2));
+        let sink: Arc<dyn DataSink> = if processors.is_empty() {
+            sink
+        } else {
+            Arc::new(EventProcessingPipeline::new(
+                processors,
+                sink,
+                metrics_manager.clone(),
+            ))
+        };
         let context = event_context();
         let events = metric_events(batch_size, 64, false);
 
@@ -164,7 +191,7 @@ fn bench_pipeline_baseline(c: &mut Criterion) {
             BenchmarkId::new("emit_batch", scenario),
             &events,
             |b, events| {
-                b.iter(|| emit_metric_batch(&pipeline, &context, events));
+                b.iter(|| emit_metric_batch(sink.as_ref(), &context, events));
             },
         );
     }
@@ -176,12 +203,18 @@ fn bench_pipeline_health_processors(c: &mut Criterion) {
     let mut group = c.benchmark_group("processor_pipeline_health");
     let batch_size = 2_000usize;
     group.throughput(Throughput::Elements(batch_size as u64));
+    let metrics_manager: Arc<MetricsManager> =
+        Arc::new(MetricsManager::new("bench").expect("metrics manager should initialize"));
 
     let processors: Vec<Arc<dyn EventProcessor>> = vec![
         Arc::new(HealthReportProcessor::new()),
         Arc::new(LeakEventProcessor::new(1)),
     ];
-    let pipeline = EventProcessingPipeline::new(processors, make_sinks(2));
+    let pipeline = EventProcessingPipeline::new(
+        processors,
+        make_composite_sink(2, metrics_manager.clone()),
+        metrics_manager,
+    );
     let context = event_context();
 
     for (scenario, unique_keys) in [("low_cardinality", 64usize), ("high_cardinality", 2_000)] {
@@ -202,8 +235,14 @@ fn bench_pipeline_loop_guard(c: &mut Criterion) {
     let mut group = c.benchmark_group("processor_pipeline_loop_guard");
     let batch_size = 2_000usize;
     group.throughput(Throughput::Elements(batch_size as u64));
+    let metrics_manager: Arc<MetricsManager> =
+        Arc::new(MetricsManager::new("bench").expect("metrics manager should initialize"));
 
-    let pipeline = EventProcessingPipeline::new(vec![Arc::new(ReemitProcessor)], make_sinks(2));
+    let pipeline = EventProcessingPipeline::new(
+        vec![Arc::new(ReemitProcessor)],
+        make_composite_sink(2, metrics_manager.clone()),
+        metrics_manager,
+    );
     let context = event_context();
     let events = metric_events(batch_size, 64, false);
 
@@ -214,10 +253,73 @@ fn bench_pipeline_loop_guard(c: &mut Criterion) {
     group.finish();
 }
 
+fn rack_event_contexts(rack_id: &str, tray_count: usize) -> Vec<EventContext> {
+    (0..tray_count)
+        .map(|idx| {
+            let mac = format!("42:9e:b1:bd:{:02x}:{:02x}", idx / 256, idx % 256);
+            EventContext {
+                endpoint_key: mac.clone(),
+                addr: BmcAddr {
+                    ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, (idx + 1) as u8)),
+                    port: Some(443),
+                    mac: MacAddress::from_str(&mac).unwrap(),
+                },
+                collector_type: "sensor_collector",
+                metadata: Some(EndpointMetadata::Machine(MachineData {
+                    machine_id: MACHINE_ID.parse().expect("valid machine id"),
+                    machine_serial: None,
+                })),
+                rack_id: Some(RackId::new(rack_id)),
+            }
+        })
+        .collect()
+}
+
+fn bench_pipeline_rack_leak(c: &mut Criterion) {
+    let mut group = c.benchmark_group("processor_pipeline_rack_leak");
+    let batch_size = 200usize;
+    let metrics_manager: Arc<MetricsManager> =
+        Arc::new(MetricsManager::new("bench").expect("metrics manager should initialize"));
+
+    let processors: Vec<Arc<dyn EventProcessor>> = vec![
+        Arc::new(HealthReportProcessor::new()),
+        Arc::new(LeakEventProcessor::new(1)),
+        Arc::new(RackLeakProcessor::new(2)),
+    ];
+    let pipeline = EventProcessingPipeline::new(
+        processors,
+        make_composite_sink(2, metrics_manager.clone()),
+        metrics_manager,
+    );
+
+    for (scenario, tray_count) in [("4_trays", 4usize), ("16_trays", 16)] {
+        let contexts = rack_event_contexts("rack-bench", tray_count);
+        let events = metric_events(batch_size, 64, true);
+
+        group.throughput(Throughput::Elements(
+            (batch_size as u64) * (tray_count as u64),
+        ));
+        group.bench_with_input(
+            BenchmarkId::new("emit_batch_all_trays", scenario),
+            &(contexts, events),
+            |b, (contexts, events)| {
+                b.iter(|| {
+                    for ctx in contexts {
+                        emit_metric_batch(&pipeline, ctx, events);
+                    }
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_pipeline_baseline,
     bench_pipeline_health_processors,
-    bench_pipeline_loop_guard
+    bench_pipeline_loop_guard,
+    bench_pipeline_rack_leak
 );
 criterion_main!(benches);

@@ -182,6 +182,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
         Ok(IterationResult {
             refresh_triggered: true,
             entity_count: None,
+            fetch_failures: 0,
         })
     }
 

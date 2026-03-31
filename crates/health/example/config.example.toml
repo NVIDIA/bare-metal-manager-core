@@ -117,6 +117,9 @@ interfaces_enabled = true
 enabled = true
 minimum_alerts_per_report = 1
 
+[processors.rack_leak]
+leaking_tray_threshold = 2
+
 # ==============================================================================
 # Metrics
 # ==============================================================================

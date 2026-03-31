@@ -32,6 +32,7 @@ pub struct WiwynnGB200Nvl<'a> {
     pub chassis_serial_number: Cow<'a, str>,
     pub dpu1: hw::bluefield3::Bluefield3<'a>,
     pub dpu2: hw::bluefield3::Bluefield3<'a>,
+    pub topology: hw::nvidia_gbx00::Topology,
 }
 
 impl WiwynnGB200Nvl<'_> {
@@ -51,12 +52,20 @@ impl WiwynnGB200Nvl<'_> {
                 redfish::manager::SingleConfig {
                     id: "BMC_0",
                     eth_interfaces: Some(vec![]), // TODO: eth0 / eth1 / hmcusb0 / hostusb0
+                    host_interfaces: Some(vec![
+                        redfish::host_interface::builder(
+                            &redfish::host_interface::manager_resource("BMC_0", "hostusb0"),
+                        )
+                        .interface_enabled(true)
+                        .build(),
+                    ]),
                     firmware_version: Some("25.06-2_NV_WW_02"),
                     oem: None,
                 },
                 redfish::manager::SingleConfig {
                     id: "HGX_BMC_0",
                     eth_interfaces: Some(vec![]), // TODO: usb0
+                    host_interfaces: None,
                     firmware_version: Some("GB200Nvl-25.06-A"),
                     oem: None,
                 },
@@ -158,28 +167,6 @@ impl WiwynnGB200Nvl<'_> {
                 oem: None,
             }
         };
-        let cbc_chassis = |chassis_id: &'static str| redfish::chassis::SingleChassisConfig {
-            id: chassis_id.into(),
-            chassis_type: "Component".into(),
-            manufacturer: Some("Nvidia".into()),
-            part_number: Some("750-0567-002".into()),
-            model: Some("18x1RU CBL Cartridge".into()),
-            serial_number: Some("1821220000000".into()),
-            network_adapters: None,
-            pcie_devices: Some(vec![]),
-            sensors: None,
-            assembly: None,
-            oem: Some(json!({
-                "Nvidia": {
-                    "@odata.type": "#NvidiaChassis.v1_4_0.NvidiaCBCChassis",
-                    "ChassisPhysicalSlotNumber": 24,
-                    "ComputeTrayIndex": 14,
-                    "RevisionId": 2,
-                    "TopologyId": 128
-                }
-            })),
-        };
-
         redfish::chassis::ChassisConfig {
             chassis: vec![
                 redfish::chassis::SingleChassisConfig {
@@ -221,10 +208,10 @@ impl WiwynnGB200Nvl<'_> {
                     ),
                     oem: None,
                 },
-                cbc_chassis("CBC_0"),
-                cbc_chassis("CBC_1"),
-                cbc_chassis("CBC_2"),
-                cbc_chassis("CBC_3"),
+                hw::nvidia_gbx00::cbc_chassis("CBC_0".into(), &self.topology),
+                hw::nvidia_gbx00::cbc_chassis("CBC_1".into(), &self.topology),
+                hw::nvidia_gbx00::cbc_chassis("CBC_2".into(), &self.topology),
+                hw::nvidia_gbx00::cbc_chassis("CBC_3".into(), &self.topology),
                 dpu_chassis("Riser_Slot1_BlueField_3_Card", &self.dpu1),
                 dpu_chassis("Riser_Slot2_BlueField_3_Card", &self.dpu2),
             ],

@@ -18,12 +18,14 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
+use carbide_uuid::rack::RackId;
 use mac_address::MacAddress;
 
 use crate::HealthError;
 use crate::config::StaticBmcEndpoint;
 use crate::endpoint::{
-    BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, EndpointMetadata, EndpointSource, SwitchData,
+    BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, EndpointMetadata, EndpointSource, MachineData,
+    SwitchData,
 };
 
 pub struct StaticEndpointSource {
@@ -51,13 +53,26 @@ impl StaticEndpointSource {
 
                 let mac = MacAddress::from_str(&cfg.mac).ok()?;
 
-                let metadata = cfg.switch_serial.as_ref().map(|serial| {
-                    EndpointMetadata::Switch(SwitchData {
+                let metadata = if let Some(serial) = &cfg.switch_serial {
+                    Some(EndpointMetadata::Switch(SwitchData {
                         serial: serial.clone(),
-                    })
-                });
+                    }))
+                } else if let Some(machine_id_str) = &cfg.machine_id {
+                    match machine_id_str.parse() {
+                        Ok(machine_id) => Some(EndpointMetadata::Machine(MachineData {
+                            machine_id,
+                            machine_serial: None,
+                        })),
+                        Err(error) => {
+                            tracing::warn!(?error, machine_id = ?machine_id_str, "Invalid machine_id in static endpoint config");
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
 
-                Some(Arc::new(BmcEndpoint::with_fixed_credentials(
+                let endpoint = BmcEndpoint::with_fixed_credentials(
                     BmcAddr {
                         ip,
                         port: cfg.port,
@@ -68,7 +83,10 @@ impl StaticEndpointSource {
                         password: cfg.password.clone(),
                     },
                     metadata,
-                )))
+                    cfg.rack_id.as_ref().map(|id| RackId::new(id.as_str())),
+                );
+
+                Some(Arc::new(endpoint))
             })
             .collect();
 

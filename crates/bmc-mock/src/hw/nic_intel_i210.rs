@@ -15,16 +15,26 @@
  * limitations under the License.
  */
 
-mod firmware;
-mod logs;
-mod nmxt;
-mod nvue;
-mod runtime;
-mod sensors;
+use mac_address::MacAddress;
 
-pub use firmware::{FirmwareCollector, FirmwareCollectorConfig};
-pub use logs::{LogFileWriter, LogsCollector, LogsCollectorConfig, create_log_file_writer};
-pub use nmxt::{NmxtCollector, NmxtCollectorConfig};
-pub use nvue::rest::collector::{NvueRestCollector, NvueRestCollectorConfig};
-pub use runtime::{Collector, CollectorStartContext, IterationResult, PeriodicCollector};
-pub use sensors::{SensorCollector, SensorCollectorConfig};
+use crate::hw;
+
+// This type describes Intel® Ethernet Network Adapter I210.
+pub struct NicIntelI210 {
+    pub mac_address: MacAddress,
+}
+
+impl NicIntelI210 {
+    pub fn ethernet_nic(&self) -> hw::nic::Nic<'static> {
+        hw::nic::Nic {
+            mac_address: self.mac_address,
+            serial_number: None,
+            manufacturer: None,
+            model: None,
+            description: None,
+            part_number: None,
+            firmware_version: None,
+            is_mat_dpu: false,
+        }
+    }
+}

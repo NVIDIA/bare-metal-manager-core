@@ -80,6 +80,10 @@ impl ManagerBuilder {
         self.apply_patch(collection.nav_property("EthernetInterfaces"))
     }
 
+    pub fn host_interfaces(self, collection: &redfish::Collection<'_>) -> Self {
+        self.apply_patch(collection.nav_property("HostInterfaces"))
+    }
+
     pub fn enable_reset_action(self) -> Self {
         let patch = json!({
             "Actions": {
@@ -155,6 +159,7 @@ impl ManagerBuilder {
 pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     const MGR_ID: &str = "{manager_id}";
     const ETH_ID: &str = "{ethernet_id}";
+    const HOST_IF_ID: &str = "{hostif_id}";
     r.route(&collection().odata_id, get(get_manager_collection))
         .route(&resource(MGR_ID).odata_id, get(get_manager))
         .route(
@@ -164,6 +169,14 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
         .route(
             &redfish::ethernet_interface::manager_resource(MGR_ID, ETH_ID).odata_id,
             get(get_ethernet_interface),
+        )
+        .route(
+            &redfish::host_interface::manager_collection(MGR_ID).odata_id,
+            get(get_host_interface_collection),
+        )
+        .route(
+            &redfish::host_interface::manager_resource(MGR_ID, HOST_IF_ID).odata_id,
+            get(get_host_interface),
         )
         .route(&reset_target(MGR_ID), post(post_reset_manager))
         .route(
@@ -195,6 +208,7 @@ pub struct Config {
 pub struct SingleConfig {
     pub id: &'static str,
     pub eth_interfaces: Option<Vec<redfish::ethernet_interface::EthernetInterface>>,
+    pub host_interfaces: Option<Vec<redfish::host_interface::HostInterface>>,
     pub firmware_version: Option<&'static str>,
     pub oem: Option<Oem>,
 }
@@ -266,6 +280,14 @@ async fn get_manager(State(state): State<BmcState>, Path(manager_id): Path<Strin
                 .as_ref()
                 .map(|_| redfish::ethernet_interface::manager_collection(&manager_id)),
         )
+        .maybe_with(
+            ManagerBuilder::host_interfaces,
+            &this
+                .config
+                .host_interfaces
+                .as_ref()
+                .map(|_| redfish::host_interface::manager_collection(&manager_id)),
+        )
         .enable_reset_action()
         .log_services(redfish::log_service::manager_collection(&manager_id))
         .status(redfish::resource::Status::Ok)
@@ -315,6 +337,45 @@ async fn get_ethernet_interface(
                 .iter()
                 .find(|eth| eth.id == eth_id)
                 .map(|eth| eth.to_json().into_ok_response())
+        })
+        .unwrap_or_else(http::not_found)
+}
+
+async fn get_host_interface_collection(
+    State(state): State<BmcState>,
+    Path(manager_id): Path<String>,
+) -> Response {
+    state
+        .manager
+        .find(&manager_id)
+        .and_then(|manager| manager.config.host_interfaces.as_ref())
+        .map(|host_interfaces| {
+            let members = host_interfaces
+                .iter()
+                .map(|iface| {
+                    redfish::host_interface::manager_resource(&manager_id, &iface.id).entity_ref()
+                })
+                .collect::<Vec<_>>();
+            redfish::host_interface::manager_collection(&manager_id)
+                .with_members(&members)
+                .into_ok_response()
+        })
+        .unwrap_or_else(http::not_found)
+}
+
+async fn get_host_interface(
+    State(state): State<BmcState>,
+    Path((manager_id, iface_id)): Path<(String, String)>,
+) -> Response {
+    state
+        .manager
+        .find(&manager_id)
+        .and_then(|manager| manager.config.host_interfaces.as_ref())
+        .and_then(|host_interfaces| {
+            host_interfaces
+                .iter()
+                .find(|iface| iface.id == iface_id)
+                .map(|iface| iface.to_json().into_ok_response())
         })
         .unwrap_or_else(http::not_found)
 }

@@ -24,7 +24,7 @@ use http::{HeaderMap, StatusCode, header};
 use nv_redfish::bmc_http::reqwest::{BmcError, Client as ReqwestClient};
 use nv_redfish::bmc_http::{CacheSettings, HttpBmc};
 use nv_redfish::core::Bmc;
-use prometheus::{Counter, Gauge, Histogram, HistogramOpts, Opts};
+use prometheus::{Counter, Gauge, Histogram, HistogramOpts, IntCounter, Opts};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -33,7 +33,9 @@ use crate::config::Config as AppConfig;
 use crate::discovery::BmcClient;
 use crate::endpoint::BmcEndpoint;
 use crate::limiter::RateLimiter;
-use crate::metrics::{CollectorRegistry, operation_duration_buckets_seconds};
+use crate::metrics::{
+    CollectorRegistry, ComponentKind, MetricsManager, operation_duration_buckets_seconds,
+};
 
 /// Result of a collector iteration
 #[derive(Debug, Clone)]
@@ -42,6 +44,8 @@ pub struct IterationResult {
     pub refresh_triggered: bool,
     /// Number of entities collected, if applicable
     pub entity_count: Option<usize>,
+    /// Number of partial fetch failures tolerated during the iteration
+    pub fetch_failures: usize,
 }
 
 pub trait PeriodicCollector<B: Bmc>: Send + 'static {
@@ -68,16 +72,30 @@ pub struct Collector {
     cancel_token: CancellationToken,
 }
 
+pub struct CollectorStartContext {
+    pub limiter: Arc<dyn RateLimiter>,
+    pub iteration_interval: Duration,
+    pub collector_registry: Arc<CollectorRegistry>,
+    pub metrics_manager: Arc<MetricsManager>,
+    pub client: ReqwestClient,
+    pub health_options: Arc<AppConfig>,
+}
+
 impl Collector {
     pub fn start<C: PeriodicCollector<BmcClient>>(
         endpoint: Arc<BmcEndpoint>,
-        limiter: Arc<dyn RateLimiter>,
-        iteration_interval: Duration,
         config: C::Config,
-        collector_registry: Arc<CollectorRegistry>,
-        client: ReqwestClient,
-        health_options: &AppConfig,
+        start_context: CollectorStartContext,
     ) -> Result<Self, HealthError> {
+        let CollectorStartContext {
+            limiter,
+            iteration_interval,
+            collector_registry,
+            metrics_manager,
+            client,
+            health_options,
+        } = start_context;
+
         let cancel_token = CancellationToken::new();
         let cancel_token_clone = cancel_token.clone();
 
@@ -113,7 +131,7 @@ impl Collector {
 
         let mut runner = C::new_runner(bmc.clone(), endpoint.clone(), config)?;
 
-        let endpoint_key = endpoint.addr.hash_key().to_string();
+        let endpoint_key = endpoint.hash_key().to_string();
         let const_labels = HashMap::from([
             (
                 "collector_type".to_string(),
@@ -151,9 +169,23 @@ impl Collector {
                 format!("{}_monitored_entities", collector_registry.prefix()),
                 "Number of entities being monitored",
             )
-            .const_labels(const_labels),
+            .const_labels(const_labels.clone()),
         )?;
         registry.register(Box::new(entities_gauge.clone()))?;
+
+        let fetch_failures_counter = IntCounter::with_opts(
+            Opts::new(
+                format!(
+                    "{}_collector_fetch_failures_total",
+                    collector_registry.prefix()
+                ),
+                "Count of partial collector fetch failures",
+            )
+            .const_labels(const_labels),
+        )?;
+        registry.register(Box::new(fetch_failures_counter.clone()))?;
+
+        let component_metrics = metrics_manager.component_metrics();
 
         let handle = tokio::spawn(async move {
             let collector_type = runner.collector_type();
@@ -175,8 +207,12 @@ impl Collector {
                         ).await;
                         let duration = start.elapsed();
 
-                        iteration_histogram.observe(
-                            duration.as_secs_f64(),
+                        iteration_histogram.observe(duration.as_secs_f64());
+                        component_metrics.record_operation(
+                            ComponentKind::Collector,
+                            collector_type,
+                            duration,
+                            iteration_result.is_ok(),
                         );
 
                         match iteration_result {
@@ -186,9 +222,12 @@ impl Collector {
                                 }
 
                                 if let Some(entity_count) = result.entity_count {
-                                    entities_gauge.set(
-                                        entity_count as f64,
-                                    );
+                                    entities_gauge.set(entity_count as f64);
+                                }
+
+                                if result.fetch_failures > 0 {
+                                    let fetch_failures = result.fetch_failures as u64;
+                                    fetch_failures_counter.inc_by(fetch_failures);
                                 }
                             }
                             Err(e) => {

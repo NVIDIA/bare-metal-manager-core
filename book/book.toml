@@ -33,3 +33,7 @@ command = "mdbook-plantuml"
 [output]
 [output.html]
 additional-js = ["svg-pan-zoom.js", "mermaid.min.js", "mermaid-init.js"]
+
+# Uncomment the output.pdf line to generate PDF version of the book
+#[output.pdf]
+

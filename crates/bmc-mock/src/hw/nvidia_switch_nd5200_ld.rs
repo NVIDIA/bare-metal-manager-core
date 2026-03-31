@@ -54,6 +54,7 @@ impl NvidiaSwitchNd5200Ld<'_> {
                         .interface_enabled(true)
                         .build(),
                 ]),
+                host_interfaces: None,
                 firmware_version: Some("88.0002.1333"),
                 oem: None,
             }],

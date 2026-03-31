@@ -273,6 +273,11 @@ pub async fn find(
         builder.push_bind(id);
     }
 
+    if let Some(rack_id) = search_config.rack_id {
+        builder.push(" AND m.rack_id = ");
+        builder.push_bind(rack_id);
+    }
+
     let all_machines: Vec<Machine> = builder
         .build_query_as()
         .fetch_all(txn)

@@ -25,6 +25,7 @@ pub mod gb200;
 pub mod hpe;
 pub mod lenovo;
 pub mod lenovo_ami;
+pub mod lenovo_gb300;
 pub mod supermicro;
 pub mod viking;
 
@@ -37,6 +38,7 @@ pub enum HwType {
     Hpe,
     Lenovo,
     LenovoAmi,
+    LenovoGb300,
     Supermicro,
     Viking,
     LiteonPowerShelf,
@@ -53,6 +55,7 @@ impl HwType {
             Self::Hpe => Some(bmc_vendor::BMCVendor::Hpe),
             Self::Lenovo => Some(bmc_vendor::BMCVendor::Lenovo),
             Self::LenovoAmi => Some(bmc_vendor::BMCVendor::LenovoAMI),
+            Self::LenovoGb300 => Some(bmc_vendor::BMCVendor::LenovoAMI),
             Self::LiteonPowerShelf => Some(bmc_vendor::BMCVendor::Liteon),
             Self::NvSwitch => Some(bmc_vendor::BMCVendor::Nvidia),
             Self::Supermicro => Some(bmc_vendor::BMCVendor::Supermicro),
@@ -69,6 +72,7 @@ impl HwType {
             Self::Hpe => None,
             Self::Lenovo => Some(BiosAttr::new_str("BootModes_InfiniteBootRetry", "Enabled")),
             Self::LenovoAmi => Some(BiosAttr::new_str("EndlessBoot", "Enabled")),
+            Self::LenovoGb300 => Some(BiosAttr::new_int("LEM0003", 50)),
             Self::LiteonPowerShelf => None,
             Self::NvSwitch => None,
             Self::Supermicro => None,

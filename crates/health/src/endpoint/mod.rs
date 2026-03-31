@@ -47,6 +47,7 @@ mod tests {
                 password: Some("password".to_string()),
             },
             None,
+            None,
         )
     }
 
@@ -120,6 +121,8 @@ mod tests {
                 username: "admin".to_string(),
                 password: Some("pass".to_string()),
                 switch_serial: None,
+                machine_id: None,
+                rack_id: None,
             },
             StaticBmcEndpoint {
                 ip: "not-an-ip".to_string(),
@@ -128,6 +131,8 @@ mod tests {
                 username: "admin".to_string(),
                 password: Some("pass".to_string()),
                 switch_serial: None,
+                machine_id: None,
+                rack_id: None,
             },
         ];
 
@@ -150,6 +155,8 @@ mod tests {
             username: "cumulus".to_string(),
             password: Some("pass".to_string()),
             switch_serial: Some("SN-001".to_string()),
+            machine_id: None,
+            rack_id: None,
         }];
 
         let source = StaticEndpointSource::from_config(&configs);
@@ -171,6 +178,8 @@ mod tests {
             username: "admin".to_string(),
             password: Some("pass".to_string()),
             switch_serial: None,
+            machine_id: None,
+            rack_id: None,
         }];
 
         let source = StaticEndpointSource::from_config(&configs);

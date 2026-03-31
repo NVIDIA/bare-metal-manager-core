@@ -20,6 +20,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 
+use carbide_uuid::rack::RackId;
 use forge_tls::client_config::ClientCert;
 use mac_address::MacAddress;
 use rpc::forge::MachineSearchConfig;
@@ -187,7 +188,8 @@ impl ApiClientWrapper {
                 })
             });
 
-        self.endpoint_with_auth(addr, metadata).await
+        self.endpoint_with_auth(addr, metadata, machine.rack_id.clone())
+            .await
     }
 
     async fn extract_switch_endpoint(
@@ -208,14 +210,19 @@ impl ApiClientWrapper {
                 "Switch endpont does not have serial".to_string(),
             ))?;
 
-        self.endpoint_with_auth(addr, Some(EndpointMetadata::Switch(SwitchData { serial })))
-            .await
+        self.endpoint_with_auth(
+            addr,
+            Some(EndpointMetadata::Switch(SwitchData { serial })),
+            None,
+        )
+        .await
     }
 
     async fn endpoint_with_auth(
         &self,
         addr: BmcAddr,
         metadata: Option<EndpointMetadata>,
+        rack_id: Option<RackId>,
     ) -> Result<BmcEndpoint, HealthError> {
         let provider = ApiCredentialProvider {
             client: self.client.clone(),
@@ -227,6 +234,7 @@ impl ApiClientWrapper {
             addr,
             provider: Arc::new(provider),
             metadata,
+            rack_id,
             credentials: Arc::new(RwLock::new(credentials)),
         })
     }
@@ -248,6 +256,29 @@ impl ApiClientWrapper {
 
         self.client
             .insert_health_report_override(request)
+            .await
+            .map_err(HealthError::ApiInvocationError)?;
+
+        Ok(())
+    }
+
+    pub async fn submit_rack_health_report(
+        &self,
+        rack_id: &carbide_uuid::rack::RackId,
+        report: health_report::HealthReport,
+    ) -> Result<(), HealthError> {
+        let ovrd = rpc::forge::HealthReportOverride {
+            report: Some(report.into()),
+            mode: rpc::forge::OverrideMode::Merge.into(),
+        };
+
+        let request = rpc::forge::InsertRackHealthReportOverrideRequest {
+            rack_id: Some(rack_id.clone()),
+            r#override: Some(ovrd),
+        };
+
+        self.client
+            .insert_rack_health_report_override(request)
             .await
             .map_err(HealthError::ApiInvocationError)?;
 

@@ -49,6 +49,7 @@ fn provisioning_mock(dpu_ready: Arc<AtomicBool>) -> MockDpfOperations {
     mock.expect_register_dpu_node().returning(|_| Ok(()));
     mock.expect_release_maintenance_hold().returning(|_| Ok(()));
     mock.expect_is_reboot_required().returning(|_| Ok(false));
+    mock.expect_verify_node_labels().returning(|_| Ok(true));
     mock.expect_get_dpu_phase().returning(move |_, _| {
         if dpu_ready.load(Ordering::SeqCst) {
             Ok(DpuPhase::Ready)
@@ -63,8 +64,7 @@ fn dpf_config() -> crate::cfg::file::DpfConfig {
     crate::cfg::file::DpfConfig {
         enabled: true,
         bfb_url: "http://example.com/test.bfb".to_string(),
-        deployment_name: None,
-        services: None,
+        ..Default::default()
     }
 }
 
@@ -345,6 +345,7 @@ fn capturing_mock(
     mock.expect_register_dpu_node().returning(|_| Ok(()));
     mock.expect_release_maintenance_hold().returning(|_| Ok(()));
     mock.expect_is_reboot_required().returning(|_| Ok(false));
+    mock.expect_verify_node_labels().returning(|_| Ok(true));
 
     let reprovisioned_for_ready = reprovisioned_devices.clone();
     mock.expect_get_dpu_phase()

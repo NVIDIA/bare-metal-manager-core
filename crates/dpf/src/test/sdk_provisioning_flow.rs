@@ -280,7 +280,7 @@ async fn test_provisioning_flow_reboot_then_ready() {
             .contains_key(RESTART_ANNOTATION)
     );
 
-    // Simulate Carbide clearing the annotation after rebooting the host
+    // Simulate the caller clearing the annotation after rebooting the host
     sdk.reboot_complete("n1").await.unwrap();
 
     // Annotation should be gone

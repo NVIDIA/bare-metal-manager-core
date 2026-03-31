@@ -40,6 +40,10 @@ const MACHINE_IDS: [&str; 3] = [
 struct CountingSink;
 
 impl DataSink for CountingSink {
+    fn sink_type(&self) -> &'static str {
+        "counting_sink"
+    }
+
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         std::hint::black_box(context);
         std::hint::black_box(event);
@@ -63,6 +67,7 @@ fn event_context_for_machine(machine_id: &str) -> EventContext {
             machine_id: machine_id.parse().expect("valid machine id"),
             machine_serial: None,
         })),
+        rack_id: None,
     }
 }
 
@@ -106,7 +111,8 @@ fn bench_prometheus_sink(c: &mut Criterion) {
     group.throughput(Throughput::Elements(batch_size as u64));
 
     for (scenario, unique_keys) in [("low_cardinality", 32usize), ("high_cardinality", 2_000)] {
-        let metrics_manager = Arc::new(MetricsManager::new());
+        let metrics_manager =
+            Arc::new(MetricsManager::new("bench_sink").expect("metrics manager should initialize"));
         let sink = PrometheusSink::new(metrics_manager, "bench_sink")
             .expect("prometheus sink should initialize");
         let context = event_context();
@@ -137,7 +143,9 @@ impl CompositeBenchState {
             sinks.push(Arc::new(CountingSink));
         }
 
-        let sink = CompositeDataSink::new(sinks);
+        let metrics_manager =
+            Arc::new(MetricsManager::new("bench_sink").expect("metrics manager should initialize"));
+        let sink = CompositeDataSink::new(sinks, metrics_manager);
 
         Self {
             sink,

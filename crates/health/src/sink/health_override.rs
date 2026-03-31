@@ -15,92 +15,18 @@
  * limitations under the License.
  */
 
-use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use carbide_uuid::machine::MachineId;
-use tokio::sync::Notify;
 
-use super::{CollectorEvent, DataSink, EventContext, HealthReport};
+use super::override_queue::{OverrideJob, OverrideQueue};
+use super::{CollectorEvent, DataSink, EventContext};
 use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
 use crate::config::HealthOverrideSinkConfig;
 
-#[derive(Clone)]
-struct HealthOverrideJob {
-    machine_id: MachineId,
-    report: Arc<HealthReport>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct HealthOverrideKey {
-    machine_id: MachineId,
-    source: super::ReportSource,
-}
-
-struct PendingReportsState {
-    reports: HashMap<HealthOverrideKey, HealthOverrideJob>,
-    ready: VecDeque<HealthOverrideKey>,
-}
-
-struct PendingReportsStore {
-    state: Mutex<PendingReportsState>,
-    notify: Notify,
-}
-
-impl PendingReportsStore {
-    fn new() -> Self {
-        Self {
-            state: Mutex::new(PendingReportsState {
-                reports: HashMap::new(),
-                ready: VecDeque::new(),
-            }),
-            notify: Notify::new(),
-        }
-    }
-
-    fn save_latest(&self, job: HealthOverrideJob) {
-        let key = HealthOverrideKey {
-            machine_id: job.machine_id,
-            source: job.report.source,
-        };
-
-        {
-            let mut state = self.state.lock().expect("health override mutex poisoned");
-            if let Some(existing) = state.reports.get_mut(&key) {
-                *existing = job;
-            } else {
-                state.reports.insert(key, job);
-                state.ready.push_back(key);
-            }
-        }
-        self.notify.notify_one();
-    }
-
-    async fn next(&self) -> HealthOverrideJob {
-        loop {
-            if let Some(job) = self.pop() {
-                return job;
-            }
-
-            self.notify.notified().await;
-        }
-    }
-
-    fn pop(&self) -> Option<HealthOverrideJob> {
-        let mut state = self.state.lock().expect("health override mutex poisoned");
-        while let Some(key) = state.ready.pop_front() {
-            if let Some(job) = state.reports.remove(&key) {
-                return Some(job);
-            }
-        }
-
-        None
-    }
-}
-
 pub struct HealthOverrideSink {
-    pending_reports: Arc<PendingReportsStore>,
+    queue: Arc<OverrideQueue<MachineId>>,
 }
 
 impl HealthOverrideSink {
@@ -118,20 +44,19 @@ impl HealthOverrideSink {
             &config.connection.api_url,
         ));
 
-        let pending_reports = Arc::new(PendingReportsStore::new());
+        let queue = Arc::new(OverrideQueue::new());
 
         for worker_id in 0..config.workers {
             let worker_client = Arc::clone(&client);
-            let pending_reports = Arc::clone(&pending_reports);
+            let worker_queue = Arc::clone(&queue);
             handle.spawn(async move {
                 loop {
-                    let job = pending_reports.next().await;
+                    let job = worker_queue.next().await;
 
                     match job.report.as_ref().try_into() {
                         Ok(report) => {
-                            if let Err(error) = worker_client
-                                .submit_health_report(&job.machine_id, report)
-                                .await
+                            if let Err(error) =
+                                worker_client.submit_health_report(&job.id, report).await
                             {
                                 tracing::warn!(
                                     ?error,
@@ -144,7 +69,7 @@ impl HealthOverrideSink {
                             tracing::warn!(
                                 ?error,
                                 worker_id,
-                                machine_id = %job.machine_id,
+                                machine_id = %job.id,
                                 "Failed to convert health override report"
                             );
                         }
@@ -153,30 +78,32 @@ impl HealthOverrideSink {
             });
         }
 
-        Ok(Self { pending_reports })
+        Ok(Self { queue })
     }
 
     #[cfg(feature = "bench-hooks")]
     pub fn new_for_bench() -> Result<Self, HealthError> {
         Ok(Self {
-            pending_reports: Arc::new(PendingReportsStore::new()),
+            queue: Arc::new(OverrideQueue::new()),
         })
     }
 
     #[cfg(feature = "bench-hooks")]
-    pub fn pop_pending_for_bench(&self) -> Option<(MachineId, Arc<HealthReport>)> {
-        self.pending_reports
-            .pop()
-            .map(|job| (job.machine_id, job.report))
+    pub fn pop_pending_for_bench(&self) -> Option<(MachineId, Arc<super::HealthReport>)> {
+        self.queue.pop().map(|job| (job.id, job.report))
     }
 }
 
 impl DataSink for HealthOverrideSink {
+    fn sink_type(&self) -> &'static str {
+        "health_override_sink"
+    }
+
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         if let CollectorEvent::HealthReport(report) = event {
             if let Some(machine_id) = context.machine_id() {
-                self.pending_reports.save_latest(HealthOverrideJob {
-                    machine_id,
+                self.queue.save_latest(OverrideJob {
+                    id: machine_id,
                     report: Arc::clone(report),
                 });
             } else {
@@ -191,8 +118,10 @@ impl DataSink for HealthOverrideSink {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
-    use crate::sink::ReportSource;
+    use crate::sink::{HealthReport, ReportSource};
 
     fn report(source: ReportSource) -> HealthReport {
         HealthReport {
@@ -207,44 +136,37 @@ mod tests {
         value.parse().expect("valid machine id")
     }
 
-    fn report_key(job: &HealthOverrideJob) -> HealthOverrideKey {
-        HealthOverrideKey {
-            machine_id: job.machine_id,
-            source: job.report.source,
-        }
-    }
-
     #[tokio::test]
     async fn latest_reports_are_preserved() {
-        let queue = PendingReportsStore::new();
+        let queue = OverrideQueue::new();
         let machine_a = machine_id("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0");
         let machine_b = machine_id("fm100htjsaledfasinabqqer70e2ua5ksqj4kfjii0v0a90vulps48c1h7g");
         let machine_c = machine_id("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30");
 
-        queue.save_latest(HealthOverrideJob {
-            machine_id: machine_a,
+        queue.save_latest(OverrideJob {
+            id: machine_a,
             report: Arc::new(report(ReportSource::BmcSensors)),
         });
-        queue.save_latest(HealthOverrideJob {
-            machine_id: machine_a,
+        queue.save_latest(OverrideJob {
+            id: machine_a,
             report: Arc::new(report(ReportSource::BmcSensors)),
         });
-        queue.save_latest(HealthOverrideJob {
-            machine_id: machine_b,
+        queue.save_latest(OverrideJob {
+            id: machine_b,
             report: Arc::new(report(ReportSource::TrayLeakDetection)),
         });
-        queue.save_latest(HealthOverrideJob {
-            machine_id: machine_c,
+        queue.save_latest(OverrideJob {
+            id: machine_c,
             report: Arc::new(report(ReportSource::BmcSensors)),
         });
-        queue.save_latest(HealthOverrideJob {
-            machine_id: machine_b,
+        queue.save_latest(OverrideJob {
+            id: machine_b,
             report: Arc::new(report(ReportSource::BmcSensors)),
         });
 
         let mut drained = HashMap::new();
         while let Some(job) = queue.pop() {
-            drained.insert(report_key(&job), job.report.source);
+            drained.insert((job.id, job.report.source), ());
         }
 
         assert_eq!(drained.len(), 4);
@@ -252,32 +174,32 @@ mod tests {
 
     #[tokio::test]
     async fn reinserting_hot_key_moves_it_to_back() {
-        let queue = PendingReportsStore::new();
+        let queue = OverrideQueue::new();
         let machine_a = machine_id("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0");
         let machine_b = machine_id("fm100htjsaledfasinabqqer70e2ua5ksqj4kfjii0v0a90vulps48c1h7g");
 
-        queue.save_latest(HealthOverrideJob {
-            machine_id: machine_a,
+        queue.save_latest(OverrideJob {
+            id: machine_a,
             report: Arc::new(report(ReportSource::BmcSensors)),
         });
-        queue.save_latest(HealthOverrideJob {
-            machine_id: machine_b,
+        queue.save_latest(OverrideJob {
+            id: machine_b,
             report: Arc::new(report(ReportSource::BmcSensors)),
         });
 
         let first = queue.pop().unwrap();
-        assert_eq!(first.machine_id, machine_a);
+        assert_eq!(first.id, machine_a);
 
-        queue.save_latest(HealthOverrideJob {
-            machine_id: machine_a,
+        queue.save_latest(OverrideJob {
+            id: machine_a,
             report: Arc::new(report(ReportSource::TrayLeakDetection)),
         });
 
         let second = queue.pop().unwrap();
         let third = queue.pop().unwrap();
 
-        assert_eq!(second.machine_id, machine_b);
-        assert_eq!(third.machine_id, machine_a);
+        assert_eq!(second.id, machine_b);
+        assert_eq!(third.id, machine_a);
         assert_eq!(third.report.source, ReportSource::TrayLeakDetection);
     }
 }
