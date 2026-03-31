@@ -15,23 +15,20 @@
  * limitations under the License.
  */
 
-mod delete;
-mod list;
-mod show;
+use std::str::FromStr;
 
-#[cfg(test)]
-mod tests;
-
+use carbide_uuid::switch::SwitchId;
 use clap::Parser;
 
-use crate::cfg::dispatch::Dispatch;
+#[derive(Parser, Debug)]
+pub struct Args {
+    #[clap(help = "Switch ID to delete.")]
+    pub switch_id: String,
+}
 
-#[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
-    #[clap(about = "Display managed switch information")]
-    Show(show::Args),
-    #[clap(about = "List all managed switches")]
-    List(list::Args),
-    #[clap(about = "Delete a managed switch")]
-    Delete(delete::Args),
+impl Args {
+    pub fn parse_switch_id(&self) -> Result<SwitchId, String> {
+        SwitchId::from_str(&self.switch_id)
+            .map_err(|_| format!("Invalid switch ID: {}", self.switch_id))
+    }
 }

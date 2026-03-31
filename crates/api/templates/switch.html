@@ -34,7 +34,15 @@
                             <tr>
                                 <td><a href="/admin/switch/{{ switch.id }}">{{ switch.id }}</a></td>
                                 <td>{{ switch.name }}</td>
-                                <td>{{ switch.state }}</td>
+                                <td>
+                                    {% if switch.state == "Ready" %}
+                                        <span class="bubble success">{{ switch.state }}</span>
+                                    {% else if switch.state.to_lowercase().contains("error") || switch.state.to_lowercase().contains("failed") %}
+                                        <span class="bubble error">{{ switch.state }}</span>
+                                    {% else %}
+                                        <span class="bubble">{{ switch.state }}</span>
+                                    {% endif %}
+                                </td>
                                 <td>{{ switch.location }}</td>
                                 <td>
                                     <a href="/admin/switch/{{ switch.id }}/state-history"

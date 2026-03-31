@@ -133,7 +133,7 @@ fn build_managed_switch_outputs(
     for switch in &switches {
         let id_str = switch.id.as_ref().map(|id| id.to_string());
         if let Some(ref id) = id_str
-            && !seen_switch_ids.contains(id)
+            && seen_switch_ids.contains(id)
         {
             continue;
         }

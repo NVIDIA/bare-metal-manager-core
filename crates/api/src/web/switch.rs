@@ -85,21 +85,7 @@ async fn fetch_switches(api: &Api) -> Result<Vec<SwitchRecord>, (http::StatusCod
         .switches
         .into_iter()
         .map(|switch| {
-            let state = if let Some(status) = &switch.status {
-                if let Some(state_reason) = &status.state_reason {
-                    match rpc::forge::ControllerStateOutcome::try_from(state_reason.outcome) {
-                        Ok(outcome) => outcome.as_str_name().to_string(),
-                        Err(_) => "Unknown".to_string(),
-                    }
-                } else {
-                    status
-                        .power_state
-                        .clone()
-                        .unwrap_or_else(|| "Unknown".to_string())
-                }
-            } else {
-                "Unknown".to_string()
-            };
+            let state = parse_controller_state(&switch.controller_state);
 
             let config = switch.config.unwrap();
             SwitchRecord {
@@ -112,6 +98,22 @@ async fn fetch_switches(api: &Api) -> Result<Vec<SwitchRecord>, (http::StatusCod
         .collect();
 
     Ok(switches)
+}
+
+/// Parse the JSON controller_state string into a human-friendly state name.
+fn parse_controller_state(controller_state: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(controller_state)
+        .ok()
+        .and_then(|v| v.get("state")?.as_str().map(capitalize))
+        .unwrap_or_else(|| "Unknown".to_string())
+}
+
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        None => String::new(),
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+    }
 }
 
 #[derive(Template)]
@@ -154,7 +156,7 @@ impl From<rpc::forge::Switch> for SwitchDetail {
         let health_status = switch.status.as_ref().and_then(|s| s.health_status.clone());
         Self {
             id,
-            controller_state: switch.controller_state,
+            controller_state: parse_controller_state(&switch.controller_state),
             name: config.name,
             location: config.location.unwrap_or_else(|| "N/A".to_string()),
             enable_nmxc: config.enable_nmxc,
@@ -230,4 +232,37 @@ async fn fetch_switch(api: &Api, switch_id: &str) -> Result<Option<rpc::forge::S
     };
 
     Ok(response.switches.into_iter().next())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_controller_state_ready() {
+        assert_eq!(parse_controller_state(r#"{"state":"ready"}"#), "Ready");
+    }
+
+    #[test]
+    fn parse_controller_state_initializing() {
+        assert_eq!(
+            parse_controller_state(
+                r#"{"state":"initializing","initializing_state":"WaitForOsMachineInterface"}"#
+            ),
+            "Initializing"
+        );
+    }
+
+    #[test]
+    fn parse_controller_state_error() {
+        assert_eq!(
+            parse_controller_state(r#"{"state":"error","cause":"something broke"}"#),
+            "Error"
+        );
+    }
+
+    #[test]
+    fn parse_controller_state_invalid_json() {
+        assert_eq!(parse_controller_state("not json"), "Unknown");
+    }
 }

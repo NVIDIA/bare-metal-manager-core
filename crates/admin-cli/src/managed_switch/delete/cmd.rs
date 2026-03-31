@@ -15,23 +15,21 @@
  * limitations under the License.
  */
 
-mod delete;
-mod list;
-mod show;
+use rpc::forge::SwitchDeletionRequest;
 
-#[cfg(test)]
-mod tests;
+use super::args::Args;
+use crate::rpc::ApiClient;
 
-use clap::Parser;
-
-use crate::cfg::dispatch::Dispatch;
-
-#[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
-    #[clap(about = "Display managed switch information")]
-    Show(show::Args),
-    #[clap(about = "List all managed switches")]
-    List(list::Args),
-    #[clap(about = "Delete a managed switch")]
-    Delete(delete::Args),
+pub async fn delete(data: Args, api_client: &ApiClient) -> color_eyre::Result<()> {
+    let switch_id = data
+        .parse_switch_id()
+        .map_err(|e| color_eyre::eyre::eyre!(e))?;
+    api_client
+        .0
+        .delete_switch(SwitchDeletionRequest {
+            id: Some(switch_id),
+        })
+        .await?;
+    println!("Switch deleted successfully.");
+    Ok(())
 }

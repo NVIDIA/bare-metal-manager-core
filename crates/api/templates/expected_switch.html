@@ -36,7 +36,13 @@
                                 <td>{{ switch.bmc_mac_address }}</td>
                                 <td>{{ switch.explored_bmc_ip }}</td>
                                 <td>{{ switch.rack_id }}</td>
-                                <td>{{ switch.switch_id }}</td>
+                                <td>
+                                    {% if switch.switch_id == "Unlinked" %}
+                                        {{ switch.switch_id }}
+                                    {% else %}
+                                        <a href="/admin/switch/{{ switch.switch_id }}">{{ switch.switch_id }}</a>
+                                    {% endif %}
+                                </td>
                             </tr>
                             {% endfor %}
                             </tbody>

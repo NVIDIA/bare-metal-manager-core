@@ -17,10 +17,10 @@
 	<tr>
 		<th>State</th>
 		<td>
-			{% if controller_state.to_lowercase().contains("failed") %}
-				<span class="bubble error">{{ controller_state }}</span>
-			{% else if controller_state == "Ready" %}
+			{% if controller_state == "Ready" %}
 				<span class="bubble success">{{ controller_state }}</span>
+			{% else if controller_state.to_lowercase().contains("error") || controller_state.to_lowercase().contains("failed") %}
+				<span class="bubble error">{{ controller_state }}</span>
 			{% else %}
 				<span class="bubble">{{ controller_state }}</span>
 			{% endif %}
