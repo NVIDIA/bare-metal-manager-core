@@ -1832,6 +1832,9 @@ message Switch {
   string controller_state = 5;
 
   BmcInfo bmc_info = 6;
+
+  // Version string for the current controller state (e.g. "V3-T1774905143273055").
+  string state_version = 7;
 }
 
 message SwitchList {

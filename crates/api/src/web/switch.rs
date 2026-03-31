@@ -121,6 +121,8 @@ fn capitalize(s: &str) -> String {
 struct SwitchDetail {
     id: String,
     controller_state: String,
+    state_version: String,
+    time_in_state: String,
     name: String,
     location: String,
     enable_nmxc: bool,
@@ -143,8 +145,8 @@ struct SwitchDetailJson {
     bmc_mac: Option<String>,
 }
 
-impl From<rpc::forge::Switch> for SwitchDetail {
-    fn from(switch: rpc::forge::Switch) -> Self {
+impl SwitchDetail {
+    fn new(switch: rpc::forge::Switch) -> Self {
         let id = switch
             .id
             .as_ref()
@@ -154,9 +156,12 @@ impl From<rpc::forge::Switch> for SwitchDetail {
         let state_reason = switch.status.as_ref().and_then(|s| s.state_reason.clone());
         let power_state = switch.status.as_ref().and_then(|s| s.power_state.clone());
         let health_status = switch.status.as_ref().and_then(|s| s.health_status.clone());
+        let time_in_state = config_version::since_state_change_humanized(&switch.state_version);
         Self {
             id,
             controller_state: parse_controller_state(&switch.controller_state),
+            state_version: switch.state_version,
+            time_in_state,
             name: config.name,
             location: config.location.unwrap_or_else(|| "N/A".to_string()),
             enable_nmxc: config.enable_nmxc,
@@ -190,7 +195,7 @@ pub async fn detail(
         Err(response) => return response,
     };
 
-    let detail = SwitchDetail::from(switch);
+    let detail = SwitchDetail::new(switch);
 
     if show_json {
         let json = SwitchDetailJson {

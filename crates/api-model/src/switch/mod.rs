@@ -227,6 +227,7 @@ impl TryFrom<Switch> for rpc::Switch {
         } else {
             None
         };
+        let state_version = src.controller_state.version.to_string();
         let controller_state = serde_json::to_string(&src.controller_state.value).unwrap();
         Ok(rpc::Switch {
             id: Some(src.id),
@@ -235,6 +236,7 @@ impl TryFrom<Switch> for rpc::Switch {
             deleted,
             controller_state,
             bmc_info: None,
+            state_version,
         })
     }
 }
