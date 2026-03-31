@@ -13,12 +13,11 @@
 use std::str::FromStr;
 
 fn connection_help() -> String {
-    format!(
-        "Postgres connection failed. Check: (1) export DATABASE_URL before the command so it is \
-         passed into the container; (2) use host.docker.internal as the host (not localhost) so \
-         the container can reach Postgres on the host; (3) port matches where Postgres is listening \
-         (e.g. 5432 or 30432); (4) Postgres is running and reachable."
-    )
+    "Postgres connection failed. Check: (1) export DATABASE_URL before the command so it is \
+     passed into the container; (2) use host.docker.internal as the host (not localhost) so \
+     the container can reach Postgres on the host; (3) port matches where Postgres is listening \
+     (e.g. 5432 or 30432); (4) Postgres is running and reachable."
+        .to_string()
 }
 
 #[tokio::test]
