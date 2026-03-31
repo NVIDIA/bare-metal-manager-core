@@ -32,7 +32,7 @@
                             <tbody>
                             {% for switch in switches %}
                             <tr>
-                                <td>{{ switch.id }}</td>
+                                <td><a href="/admin/switch/{{ switch.id }}">{{ switch.id }}</a></td>
                                 <td>{{ switch.name }}</td>
                                 <td>{{ switch.state }}</td>
                                 <td>{{ switch.location }}</td>

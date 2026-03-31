@@ -190,15 +190,23 @@ impl TryFrom<Switch> for rpc::Switch {
     type Error = RpcDataConversionError;
 
     fn try_from(src: Switch) -> Result<Self, Self::Error> {
-        let status = src.status.map(|s| rpc::SwitchStatus {
-            state_reason: None, // TODO: implement state_reason
-            state_sla: Some(rpc::StateSla {
-                sla: None,
-                time_in_state_above_sla: false,
-            }),
-            switch_name: Some(s.switch_name),
-            power_state: Some(s.power_state),
-            health_status: Some(s.health_status),
+        let state_reason = src.controller_state_outcome.map(|r| r.into());
+        let sla = state_sla(&src.controller_state.value, &src.controller_state.version).into();
+        let status = Some(match src.status {
+            Some(s) => rpc::SwitchStatus {
+                state_reason,
+                state_sla: Some(sla),
+                switch_name: Some(s.switch_name),
+                power_state: Some(s.power_state),
+                health_status: Some(s.health_status),
+            },
+            None => rpc::SwitchStatus {
+                state_reason,
+                state_sla: Some(sla),
+                switch_name: None,
+                power_state: None,
+                health_status: None,
+            },
         });
 
         let config = rpc::SwitchConfig {
@@ -364,6 +372,83 @@ impl Switch {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::controller_outcome::PersistentStateHandlerOutcome;
+
+    #[test]
+    fn try_from_switch_populates_state_reason() {
+        let switch = Switch {
+            id: SwitchId::from(uuid::Uuid::new_v4()),
+            config: SwitchConfig {
+                name: "test-switch".to_string(),
+                enable_nmxc: false,
+                fabric_manager_config: None,
+                location: Some("test-location".to_string()),
+            },
+            status: Some(SwitchStatus {
+                switch_name: "test-switch".to_string(),
+                power_state: "on".to_string(),
+                health_status: "ok".to_string(),
+            }),
+            deleted: None,
+            bmc_mac_address: None,
+            controller_state: Versioned::new(
+                SwitchControllerState::Ready,
+                config_version::ConfigVersion::initial(),
+            ),
+            controller_state_outcome: Some(PersistentStateHandlerOutcome::Transition {
+                source_ref: None,
+            }),
+            switch_reprovisioning_requested: None,
+            firmware_upgrade_status: None,
+        };
+
+        let rpc_switch: rpc::Switch = switch.try_into().unwrap();
+        let status = rpc_switch.status.expect("status should be Some");
+        assert!(
+            status.state_reason.is_some(),
+            "state_reason should be populated from controller_state_outcome"
+        );
+        assert!(status.state_sla.is_some(), "state_sla should be populated");
+        assert_eq!(status.power_state, Some("on".to_string()));
+        assert_eq!(status.health_status, Some("ok".to_string()));
+    }
+
+    #[test]
+    fn try_from_switch_without_status_still_has_state_reason() {
+        let switch = Switch {
+            id: SwitchId::from(uuid::Uuid::new_v4()),
+            config: SwitchConfig {
+                name: "test-switch".to_string(),
+                enable_nmxc: false,
+                fabric_manager_config: None,
+                location: None,
+            },
+            status: None,
+            deleted: None,
+            bmc_mac_address: None,
+            controller_state: Versioned::new(
+                SwitchControllerState::Created,
+                config_version::ConfigVersion::initial(),
+            ),
+            controller_state_outcome: Some(PersistentStateHandlerOutcome::Wait {
+                reason: "waiting for something".to_string(),
+                source_ref: None,
+            }),
+            switch_reprovisioning_requested: None,
+            firmware_upgrade_status: None,
+        };
+
+        let rpc_switch: rpc::Switch = switch.try_into().unwrap();
+        let status = rpc_switch
+            .status
+            .expect("status should be Some even when switch.status is None");
+        assert!(
+            status.state_reason.is_some(),
+            "state_reason should be populated even without switch status"
+        );
+        assert_eq!(status.power_state, None);
+        assert_eq!(status.health_status, None);
+    }
 
     #[test]
     fn serialize_controller_state() {

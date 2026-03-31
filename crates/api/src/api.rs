@@ -710,11 +710,9 @@ impl Forge for Api {
 
     async fn find_switch_state_histories(
         &self,
-        _request: Request<rpc::SwitchStateHistoriesRequest>,
+        request: Request<rpc::SwitchStateHistoriesRequest>,
     ) -> Result<Response<rpc::SwitchStateHistories>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        crate::handlers::switch::find_switch_state_histories(self, request).await
     }
 
     async fn find_machine_health_histories(

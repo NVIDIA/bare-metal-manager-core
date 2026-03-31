@@ -15,15 +15,18 @@
  * limitations under the License.
  */
 
+use std::str::FromStr;
 use std::sync::Arc;
 
 use askama::Template;
 use axum::Json;
-use axum::extract::State as AxumState;
+use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
+use carbide_uuid::switch::SwitchId;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
+use super::filters;
 use crate::api::Api;
 
 #[derive(Template)]
@@ -109,4 +112,122 @@ async fn fetch_switches(api: &Api) -> Result<Vec<SwitchRecord>, (http::StatusCod
         .collect();
 
     Ok(switches)
+}
+
+#[derive(Template)]
+#[template(path = "switch_detail.html")]
+struct SwitchDetail {
+    id: String,
+    controller_state: String,
+    name: String,
+    location: String,
+    enable_nmxc: bool,
+    state_reason: Option<rpc::forge::ControllerStateReason>,
+    power_state: Option<String>,
+    health_status: Option<String>,
+    bmc_info: Option<rpc::forge::BmcInfo>,
+}
+
+#[derive(serde::Serialize)]
+struct SwitchDetailJson {
+    id: String,
+    controller_state: String,
+    name: String,
+    location: String,
+    enable_nmxc: bool,
+    power_state: Option<String>,
+    health_status: Option<String>,
+    bmc_ip: Option<String>,
+    bmc_mac: Option<String>,
+}
+
+impl From<rpc::forge::Switch> for SwitchDetail {
+    fn from(switch: rpc::forge::Switch) -> Self {
+        let id = switch
+            .id
+            .as_ref()
+            .map(|id| id.to_string())
+            .unwrap_or_default();
+        let config = switch.config.unwrap_or_default();
+        let state_reason = switch.status.as_ref().and_then(|s| s.state_reason.clone());
+        let power_state = switch.status.as_ref().and_then(|s| s.power_state.clone());
+        let health_status = switch.status.as_ref().and_then(|s| s.health_status.clone());
+        Self {
+            id,
+            controller_state: switch.controller_state,
+            name: config.name,
+            location: config.location.unwrap_or_else(|| "N/A".to_string()),
+            enable_nmxc: config.enable_nmxc,
+            state_reason,
+            power_state,
+            health_status,
+            bmc_info: switch.bmc_info,
+        }
+    }
+}
+
+/// View details about a Switch.
+pub async fn detail(
+    AxumState(api): AxumState<Arc<Api>>,
+    AxumPath(switch_id): AxumPath<String>,
+) -> Response {
+    let (show_json, switch_id) = match switch_id.strip_suffix(".json") {
+        Some(id) => (true, id.to_string()),
+        None => (false, switch_id),
+    };
+
+    let switch = match fetch_switch(&api, &switch_id).await {
+        Ok(Some(switch)) => switch,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                format!("Switch {switch_id} not found"),
+            )
+                .into_response();
+        }
+        Err(response) => return response,
+    };
+
+    let detail = SwitchDetail::from(switch);
+
+    if show_json {
+        let json = SwitchDetailJson {
+            id: detail.id.clone(),
+            controller_state: detail.controller_state.clone(),
+            name: detail.name.clone(),
+            location: detail.location.clone(),
+            enable_nmxc: detail.enable_nmxc,
+            power_state: detail.power_state.clone(),
+            health_status: detail.health_status.clone(),
+            bmc_ip: detail.bmc_info.as_ref().and_then(|b| b.ip.clone()),
+            bmc_mac: detail.bmc_info.as_ref().and_then(|b| b.mac.clone()),
+        };
+        return (StatusCode::OK, Json(json)).into_response();
+    }
+
+    (StatusCode::OK, Html(detail.render().unwrap())).into_response()
+}
+
+async fn fetch_switch(api: &Api, switch_id: &str) -> Result<Option<rpc::forge::Switch>, Response> {
+    let switch_id_parsed = match SwitchId::from_str(switch_id) {
+        Ok(id) => id,
+        Err(_) => return Err((StatusCode::BAD_REQUEST, "Invalid switch ID").into_response()),
+    };
+
+    let response = match api
+        .find_switches(tonic::Request::new(rpc::forge::SwitchQuery {
+            name: None,
+            switch_id: Some(switch_id_parsed),
+        }))
+        .await
+    {
+        Ok(response) => response.into_inner(),
+        Err(err) if err.code() == tonic::Code::NotFound => return Ok(None),
+        Err(err) => {
+            tracing::error!(%err, %switch_id, "fetch_switch");
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response());
+        }
+    };
+
+    Ok(response.switches.into_iter().next())
 }
