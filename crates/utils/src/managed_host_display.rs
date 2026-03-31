@@ -87,7 +87,7 @@ impl ManagedHostMetadata {
         let network_device_ids = connected_devices
             .iter()
             .filter_map(|d| d.network_device_id.clone())
-            .dedup()
+            .unique()
             .collect();
 
         let exploration_reports = site_exploration_report.endpoints;
@@ -173,7 +173,8 @@ impl From<Machine> for ManagedHostOutput {
             .and_then(|di| get_memory_details(&di.memory_devices));
 
         let DmiDataDisplay {
-            serial_number: host_serial_number,
+            product_serial: _,
+            chassis_serial: host_serial_number,
             bios_version: host_bios_version,
         } = discovery_info.and_then(|di| di.dmi_data).into();
 
@@ -329,7 +330,8 @@ impl ManagedHostAttachedDpu {
         } = dpu_machine.bmc_info.into();
 
         let DmiDataDisplay {
-            serial_number,
+            product_serial: serial_number,
+            chassis_serial: _,
             bios_version,
         } = dpu_machine.discovery_info.and_then(|d| d.dmi_data).into();
 
@@ -576,7 +578,8 @@ impl From<Option<BmcInfo>> for BmcInfoDisplay {
 /// Helper to easily turn an Option<DmiData> into optional fields for display, without cloning
 #[derive(Default)]
 struct DmiDataDisplay {
-    serial_number: Option<String>,
+    product_serial: Option<String>,
+    chassis_serial: Option<String>,
     bios_version: Option<String>,
 }
 
@@ -584,12 +587,14 @@ impl From<Option<DmiData>> for DmiDataDisplay {
     fn from(value: Option<DmiData>) -> Self {
         if let Some(dmi_data) = value {
             Self {
-                serial_number: dmi_data.chassis_serial.if_non_empty(),
+                product_serial: dmi_data.product_serial.if_non_empty(),
+                chassis_serial: dmi_data.chassis_serial.if_non_empty(),
                 bios_version: dmi_data.bios_version.if_non_empty(),
             }
         } else {
             Self {
-                serial_number: None,
+                product_serial: None,
+                chassis_serial: None,
                 bios_version: None,
             }
         }
