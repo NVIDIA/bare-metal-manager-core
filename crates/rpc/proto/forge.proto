@@ -2860,9 +2860,7 @@ message Machine {
 
   // Other machine ids associated with this machine
   optional common.MachineId associated_host_machine_id = 19;
-  // Deprecated, use associated_dpu_machine_ids. For now, this is filled in with the first DPU ID.
-  // TODO: Once all admin CLI clients have updated, drop this and stop filling it in.
-  optional common.MachineId associated_dpu_machine_id = 20;
+  reserved 20; /* previously: optional common.MachineId associated_dpu_machine_id = 20; */
 
   optional MachineInventory inventory = 21;
   optional google.protobuf.Timestamp last_reboot_requested_time = 22;

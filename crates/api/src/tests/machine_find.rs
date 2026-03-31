@@ -566,15 +566,6 @@ async fn test_attached_dpu_machine_ids_multi_dpu(pool: sqlx::PgPool) {
             "host machine has an unexpected associated_dpu_machine_id {dpu_id}"
         );
     }
-
-    let deprecated_dpu_id = host_machine.associated_dpu_machine_id
-        .expect("host machine should fill in an associated_dpu_machine_id field for backwards compatibility");
-
-    let first_dpu_id = dpu_ids.into_iter().next().unwrap();
-    assert_eq!(
-        deprecated_dpu_id, first_dpu_id,
-        "deprecated DPU field should equal the first DPU ID"
-    );
 }
 
 #[crate::sqlx_test()]

@@ -75,16 +75,7 @@ impl ApiClient {
             return Err(CarbideCliError::MachineNotFound(id));
         }
 
-        let mut machine_details = machines.machines.remove(0);
-
-        // Note: The field going forward is `associated_dpu_machine_ids`, but if we're talking to
-        // an older version of the API which doesn't support it, fall back on building our own Vec
-        // out of the `associated_dpu_machine_id` field.
-        if machine_details.associated_dpu_machine_ids.is_empty()
-            && let Some(ref dpu_id) = machine_details.associated_dpu_machine_id
-        {
-            machine_details.associated_dpu_machine_ids = vec![*dpu_id];
-        }
+        let machine_details = machines.machines.remove(0);
 
         Ok(machine_details)
     }

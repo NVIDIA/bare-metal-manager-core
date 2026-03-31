@@ -1109,7 +1109,6 @@ impl From<Machine> for rpc::forge::Machine {
         };
 
         let associated_dpu_machine_ids = machine.associated_dpu_machine_ids();
-        let associated_dpu_machine_id = associated_dpu_machine_ids.first().copied();
         let instance_network_restrictions = Some(machine.instance_network_restrictions());
 
         rpc::Machine {
@@ -1174,7 +1173,6 @@ impl From<Machine> for rpc::forge::Machine {
             maintenance_start_time,
             associated_host_machine_id: None, // Gets filled in the `ManagedHostStateSnapshot` conversion
             associated_dpu_machine_ids,
-            associated_dpu_machine_id,
             inventory: Some(machine.inventory.unwrap_or_default().into()),
             last_reboot_requested_time: machine
                 .last_reboot_requested
