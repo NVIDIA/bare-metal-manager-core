@@ -31,8 +31,8 @@ use crate::crds::dpuserviceconfigurations_generated::DPUServiceConfiguration;
 use crate::crds::dpuservicetemplates_generated::DPUServiceTemplate;
 use crate::error::DpfError;
 use crate::repository::{
-    BfbRepository, DpuDeploymentRepository, DpuFlavorRepository, DpuServiceConfigurationRepository,
-    DpuServiceTemplateRepository, K8sConfigRepository,
+    BfbRepository, DpfOperatorConfigRepository, DpuDeploymentRepository, DpuFlavorRepository,
+    DpuServiceConfigurationRepository, DpuServiceTemplateRepository, K8sConfigRepository,
 };
 use crate::types::*;
 
@@ -217,6 +217,13 @@ impl K8sConfigRepository for InitializationMock {
         data: BTreeMap<String, Vec<u8>>,
     ) -> Result<(), DpfError> {
         self.secrets.insert(ns_key(ns, name), data);
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl DpfOperatorConfigRepository for InitializationMock {
+    async fn patch(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), DpfError> {
         Ok(())
     }
 }

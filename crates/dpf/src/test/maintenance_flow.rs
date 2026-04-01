@@ -36,7 +36,8 @@ use crate::crds::dpunodes_generated::*;
 use crate::crds::dpus_generated::*;
 use crate::error::DpfError;
 use crate::repository::{
-    DpuNodeMaintenanceRepository, DpuNodeRepository, DpuRepository, K8sConfigRepository,
+    DpfOperatorConfigRepository, DpuNodeMaintenanceRepository, DpuNodeRepository, DpuRepository,
+    K8sConfigRepository,
 };
 use crate::sdk::{DpfSdkBuilder, HOLD_ANNOTATION, RESTART_ANNOTATION};
 use crate::types::*;
@@ -239,6 +240,13 @@ impl K8sConfigRepository for MaintenanceFlowMock {
         _: &str,
         _: BTreeMap<String, Vec<u8>>,
     ) -> Result<(), DpfError> {
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl DpfOperatorConfigRepository for MaintenanceFlowMock {
+    async fn patch(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), DpfError> {
         Ok(())
     }
 }

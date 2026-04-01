@@ -597,6 +597,10 @@ pub struct DpfConfig {
     /// Whether to create the bf.cfg ConfigMap during initialization.
     #[serde(default = "default_to_true")]
     pub bfcfg_enabled: bool,
+    /// Are we testing v2 version??
+    /// This is just temporary flag and will be removed once v2 becomes only option.
+    #[serde(default)]
+    pub v2: bool,
 }
 
 impl Default for DpfConfig {
@@ -609,6 +613,7 @@ impl Default for DpfConfig {
             bfb_url: String::new(),
             services: None,
             bfcfg_enabled: true,
+            v2: false,
         }
     }
 }

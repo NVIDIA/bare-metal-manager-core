@@ -397,23 +397,49 @@ pub async fn start_api(
             None
         };
 
-        let bfb_url = if carbide_config.dpf.bfb_url.is_empty() {
+        let bfb_url = if carbide_config.dpf.v2 && carbide_config.dpf.bfb_url.is_empty() {
+            // This should move to cfg/file as a default value once v2 is the only mode.
+            "https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/bf-bundle-3.2.0-113_25.10_ubuntu-22.04_prod.bfb".to_string()
+        } else if carbide_config.dpf.bfb_url.is_empty() {
             crate::dpf::resolve_bfb_url().await?
         } else {
             carbide_config.dpf.bfb_url.clone()
         };
 
+        // This is just temparary code until we make v2 only option. (just 2 weeks)
+        // Soon v2 flag will be removed and will become only mode for dpf handling.
+        let v2_str = if carbide_config.dpf.v2 { "-v2" } else { "" };
         let init_config = carbide_dpf::InitDpfResourcesConfig {
             bfb_url,
-            deployment_name: carbide_config.dpf.deployment_name.clone(),
             flavor_name: carbide_config.dpf.flavor_name.clone(),
-            services,
-            bfcfg_template,
+            deployment_name: format!("{}{}", carbide_config.dpf.deployment_name.clone(), v2_str),
+            services: if carbide_config.dpf.v2 {
+                // Enable all the services.
+                Vec::new()
+            } else {
+                services
+            },
+            bfcfg_template: if carbide_config.dpf.v2 {
+                // We use default bf.cfg.
+                None
+            } else {
+                bfcfg_template
+            },
+            dpu_flavor: if carbide_config.dpf.v2 {
+                Some((*carbide_config).clone().into())
+            } else {
+                None
+            },
         };
 
         let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
             .with_labeler(crate::dpf::CarbideDPFLabeler::new(
-                carbide_config.dpf.node_label_key.clone(),
+                if carbide_config.dpf.v2 {
+                    // This will be removed and moved to config file when v1 code is deleted.
+                    "carbide.nvidia.com/controlled.node.v2".to_string()
+                } else {
+                    carbide_config.dpf.node_label_key.clone()
+                },
             ))
             .with_bmc_password_refresh_interval(std::time::Duration::from_secs(60))
             .with_join_set(join_set)

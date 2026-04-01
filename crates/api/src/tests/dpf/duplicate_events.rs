@@ -59,6 +59,8 @@ fn dpf_config() -> crate::cfg::file::DpfConfig {
     crate::cfg::file::DpfConfig {
         enabled: true,
         bfb_url: "http://example.com/test.bfb".to_string(),
+        services: None,
+        v2: true,
         ..Default::default()
     }
 }

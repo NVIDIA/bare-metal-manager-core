@@ -51,6 +51,8 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
     config.dpf = crate::cfg::file::DpfConfig {
         enabled: true,
         bfb_url: "http://example.com/test.bfb".to_string(),
+        services: None,
+        v2: true,
         ..Default::default()
     };
 
