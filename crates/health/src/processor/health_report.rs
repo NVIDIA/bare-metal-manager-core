@@ -76,21 +76,71 @@ impl HealthReportProcessor {
         format!("{}::{}", context.endpoint_key(), context.collector_type)
     }
 
-    fn fmt_range(low: Option<f64>, high: Option<f64>) -> String {
-        match (low, high) {
-            (None, None) => "not set".to_string(),
-            (Some(l), Some(h)) => format!("< {} or > {}", l, h),
-            (Some(l), None) => format!("< {}", l),
-            (None, Some(h)) => format!("> {}", h),
-        }
-    }
-
-    fn fmt_threshold(low: Option<f64>, high: Option<f64>) -> String {
-        match (low, high) {
-            (None, None) => "not set".to_string(),
-            (Some(l), Some(h)) => format!("<= {} or >= {}", l, h),
-            (Some(l), None) => format!("<= {}", l),
-            (None, Some(h)) => format!(">= {}", h),
+    fn triggered_condition(
+        health: &SensorHealthContext,
+        reading: f64,
+        state: SensorHealth,
+    ) -> String {
+        match state {
+            SensorHealth::SensorFailure => {
+                if let Some(max) = health.range_max
+                    && reading > max
+                {
+                    return format!("reading {reading} is above the valid maximum of {max}");
+                }
+                if let Some(min) = health.range_min
+                    && reading < min
+                {
+                    return format!("reading {reading} is below the valid minimum of {min}");
+                }
+                "reading is outside the valid sensor range".to_string()
+            }
+            SensorHealth::Fatal => {
+                if let Some(max) = health.upper_fatal
+                    && reading >= max
+                {
+                    return format!("reading {reading} reached or exceeded the fatal threshold of {max}");
+                }
+                if let Some(min) = health.lower_fatal
+                    && reading <= min
+                {
+                    return format!("reading {reading} reached or fell below the fatal threshold of {min}");
+                }
+                "reading reached the fatal threshold".to_string()
+            }
+            SensorHealth::Critical => {
+                if let Some(max) = health.upper_critical
+                    && reading >= max
+                {
+                    return format!(
+                        "reading {reading} reached or exceeded the critical threshold of {max}"
+                    );
+                }
+                if let Some(min) = health.lower_critical
+                    && reading <= min
+                {
+                    return format!(
+                        "reading {reading} reached or fell below the critical threshold of {min}"
+                    );
+                }
+                "reading reached the critical threshold".to_string()
+            }
+            SensorHealth::Warning => {
+                if let Some(max) = health.upper_caution
+                    && reading >= max
+                {
+                    return format!("reading {reading} reached or exceeded the warning threshold of {max}");
+                }
+                if let Some(min) = health.lower_caution
+                    && reading <= min
+                {
+                    return format!(
+                        "reading {reading} reached or fell below the warning threshold of {min}"
+                    );
+                }
+                "reading reached the warning threshold".to_string()
+            }
+            SensorHealth::Ok => "reading is within thresholds".to_string(),
         }
     }
 
@@ -157,6 +207,7 @@ impl HealthReportProcessor {
                 target: Some(health.sensor_id.clone()),
             }),
             state => {
+                let reason = Self::triggered_condition(health, metric.value, state);
                 if health.bmc_health == BmcHealth::Ok {
                     tracing::warn!(
                         sensor_id = %health.sensor_id,
@@ -164,9 +215,7 @@ impl HealthReportProcessor {
                         reading = metric.value,
                         unit = %metric.unit,
                         reading_type = %metric.metric_type,
-                        valid_range = %Self::fmt_range(health.range_min, health.range_max),
-                        caution_range = %Self::fmt_threshold(health.lower_caution, health.upper_caution),
-                        critical_range = %Self::fmt_threshold(health.lower_critical, health.upper_critical),
+                        reason,
                         calculated_status = ?state,
                         "Threshold check indicates issue but BMC reports sensor as OK - likely incorrect thresholds, reporting OK"
                     );
@@ -185,17 +234,8 @@ impl HealthReportProcessor {
                 };
 
                 let message = format!(
-                    "{} '{}': {} - reading {}{} ({}), valid range: {}, caution: {}, critical: {}, fatal: {}",
-                    health.entity_type,
-                    health.sensor_id,
-                    status,
-                    metric.value,
-                    metric.unit,
-                    metric.metric_type,
-                    Self::fmt_range(health.range_min, health.range_max),
-                    Self::fmt_threshold(health.lower_caution, health.upper_caution),
-                    Self::fmt_threshold(health.lower_critical, health.upper_critical),
-                    Self::fmt_threshold(health.lower_fatal, health.upper_fatal),
+                    "{} '{}': {} - {}",
+                    health.entity_type, health.sensor_id, status, reason
                 );
 
                 SensorHealthResult::Alert(HealthReportAlert {
