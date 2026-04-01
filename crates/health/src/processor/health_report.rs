@@ -21,7 +21,6 @@ use dashmap::DashMap;
 use nv_redfish::resource::Health as BmcHealth;
 
 use super::{CollectorEvent, EventContext, EventProcessor};
-use crate::config::HealthOverrideLevel;
 use crate::sink::{
     Classification, HealthReport, HealthReportAlert, HealthReportSuccess, Probe, ReportSource,
     SensorHealthContext, SensorHealthData,
@@ -61,14 +60,18 @@ struct HealthReportWindow {
 
 pub struct HealthReportProcessor {
     windows: DashMap<String, HealthReportWindow>,
-    level: HealthOverrideLevel,
+}
+
+impl Default for HealthReportProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl HealthReportProcessor {
-    pub fn new(level: HealthOverrideLevel) -> Self {
+    pub fn new() -> Self {
         Self {
             windows: DashMap::new(),
-            level,
         }
     }
 
@@ -255,58 +258,6 @@ impl HealthReportProcessor {
             }
         }
     }
-
-    fn classification_rank(classification: Classification) -> u8 {
-        match classification {
-            Classification::SensorOk => 0,
-            Classification::SensorWarning => 1,
-            Classification::SensorCritical => 2,
-            Classification::SensorFatal => 3,
-            Classification::SensorFailure => 4,
-            Classification::Leak | Classification::LeakDetector => 4,
-        }
-    }
-
-    fn threshold_rank(level: HealthOverrideLevel) -> u8 {
-        match level {
-            HealthOverrideLevel::Warning => 1,
-            HealthOverrideLevel::Critical => 2,
-            HealthOverrideLevel::Fatal => 3,
-        }
-    }
-
-    fn should_alert(&self, classifications: &[Classification]) -> bool {
-        let threshold = Self::threshold_rank(self.level);
-        classifications
-            .iter()
-            .copied()
-            .map(Self::classification_rank)
-            .max()
-            .is_some_and(|rank| rank >= threshold)
-    }
-
-    fn filter_report(&self, report: HealthReport) -> HealthReport {
-        let mut successes = report.successes;
-        let mut alerts = Vec::new();
-
-        for alert in report.alerts {
-            if self.should_alert(&alert.classifications) {
-                alerts.push(alert);
-            } else {
-                successes.push(HealthReportSuccess {
-                    probe_id: alert.probe_id,
-                    target: alert.target,
-                });
-            }
-        }
-
-        HealthReport {
-            source: report.source,
-            observed_at: report.observed_at,
-            successes,
-            alerts,
-        }
-    }
 }
 
 impl EventProcessor for HealthReportProcessor {
@@ -334,12 +285,12 @@ impl EventProcessor for HealthReportProcessor {
                 let Some((_, window)) = self.windows.remove(&Self::stream_key(context)) else {
                     return Vec::new();
                 };
-                let report = self.filter_report(HealthReport {
+                let report = HealthReport {
                     source: ReportSource::BmcSensors,
                     observed_at: Some(chrono::Utc::now()),
                     successes: window.successes,
                     alerts: window.alerts,
-                });
+                };
 
                 tracing::info!(
                     endpoint = %context.addr.mac,
@@ -391,7 +342,7 @@ mod tests {
 
     #[test]
     fn metric_window_emits_abstract_health_report() {
-        let processor = HealthReportProcessor::new(HealthOverrideLevel::Warning);
+        let processor = HealthReportProcessor::new();
         let context = test_context();
 
         let _ = processor.process_event(&context, &CollectorEvent::MetricCollectionStart);
@@ -431,47 +382,5 @@ mod tests {
         assert_eq!(report.source, ReportSource::BmcSensors);
         assert!(report.successes.is_empty());
         assert_eq!(report.alerts.len(), 1);
-    }
-
-    #[test]
-    fn downgrades_alerts_below_configured_level_to_successes() {
-        let processor = HealthReportProcessor::new(HealthOverrideLevel::Critical);
-
-        let filtered = processor.filter_report(HealthReport {
-            source: ReportSource::BmcSensors,
-            observed_at: None,
-            successes: Vec::new(),
-            alerts: vec![HealthReportAlert {
-                probe_id: Probe::Sensor,
-                target: Some("sensor-1".to_string()),
-                message: "warning".to_string(),
-                classifications: vec![Classification::SensorWarning],
-            }],
-        });
-
-        assert!(filtered.alerts.is_empty());
-        assert_eq!(filtered.successes.len(), 1);
-        assert_eq!(filtered.successes[0].probe_id, Probe::Sensor);
-        assert_eq!(filtered.successes[0].target.as_deref(), Some("sensor-1"));
-    }
-
-    #[test]
-    fn keeps_alerts_at_or_above_configured_level() {
-        let processor = HealthReportProcessor::new(HealthOverrideLevel::Critical);
-
-        let filtered = processor.filter_report(HealthReport {
-            source: ReportSource::BmcSensors,
-            observed_at: None,
-            successes: Vec::new(),
-            alerts: vec![HealthReportAlert {
-                probe_id: Probe::Sensor,
-                target: Some("sensor-1".to_string()),
-                message: "critical".to_string(),
-                classifications: vec![Classification::SensorCritical],
-            }],
-        });
-
-        assert!(filtered.successes.is_empty());
-        assert_eq!(filtered.alerts.len(), 1);
     }
 }

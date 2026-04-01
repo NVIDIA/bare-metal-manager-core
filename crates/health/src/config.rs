@@ -190,6 +190,10 @@ pub struct HealthOverrideSinkConfig {
 
     /// Number of concurrent workers submitting reports to Carbide API.
     pub workers: usize,
+
+    /// Minimum health level that should be reported as an alert override.
+    /// Lower-level findings are downgraded to successes.
+    pub level: HealthOverrideLevel,
 }
 
 impl Default for HealthOverrideSinkConfig {
@@ -197,6 +201,7 @@ impl Default for HealthOverrideSinkConfig {
         Self {
             connection: CarbideApiConnectionConfig::default(),
             workers: 4,
+            level: HealthOverrideLevel::Critical,
         }
     }
 }
@@ -279,9 +284,6 @@ impl Default for CollectorsConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProcessorsConfig {
-    /// Health report processor configuration.
-    pub health_report: HealthReportProcessorConfig,
-
     /// Leak detection processor configuration (if present, leak detection is enabled)
     pub leak_detection: Configurable<LeakDetectionProcessorConfig>,
 
@@ -292,25 +294,8 @@ pub struct ProcessorsConfig {
 impl Default for ProcessorsConfig {
     fn default() -> Self {
         Self {
-            health_report: HealthReportProcessorConfig::default(),
             leak_detection: Configurable::Enabled(LeakDetectionProcessorConfig::default()),
             rack_leak: Configurable::Enabled(RackLeakProcessorConfig::default()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct HealthReportProcessorConfig {
-    /// Minimum health level that should be reported as an alert.
-    /// Lower-level findings are downgraded to successes.
-    pub level: HealthOverrideLevel,
-}
-
-impl Default for HealthReportProcessorConfig {
-    fn default() -> Self {
-        Self {
-            level: HealthOverrideLevel::Critical,
         }
     }
 }
@@ -703,14 +688,10 @@ mod tests {
                 "/var/run/secrets/spiffe.io/ca.crt"
             );
             assert_eq!(health_override.workers, 8);
+            assert_eq!(health_override.level, HealthOverrideLevel::Warning);
         } else {
             panic!("health override sink is disabled")
         }
-
-        assert_eq!(
-            config.processors.health_report.level,
-            HealthOverrideLevel::Warning
-        );
 
         if let Configurable::Enabled(ref rate_limit) = config.rate_limit {
             assert_eq!(rate_limit.bucket_replenish, Duration::from_millis(35));

@@ -160,9 +160,7 @@ fn build_data_sink(
         || config.sinks.health_override.is_enabled()
         || config.processors.leak_detection.is_enabled()
     {
-        processors.push(Arc::new(HealthReportProcessor::new(
-            config.processors.health_report.level,
-        )));
+        processors.push(Arc::new(HealthReportProcessor::new()));
     }
 
     if let Configurable::Enabled(ref leak_detection_cfg) = config.processors.leak_detection {
