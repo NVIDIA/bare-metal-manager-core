@@ -18,12 +18,26 @@
 use std::borrow::Cow;
 
 use color_eyre::Result;
+use rpc::forge as rpc;
 
 use super::args::Args;
+use crate::cfg::runtime::RuntimeConfig;
 use crate::rpc::ApiClient;
 
-pub async fn list_switches(data: Args, api_client: &ApiClient) -> Result<()> {
-    let response = api_client.0.find_switches(data).await?;
+pub async fn list_switches(
+    args: Args,
+    api_client: &ApiClient,
+    config: &RuntimeConfig,
+) -> Result<()> {
+    let filter = rpc::SwitchSearchFilter {
+        rack_id: None,
+        deleted: args.deleted as i32,
+        controller_state: args.controller_state,
+        bmc_mac: args.bmc_mac.map(|m| m.to_string()),
+    };
+    let response = api_client
+        .get_all_switches(filter, config.page_size)
+        .await?;
 
     let switches = response.switches;
 

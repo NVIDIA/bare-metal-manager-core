@@ -174,6 +174,28 @@ pub enum StatusValidationError {
     InvalidValue(String),
 }
 
+/// Filter for controlling whether deleted resources are included in search results.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum DeletedFilter {
+    /// Exclude deleted resources (default)
+    #[default]
+    Exclude,
+    /// Return only deleted resources
+    Only,
+    /// Include both deleted and non-deleted resources
+    Include,
+}
+
+impl From<i32> for DeletedFilter {
+    fn from(value: i32) -> Self {
+        match value {
+            1 => DeletedFilter::Only,
+            2 => DeletedFilter::Include,
+            _ => DeletedFilter::Exclude,
+        }
+    }
+}
+
 /// A transparent wrapper around [`MacAddress`] that enables serde serialization
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct SerializableMacAddress(MacAddress);

@@ -19,6 +19,7 @@ use std::collections::HashMap;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
@@ -205,6 +206,7 @@ impl TryFrom<Switch> for rpc::Switch {
     fn try_from(src: Switch) -> Result<Self, Self::Error> {
         let state_reason = src.controller_state_outcome.map(|r| r.into());
         let sla = state_sla(&src.controller_state.value, &src.controller_state.version).into();
+        let controller_state = serde_json::to_string(&src.controller_state.value).unwrap();
         let status = Some(match src.status {
             Some(s) => rpc::SwitchStatus {
                 state_reason,
@@ -212,6 +214,7 @@ impl TryFrom<Switch> for rpc::Switch {
                 switch_name: Some(s.switch_name),
                 power_state: Some(s.power_state),
                 health_status: Some(s.health_status),
+                controller_state: Some(controller_state.clone()),
             },
             None => rpc::SwitchStatus {
                 state_reason,
@@ -219,6 +222,7 @@ impl TryFrom<Switch> for rpc::Switch {
                 switch_name: None,
                 power_state: None,
                 health_status: None,
+                controller_state: Some(controller_state.clone()),
             },
         });
 
@@ -241,7 +245,6 @@ impl TryFrom<Switch> for rpc::Switch {
             None
         };
         let state_version = src.controller_state.version.to_string();
-        let controller_state = serde_json::to_string(&src.controller_state.value).unwrap();
         Ok(rpc::Switch {
             id: Some(src.id),
             config: Some(config),
@@ -383,6 +386,25 @@ impl From<SwitchStateHistoryRecord> for rpc::SwitchStateHistoryRecord {
 impl Switch {
     pub fn is_marked_as_deleted(&self) -> bool {
         self.deleted.is_some()
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SwitchSearchFilter {
+    pub rack_id: Option<RackId>,
+    pub deleted: crate::DeletedFilter,
+    pub controller_state: Option<String>,
+    pub bmc_mac: Option<MacAddress>,
+}
+
+impl From<rpc::SwitchSearchFilter> for SwitchSearchFilter {
+    fn from(filter: rpc::SwitchSearchFilter) -> Self {
+        SwitchSearchFilter {
+            rack_id: filter.rack_id,
+            deleted: crate::DeletedFilter::from(filter.deleted),
+            controller_state: filter.controller_state,
+            bmc_mac: filter.bmc_mac.and_then(|m| m.parse::<MacAddress>().ok()),
+        }
     }
 }
 

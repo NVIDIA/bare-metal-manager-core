@@ -587,6 +587,11 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, SiteAgent],
         );
         x.perm("FindPowerShelves", vec![ForgeAdminCLI, Machineatron, Rla]);
+        x.perm("FindPowerShelfIds", vec![ForgeAdminCLI, Machineatron, Rla]);
+        x.perm(
+            "FindPowerShelvesByIds",
+            vec![ForgeAdminCLI, Machineatron, Rla],
+        );
         x.perm("CreatePowerShelf", vec![ForgeAdminCLI, Machineatron]);
         x.perm("DeletePowerShelf", vec![ForgeAdminCLI, Machineatron]);
         x.perm(
@@ -627,6 +632,14 @@ impl InternalRBACRules {
         );
         x.perm(
             "FindSwitches",
+            vec![ForgeAdminCLI, Machineatron, Rla, Health],
+        );
+        x.perm(
+            "FindSwitchIds",
+            vec![ForgeAdminCLI, Machineatron, Rla, Health],
+        );
+        x.perm(
+            "FindSwitchesByIds",
             vec![ForgeAdminCLI, Machineatron, Rla, Health],
         );
         x.perm("CreateSwitch", vec![ForgeAdminCLI, Machineatron]);

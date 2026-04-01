@@ -278,6 +278,73 @@ impl ApiClient {
         Ok(self.0.find_rack_ids().await?)
     }
 
+    pub async fn get_all_switches(
+        &self,
+        filter: rpc::SwitchSearchFilter,
+        page_size: usize,
+    ) -> CarbideCliResult<rpc::SwitchList> {
+        let all_ids = self.0.find_switch_ids(filter).await?;
+        let mut all_list = rpc::SwitchList {
+            switches: Vec::with_capacity(all_ids.ids.len()),
+        };
+
+        for ids in all_ids.ids.chunks(page_size) {
+            let list = self
+                .0
+                .find_switches_by_ids(rpc::SwitchesByIdsRequest {
+                    switch_ids: ids.to_vec(),
+                })
+                .await?;
+            all_list.switches.extend(list.switches);
+        }
+
+        Ok(all_list)
+    }
+
+    pub async fn get_one_switch(&self, switch_id: SwitchId) -> CarbideCliResult<rpc::SwitchList> {
+        Ok(self
+            .0
+            .find_switches_by_ids(rpc::SwitchesByIdsRequest {
+                switch_ids: vec![switch_id],
+            })
+            .await?)
+    }
+
+    pub async fn get_all_power_shelves(
+        &self,
+        filter: rpc::PowerShelfSearchFilter,
+        page_size: usize,
+    ) -> CarbideCliResult<rpc::PowerShelfList> {
+        let all_ids = self.0.find_power_shelf_ids(filter).await?;
+        let mut all_list = rpc::PowerShelfList {
+            power_shelves: Vec::with_capacity(all_ids.ids.len()),
+        };
+
+        for ids in all_ids.ids.chunks(page_size) {
+            let list = self
+                .0
+                .find_power_shelves_by_ids(rpc::PowerShelvesByIdsRequest {
+                    power_shelf_ids: ids.to_vec(),
+                })
+                .await?;
+            all_list.power_shelves.extend(list.power_shelves);
+        }
+
+        Ok(all_list)
+    }
+
+    pub async fn get_one_power_shelf(
+        &self,
+        power_shelf_id: PowerShelfId,
+    ) -> CarbideCliResult<rpc::PowerShelfList> {
+        Ok(self
+            .0
+            .find_power_shelves_by_ids(rpc::PowerShelvesByIdsRequest {
+                power_shelf_ids: vec![power_shelf_id],
+            })
+            .await?)
+    }
+
     pub async fn get_all_segments(
         &self,
         tenant_org_id: Option<String>,

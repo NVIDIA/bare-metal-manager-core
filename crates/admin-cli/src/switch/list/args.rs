@@ -16,15 +16,20 @@
  */
 
 use clap::Parser;
+use mac_address::MacAddress;
+use rpc::forge::DeletedFilter;
 
 #[derive(Parser, Debug)]
-pub struct Args;
+pub struct Args {
+    /// Include deleted switches
+    #[clap(long, value_enum, default_value = "exclude")]
+    pub deleted: DeletedFilter,
 
-impl From<Args> for ::rpc::forge::SwitchQuery {
-    fn from(_args: Args) -> Self {
-        Self {
-            name: None,
-            switch_id: None,
-        }
-    }
+    /// Filter by controller state (e.g. "ready", "initializing", "error")
+    #[clap(long)]
+    pub controller_state: Option<String>,
+
+    /// Filter by BMC MAC address
+    #[clap(long)]
+    pub bmc_mac: Option<MacAddress>,
 }

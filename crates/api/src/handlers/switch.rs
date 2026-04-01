@@ -17,7 +17,7 @@
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
-use db::switch as db_switch;
+use db::{ObjectColumnFilter, switch as db_switch};
 use model::metadata::Metadata;
 use tonic::{Request, Response, Status};
 
@@ -104,6 +104,92 @@ pub async fn find_switch(
         .map(|s| {
             let serial = s.config.name.clone();
             let bmc_info = bmc_info_map.get(&serial).cloned();
+
+            rpc::Switch::try_from(s).map(|mut rpc_switch| {
+                rpc_switch.bmc_info = bmc_info;
+                rpc_switch
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Failed to convert switch: {}", e),
+        })?;
+
+    Ok(Response::new(rpc::SwitchList { switches }))
+}
+
+pub async fn find_ids(
+    api: &Api,
+    request: Request<rpc::SwitchSearchFilter>,
+) -> Result<Response<rpc::SwitchIdList>, Status> {
+    log_request_data(&request);
+
+    let filter: model::switch::SwitchSearchFilter = request.into_inner().into();
+
+    let switch_ids = db_switch::find_ids(&api.database_connection, filter).await?;
+
+    Ok(Response::new(rpc::SwitchIdList { ids: switch_ids }))
+}
+
+pub async fn find_by_ids(
+    api: &Api,
+    request: Request<rpc::SwitchesByIdsRequest>,
+) -> Result<Response<rpc::SwitchList>, Status> {
+    log_request_data(&request);
+
+    let switch_ids = request.into_inner().switch_ids;
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if switch_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if switch_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    let mut txn = api.txn_begin().await?;
+
+    let switch_list = db_switch::find_by(
+        &mut txn,
+        ObjectColumnFilter::List(db_switch::IdColumn, &switch_ids),
+        db_switch::SwitchSearchConfig::default(),
+    )
+    .await?;
+
+    let bmc_info_map: std::collections::HashMap<_, _> = {
+        let rows = db_switch::find_bmc_info_by_switch_ids(&mut txn, &switch_ids)
+            .await
+            .map_err(|e| CarbideError::Internal {
+                message: format!("Failed to get switch BMC info: {}", e),
+            })?;
+
+        rows.into_iter()
+            .map(|row| {
+                (
+                    row.switch_id,
+                    rpc::BmcInfo {
+                        ip: Some(row.bmc_ip.to_string()),
+                        mac: Some(row.bmc_mac.to_string()),
+                        version: None,
+                        firmware_version: None,
+                        port: None,
+                    },
+                )
+            })
+            .collect()
+    };
+
+    let _ = txn.rollback().await;
+
+    let switches: Vec<rpc::Switch> = switch_list
+        .into_iter()
+        .map(|s| {
+            let id = s.id;
+            let bmc_info = bmc_info_map.get(&id).cloned();
 
             rpc::Switch::try_from(s).map(|mut rpc_switch| {
                 rpc_switch.bmc_info = bmc_info;

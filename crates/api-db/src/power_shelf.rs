@@ -24,6 +24,7 @@ use model::metadata::Metadata;
 use model::power_shelf::{NewPowerShelf, PowerShelf, PowerShelfControllerState};
 use sqlx::PgConnection;
 
+use crate::db_read::DbReader;
 use crate::{
     ColumnInfo, DatabaseError, DatabaseResult, FilterableQueryBuilder, ObjectColumnFilter,
 };
@@ -177,6 +178,46 @@ pub async fn list_segment_ids(txn: &mut PgConnection) -> DatabaseResult<Vec<Powe
     Ok(ids)
 }
 
+pub async fn find_ids(
+    txn: impl DbReader<'_>,
+    filter: model::power_shelf::PowerShelfSearchFilter,
+) -> Result<Vec<PowerShelfId>, DatabaseError> {
+    if filter.rack_id.is_some() {
+        return Err(DatabaseError::InvalidArgument(
+            "rack_id filtering is not yet supported for power shelves".to_string(),
+        ));
+    }
+
+    let mut qb = sqlx::QueryBuilder::new("SELECT DISTINCT ps.id FROM power_shelves ps");
+
+    if filter.bmc_mac.is_some() {
+        qb.push(" JOIN machine_interfaces mi ON mi.power_shelf_id = ps.id");
+    }
+
+    qb.push(" WHERE TRUE");
+
+    match filter.deleted {
+        model::DeletedFilter::Exclude => qb.push(" AND ps.deleted IS NULL"),
+        model::DeletedFilter::Only => qb.push(" AND ps.deleted IS NOT NULL"),
+        model::DeletedFilter::Include => &mut qb,
+    };
+
+    if let Some(state) = &filter.controller_state {
+        qb.push(" AND ps.controller_state->>'state' = ");
+        qb.push_bind(state.clone());
+    }
+
+    if let Some(mac) = filter.bmc_mac {
+        qb.push(" AND mi.mac_address = ");
+        qb.push_bind(mac);
+    }
+
+    qb.build_query_as()
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::new("power_shelf::find_ids", e))
+}
+
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = PowerShelf>>(
     txn: &mut PgConnection,
     filter: ObjectColumnFilter<'a, C>,
@@ -278,9 +319,7 @@ use std::net::IpAddr;
 
 use mac_address::MacAddress;
 
-/// Resolve PowerShelfIds to BMC/PMC IPs via the canonical path:
-///   power_shelves.id -> power_shelves.config->>'name' (serial)
-///   -> expected_power_shelves.serial_number -> ip_address
+/// Resolve PowerShelfIds to BMC/PMC IPs.
 pub async fn find_bmc_ips_by_power_shelf_ids(
     db: impl crate::db_read::DbReader<'_>,
     power_shelf_ids: &[PowerShelfId],
@@ -311,10 +350,6 @@ pub struct PowerShelfEndpointRow {
 }
 
 /// Resolve PowerShelfIds to PMC MAC + IP.
-///
-/// Path:
-///   power_shelves.id -> power_shelves.config->>'name' (serial)
-///   -> expected_power_shelves.serial_number -> bmc_mac_address (PMC MAC), ip_address (PMC IP)
 pub async fn find_power_shelf_endpoints_by_ids(
     db: impl crate::db_read::DbReader<'_>,
     power_shelf_ids: &[PowerShelfId],
@@ -371,4 +406,29 @@ pub async fn update_metadata(
             e => DatabaseError::query(query, e),
         }),
     }
+}
+
+/// Resolve PowerShelfIds to BMC MAC + IP via machine_interfaces.
+pub async fn find_bmc_info_by_power_shelf_ids(
+    db: impl crate::db_read::DbReader<'_>,
+    power_shelf_ids: &[PowerShelfId],
+) -> DatabaseResult<Vec<PowerShelfEndpointRow>> {
+    let sql = r#"
+        SELECT DISTINCT ON (mi.power_shelf_id)
+            mi.power_shelf_id  AS power_shelf_id,
+            mi.mac_address     AS pmc_mac,
+            mia.address        AS pmc_ip
+        FROM machine_interfaces mi
+        JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
+        JOIN network_segments ns ON ns.id = mi.segment_id
+        WHERE mi.power_shelf_id = ANY($1)
+          AND ns.network_segment_type = 'underlay'
+        ORDER BY mi.power_shelf_id
+    "#;
+
+    sqlx::query_as(sql)
+        .bind(power_shelf_ids)
+        .fetch_all(db)
+        .await
+        .map_err(|err| DatabaseError::new("power_shelf::find_bmc_info_by_power_shelf_ids", err))
 }

@@ -15,12 +15,16 @@
  * limitations under the License.
  */
 
+use std::str::FromStr;
+
+use carbide_uuid::power_shelf::PowerShelfId;
 use color_eyre::Result;
 use prettytable::{Table, row};
 use rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use rpc::forge::PowerShelf;
 
 use super::args::Args;
+use crate::cfg::runtime::RuntimeConfig;
 use crate::rpc::ApiClient;
 
 pub fn show_power_shelves(
@@ -116,12 +120,35 @@ pub fn show_power_shelves(
 
 pub async fn handle_show(
     args: Args,
-    output_format: OutputFormat,
     api_client: &ApiClient,
+    config: &RuntimeConfig,
 ) -> CarbideCliResult<()> {
-    let response = api_client.0.find_power_shelves(args).await?;
-    let power_shelves = response.power_shelves;
+    let power_shelves = match args.identifier {
+        Some(id) if !id.is_empty() => match PowerShelfId::from_str(&id) {
+            Ok(power_shelf_id) => {
+                api_client
+                    .get_one_power_shelf(power_shelf_id)
+                    .await?
+                    .power_shelves
+            }
+            Err(_) => {
+                // Fall back to name-based lookup
+                let query = rpc::forge::PowerShelfQuery {
+                    name: Some(id),
+                    power_shelf_id: None,
+                };
+                api_client.0.find_power_shelves(query).await?.power_shelves
+            }
+        },
+        _ => {
+            let filter = rpc::forge::PowerShelfSearchFilter::default();
+            api_client
+                .get_all_power_shelves(filter, config.page_size)
+                .await?
+                .power_shelves
+        }
+    };
 
-    show_power_shelves(power_shelves, output_format).ok();
+    show_power_shelves(power_shelves, config.format).ok();
     Ok(())
 }

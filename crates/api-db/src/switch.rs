@@ -28,6 +28,7 @@ use model::switch::{
 };
 use sqlx::PgConnection;
 
+use crate::db_read::DbReader;
 use crate::{
     ColumnInfo, DatabaseError, DatabaseResult, FilterableQueryBuilder, ObjectColumnFilter,
 };
@@ -164,6 +165,46 @@ pub async fn find_all(txn: &mut PgConnection) -> DatabaseResult<Vec<SwitchId>> {
     }
 
     Ok(ids)
+}
+
+pub async fn find_ids(
+    txn: impl DbReader<'_>,
+    filter: model::switch::SwitchSearchFilter,
+) -> Result<Vec<SwitchId>, DatabaseError> {
+    if filter.rack_id.is_some() {
+        return Err(DatabaseError::InvalidArgument(
+            "rack_id filtering is not yet supported for switches".to_string(),
+        ));
+    }
+
+    let mut qb = sqlx::QueryBuilder::new("SELECT DISTINCT s.id FROM switches s");
+
+    if filter.bmc_mac.is_some() {
+        qb.push(" JOIN machine_interfaces mi ON mi.switch_id = s.id");
+    }
+
+    qb.push(" WHERE TRUE");
+
+    match filter.deleted {
+        model::DeletedFilter::Exclude => qb.push(" AND s.deleted IS NULL"),
+        model::DeletedFilter::Only => qb.push(" AND s.deleted IS NOT NULL"),
+        model::DeletedFilter::Include => &mut qb,
+    };
+
+    if let Some(state) = &filter.controller_state {
+        qb.push(" AND s.controller_state->>'state' = ");
+        qb.push_bind(state.clone());
+    }
+
+    if let Some(mac) = filter.bmc_mac {
+        qb.push(" AND mi.mac_address = ");
+        qb.push_bind(mac);
+    }
+
+    qb.build_query_as()
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::new("switch::find_ids", e))
 }
 
 pub async fn list_sibling_ids(
@@ -481,4 +522,36 @@ pub async fn update_metadata(
             e => DatabaseError::query(query, e),
         }),
     }
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct SwitchBmcRow {
+    pub switch_id: SwitchId,
+    pub bmc_mac: MacAddress,
+    pub bmc_ip: IpAddr,
+}
+
+/// Resolve SwitchIds to BMC MAC + IP via machine_interfaces.
+pub async fn find_bmc_info_by_switch_ids(
+    db: impl crate::db_read::DbReader<'_>,
+    switch_ids: &[SwitchId],
+) -> DatabaseResult<Vec<SwitchBmcRow>> {
+    let sql = r#"
+        SELECT DISTINCT ON (mi.switch_id)
+            mi.switch_id,
+            mi.mac_address   AS bmc_mac,
+            mia.address      AS bmc_ip
+        FROM machine_interfaces mi
+        JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
+        JOIN network_segments ns ON ns.id = mi.segment_id
+        WHERE mi.switch_id = ANY($1)
+          AND ns.network_segment_type = 'underlay'
+        ORDER BY mi.switch_id
+    "#;
+
+    sqlx::query_as(sql)
+        .bind(switch_ids)
+        .fetch_all(db)
+        .await
+        .map_err(|err| DatabaseError::new("switch::find_bmc_info_by_switch_ids", err))
 }
