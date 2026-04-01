@@ -264,7 +264,7 @@ impl InternalRBACRules {
         x.perm("UpdateInstancePhoneHomeLastContact", vec![Agent]);
         x.perm("SetHostUefiPassword", vec![ForgeAdminCLI]);
         x.perm("ClearHostUefiPassword", vec![ForgeAdminCLI]);
-        x.perm("AddExpectedMachine", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("AddExpectedMachine", vec![ForgeAdminCLI, SiteAgent, Rla]);
         x.perm("DeleteExpectedMachine", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateExpectedMachine", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateExpectedMachines", vec![ForgeAdminCLI, SiteAgent]);
@@ -586,7 +586,10 @@ impl InternalRBACRules {
         x.perm("FindPowerShelves", vec![ForgeAdminCLI, Machineatron, Rla]);
         x.perm("CreatePowerShelf", vec![ForgeAdminCLI, Machineatron]);
         x.perm("DeletePowerShelf", vec![ForgeAdminCLI, Machineatron]);
-        x.perm("AddExpectedPowerShelf", vec![ForgeAdminCLI, Machineatron]);
+        x.perm(
+            "AddExpectedPowerShelf",
+            vec![ForgeAdminCLI, Machineatron, Rla],
+        );
         x.perm(
             "DeleteExpectedPowerShelf",
             vec![ForgeAdminCLI, Machineatron],
@@ -625,7 +628,7 @@ impl InternalRBACRules {
         );
         x.perm("CreateSwitch", vec![ForgeAdminCLI, Machineatron]);
         x.perm("DeleteSwitch", vec![ForgeAdminCLI, Machineatron]);
-        x.perm("AddExpectedSwitch", vec![ForgeAdminCLI, Machineatron]);
+        x.perm("AddExpectedSwitch", vec![ForgeAdminCLI, Machineatron, Rla]);
         x.perm("DeleteExpectedSwitch", vec![ForgeAdminCLI, Machineatron]);
         x.perm("UpdateExpectedSwitch", vec![ForgeAdminCLI, Machineatron]);
         x.perm("GetExpectedSwitch", vec![ForgeAdminCLI, Machineatron, Rla]);
