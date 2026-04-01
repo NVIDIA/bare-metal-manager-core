@@ -30,13 +30,13 @@ use crate::{
 };
 
 #[derive(Parser, Debug)]
-#[clap(name = "forge-admin-cli")]
-#[clap(author = "Slack channel #swngc-forge-dev")]
+#[clap(name = "carbide-admin-cli")]
+#[clap(author = "https://github.com/NVIDIA/bare-metal-manager-core")]
 pub struct CliOptions {
     #[clap(
         long,
         default_value = "false",
-        help = "Print version number of forge-admin-cli and exit. For API server version see 'version' command."
+        help = "Print version number of carbide-admin-cli and exit. For API server version see 'version' command."
     )]
     pub version: bool,
 
@@ -195,7 +195,7 @@ pub enum CliCommand {
     )]
     MachineInterfaces(machine_interfaces::Cmd),
     #[clap(
-        about = "Generate shell autocomplete. Source the output of this command: `source <(forge-admin-cli generate-shell-complete bash)`"
+        about = "Generate shell autocomplete. Source the output of this command: `source <(carbide-admin-cli generate-shell-complete bash)`"
     )]
     GenerateShellComplete(generate_shell_complete::Cmd),
     #[clap(
