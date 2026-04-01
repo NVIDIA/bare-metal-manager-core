@@ -15,11 +15,8 @@
  * limitations under the License.
  */
 
-use std::borrow::Cow;
-use std::str::FromStr;
-
-use carbide_uuid::switch::SwitchId;
 use color_eyre::Result;
+use prettytable::{Table, row};
 use rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use rpc::forge::Switch;
 
@@ -29,25 +26,28 @@ use crate::rpc::ApiClient;
 pub fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Result<()> {
     match output_format {
         OutputFormat::AsciiTable => {
-            println!("Switches:");
-            println!(
-                "{:<36} {:<20} {:<10} {:<10} {:<15} {:<10}",
-                "ID", "Name", "Location", "Power State", "Health", "State"
-            );
-            println!("{:-<120}", "");
+            let mut table = Table::new();
+            table.set_titles(row![
+                "ID",
+                "Name",
+                "Location",
+                "Power State",
+                "Health",
+                "State"
+            ]);
 
             for switch in &switches {
                 let id = switch
                     .id
                     .as_ref()
-                    .map(|id| Cow::Owned(id.to_string()))
-                    .unwrap_or_else(|| Cow::Borrowed("N/A"));
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "N/A".to_string());
 
                 let name = switch
                     .config
                     .as_ref()
                     .map(|config| config.name.as_str())
-                    .unwrap_or_else(|| "N/A");
+                    .unwrap_or("N/A");
 
                 let location = switch
                     .config
@@ -67,13 +67,17 @@ pub fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Resu
                     .and_then(|status| status.health_status.as_deref())
                     .unwrap_or("N/A");
 
-                let controller_state = &switch.controller_state;
-
-                println!(
-                    "{:<36} {:<20} {:<10} {:<10} {:<15} {:<10}",
-                    id, name, location, power_state, health, controller_state
-                );
+                table.add_row(row![
+                    id,
+                    name,
+                    location,
+                    power_state,
+                    health,
+                    switch.controller_state,
+                ]);
             }
+
+            table.printstd();
         }
         OutputFormat::Json => {
             println!("JSON output not supported for Switch (protobuf type)");
@@ -84,19 +88,28 @@ pub fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Resu
             println!("Use ASCII table format instead.");
         }
         OutputFormat::Csv => {
-            println!("ID,Name,Location,Power State,Health,State");
+            let mut table = Table::new();
+            table.set_titles(row![
+                "ID",
+                "Name",
+                "Location",
+                "Power State",
+                "Health",
+                "State"
+            ]);
+
             for switch in &switches {
                 let id = switch
                     .id
                     .as_ref()
-                    .map(|id| Cow::Owned(id.to_string()))
-                    .unwrap_or_else(|| Cow::Borrowed("N/A"));
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "N/A".to_string());
 
                 let name = switch
                     .config
                     .as_ref()
                     .map(|config| config.name.as_str())
-                    .unwrap_or_else(|| "N/A");
+                    .unwrap_or("N/A");
 
                 let location = switch
                     .config
@@ -116,13 +129,17 @@ pub fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Resu
                     .and_then(|status| status.health_status.as_deref())
                     .unwrap_or("N/A");
 
-                let controller_state = switch.controller_state.as_str();
-
-                println!(
-                    "{},{},{},{},{},{}",
-                    id, name, location, power_state, health, controller_state
-                );
+                table.add_row(row![
+                    id,
+                    name,
+                    location,
+                    power_state,
+                    health,
+                    switch.controller_state,
+                ]);
             }
+
+            table.to_csv(std::io::stdout()).ok();
         }
     }
 
@@ -134,30 +151,7 @@ pub async fn handle_show(
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let query = match args.identifier {
-        Some(id) if !id.is_empty() => {
-            // Try to parse as SwitchId, otherwise treat as name
-            match SwitchId::from_str(&id) {
-                Ok(switch_id) => rpc::forge::SwitchQuery {
-                    name: None,
-                    switch_id: Some(switch_id),
-                },
-                Err(_) => rpc::forge::SwitchQuery {
-                    name: Some(id),
-                    switch_id: None,
-                },
-            }
-        }
-        _ => {
-            // No identifier provided, list all
-            rpc::forge::SwitchQuery {
-                name: None,
-                switch_id: None,
-            }
-        }
-    };
-
-    let response = api_client.0.find_switches(query).await?;
+    let response = api_client.0.find_switches(args).await?;
     let switches = response.switches;
 
     show_switches(switches, output_format).ok();

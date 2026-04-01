@@ -66,10 +66,12 @@ pub fn machine_router(
     power_control: Arc<dyn PowerControl>,
     mat_host_id: String,
 ) -> Router {
-    let system_config = machine_info.system_config(power_control);
+    let system_config = machine_info.system_config(power_control.clone());
     let chassis_config = machine_info.chassis_config();
     let update_service_config = machine_info.update_service_config();
     let bmc_vendor = machine_info.bmc_vendor();
+    let bmc_product = machine_info.bmc_product();
+    let bmc_redfish_version = machine_info.bmc_redfish_version();
     let oem_state = machine_info.oem_state();
     let router = Router::new()
         // Couple routes for bug injection.
@@ -83,7 +85,8 @@ pub fn machine_router(
         .add_routes(crate::redfish::update_service::add_routes)
         .add_routes(crate::redfish::task_service::add_routes)
         .add_routes(crate::redfish::account_service::add_routes)
-        .add_routes(|routes| crate::redfish::computer_system::add_routes(routes, bmc_vendor));
+        .add_routes(|routes| crate::redfish::computer_system::add_routes(routes, bmc_vendor))
+        .add_routes(crate::ipmi::add_routes);
     let router = match &machine_info {
         MachineInfo::Dpu(_) => {
             router.add_routes(crate::redfish::oem::nvidia::bluefield::add_routes)
@@ -103,12 +106,15 @@ pub fn machine_router(
     let injected_bugs = Arc::new(InjectedBugs::default());
     let router = router.with_state(BmcState {
         bmc_vendor,
+        bmc_product,
+        bmc_redfish_version,
         oem_state,
         manager,
         system_state,
         chassis_state,
         update_service_state,
         injected_bugs: injected_bugs.clone(),
+        power_control: Some(power_control.clone()),
     });
     let router_with_expansion = redfish::expander_router::append(router);
     middleware_router::append(mat_host_id, router_with_expansion, injected_bugs)

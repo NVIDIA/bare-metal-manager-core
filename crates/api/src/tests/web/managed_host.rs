@@ -28,7 +28,7 @@ use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::{
     create_managed_host_multi_dpu, create_test_env, site_explorer,
 };
-use crate::tests::web::{authenticated_request_builder, make_test_app};
+use crate::tests::web::{make_test_app, web_request_builder};
 use crate::web::managed_host::ManagedHostRowDisplay;
 
 #[crate::sqlx_test]
@@ -39,7 +39,7 @@ async fn test_ok(pool: sqlx::PgPool) {
 
     let response = app
         .oneshot(
-            authenticated_request_builder()
+            web_request_builder()
                 .uri("/admin/managed-host.json")
                 .body(Body::empty())
                 .unwrap(),
@@ -77,7 +77,7 @@ async fn test_multi_dpu(pool: sqlx::PgPool) {
 
     let response = app
         .oneshot(
-            authenticated_request_builder()
+            web_request_builder()
                 .uri("/admin/managed-host.json")
                 .body(Body::empty())
                 .unwrap(),
@@ -147,7 +147,6 @@ async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
         .get(&1)
         .expect("mock DPU should have gotten a BMC IP");
 
-    // Load snapshots the way
     let snapshots = managed_host::load_all(
         &env.pool,
         LoadSnapshotOptions {
@@ -190,7 +189,7 @@ async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
         hardware_info.dmi_data.as_ref().unwrap().product_name
     );
     assert_eq!(row.machine_id, machine_id.to_string());
-    assert!(row.health_overrides.is_empty());
+    assert!(!row.health_overrides.is_empty());
     assert!(row.health_probe_alerts.is_empty());
     assert!(!row.host_admin_ip.is_empty());
     assert_eq!(

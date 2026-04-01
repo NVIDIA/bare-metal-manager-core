@@ -24,6 +24,9 @@ use model::machine::{
 };
 use model::machine_validation::{
     MachineValidation, MachineValidationResult, MachineValidationState, MachineValidationStatus,
+    MachineValidationTestAddRequest as ModelTestAddRequest,
+    MachineValidationTestUpdateRequest as ModelTestUpdateRequest,
+    MachineValidationTestsGetRequest as ModelTestsGetRequest,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -57,15 +60,16 @@ pub(crate) async fn mark_machine_validation_complete(
         Some(machine) => machine,
         None => {
             tracing::error!(%uuid, "validation id not found");
-            return Err(Status::invalid_argument("wrong validation ID"));
+            return Err(CarbideError::InvalidArgument("wrong validation ID".to_string()).into());
         }
     };
 
     if machine.id != machine_id {
         tracing::error!(validation_id = %uuid, machine_id = %machine_id, "Validation ID does not belong to provided Machine ID");
-        return Err(Status::invalid_argument(
-            "Validation ID does not belong to provided Machine ID",
-        ));
+        return Err(CarbideError::InvalidArgument(
+            "Validation ID does not belong to provided Machine ID".to_string(),
+        )
+        .into());
     }
 
     let mut state = MachineValidationState::Success;
@@ -118,7 +122,7 @@ pub(crate) async fn mark_machine_validation_complete(
     };
 
     let result =
-        match db::machine_validation_result::validate_current_context(&mut txn, rpc_id).await? {
+        match db::machine_validation_result::validate_current_context(&mut txn, &uuid).await? {
             Some(error_message) => {
                 db::machine::update_failure_details_by_machine_id(
                     &machine_id,
@@ -181,7 +185,9 @@ pub(crate) async fn persist_validation_result(
             Some(machine) => machine,
             None => {
                 tracing::error!(%validation_result.validation_id, "validation id not found");
-                return Err(Status::invalid_argument("wrong validation ID"));
+                return Err(
+                    CarbideError::InvalidArgument("wrong validation ID".to_string()).into(),
+                );
             }
         };
     // Check state
@@ -196,7 +202,9 @@ pub(crate) async fn persist_validation_result(
         }
         _ => {
             tracing::error!("invalid host machine state {}", machine.current_state());
-            return Err(Status::invalid_argument("wrong host machine state"));
+            return Err(
+                CarbideError::InvalidArgument("wrong host machine state".to_string()).into(),
+            );
         }
     }
 
@@ -258,12 +266,11 @@ pub(crate) async fn get_machine_validation_results(
         }
     };
 
-    let mut txn = api.txn_begin().await?;
-
+    let mut db_reader = api.db_reader();
     let mut db_results: Vec<MachineValidationResult> = Vec::new();
     if let Some(machine_id) = machine_id.as_ref() {
         db_results = db::machine_validation_result::find_by_machine_id(
-            &mut txn,
+            &mut db_reader,
             machine_id,
             req.include_history,
         )
@@ -273,16 +280,17 @@ pub(crate) async fn get_machine_validation_results(
             db_results.retain(|x| x.validation_id == validation_id)
         }
     } else if let Some(validation_id) = validation_id {
-        db_results =
-            db::machine_validation_result::find_by_validation_id(&mut txn, &validation_id).await?;
+        db_results = db::machine_validation_result::find_by_validation_id(
+            &api.database_connection,
+            &validation_id,
+        )
+        .await?;
     }
 
     let vec_rest = db_results
         .into_iter()
         .map(rpc::MachineValidationResult::from)
         .collect();
-
-    txn.commit().await?;
 
     Ok(tonic::Response::new(rpc::MachineValidationResultList {
         results: vec_rest,
@@ -336,13 +344,12 @@ pub(crate) async fn get_machine_validation_runs(
     log_request_data(&request);
     let machine_validation_run_request: rpc::MachineValidationRunListGetRequest =
         request.into_inner();
-    let mut txn = api.txn_begin().await?;
-
+    let mut db_reader = api.db_reader();
     let db_runs = match machine_validation_run_request.machine_id {
         Some(id) => {
             let machine_id = convert_and_log_machine_id(Some(&id))?;
             db::machine_validation::find(
-                &mut txn,
+                &mut db_reader,
                 &machine_id,
                 machine_validation_run_request.include_history,
             )
@@ -350,7 +357,7 @@ pub(crate) async fn get_machine_validation_runs(
         }
         None => {
             tracing::info!("no machine ID");
-            db::machine_validation::find_all(&mut txn).await
+            db::machine_validation::find_all(&api.database_connection).await
         }
     };
     let ret = db_runs
@@ -364,7 +371,6 @@ pub(crate) async fn get_machine_validation_runs(
         )
         .map(Response::new)?;
 
-    txn.commit().await?;
     Ok(ret)
 }
 
@@ -391,7 +397,7 @@ pub(crate) async fn on_demand_machine_validation(
             )
             .await?
             .ok_or_else(|| {
-                Status::invalid_argument(format!("Machine id {machine_id} not found."))
+                CarbideError::InvalidArgument(format!("Machine id {machine_id} not found."))
             })?;
             if machine
                 .on_demand_machine_validation_request
@@ -400,7 +406,7 @@ pub(crate) async fn on_demand_machine_validation(
                 let msg =
                     format!("On demand machine validation for {machine_id} is already scheduled.");
                 tracing::error!(msg);
-                return Err(Status::invalid_argument(msg));
+                return Err(CarbideError::InvalidArgument(msg).into());
             }
             // Check state
             match machine.current_state() {
@@ -414,15 +420,20 @@ pub(crate) async fn on_demand_machine_validation(
                             "On demand machine validation for {machine_id} is already scheduled."
                         );
                         tracing::error!(msg);
-                        return Err(Status::invalid_argument(msg));
+                        return Err(CarbideError::InvalidArgument(msg).into());
                     }
+                    let allowed_tests: Vec<String> = req
+                        .allowed_tests
+                        .into_iter()
+                        .map(|t| t.to_ascii_lowercase())
+                        .collect();
                     let validation_id = db::machine_validation::create_new_run(
                         &mut txn,
                         &machine_id,
                         "OnDemand".to_string(),
                         MachineValidationFilter {
                             tags: req.tags,
-                            allowed_tests: req.allowed_tests,
+                            allowed_tests,
                             run_unverfied_tests: Some(req.run_unverfied_tests),
                             contexts: Some(req.contexts),
                         },
@@ -449,13 +460,16 @@ pub(crate) async fn on_demand_machine_validation(
                         machine.current_state()
                     );
                     tracing::warn!(msg);
-                    Err(Status::invalid_argument(msg))
+                    Err(CarbideError::InvalidArgument(msg).into())
                 }
             }
         }
-        rpc::machine_validation_on_demand_request::Action::Stop => Err(Status::invalid_argument(
-            "Cannot stop an on-demand validation request",
-        )),
+        rpc::machine_validation_on_demand_request::Action::Stop => {
+            Err(CarbideError::InvalidArgument(
+                "Cannot stop an on-demand validation request".to_string(),
+            )
+            .into())
+        }
     }
 }
 
@@ -513,7 +527,8 @@ pub(crate) async fn update_machine_validation_test(
     //         "Cannot modify read-only test cases",
     //     ));
     // }
-    let test_id = machine_validation_suites::update(&mut txn, req.clone()).await?;
+    let model_req: ModelTestUpdateRequest = req.clone().into();
+    let test_id = machine_validation_suites::update(&mut txn, model_req).await?;
 
     txn.commit().await?;
 
@@ -532,19 +547,20 @@ pub(crate) async fn add_machine_validation_test(
     let req = request.into_inner();
     let mut txn = api.txn_begin().await?;
 
+    let model_req: ModelTestAddRequest = req.into();
     let tests = machine_validation_suites::find(
         &mut txn,
-        rpc::MachineValidationTestsGetRequest {
-            test_id: Some(machine_validation_suites::generate_test_id(&req.name)),
-            ..rpc::MachineValidationTestsGetRequest::default()
+        ModelTestsGetRequest {
+            test_id: Some(machine_validation_suites::generate_test_id(&model_req.name)),
+            ..ModelTestsGetRequest::default()
         },
     )
     .await?;
     if !tests.is_empty() {
-        return Err(Status::invalid_argument("Name already exists"));
+        return Err(CarbideError::InvalidArgument("Name already exists".to_string()).into());
     }
     let version = ConfigVersion::initial();
-    let test_id = machine_validation_suites::save(&mut txn, req, version).await?;
+    let test_id = machine_validation_suites::save(&mut txn, model_req, version).await?;
 
     txn.commit().await?;
 
@@ -561,7 +577,7 @@ pub(crate) async fn get_machine_validation_tests(
     request: tonic::Request<rpc::MachineValidationTestsGetRequest>,
 ) -> Result<tonic::Response<rpc::MachineValidationTestsGetResponse>, Status> {
     log_request_data(&request);
-    let req = request.into_inner();
+    let req: ModelTestsGetRequest = request.into_inner().into();
 
     let tests = machine_validation_suites::find(&api.database_connection, req).await?;
 
@@ -584,10 +600,10 @@ pub(crate) async fn machine_validation_test_verfied(
 
     let existing = machine_validation_suites::find(
         &mut txn,
-        rpc::MachineValidationTestsGetRequest {
+        ModelTestsGetRequest {
             test_id: Some(req.test_id.clone()),
             version: Some(req.version.clone()),
-            ..rpc::MachineValidationTestsGetRequest::default()
+            ..ModelTestsGetRequest::default()
         },
     )
     .await?;
@@ -611,9 +627,9 @@ pub(crate) async fn machine_validation_test_next_version(
 
     let existing = machine_validation_suites::find(
         &mut txn,
-        rpc::MachineValidationTestsGetRequest {
+        ModelTestsGetRequest {
             test_id: Some(req.test_id.clone()),
-            ..rpc::MachineValidationTestsGetRequest::default()
+            ..ModelTestsGetRequest::default()
         },
     )
     .await?;
@@ -638,10 +654,10 @@ pub(crate) async fn machine_validation_test_enable_disable_test(
 
     let existing = machine_validation_suites::find(
         &mut txn,
-        rpc::MachineValidationTestsGetRequest {
+        ModelTestsGetRequest {
             test_id: Some(req.test_id.clone()),
             version: Some(req.version.clone()),
-            ..rpc::MachineValidationTestsGetRequest::default()
+            ..ModelTestsGetRequest::default()
         },
     )
     .await?;
@@ -682,7 +698,7 @@ pub(crate) async fn update_machine_validation_run(
         &validation_id,
         req.total
             .try_into()
-            .map_err(|_e| Status::invalid_argument("total"))?,
+            .map_err(|_e| CarbideError::InvalidArgument("total".to_string()))?,
         req.duration_to_complete.unwrap_or_default().seconds,
     )
     .await?;
@@ -701,9 +717,7 @@ pub async fn apply_config_on_startup(
     let mut txn = api.txn_begin().await?;
 
     // Get all tests from DB
-    let tests =
-        machine_validation_suites::find(&mut txn, rpc::MachineValidationTestsGetRequest::default())
-            .await?;
+    let tests = machine_validation_suites::find(&mut txn, ModelTestsGetRequest::default()).await?;
 
     // Create a set of test IDs from config for efficient lookup
     let config_test_ids: std::collections::HashSet<_> =

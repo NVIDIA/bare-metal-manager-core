@@ -844,7 +844,7 @@ version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "993776b509cfb49c750f11b8f07a46fa23e0a1386ffc01fb1e7d343efc387895"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
  "cexpr",
  "clang-sys",
  "itertools 0.13.0",
@@ -863,6 +863,12 @@ name = "bitfield"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d7e60934ceec538daadb9d8432424ed043a904d8e0243f3c6446bce549a46ac"
+
+[[package]]
+name = "bitflags"
+version = "1.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
@@ -969,13 +975,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "bmc-explorer"
+version = "0.1.0"
+dependencies = [
+ "bmc-mock",
+ "bmc-vendor",
+ "carbide-api-model",
+ "carbide-network",
+ "itertools 0.14.0",
+ "lazy_static",
+ "mac_address",
+ "nv-redfish",
+ "regex",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "bmc-explorer-cli"
+version = "0.1.0"
+dependencies = [
+ "arc-swap",
+ "carbide-api",
+ "carbide-secrets",
+ "clap",
+ "libredfish",
+ "mac_address",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "bmc-mock"
 version = "0.1.0"
 dependencies = [
  "arc-swap",
  "axum 0.8.6",
  "axum-server",
+ "bmc-vendor",
  "bytes",
+ "carbide-rpc",
+ "carbide-utils",
  "chrono",
  "clap",
  "duration-str",
@@ -989,6 +1031,7 @@ dependencies = [
  "itertools 0.14.0",
  "lazy_static",
  "mac_address",
+ "nv-redfish",
  "rand 0.9.2",
  "regex",
  "rustls 0.23.34",
@@ -1002,6 +1045,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
@@ -1209,6 +1253,7 @@ dependencies = [
  "async-trait",
  "axum 0.8.6",
  "axum-server",
+ "backon",
  "blake3",
  "carbide-certs",
  "carbide-dpu-agent-utils",
@@ -1275,6 +1320,8 @@ dependencies = [
  "tempfile",
  "tokio",
  "tonic 0.14.2",
+ "tonic-prost",
+ "tonic-prost-build",
  "tower 0.5.2",
  "tower-http",
  "tracing",
@@ -1296,6 +1343,7 @@ dependencies = [
  "axum 0.8.6",
  "axum-extra",
  "base64 0.22.1",
+ "bmc-explorer",
  "bmc-vendor",
  "byteorder",
  "bytes",
@@ -1320,6 +1368,7 @@ dependencies = [
  "casbin",
  "chrono",
  "clap",
+ "component-manager",
  "config-version",
  "const_format",
  "crypto-bigint 0.7.0-rc.9",
@@ -1344,6 +1393,7 @@ dependencies = [
  "ipnetwork",
  "itertools 0.14.0",
  "jsonwebtoken",
+ "k8s-openapi",
  "kube",
  "lazy_static",
  "libnmxm",
@@ -1352,10 +1402,12 @@ dependencies = [
  "logfmt",
  "mac_address",
  "md5",
+ "mockall",
  "mqttea",
  "nras",
  "num-bigint-dig",
  "num_cpus",
+ "nv-redfish",
  "oauth2",
  "oid-registry",
  "once_cell",
@@ -1368,6 +1420,7 @@ dependencies = [
  "prometheus",
  "prometheus-text-parser",
  "prost 0.14.1",
+ "prost-types 0.14.1",
  "rand 0.9.2",
  "rcgen",
  "regex",
@@ -1385,6 +1438,7 @@ dependencies = [
  "sqlx",
  "strum 0.26.3",
  "temp-dir",
+ "tera",
  "thiserror 2.0.17",
  "time",
  "tokio",
@@ -1403,6 +1457,7 @@ dependencies = [
  "tracing-subscriber",
  "tss-esapi",
  "url",
+ "urlencoding",
  "uuid",
  "version-compare 0.2.1",
  "x509-parser",
@@ -1420,7 +1475,6 @@ dependencies = [
  "carbide-macros",
  "carbide-measured-boot",
  "carbide-network",
- "carbide-rpc",
  "carbide-sqlx-testing",
  "carbide-utils",
  "carbide-uuid",
@@ -1449,6 +1503,7 @@ dependencies = [
  "thiserror 2.0.17",
  "time",
  "tokio",
+ "tokio-util",
  "toml 0.8.23",
  "tonic 0.14.2",
  "tracing",
@@ -1474,6 +1529,7 @@ dependencies = [
  "sqlx",
  "temp-dir",
  "tokio",
+ "tokio-util",
  "tracing",
 ]
 
@@ -1500,6 +1556,7 @@ dependencies = [
  "dns-record",
  "duration-str",
  "eyre",
+ "hex",
  "ipnetwork",
  "itertools 0.14.0",
  "lazy_static",
@@ -1520,6 +1577,7 @@ dependencies = [
  "strum_macros 0.26.4",
  "thiserror 2.0.17",
  "tokio",
+ "toml 0.8.23",
  "tracing",
  "tss-esapi",
  "uuid",
@@ -1555,6 +1613,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.17",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -1624,12 +1683,17 @@ dependencies = [
  "ipnetwork",
  "logfmt",
  "lru 0.16.3",
+ "prost 0.14.1",
  "serde",
  "serde_yaml",
  "socket2 0.6.1",
+ "tempfile",
  "thiserror 2.0.17",
  "tokio",
+ "tokio-util",
  "tonic 0.14.2",
+ "tonic-prost",
+ "tonic-prost-build",
  "tracing",
  "tracing-subscriber",
 ]
@@ -1667,29 +1731,6 @@ dependencies = [
 name = "carbide-dpf"
 version = "0.0.1"
 dependencies = [
- "async-trait",
- "carbide-uuid",
- "eyre",
- "http",
- "hyper",
- "k8s-openapi",
- "kube",
- "once_cell",
- "rustls 0.23.34",
- "serde",
- "serde_json",
- "tera",
- "thiserror 2.0.17",
- "tokio",
- "tower-test",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "carbide-dpf-beta"
-version = "0.0.1"
-dependencies = [
  "anyhow",
  "async-trait",
  "carbide-uuid",
@@ -1709,6 +1750,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sha2 0.10.9",
  "strum_macros 0.26.4",
  "thiserror 2.0.17",
  "tokio",
@@ -1788,6 +1830,7 @@ dependencies = [
  "async-trait",
  "carbide-health-report",
  "carbide-rpc",
+ "carbide-secrets",
  "carbide-tls",
  "carbide-uuid",
  "carbide-version",
@@ -1807,6 +1850,34 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+]
+
+[[package]]
+name = "carbide-fmds"
+version = "0.0.1"
+dependencies = [
+ "arc-swap",
+ "async-trait",
+ "axum 0.8.6",
+ "axum-server",
+ "carbide-dpu-agent-utils",
+ "carbide-rpc",
+ "carbide-tls",
+ "carbide-uuid",
+ "carbide-version",
+ "clap",
+ "eyre",
+ "governor",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "nonzero_ext",
+ "prost 0.14.1",
+ "tokio",
+ "tonic 0.14.2",
+ "tonic-prost",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -2076,6 +2147,7 @@ dependencies = [
  "ipnetwork",
  "mac_address",
  "serde",
+ "serde_json",
  "sqlx",
  "thiserror 2.0.17",
 ]
@@ -2215,15 +2287,22 @@ dependencies = [
 name = "carbide-secrets"
 version = "0.0.0"
 dependencies = [
+ "arc-swap",
  "async-trait",
  "bmc-vendor",
  "carbide-rpc",
  "carbide-uuid",
  "eyre",
+ "figment",
  "mac_address",
+ "notify",
  "opentelemetry",
  "rand 0.9.2",
  "serde",
+ "serde_json",
+ "serde_yaml",
+ "serial_test",
+ "tempfile",
  "tokio",
  "tracing",
  "vaultrs",
@@ -2256,6 +2335,7 @@ name = "carbide-ssh-console"
 version = "0.1.0"
 dependencies = [
  "bmc-mock",
+ "bmc-vendor",
  "carbide-api-test-helper",
  "carbide-machine-a-tron",
  "carbide-rpc",
@@ -2361,6 +2441,7 @@ dependencies = [
  "eyre",
  "humantime",
  "ipnetwork",
+ "itertools 0.14.0",
  "prettytable-rs",
  "serde",
  "serde_json",
@@ -2738,6 +2819,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "component-manager"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "carbide-uuid",
+ "mac_address",
+ "prost 0.14.1",
+ "prost-types 0.14.1",
+ "serde",
+ "thiserror 2.0.17",
+ "tokio",
+ "tonic 0.14.2",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tracing",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3018,7 +3117,7 @@ version = "0.28.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "829d955a0bb380ef178a640b91779e3987da38c9aea133b20614cfed8cdea9c6"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
  "crossterm_winapi",
  "futures-core",
  "mio",
@@ -3687,7 +3786,7 @@ version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9d0546b8d27d77742e0e95cb2e3ff8ebb16e487f093ab7564ca7ece9c9a0421"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
  "byteorder",
  "lazy_static",
  "ntapi",
@@ -4029,6 +4128,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
 
 [[package]]
+name = "fsevent-sys"
+version = "4.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76ee7a02da4d231650c7cea31349b889be2f45ddb3ef3032d2ec8185f6313fd2"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "funty"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4253,7 +4361,7 @@ version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bf760ebf69878d9fd8f110c89703d90ce35095324d1f1edcb595c63945ee757"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
  "ignore",
  "walkdir",
 ]
@@ -4974,6 +5082,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8fae54786f62fb2918dcfae3d568594e50eb9b5c25bf04371af6fe7516452fb"
 
 [[package]]
+name = "inotify"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f37dccff2791ab604f9babef0ba14fbe0be30bd368dc541e2b08d07c8aa908f3"
+dependencies = [
+ "bitflags 2.10.0",
+ "inotify-sys",
+ "libc",
+]
+
+[[package]]
+name = "inotify-sys"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e05c02b5e89bff3b946cedeca278abc628fe811e604f027c45a8aa3cf793d0eb"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "inout"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5262,6 +5390,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "kqueue"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eac30106d7dce88daf4a3fcb4879ea939476d5074a9b7ddd0fb97fa4bed5596a"
+dependencies = [
+ "kqueue-sys",
+ "libc",
+]
+
+[[package]]
+name = "kqueue-sys"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed9625ffda8729b85e45cf04090035ac368927b8cebc34898e7c120f52e4838b"
+dependencies = [
+ "bitflags 1.3.2",
+ "libc",
+]
+
+[[package]]
 name = "kube"
 version = "3.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5495,7 +5643,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.43.1#ea1aa92e1bd0bc812582fed9d63504a19a8db628"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.43.5#add240967b48f7781fead48b8e3b223acbbc96d3"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5519,15 +5667,15 @@ version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "416f7e718bdb06000964960ffa43b4335ad4012ae8b99060261aa4a8088d5ccb"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
  "libc",
  "redox_syscall",
 ]
 
 [[package]]
 name = "librms"
-version = "0.0.4"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.4#67853d59a60bd05ad4f51a69aeb6590e16772fbe"
+version = "0.0.5"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.5#d516c7838fa4185ee6e7de426f3c759081624b0a"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6040,7 +6188,7 @@ version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e23bebbf3e157c402c4d5ee113233e5e0610cc27453b2f07eefce649c7365dcc"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
  "byteorder",
  "derive_builder 0.20.2",
  "getset",
@@ -6133,7 +6281,7 @@ version = "0.27.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2eb04e9c688eff1c89d72b407f168cf79bb9e867a9d3323ed6c01519eb9cc053"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
  "cfg-if",
  "libc",
 ]
@@ -6144,7 +6292,7 @@ version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "71e2746dc3a24dd78b3cfcb7be93368c6de9963d30f43a6a73998a9cf4b17b46"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
  "cfg-if",
  "cfg_aliases",
  "libc",
@@ -6157,7 +6305,7 @@ version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "74523f3a35e05aba87a1d978330aef40f67b0304ac79c1c00b294c9830543db6"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
  "cfg-if",
  "cfg_aliases",
  "libc",
@@ -6199,6 +6347,33 @@ name = "nonzero_ext"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "38bf9645c8b145698bb0b18a4637dcacbc421ea49bef2317e4fd8065a387cf21"
+
+[[package]]
+name = "notify"
+version = "8.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d3d07927151ff8575b7087f245456e549fea62edf0ec4e565a5ee50c8402bc3"
+dependencies = [
+ "bitflags 2.10.0",
+ "fsevent-sys",
+ "inotify",
+ "kqueue",
+ "libc",
+ "log",
+ "mio",
+ "notify-types",
+ "walkdir",
+ "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "notify-types"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42b8cfee0e339a0337359f3c88165702ac6e600dc01c0cc9579a92d62b08477a"
+dependencies = [
+ "bitflags 2.10.0",
+]
 
 [[package]]
 name = "nras"
@@ -6331,9 +6506,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish"
-version = "0.3.0"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f368279cf355ed5c2dda5c5c2a0f2025b5acbf7bbe18621327e6b89159deb9a"
+checksum = "f385e8c65f5b20e39ce7dc4097068d2fc1f29768b8f0feff4c7cbaa607f19a03"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -6347,9 +6522,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-bmc-http"
-version = "0.3.0"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "428c30ac9b74ce46a174cf27dc1f50a80200119322d924f88fbcdfe4892694bf"
+checksum = "e3cad61bfbf44c2d9636adbaf40be728f06b57d430fe982ad32a1f7787bc5245"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -6367,9 +6542,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-core"
-version = "0.3.0"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22874ccf9984c2b04819ff3d5769c14daaa8782d306a041d1029750f54b6aaf2"
+checksum = "45c045d4e9c9cb32a85d4e325aaf55f70bba7d8954ae29e7d5109bfb1f4c00a2"
 dependencies = [
  "futures-core",
  "rust_decimal",
@@ -6381,9 +6556,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-csdl-compiler"
-version = "0.3.0"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cfa6586a248272c092203ad43484b4c6758d29c74311a2b717a83b728b870db"
+checksum = "a2cfc5dda9526b849ddbab9bee999ed951afb505a16cebe8c27ac991a9cf3d3b"
 dependencies = [
  "clap",
  "clap_derive",
@@ -7297,7 +7472,7 @@ version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc5b72d8145275d844d4b5f6d4e1eef00c8cd889edb6035c21675d1bb1f45c9f"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
  "chrono",
  "flate2",
  "hex",
@@ -7311,7 +7486,7 @@ version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "239df02d8349b06fc07398a3a1697b06418223b1c7725085e801e7c0fc6a12ec"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
  "chrono",
  "hex",
 ]
@@ -7492,7 +7667,7 @@ version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e8bbe1a966bd2f362681a44f6edce3c2310ac21e4d5067a6e7ec396297a6ea0"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
  "memchr",
  "unicase",
 ]
@@ -7706,7 +7881,7 @@ version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eabd94c2f37801c20583fc49dd5cd6b0ba68c716787c2dd6ed18571e1e63117b"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
  "cassowary",
  "compact_str",
  "crossterm",
@@ -7727,7 +7902,7 @@ version = "11.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "498cd0dc59d73224351ee52a95fee0f1a617a2eae0e7d9d720cc622c73a54186"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
 ]
 
 [[package]]
@@ -7769,7 +7944,7 @@ version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
 ]
 
 [[package]]
@@ -7909,7 +8084,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f4e35aaaa439a5bda2f8d15251bc375e4edfac75f9865734644782c9701b5709"
 dependencies = [
  "ahash 0.8.12",
- "bitflags",
+ "bitflags 2.10.0",
  "instant",
  "no-std-compat",
  "num-traits",
@@ -8052,7 +8227,7 @@ dependencies = [
  "aes",
  "aws-lc-rs",
  "base64ct",
- "bitflags",
+ "bitflags 2.10.0",
  "block-padding",
  "byteorder",
  "bytes",
@@ -8126,7 +8301,7 @@ version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bb94393cafad0530145b8f626d8687f1ee1dedb93d7ba7740d6ae81868b13b5"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
  "bytes",
  "chrono",
  "flurry",
@@ -8235,7 +8410,7 @@ version = "0.38.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fdb5bc1ae2baa591800df16c9ca78619bf65c0488b41b96ccec5d11220d8c154"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
@@ -8248,7 +8423,7 @@ version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd15f8a2c5551a84d56efdc1cd049089e409ac19a3072d5037a17fd70719ff3e"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
@@ -8511,7 +8686,7 @@ version = "2.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "897b2245f0b511c87893af39b033e5ca9cce68824c4d7e7630b5a1d339658d02"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
  "core-foundation 0.9.4",
  "core-foundation-sys",
  "libc",
@@ -8524,7 +8699,7 @@ version = "3.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b3297343eaf830f66ede390ea39da1d462b6b0c1b000f420d0a83f898bbbe6ef"
 dependencies = [
- "bitflags",
+ "bitflags 2.10.0",
  "core-foundation 0.10.1",
  "core-foundation-sys",
  "libc",
@@ -9132,7 +9307,7 @@ checksum = "aa003f0038df784eb8fecbbac13affe3da23b45194bd57dba231c8f48199c526"
 dependencies = [
  "atoi",
  "base64 0.22.1",
- "bitflags",
+ "bitflags 2.10.0",
  "byteorder",
  "bytes",
  "chrono",
@@ -9176,7 +9351,7 @@ checksum = "db58fcd5a53cf07c184b154801ff91347e4c30d17a3562a635ff028ad5deda46"
 dependencies = [
  "atoi",
  "base64 0.22.1",
- "bitflags",
+ "bitflags 2.10.0",
  "byteorder",
  "chrono",
  "crc",
@@ -10031,7 +10206,7 @@ dependencies = [
 [[package]]
 name = "tonic-client-wrapper"
 version = "1.0.0"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.4#67853d59a60bd05ad4f51a69aeb6590e16772fbe"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.5#d516c7838fa4185ee6e7de426f3c759081624b0a"
 dependencies = [
  "async-trait",
  "heck 0.5.0",
@@ -10132,7 +10307,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "adc82fd73de2a9722ac5da747f12383d2bfdb93591ee6c58486e0097890f05f2"
 dependencies = [
  "base64 0.22.1",
- "bitflags",
+ "bitflags 2.10.0",
  "bytes",
  "futures-core",
  "futures-util",

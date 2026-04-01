@@ -15,11 +15,9 @@
  * limitations under the License.
  */
 
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use db::DatabaseError;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
+use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 use libnmxm::{Nmxm, NmxmApiError};
 
 use crate::handlers::credential::DEFAULT_NMX_M_NAME;
@@ -55,20 +53,20 @@ pub trait NmxmClientPool: Send + Sync + 'static {
 #[derive(Debug)]
 pub struct NmxmClientPoolImpl<C> {
     pool: libnmxm::NmxmClientPool,
-    credential_provider: Arc<C>,
+    credential_reader: C,
 }
 
-impl<C: CredentialProvider + 'static> NmxmClientPoolImpl<C> {
-    pub fn new(credential_provider: Arc<C>, pool: libnmxm::NmxmClientPool) -> Self {
+impl<C: CredentialReader> NmxmClientPoolImpl<C> {
+    pub fn new(credential_reader: C, pool: libnmxm::NmxmClientPool) -> Self {
         NmxmClientPoolImpl {
-            credential_provider,
+            credential_reader,
             pool,
         }
     }
 }
 
 #[async_trait]
-impl<C: CredentialProvider + 'static> NmxmClientPool for NmxmClientPoolImpl<C> {
+impl<C: CredentialReader + 'static> NmxmClientPool for NmxmClientPoolImpl<C> {
     async fn create_client(
         &self,
         endpoint: &str,
@@ -76,7 +74,7 @@ impl<C: CredentialProvider + 'static> NmxmClientPool for NmxmClientPoolImpl<C> {
     ) -> Result<Box<dyn Nmxm>, NvLinkPartitionError> {
         let id = nmxm_id.unwrap_or(DEFAULT_NMX_M_NAME.to_string());
         let credentials = self
-            .credential_provider
+            .credential_reader
             .get_credentials(&CredentialKey::NmxM { nmxm_id: id })
             .await
             .map_err(|e| NvLinkPartitionError::MissingCredentials(eyre::Report::from(e)))?
@@ -139,9 +137,10 @@ pub mod test_support {
             }
         }
 
-        pub fn with_default_partition() -> Self {
+        pub fn with_unknown_partition() -> Self {
             let client = Self::default();
-            client.create_default_partition(
+            client.create_partition(
+                12345,
                 client
                     ._gpus
                     .lock()
@@ -153,11 +152,26 @@ pub mod test_support {
             client
         }
 
-        /// Creates a default partition with partition_id 32766 containing the specified GPU IDs.
-        fn create_default_partition(&self, gpu_ids: Vec<String>) {
+        pub fn with_default_partition() -> Self {
+            let client = Self::default();
+            client.create_partition(
+                32766, // default partition id.
+                client
+                    ._gpus
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter_map(|gpu| gpu.id.clone())
+                    .collect(),
+            );
+            client
+        }
+
+        /// Creates a partition with given partition_id containing the specified GPU IDs.
+        fn create_partition(&self, partition_id: i32, gpu_ids: Vec<String>) {
             let partition = libnmxm::nmxm_model::Partition {
                 id: "default-partition".to_string(),
-                partition_id: 32766,
+                partition_id,
                 name: "Default Partition".to_string(),
                 r#type: libnmxm::nmxm_model::PartitionType::PartitionTypeIDBased,
                 health: libnmxm::nmxm_model::PartitionHealth::PartitionHealthHealthy,

@@ -43,7 +43,7 @@ pub async fn save(
 ) -> DatabaseResult<()> {
     let query = "INSERT INTO machine_validation_external_config (name, description, config, version) VALUES ($1, $2, $3, $4) RETURNING name";
 
-    let _: () = sqlx::query_as(query)
+    sqlx::query_as::<_, ()>(query)
         .bind(name)
         .bind(description)
         .bind(config.as_slice())
@@ -62,7 +62,7 @@ async fn update(
 ) -> DatabaseResult<()> {
     let query = "UPDATE machine_validation_external_config SET config=$2, version=$3 WHERE name=$1 RETURNING name";
 
-    let _: () = sqlx::query_as(query)
+    sqlx::query_as::<_, ()>(query)
         .bind(name)
         .bind(config.as_slice())
         .bind(next_version)

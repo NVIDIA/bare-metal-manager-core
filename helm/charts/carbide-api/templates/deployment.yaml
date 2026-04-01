@@ -21,6 +21,7 @@ spec:
       annotations:
         kubectl.kubernetes.io/default-container: carbide-api
     spec:
+      automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
       serviceAccountName: {{ .Values.serviceAccountName }}
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:

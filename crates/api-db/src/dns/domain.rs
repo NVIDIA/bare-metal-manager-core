@@ -147,8 +147,6 @@ async fn persist_inner_with_metadata(
 /// * [`ObjectColumnFilter`] - An enum that determines the query criteria
 ///
 /// # Examples
-///
-///
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Domain>>(
     txn: impl DbReader<'_>,
     filter: ObjectColumnFilter<'a, C>,
@@ -183,7 +181,7 @@ pub async fn find_by_name(
 
 /// Find the domain with the given ID, even if it is deleted.
 pub async fn find_by_uuid(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     uuid: DomainId,
 ) -> Result<Option<Domain>, DatabaseError> {
     find_all_by(txn, ObjectColumnFilter::One(IdColumn, &uuid), true)

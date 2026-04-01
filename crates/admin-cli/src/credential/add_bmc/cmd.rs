@@ -16,21 +16,15 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::{CredentialType, forge as forgerpc};
+use ::rpc::forge as forgerpc;
 
 use super::args::Args;
-use crate::credential::common::password_validator;
 use crate::rpc::ApiClient;
 
-pub async fn add_bmc(c: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let password = password_validator(c.password)?;
-    let req = forgerpc::CredentialCreationRequest {
-        credential_type: CredentialType::from(c.kind).into(),
-        username: c.username,
-        password,
-        mac_address: c.mac_address.map(|mac| mac.to_string()),
-        vendor: None,
-    };
-    api_client.0.create_credential(req).await?;
+pub async fn add_bmc(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+    api_client
+        .0
+        .create_credential(forgerpc::CredentialCreationRequest::try_from(data)?)
+        .await?;
     Ok(())
 }

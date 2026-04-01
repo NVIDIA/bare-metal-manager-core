@@ -17,14 +17,11 @@
 
 use ::rpc::admin_cli::CarbideCliResult;
 
-use crate::boot_override::common::BootOverride;
+use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn get(args: BootOverride, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let mbo = api_client
-        .0
-        .get_machine_boot_override(args.interface_id)
-        .await?;
+pub async fn get(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+    let mbo = api_client.0.get_machine_boot_override(args).await?;
 
     tracing::info!(
         "{}",

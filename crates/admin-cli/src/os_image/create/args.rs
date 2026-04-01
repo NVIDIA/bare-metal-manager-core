@@ -16,6 +16,10 @@
  */
 
 use clap::Parser;
+use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use rpc::forge as forgerpc;
+
+use crate::os_image::common::str_to_rpc_uuid;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -73,4 +77,29 @@ pub struct Args {
     pub bootfs_id: Option<String>,
     #[clap(long, help = "UUID of the image EFI filesystem (/boot/efi)")]
     pub efifs_id: Option<String>,
+}
+
+impl TryFrom<Args> for forgerpc::OsImageAttributes {
+    type Error = CarbideCliError;
+
+    fn try_from(args: Args) -> CarbideCliResult<Self> {
+        let id = str_to_rpc_uuid(&args.id)?;
+        Ok(forgerpc::OsImageAttributes {
+            id: Some(id),
+            source_url: args.url,
+            digest: args.digest,
+            tenant_organization_id: args.tenant_org_id,
+            create_volume: args.create_volume.unwrap_or(false),
+            name: args.name,
+            description: args.description,
+            auth_type: args.auth_type,
+            auth_token: args.auth_token,
+            rootfs_id: args.rootfs_id,
+            rootfs_label: args.rootfs_label,
+            boot_disk: args.boot_disk,
+            capacity: args.capacity,
+            bootfs_id: args.bootfs_id,
+            efifs_id: args.efifs_id,
+        })
+    }
 }

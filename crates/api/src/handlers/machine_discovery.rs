@@ -68,7 +68,9 @@ pub(crate) async fn discover_machine(
         .map(|data| match data {
             rpc::machine_discovery_info::DiscoveryData::Info(info) => info,
         })
-        .ok_or_else(|| Status::invalid_argument("Discovery data is not populated"))?;
+        .ok_or_else(|| {
+            CarbideError::InvalidArgument("Discovery data is not populated".to_string())
+        })?;
     let attest_key_info_opt = discovery_data.attest_key_info.clone();
     let hardware_info = HardwareInfo::try_from(discovery_data).map_err(CarbideError::from)?;
 
@@ -78,7 +80,9 @@ pub(crate) async fn discover_machine(
         && !hardware_info.is_dpu()
         && attest_key_info_opt.is_none()
     {
-        return Err(Status::invalid_argument("AttestKeyInfo is not populated"));
+        return Err(
+            CarbideError::InvalidArgument("AttestKeyInfo is not populated".to_string()).into(),
+        );
     }
 
     // Generate a stable Machine ID based on the hardware information
@@ -165,7 +169,7 @@ pub(crate) async fn discover_machine(
             )
             .await?
             .ok_or_else(|| {
-                Status::invalid_argument(format!(
+                CarbideError::InvalidArgument(format!(
                     "Machine id {stable_machine_id} was not discovered by site-explorer."
                 ))
             })?;
@@ -200,7 +204,7 @@ pub(crate) async fn discover_machine(
             )
             .await?
             .ok_or_else(|| {
-                Status::invalid_argument(format!("Machine id {stable_machine_id} not found."))
+                CarbideError::InvalidArgument(format!("Machine id {stable_machine_id} not found."))
             })?
         };
 
@@ -326,9 +330,10 @@ pub(crate) async fn discover_machine(
     let attest_key_challenge = if api.runtime_config.attestation_enabled && !hardware_info.is_dpu()
     {
         let Some(attest_key_info) = attest_key_info_opt else {
-            return Err(Status::invalid_argument(
-                "Internal Error: This should have been handled above! AttestKeyInfo is not populated.",
-            ));
+            return Err(CarbideError::InvalidArgument(
+                "Internal Error: This should have been handled above! AttestKeyInfo is not populated.".into(),
+            )
+            .into());
         };
 
         tracing::info!(

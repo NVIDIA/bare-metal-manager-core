@@ -18,7 +18,6 @@
 //!
 //! Measured Boot CLI-backing args & commands for the `measurement prpfile`
 //! subcommand.
-//!
 
 pub mod args;
 pub mod cmds;

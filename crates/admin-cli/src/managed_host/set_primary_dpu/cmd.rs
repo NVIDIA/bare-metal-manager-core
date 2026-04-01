@@ -16,19 +16,11 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge as forgerpc;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn set_primary_dpu(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
-    api_client
-        .0
-        .set_primary_dpu(forgerpc::SetPrimaryDpuRequest {
-            host_machine_id: Some(args.host_machine_id),
-            dpu_machine_id: Some(args.dpu_machine_id),
-            reboot: args.reboot,
-        })
-        .await?;
+    api_client.0.set_primary_dpu(args).await?;
     Ok(())
 }

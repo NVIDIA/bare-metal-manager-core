@@ -274,7 +274,9 @@ async fn fetch_instance_types(
     let itypes = api
         .find_instance_types_by_ids(tonic::Request::new(
             forgerpc::FindInstanceTypesByIdsRequest {
+                tenant_organization_id: None,
                 instance_type_ids: ids_for_page,
+                include_allocation_stats: true,
             },
         ))
         .await
@@ -299,6 +301,8 @@ pub async fn show_detail(
         .find_instance_types_by_ids(tonic::Request::new(
             forgerpc::FindInstanceTypesByIdsRequest {
                 instance_type_ids: vec![instance_type_id.clone()],
+                tenant_organization_id: None,
+                include_allocation_stats: true,
             },
         ))
         .await

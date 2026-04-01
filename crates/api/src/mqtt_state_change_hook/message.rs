@@ -37,19 +37,6 @@ pub struct ManagedHostStateChangeMessage<'a> {
 }
 
 impl<'a> ManagedHostStateChangeMessage<'a> {
-    /// Create a new message from the given state change data.
-    pub fn new(
-        machine_id: &'a MachineId,
-        state: &'a ManagedHostState,
-        timestamp: DateTime<Utc>,
-    ) -> Self {
-        Self {
-            machine_id,
-            timestamp,
-            managed_host_state: state,
-        }
-    }
-
     /// Serialize the message to JSON bytes for MQTT publishing.
     pub fn to_json_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
         serde_json::to_vec(self)
@@ -73,7 +60,11 @@ mod tests {
         let state = ManagedHostState::Ready;
         let timestamp = Utc::now();
 
-        let message = ManagedHostStateChangeMessage::new(&machine_id, &state, timestamp);
+        let message = ManagedHostStateChangeMessage {
+            machine_id: &machine_id,
+            managed_host_state: &state,
+            timestamp,
+        };
         let json = message.to_json_bytes().unwrap();
         let parsed: serde_json::Value = serde_json::from_slice(&json).unwrap();
 
@@ -91,7 +82,11 @@ mod tests {
         };
         let timestamp = Utc::now();
 
-        let message = ManagedHostStateChangeMessage::new(&machine_id, &state, timestamp);
+        let message = ManagedHostStateChangeMessage {
+            machine_id: &machine_id,
+            managed_host_state: &state,
+            timestamp,
+        };
         let json = message.to_json_bytes().unwrap();
         let parsed: serde_json::Value = serde_json::from_slice(&json).unwrap();
 
@@ -106,7 +101,11 @@ mod tests {
         let state = ManagedHostState::Ready;
         let timestamp = Utc::now();
 
-        let message = ManagedHostStateChangeMessage::new(&machine_id, &state, timestamp);
+        let message = ManagedHostStateChangeMessage {
+            machine_id: &machine_id,
+            managed_host_state: &state,
+            timestamp,
+        };
         let json = message.to_json_bytes().unwrap();
         let parsed: serde_json::Value = serde_json::from_slice(&json).unwrap();
 

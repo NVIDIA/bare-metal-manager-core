@@ -16,22 +16,14 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge::ClearHostUefiPasswordRequest;
 
-use crate::machine::MachineQuery;
+use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn clear_uefi_password(
-    query: MachineQuery,
-    api_client: &ApiClient,
-) -> CarbideCliResult<()> {
-    let request = ClearHostUefiPasswordRequest {
-        host_id: None,
-        machine_query: Some(query.query.clone()),
-    };
-    let response = api_client.0.clear_host_uefi_password(request).await?;
+pub async fn clear_uefi_password(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+    let response = api_client.0.clear_host_uefi_password(data).await?;
     println!(
-        "successfully cleared UEFI password for host {query:#?}; (jid: {:#?})",
+        "successfully cleared UEFI password for host (jid: {:#?})",
         response.job_id
     );
     Ok(())

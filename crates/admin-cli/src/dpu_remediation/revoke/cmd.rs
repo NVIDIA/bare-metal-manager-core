@@ -16,22 +16,17 @@
  */
 
 use ::rpc::admin_cli::CarbideCliError;
-use rpc::forge::RevokeRemediationRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn revoke_dpu_remediation(
-    revoke_remediation: Args,
+    data: Args,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
-    api_client
-        .0
-        .revoke_remediation(RevokeRemediationRequest {
-            remediation_id: Some(revoke_remediation.id),
-        })
-        .await?;
+    let id = data.id;
+    api_client.0.revoke_remediation(data).await?;
 
-    tracing::info!("Revoked remediation with id: {:?}", revoke_remediation.id);
+    tracing::info!("Revoked remediation with id: {:?}", id);
     Ok(())
 }

@@ -79,6 +79,8 @@ service Forge {
   rpc FindIBPartitionsByIds(IBPartitionsByIdsRequest) returns (IBPartitionList);
   // Create a IB partition
   rpc CreateIBPartition(IBPartitionCreationRequest) returns (IBPartition);
+  // Update a IB partition
+  rpc UpdateIBPartition(IBPartitionUpdateRequest) returns (IBPartition);
   // Delete a IB partition
   rpc DeleteIBPartition(IBPartitionDeletionRequest) returns (IBPartitionDeletionResult);
   // Find all IB partitions under a specified tenant
@@ -124,20 +126,17 @@ service Forge {
   // forge-dpu-agent -> carbide-api
   rpc GetManagedHostNetworkConfig(ManagedHostNetworkConfigRequest) returns (ManagedHostNetworkConfigResponse);
   rpc RecordDpuNetworkStatus(DpuNetworkStatus) returns (google.protobuf.Empty);
-  rpc RecordHardwareHealthReport(HardwareHealthReport) returns (google.protobuf.Empty);
-  rpc GetHardwareHealthReport(common.MachineId) returns (OptionalHealthReport);
-  rpc RecordLogParserHealthReport(HardwareHealthReport) returns (google.protobuf.Empty);
   // Lists all overrides that have been placed on a Machine health status
   rpc ListHealthReportOverrides(common.MachineId) returns (ListHealthReportOverrideResponse);
   // Adds a new override for a Machines health status
   rpc InsertHealthReportOverride(InsertHealthReportOverrideRequest) returns (google.protobuf.Empty);
   // Removes a health report override
   rpc RemoveHealthReportOverride(RemoveHealthReportOverrideRequest) returns (google.protobuf.Empty);
-  // Lists all overrides that have been placed on a Rack health status (stub - implementation TBD)
+  // Lists all overrides that have been placed on a Rack health status
   rpc ListRackHealthReportOverrides(ListRackHealthReportOverridesRequest) returns (ListHealthReportOverrideResponse);
-  // Adds a new health report override for a Rack (stub - implementation TBD)
+  // Adds a new health report override for a Rack
   rpc InsertRackHealthReportOverride(InsertRackHealthReportOverrideRequest) returns (google.protobuf.Empty);
-  // Removes a health report override for a Rack (stub - implementation TBD)
+  // Removes a health report override for a Rack
   rpc RemoveRackHealthReportOverride(RemoveRackHealthReportOverrideRequest) returns (google.protobuf.Empty);
   rpc DpuAgentUpgradeCheck(DpuAgentUpgradeCheckRequest) returns (DpuAgentUpgradeCheckResponse);
   rpc DpuAgentUpgradePolicyAction(DpuAgentUpgradePolicyRequest) returns (DpuAgentUpgradePolicyResponse);
@@ -171,6 +170,7 @@ service Forge {
   // Invoked by forge-scout whenever a certain Machine can not be properly acted on
   rpc ReportForgeScoutError(ForgeScoutErrorReport) returns (ForgeScoutErrorReportResult);
   rpc DiscoverDhcp(DhcpDiscovery) returns (DhcpRecord);
+  rpc ExpireDhcpLease(ExpireDhcpLeaseRequest) returns (ExpireDhcpLeaseResponse);
 
   // PRIVILEGED: Find things
   rpc FindInterfaces(InterfaceSearchQuery) returns (InterfaceList);
@@ -215,10 +215,10 @@ service Forge {
 
   rpc ValidateTenantPublicKey(ValidateTenantPublicKeyRequest) returns (ValidateTenantPublicKeyResponse);
 
-  // Admin CLI actions
+  // Query for BMC Credentials
+  rpc GetBmcCredentials(GetBmcCredentialsRequest) returns (GetBmcCredentialsResponse);
 
-  // Query Vault for the DPU's SSH admin password
-  rpc GetDpuSSHCredential(CredentialRequest) returns (CredentialResponse);
+  // Admin CLI actions
 
   // List all machines network status (HBN), as reported by `forge-dpu-agent`
   rpc GetAllManagedHostNetworkStatus(ManagedHostNetworkStatusRequest) returns (ManagedHostNetworkStatusResponse);
@@ -352,6 +352,8 @@ service Forge {
   rpc ApplyRackFirmware(RackFirmwareApplyRequest) returns (RackFirmwareApplyResponse);
   // Check the status of an async firmware update job
   rpc GetRackFirmwareJobStatus(RackFirmwareJobStatusRequest) returns (RackFirmwareJobStatusResponse);
+  // Get the history of rack firmware apply operations
+  rpc GetRackFirmwareHistory(RackFirmwareHistoryRequest) returns (RackFirmwareHistoryResponse);
 
   // Replace all expected machines in site
   rpc ReplaceAllExpectedMachines(ExpectedMachineList) returns (google.protobuf.Empty);
@@ -399,6 +401,22 @@ service Forge {
   rpc DeleteAllExpectedSwitches(google.protobuf.Empty) returns (google.protobuf.Empty);
   // Expected switches connected to Explored Endpoints and switches
   rpc GetAllExpectedSwitchesLinked(google.protobuf.Empty) returns (LinkedExpectedSwitchList);
+
+  // Expected Rack Management
+  // Add expected rack
+  rpc AddExpectedRack(ExpectedRack) returns (google.protobuf.Empty);
+  // Delete expected rack
+  rpc DeleteExpectedRack(ExpectedRackRequest) returns (google.protobuf.Empty);
+  // Update an expected rack
+  rpc UpdateExpectedRack(ExpectedRack) returns (google.protobuf.Empty);
+  // Get a specific expected rack
+  rpc GetExpectedRack(ExpectedRackRequest) returns (ExpectedRack);
+  // Get all expected racks
+  rpc GetAllExpectedRacks(google.protobuf.Empty) returns (ExpectedRackList);
+  // Replace all expected racks in site
+  rpc ReplaceAllExpectedRacks(ExpectedRackList) returns (google.protobuf.Empty);
+  // Delete all expected racks in site
+  rpc DeleteAllExpectedRacks(google.protobuf.Empty) returns (google.protobuf.Empty);
 
   // Perform Attestation Procedure for Measured Boot
   rpc AttestQuote	(AttestQuoteRequest) returns (AttestQuoteResponse);
@@ -626,8 +644,20 @@ service Forge {
   rpc DetermineMachineIngestionState(BmcEndpointRequest) returns (MachineIngestionStateResponse);
 
   // Rack
+  rpc FindRackIds(RackSearchFilter) returns (RackIdList);
+  rpc FindRacksByIds(RacksByIdsRequest) returns (RackList);
+  // Deprecated: Use FindRackIds
   rpc GetRack(GetRackRequest) returns (GetRackResponse);
   rpc DeleteRack(DeleteRackRequest) returns (google.protobuf.Empty);
+
+  //
+  // Compute Allocations
+  //
+  rpc CreateComputeAllocation(CreateComputeAllocationRequest) returns (CreateComputeAllocationResponse);
+  rpc FindComputeAllocationIds(FindComputeAllocationIdsRequest) returns (FindComputeAllocationIdsResponse);
+  rpc FindComputeAllocationsByIds(FindComputeAllocationsByIdsRequest) returns (FindComputeAllocationsByIdsResponse);
+  rpc UpdateComputeAllocation(UpdateComputeAllocationRequest) returns (UpdateComputeAllocationResponse);
+  rpc DeleteComputeAllocation(DeleteComputeAllocationRequest) returns (DeleteComputeAllocationResponse);
 
   rpc SetFirmwareUpdateTimeWindow(SetFirmwareUpdateTimeWindowRequest) returns (SetFirmwareUpdateTimeWindowResponse);
   rpc ListHostFirmware(ListHostFirmwareRequest) returns (ListHostFirmwareResponse);
@@ -681,6 +711,14 @@ service Forge {
   // SPIFFE Machine Identity APIs
   // Signs a JWT-SVID token for machine identity
   rpc SignMachineIdentity(MachineIdentityRequest) returns (MachineIdentityResponse);
+  // Get, set, or delete per-org identity configuration (issuer, audiences, TTL, signing key)
+  rpc GetIdentityConfiguration(GetIdentityConfigRequest) returns (IdentityConfigResponse);
+  rpc SetIdentityConfiguration(IdentityConfigRequest) returns (IdentityConfigResponse);
+  rpc DeleteIdentityConfiguration(GetIdentityConfigRequest) returns (google.protobuf.Empty);
+  // Token delegation: get, set, or delete per-org token exchange config
+  rpc GetTokenDelegation(GetTokenDelegationRequest) returns (TokenDelegationResponse);
+  rpc SetTokenDelegation(TokenDelegationRequest) returns (TokenDelegationResponse);
+  rpc DeleteTokenDelegation(GetTokenDelegationRequest) returns (google.protobuf.Empty);
 
   // ScoutStream establishes a bidirectional streaming connection between
   // scout agents and carbide-api. The initial use-case for this is for
@@ -792,6 +830,13 @@ service Forge {
 
   rpc ModifyDPFState(ModifyDPFStateRequest) returns (google.protobuf.Empty);
   rpc GetDPFState(GetDPFStateRequest) returns (DPFStateResponse);
+
+  // --- Component management (unified switch + power shelf operations) ---
+  rpc ComponentPowerControl(ComponentPowerControlRequest) returns (ComponentPowerControlResponse);
+  rpc GetComponentInventory(GetComponentInventoryRequest) returns (GetComponentInventoryResponse);
+  rpc UpdateComponentFirmware(UpdateComponentFirmwareRequest) returns (UpdateComponentFirmwareResponse);
+  rpc GetComponentFirmwareStatus(GetComponentFirmwareStatusRequest) returns (GetComponentFirmwareStatusResponse);
+  rpc ListComponentFirmwareVersions(ListComponentFirmwareVersionsRequest) returns (ListComponentFirmwareVersionsResponse);
 }
 
 message AttestationIdsRequest {
@@ -837,6 +882,79 @@ message MachineIdentityResponse {
   string issued_token_type = 2;
   string token_type = 3;
   string expires_in = 4;
+}
+
+// Identity configuration (per-org)
+message GetIdentityConfigRequest {
+  string organization_id = 1;
+}
+
+message IdentityConfig {
+  bool enabled = 1;
+  string issuer = 2;
+  string default_audience = 3;
+  repeated string allowed_audiences = 4;
+  uint32 token_ttl_sec = 5;
+  string subject_prefix = 6;
+  bool rotate_key = 7;
+}
+
+message IdentityConfigRequest {
+  string organization_id = 1;
+  IdentityConfig config = 2;
+}
+
+message IdentityConfigResponse {
+  string organization_id = 1;
+  IdentityConfig config = 2;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  string key_id = 10;
+}
+
+// Token delegation config (per-org token exchange for machine identity).
+// The structure used when CREATING or UPDATING a secret
+message ClientSecretBasic {
+  string client_id = 1;
+  string client_secret = 2;  // Required for input, never returned
+}
+
+// The structure used when RETRIEVING a secret configuration
+message ClientSecretBasicResponse {
+  string client_id = 1;
+  string client_secret_hash = 2;  // Returned to client, but never accepted as input
+}
+
+// auth_method_config oneof: only set for "client_secret_basic".
+// When omitted, auth_method is "none". auth_method is not returned; infer from oneof.
+message TokenDelegationResponse {
+  string organization_id = 1;
+  string token_endpoint = 2;
+  string subject_token_audience = 3;
+  oneof auth_method_config {
+    ClientSecretBasicResponse client_secret_basic = 4;
+  }
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message GetTokenDelegationRequest {
+  string organization_id = 1;
+}
+
+// auth_method_config oneof: only set when auth_method is "client_secret_basic".
+// When auth_method is "none", omit the oneof entirely.
+message TokenDelegation {
+  string token_endpoint = 1;
+  string subject_token_audience = 2;
+  oneof auth_method_config {
+    ClientSecretBasic client_secret_basic = 4;
+  }
+}
+
+message TokenDelegationRequest {
+  string organization_id = 1;
+  TokenDelegation config = 2;
 }
 
 // Determines machine ingestion state in relation to the power on gate
@@ -1008,7 +1126,8 @@ message RuntimeConfig {
   uint64 machine_update_runtime_interval = 23;
 
   reserved 24;
-  bool nvue_enabled = 25;
+  // Deprecated: NVUE is always enabled. This field is always set to true.
+  bool nvue_enabled = 25 [deprecated = true];
   uint32 max_database_connections = 26;
 
   bool auto_host_firmware_update = 27;
@@ -1530,6 +1649,17 @@ message IBPartitionCreationRequest {
   Metadata metadata = 3;
 }
 
+message IBPartitionUpdateRequest {
+  common.IBPartitionId id = 1; 
+ 
+  // New IBPartitionConfig to be applied to the IBPartition.
+  IBPartitionConfig config = 2;
+
+  optional string if_version_match = 3;
+
+  Metadata metadata = 4;
+}
+
 message IBPartitionDeletionRequest {
   common.IBPartitionId id = 1;
 }
@@ -1643,10 +1773,15 @@ message ExpectedPowerShelf {
   // Metadata that will automatically get associated with a newly created PowerShelf
   Metadata metadata = 6;
   optional common.RackId rack_id = 7;
+  // Unique identifier for the expected power shelf. When omitted, server generates one.
+  optional common.UUID expected_power_shelf_id = 8;
 }
 
 message ExpectedPowerShelfRequest {
   string bmc_mac_address = 1;
+  // Optional unique identifier for selecting an expected power shelf.
+  // If provided, server will use this to select the record.
+  optional common.UUID expected_power_shelf_id = 2;
 }
 
 message ExpectedPowerShelfList {
@@ -1661,6 +1796,9 @@ message LinkedExpectedPowerShelf {
   string shelf_serial_number = 1;
   string bmc_mac_address = 2; // from expected_power_shelves table
   optional common.PowerShelfId power_shelf_id = 3; // The power shelf
+  optional common.UUID expected_power_shelf_id = 4;
+  optional string explored_endpoint_address = 5; // The explored BMC IP
+  optional common.RackId rack_id = 6;
 }
 
 // Describe the desired configuration of a Switch
@@ -1707,6 +1845,9 @@ message Switch {
   string controller_state = 5;
 
   BmcInfo bmc_info = 6;
+
+  // Version string for the current controller state (e.g. "V3-T1774905143273055").
+  string state_version = 7;
 }
 
 message SwitchList {
@@ -1763,10 +1904,16 @@ message ExpectedSwitch {
   optional common.RackId rack_id = 6;
   optional string nvos_username = 7;
   optional string nvos_password = 8;
+  // Unique identifier for the expected switch. When omitted, server generates one.
+  optional common.UUID expected_switch_id = 9;
+  repeated string nvos_mac_addresses = 10;
 }
 
 message ExpectedSwitchRequest {
   string bmc_mac_address = 1;
+  // Optional unique identifier for selecting an expected switch.
+  // If provided, server will use this to select the record.
+  optional common.UUID expected_switch_id = 2;
 }
 
 message ExpectedSwitchList {
@@ -1781,6 +1928,26 @@ message LinkedExpectedSwitch {
   string switch_serial_number = 1;
   string bmc_mac_address = 2; // from expected_switches table
   optional common.SwitchId switch_id = 3; // The switch
+  optional common.UUID expected_switch_id = 4;
+  optional string explored_endpoint_address = 5; // The explored BMC IP
+  optional common.RackId rack_id = 6;
+}
+
+message ExpectedRack {
+  // The rack identifier. Same rack_id referenced by expected machines, switches, and power shelves.
+  optional common.RackId rack_id = 1;
+  // The rack type name. Determines expected counts of compute trays, switches, and power shelves.
+  string rack_type = 2;
+  // Metadata that will be associated with the rack.
+  Metadata metadata = 3;
+}
+
+message ExpectedRackRequest {
+  string rack_id = 1;
+}
+
+message ExpectedRackList {
+  repeated ExpectedRack expected_racks = 1;
 }
 
 message IBFabricSearchFilter {
@@ -2400,6 +2567,11 @@ message InstanceInterfaceConfig {
   // then this value is set and specifies the virtual function ID that is configured
   // for this network interface.
   optional uint32 virtual_function_id = 9;
+
+  // Explicit _host_ IP address requested for the interface.
+  // Only allowed when VPC prefix is used.
+  // Must match VPC prefix defined for the interface.
+  optional string ip_address = 10;
 }
 
 // The configuration that a customer desires for an instances IB interface
@@ -2560,8 +2732,15 @@ message MachineSearchConfig {
   reserved 5; // Was: bool include_associated_machine_id = 5; Now always included
   bool exclude_hosts = 6;
   bool only_quarantine = 7;
+  // Returns machines only if they are assigned the given instance type
   optional string instance_type_id = 8;
   bool mnnvl_only = 9;
+  // PowerState would mirror host_power_state_t, basically 'on' and 'off'
+  optional string only_with_power_state = 10;
+  // For example, to search for leak alerts, set the below to "hardware-health.tray-leak-detection"
+  optional string only_with_health_alert = 11;
+  // Returns machines only if they are part of the given rack
+  optional common.RackId rack_id = 12;
 }
 
 message MachineStateHistoriesRequest {
@@ -2697,9 +2876,7 @@ message Machine {
 
   // Other machine ids associated with this machine
   optional common.MachineId associated_host_machine_id = 19;
-  // Deprecated, use associated_dpu_machine_ids. For now, this is filled in with the first DPU ID.
-  // TODO: Once all admin CLI clients have updated, drop this and stop filling it in.
-  optional common.MachineId associated_dpu_machine_id = 20;
+  reserved 20; /* previously: optional common.MachineId associated_dpu_machine_id = 20; */
 
   optional MachineInventory inventory = 21;
   optional google.protobuf.Timestamp last_reboot_requested_time = 22;
@@ -2753,6 +2930,8 @@ message Machine {
   optional MachineNVLinkInfo nvlink_info = 43;
 
   optional MachineNVLinkStatusObservation nvlink_status_observation = 44;
+
+  optional common.RackId rack_id = 45;
 }
 
 message InstanceNetworkRestrictions {
@@ -2964,6 +3143,20 @@ message DhcpDiscovery {
   optional string desired_address = 7;
 }
 
+message ExpireDhcpLeaseRequest {
+  string ip_address = 1;
+}
+
+enum ExpireDhcpLeaseStatus {
+  EXPIRE_DHCP_LEASE_STATUS_RELEASED = 0;
+  EXPIRE_DHCP_LEASE_STATUS_NOT_FOUND = 1;
+}
+
+message ExpireDhcpLeaseResponse {
+  string ip_address = 1;
+  ExpireDhcpLeaseStatus status = 2;
+}
+
 message DhcpRecord {
   common.MachineId machine_id = 1;
   common.MachineInterfaceId machine_interface_id = 2;
@@ -3007,13 +3200,19 @@ message SSHKeyValidationResponse {
   UserRoles role = 2;
 }
 
-message CredentialRequest {
-  string host_id = 1; // UUID, IP address, host name or MAC address
+message GetBmcCredentialsRequest {
+  string mac_addr = 1;
 }
 
-message CredentialResponse {
-  string username = 1;
-  string password = 2;
+message GetBmcCredentialsResponse {
+  BmcCredentials credentials = 1;
+}
+
+message BmcCredentials {
+  oneof type {
+    UsernamePassword username_password = 1;
+    SessionToken session_token = 2;
+  }
 }
 
 message GetSiteExplorationRequest {
@@ -3650,12 +3849,12 @@ message BMCMetaDataGetResponse {
   optional uint32 port = 5;
   optional uint32 ssh_port = 6;
   optional uint32 ipmi_port = 7;
+  optional string vendor = 8;
 }
 
 message MachineCredentialsUpdateRequest {
   enum CredentialPurpose {
     HBN = 0;
-    LOGIN_USER = 1;
     BMC = 2;
   }
 
@@ -3886,11 +4085,6 @@ message DpuExtensionServiceComponent {
   string version = 2;
   string url = 3;
   string status = 4;
-}
-
-message HardwareHealthReport {
-  common.MachineId machine_id = 1;
-  health.HealthReport report = 2;
 }
 
 message OptionalHealthReport {
@@ -4232,6 +4426,7 @@ enum UuidType {
   UuidTypeVpc = 3;
   UuidTypeDomain = 4;
   UuidTypeDpaInterfaceId = 5;
+  UuidTypeComputeAllocationId = 6;
 }
 
 message IdentifyMacRequest {
@@ -4579,7 +4774,9 @@ message ExpectedMachine {
   repeated ExpectedHostNic host_nics = 9;
   optional common.RackId rack_id = 10;
   optional bool default_pause_ingestion_and_poweron = 11;
-  bool dpf_enabled = 12;
+  // deprecated
+  bool dpf_enabled = 12 [deprecated = true];
+  optional bool is_dpf_enabled = 13;
 }
 
 message ExpectedMachineRequest {
@@ -5043,17 +5240,18 @@ message InstanceTypeAttributes {
   repeated InstanceTypeMachineCapabilityFilterAttributes desired_capabilities = 1;
 }
 
-// An InstanceType describes a desired set of
+// An InstanceType describes a desired set of 
 // machine capabilities.
 // It's probably easiest to just think of InstanceType
 // as a pool, and the desired capabilities of an InstanceType
 // define which machines are allowed in the pool.
 message InstanceType {
-  string id                         = 1;
-  InstanceTypeAttributes attributes = 2;
-  string version                    = 3;
-  Metadata metadata                 = 4;
-  optional string created_at        = 5;
+  string id                                             = 1;
+  InstanceTypeAttributes attributes                     = 2;
+  string version                                        = 3;
+  Metadata metadata                                     = 4;
+  optional string created_at                            = 5;
+  optional InstanceTypeAllocationStats allocation_stats = 6;  
 }
 
 // These match the current set of distinct
@@ -5108,11 +5306,23 @@ message FindInstanceTypeIdsResponse {
 }
 
 message FindInstanceTypesByIdsRequest {
-  repeated string instance_type_ids = 1;
+  repeated string instance_type_ids        = 1;
+  
+  // Used to filter by tenant allocations.
+  // In the future, this value would be ignored if the
+  // caller is a tenant and the org of the tenant would
+  // be used automatically by the handler. If this option
+  // is used and there are no allocations associated with
+  // the tenant org, no results will be returned.
+
+  optional string tenant_organization_id = 2;
+  // This option would trigger additional queries to calculate
+  // allocation stats.
+  bool include_allocation_stats = 3;
 }
 
 message FindInstanceTypesByIdsResponse {
-  repeated InstanceType instance_types = 1;
+  repeated InstanceType instance_types = 1;  
 }
 
 message DeleteInstanceTypeRequest {
@@ -5614,6 +5824,17 @@ message DpaInterface {
 
   string underlay_ip = 17;
   string overlay_ip = 18;
+
+  // mlxconfig_profile is the optional profile of mlxconfig
+  // parameters to sync to the device. This is specifically
+  // the name of the profile to sync down. The actual config
+  // is defined in the Carbide API site config. If this is
+  // empty, no mlxconfig parameters will be synced during
+  // [re]provisioning, and instead an mlxconfig parameter
+  // reset will be performed, ensuring the device is reset
+  // back to its default values before allocating to the
+  // next tenant.
+  optional string mlxconfig_profile = 19;
 }
 
 
@@ -5693,12 +5914,133 @@ message PowerOptionResponse {
   repeated PowerOptions response = 1;
 }
 
+
+
+message ComputeAllocationAttributes {   
+  string instance_type_id = 1; // The source of the compute resources
+  
+  // The number of instances for this requested instance type allocated
+  // for the tenant.  The total for all allocations of an instance type
+  // cannot exceed the number of machines associated with the instance
+  // type.  Still, it's possible for an allocation to be unable to
+  // satisfy an allocation if associated machines are in failed states
+  // that prevent them from being allocated.
+  uint32 count            = 2;
+}
+
+
+message ComputeAllocation {
+  common.ComputeAllocationId id          = 1;
+  string tenant_organization_id          = 2;
+  ComputeAllocationAttributes attributes = 3;
+  string version                         = 4;
+  Metadata metadata                      = 5;
+  optional string created_at             = 6;
+  optional string created_by             = 7;
+  optional string updated_by             = 8;
+}
+
+message CreateComputeAllocationRequest {
+  optional common.ComputeAllocationId id = 1;
+  Metadata metadata                      = 2;
+  string tenant_organization_id          = 3; // Allocations are created by provider admins for tenants, but only providers can update them.
+  ComputeAllocationAttributes attributes = 4;
+  optional string created_by             = 5;
+}
+
+message CreateComputeAllocationResponse {
+  ComputeAllocation allocation = 1;
+}
+
+// Tenants and providers are both allowed to call the related endpoint.
+// A provider could filter on `tenant_organization_id`. In the
+// future, the field would be ignored if a tenant attempted to filter
+// on the org and the handler would automatically filter by the tenant
+// org of the caller.
+message FindComputeAllocationIdsRequest {
+  // Options will be AND'ed
+  optional string name                   = 1;
+  optional string tenant_organization_id = 2;
+  optional string instance_type_id       = 3;
+};
+
+message FindComputeAllocationIdsResponse {
+  repeated common.ComputeAllocationId ids = 1;
+}
+
+// Tenants and providers are both allowed to call this endpoint.
+// In the future, the handler would automatically filter by the
+// tenant org of the caller.
+message FindComputeAllocationsByIdsRequest {
+  repeated common.ComputeAllocationId ids = 1;   
+}
+
+message FindComputeAllocationsByIdsResponse {
+  repeated ComputeAllocation allocations = 1;
+}
+
+message UpdateComputeAllocationResponse {
+  ComputeAllocation allocation = 1;
+}
+
+message UpdateComputeAllocationRequest {
+  common.ComputeAllocationId id          = 1;
+  string tenant_organization_id          = 2;
+  Metadata metadata                      = 3;
+  ComputeAllocationAttributes attributes = 4;
+  optional string if_version_match       = 5;
+  optional string updated_by             = 6;
+}
+
+message DeleteComputeAllocationRequest {
+  common.ComputeAllocationId id = 1;
+  string tenant_organization_id = 2;
+}
+
+message DeleteComputeAllocationResponse {
+}
+
+// For use with the existing InstanceType message
+// to include allocation stats when requested in
+// FindInstanceTypesByIdsRequest 
+message InstanceTypeAllocationStats {
+  // The sum of all allocations for the instance type
+  uint32 max_allocatable = 1;
+
+  // The number of active instances for an instance type
+  uint32 used            = 2;
+
+  // The number of additional instances that a user _should_
+  // be able to create.
+  uint32 unused          = 3;
+
+  // The number of additional instances that a user can
+  // _actually_ create after filtering out all unused
+  // machines in bad states
+  uint32 unused_usable   = 4;    
+}
+
 message GetRackRequest {
   optional string id = 1;
 }
 
 message GetRackResponse {
   repeated Rack rack = 1;
+}
+
+message RackList {
+  repeated Rack racks = 1;
+}
+
+message RackSearchFilter {
+}
+
+message RackIdList {
+  repeated common.RackId rack_ids = 1;
+}
+
+message RacksByIdsRequest {
+  repeated common.RackId rack_ids = 1;
 }
 
 message Rack {
@@ -5713,6 +6055,8 @@ message Rack {
   google.protobuf.Timestamp created = 9;
   google.protobuf.Timestamp updated = 10;
   google.protobuf.Timestamp deleted = 11;
+  health.HealthReport health = 12;
+  repeated HealthOverrideOrigin health_overrides = 13;
 }
 
 message RackStateHistoryRecord {
@@ -6067,6 +6411,10 @@ message UsernamePassword {
   string password = 2;
 }
 
+message SessionToken {
+  string token = 1;
+}
+
 message DpuExtensionServiceCredential {
   string registry_url = 1;
 
@@ -6402,6 +6750,8 @@ enum RoutingProfileType {
 message RoutingProfile {
   repeated common.RouteTarget route_target_imports     = 1;
   repeated common.RouteTarget route_targets_on_exports = 2;
+  bool leak_default_route_from_underlay                = 3;
+  bool leak_tenant_host_routes_to_underlay             = 4;
 }
 
 // ============================================================================
@@ -6528,7 +6878,7 @@ message DeviceUpdateResult {
   string device_type = 2;
   bool success = 3;
   string message = 4;
-  string job_id = 5;             // Parent job ID for async firmware updates (use with RMS GetFirmwareJobStatus)
+  string job_id = 5; // Parent job ID for async firmware updates (use with RMS GetFirmwareJobStatus)
   repeated NodeJobInfo node_jobs = 6; // Per-node job IDs for tracking individual node progress
 }
 
@@ -6543,12 +6893,33 @@ message RackFirmwareJobStatusRequest {
 
 message RackFirmwareJobStatusResponse {
   string job_id = 1;
-  string state = 2;              // QUEUED, RUNNING, COMPLETED, FAILED
-  string state_description = 3;  // Human-readable description
+  string state = 2; // QUEUED, RUNNING, COMPLETED, FAILED
+  string state_description = 3; // Human-readable description
   string rack_id = 4;
   string node_id = 5;
-  string error_message = 6;      // Populated if state is FAILED
-  string result_json = 7;        // Detailed result data on completion
+  string error_message = 6; // Populated if state is FAILED
+  string result_json = 7; // Detailed result data on completion
+}
+
+message RackFirmwareHistoryRequest {
+  string firmware_id = 1; // Optional: filter by firmware ID. Empty string means no filter.
+  repeated string rack_ids = 2; // Optional: filter by rack IDs. Empty list returns all racks.
+}
+
+message RackFirmwareHistoryResponse {
+  map<string, RackFirmwareHistoryRecords> histories = 1; // Keyed by rack ID
+}
+
+message RackFirmwareHistoryRecords {
+  repeated RackFirmwareHistoryRecord records = 1;
+}
+
+message RackFirmwareHistoryRecord {
+  string firmware_id = 1;
+  string rack_id = 2;
+  string firmware_type = 3;
+  string applied_at = 4;
+  bool firmware_available = 5; // Whether the firmware ID still exists and is available
 }
 
 message ModifyDPFStateRequest {
@@ -6567,4 +6938,161 @@ message DPFStateResponse {
 
 message GetDPFStateRequest {
   repeated common.MachineId machine_ids = 1;
+}
+
+// ============================================================================
+// Component dispatch types
+// ============================================================================
+
+enum ComponentManagerStatusCode {
+  COMPONENT_MANAGER_STATUS_CODE_SUCCESS = 0;
+  COMPONENT_MANAGER_STATUS_CODE_INVALID_ARGUMENT = 1;
+  COMPONENT_MANAGER_STATUS_CODE_INTERNAL_ERROR = 2;
+  COMPONENT_MANAGER_STATUS_CODE_NOT_FOUND = 3;
+  COMPONENT_MANAGER_STATUS_CODE_ALREADY_EXISTS = 4;
+  COMPONENT_MANAGER_STATUS_CODE_UNAVAILABLE = 5;
+}
+
+message ComponentResult {
+  string component_id = 1;
+  ComponentManagerStatusCode status = 2;
+  string error = 3;
+}
+
+message SwitchIdList {
+  repeated common.SwitchId ids = 1;
+}
+
+message PowerShelfIdList {
+  repeated common.PowerShelfId ids = 1;
+}
+
+// --- Component inventory ---
+
+message GetComponentInventoryRequest {
+  oneof target {
+    common.MachineIdList machine_ids = 1;
+    SwitchIdList switch_ids = 2;
+    PowerShelfIdList power_shelf_ids = 3;
+  }
+}
+
+message ComponentInventoryEntry {
+  ComponentResult result = 1;
+  optional site_explorer.EndpointExplorationReport report = 2;
+}
+
+message GetComponentInventoryResponse {
+  repeated ComponentInventoryEntry entries = 1;
+}
+
+// --- Component power control ---
+
+message ComponentPowerControlRequest {
+  oneof target {
+    common.MachineIdList machine_ids = 1;
+    SwitchIdList switch_ids = 2;
+    PowerShelfIdList power_shelf_ids = 3;
+  }
+  common.SystemPowerControl action = 4;
+}
+
+message ComponentPowerControlResponse {
+  repeated ComponentResult results = 1;
+}
+
+// --- Component firmware ---
+
+enum FirmwareUpdateState {
+  FW_STATE_UNKNOWN = 0;
+  FW_STATE_QUEUED = 1;
+  FW_STATE_IN_PROGRESS = 2;
+  FW_STATE_VERIFYING = 3;
+  FW_STATE_COMPLETED = 4;
+  FW_STATE_FAILED = 5;
+  FW_STATE_CANCELLED = 6;
+}
+
+message FirmwareUpdateStatus {
+  ComponentResult result = 1;
+  FirmwareUpdateState state = 2;
+  string target_version = 3;
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+enum NvSwitchComponent {
+  NV_SWITCH_COMPONENT_UNKNOWN = 0;
+  NV_SWITCH_COMPONENT_BMC = 1;
+  NV_SWITCH_COMPONENT_CPLD = 2;
+  NV_SWITCH_COMPONENT_BIOS = 3;
+  NV_SWITCH_COMPONENT_NVOS = 4;
+}
+
+enum PowerShelfComponent {
+  POWER_SHELF_COMPONENT_UNKNOWN = 0;
+  POWER_SHELF_COMPONENT_PMC = 1;
+  POWER_SHELF_COMPONENT_PSU = 2;
+}
+
+enum ComputeTrayComponent {
+  COMPUTE_TRAY_COMPONENT_UNKNOWN = 0;
+  COMPUTE_TRAY_COMPONENT_BMC = 1;
+  COMPUTE_TRAY_COMPONENT_BIOS = 2;
+}
+
+message UpdateComputeTrayFirmwareTarget {
+  common.MachineIdList machine_ids = 1;
+  repeated ComputeTrayComponent components = 2;
+}
+
+message UpdateSwitchFirmwareTarget {
+  SwitchIdList switch_ids = 1;
+  repeated NvSwitchComponent components = 2;
+}
+
+message UpdatePowerShelfFirmwareTarget {
+  PowerShelfIdList power_shelf_ids = 1;
+  repeated PowerShelfComponent components = 2;
+}
+
+message UpdateComponentFirmwareRequest {
+  oneof target {
+    UpdateComputeTrayFirmwareTarget compute_trays = 1;
+    UpdateSwitchFirmwareTarget switches = 2;
+    UpdatePowerShelfFirmwareTarget power_shelves = 3;
+  }
+  string target_version = 4;
+}
+
+message UpdateComponentFirmwareResponse {
+  repeated ComponentResult results = 1;
+}
+
+message GetComponentFirmwareStatusRequest {
+  oneof target {
+    common.MachineIdList machine_ids = 1;
+    SwitchIdList switch_ids = 2;
+    PowerShelfIdList power_shelf_ids = 3;
+  }
+}
+
+message GetComponentFirmwareStatusResponse {
+  repeated FirmwareUpdateStatus statuses = 1;
+}
+
+message ListComponentFirmwareVersionsRequest {
+  oneof target {
+    common.MachineIdList machine_ids = 1;
+    SwitchIdList switch_ids = 2;
+    PowerShelfIdList power_shelf_ids = 3;
+  }
+}
+
+message DeviceFirmwareVersions {
+  ComponentResult result = 1;
+  repeated string versions = 2;
+}
+
+message ListComponentFirmwareVersionsResponse {
+  repeated DeviceFirmwareVersions devices = 1;
 }

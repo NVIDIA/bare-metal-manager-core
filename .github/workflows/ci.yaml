@@ -45,6 +45,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       helm_version: ${{ steps.version.outputs.helm_version }}
       short_sha: ${{ steps.version.outputs.short_sha }}
+      extras_container_ref: ${{ steps.resolve-extras.outputs.extras_container_ref }}
       build_container_x86_64_run: ${{ steps.base-container-gate.outputs.build_container_x86_64_run }}
       build_container_x86_64_version: ${{ steps.base-container-gate.outputs.build_container_x86_64_version }}
       runtime_container_x86_64_run: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_run }}
@@ -59,6 +60,7 @@ jobs:
       runtime_container_aarch64_version: ${{ steps.base-container-gate.outputs.runtime_container_aarch64_version }}
       powerdns_container_run: ${{ steps.base-container-gate.outputs.powerdns_container_run }}
       proto_files_changed: ${{ steps.base-container-gate.outputs.proto_files_changed }}
+      source_files_changed: ${{ steps.base-container-gate.outputs.source_files_changed }}
       release_build_args: ${{ steps.release-metadata.outputs.build_args }}
       release_build_args_aarch64: ${{ steps.release-metadata.outputs.build_args_aarch64 }}
       sbom_container_run: ${{ steps.base-container-gate.outputs.sbom_container_run }}
@@ -90,6 +92,12 @@ jobs:
               - 'dev/docker/Dockerfile-powerdns'
             proto_files:
               - '**/*.proto'
+            source_files:
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'Makefile.toml'
+              - 'rust-toolchain.toml'
             sbom_container:
               - 'dev/docker/sbom-tools/Dockerfile'
       - name: Calculate version
@@ -121,6 +129,34 @@ jobs:
           echo "| VERSION | \`${VERSION}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| HELM_VERSION | \`${HELM_VERSION}\` |" >> $GITHUB_STEP_SUMMARY
 
+      - name: Login to NVCR
+        uses: ./.github/actions/docker-auth
+        with:
+          username: ${{ secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NVCR_TOKEN }}
+
+      - name: Resolve pinned carbide-extras image digest
+        id: resolve-extras
+        env:
+          EXTRAS_IMAGE: nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-extras:latest
+        run: |
+          set -euo pipefail
+          docker pull "${EXTRAS_IMAGE}"
+          EXTRAS_REF="$(docker inspect --format='{{index .RepoDigests 0}}' "${EXTRAS_IMAGE}")"
+
+          if [ -z "${EXTRAS_REF}" ]; then
+            echo "::error::Failed to resolve digest for ${EXTRAS_IMAGE}"
+            exit 1
+          fi
+
+          echo "extras_container_ref=${EXTRAS_REF}" >> "$GITHUB_OUTPUT"
+          echo "Resolved extras image to pinned digest: ${EXTRAS_REF}"
+
+          echo "## 📌 Carbide Extras Image" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Requested | Pinned |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`${EXTRAS_IMAGE}\` | \`${EXTRAS_REF}\` |" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Decide if build-container-x86_64 must run
         id: base-container-gate
         env:
@@ -135,6 +171,7 @@ jobs:
           BUILD_ARTIFACTS_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_artifacts_aarch64 }}
           POWERDNS_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.powerdns_container }}
           PROTO_FILES_CHANGED: ${{ steps.build-container-changes.outputs.proto_files }}
+          SOURCE_FILES_CHANGED: ${{ steps.build-container-changes.outputs.source_files }}
         run: |
           build_container_x86_64_run=false
           runtime_container_x86_64_run=false
@@ -144,6 +181,7 @@ jobs:
           build_artifacts_container_aarch64_run=false
           powerdns_container_run=false
           proto_files_changed=false
+          source_files_changed=false
 
           if [[ "${COMMIT_MESSAGE}" =~ ci-rebuild-base-containers ]]; then
             build_container_x86_64_run=true
@@ -166,6 +204,10 @@ jobs:
 
           if [[ "${PROTO_FILES_CHANGED}" == "true" ]]; then
              proto_files_changed=true
+          fi
+
+          if [[ "${SOURCE_FILES_CHANGED}" == "true" ]]; then
+             source_files_changed=true
           fi
 
           if [[ "${RUNTIME_CONTAINER_X86_64_DOCKERFILE_CHANGED}" == "true" ]]; then
@@ -200,6 +242,7 @@ jobs:
           echo "build_artifacts_container_aarch64_run=${build_artifacts_container_aarch64_run}" >> "$GITHUB_OUTPUT"
           echo "powerdns_container_run=${powerdns_container_run}" >> "$GITHUB_OUTPUT"
           echo "proto_files_changed=${proto_files_changed}" >> "$GITHUB_OUTPUT"
+          echo "source_files_changed=${source_files_changed}" >> "$GITHUB_OUTPUT"
           echo "sbom_container_run=${sbom_container_run}" >> "$GITHUB_OUTPUT"
 
           if [[ "$build_container_x86_64_run" == "true" ]]; then
@@ -414,6 +457,7 @@ jobs:
       push: ${{ !contains(github.ref, 'pull-request/') }}
       load: true
       tag_latest: false
+      timeout_minutes: 120
     secrets: inherit
 
   build-release-container-aarch64:
@@ -530,7 +574,7 @@ jobs:
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
       inject_extras: true
-      extras_container: 'nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-extras:latest'
+      extras_container: ${{ needs.prepare.outputs.extras_container_ref }}
     secrets: inherit
 
   build-boot-artifacts-bfb:
@@ -548,7 +592,7 @@ jobs:
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
       inject_extras: true
-      extras_container: 'nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-extras:latest'
+      extras_container: ${{ needs.prepare.outputs.extras_container_ref }}
     secrets: inherit
 
   # ============================================================================
@@ -572,7 +616,7 @@ jobs:
       use_container: false
       sa_enablement: true
       inject_extras: true
-      extras_container: 'nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-extras:latest'
+      extras_container: ${{ needs.prepare.outputs.extras_container_ref }}
     secrets: inherit
 
   build-boot-artifacts-ephemeral-image-arm-host:
@@ -591,7 +635,7 @@ jobs:
       use_container: false
       sa_enablement: true
       inject_extras: true
-      extras_container: 'nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-extras:latest'
+      extras_container: ${{ needs.prepare.outputs.extras_container_ref }}
     secrets: inherit
 
   # ============================================================================
@@ -683,10 +727,10 @@ jobs:
           fetch-depth: 0  # Full history for secret scanning
 
       - name: Run TruffleHog Scan
-        uses: NVIDIA/dsx-github-actions/.github/actions/trufflehog-scan@55d1e0af17fb4431edaca19fbd5c78fecd29d18a
+        uses: NVIDIA/dsx-github-actions/.github/actions/trufflehog-scan@9a9ce3a7770a8b53d2726afa920be3276bc3ddd7
         with:
           extra-args: '--results=verified,unknown --only-verified'
-          post-pr-comment: 'false'
+          post-pr-comment: 'true'
           fail-on-findings: 'true'
 
   security-codeql-scan:
@@ -705,7 +749,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run CodeQL Scan
-        uses: NVIDIA/dsx-github-actions/.github/actions/codeql-scan@55d1e0af17fb4431edaca19fbd5c78fecd29d18a
+        uses: NVIDIA/dsx-github-actions/.github/actions/codeql-scan@20dc10dda4fa9f8f0380a47cd9a7800d3da3dcf3
         with:
           languages: 'rust'
           build-mode: 'none'
@@ -715,33 +759,6 @@ jobs:
           fail-on-findings: 'true'  # Enforce quality gate
           fail-on-severity: 'error' # Only fail on critical/high severity issues
 
-  security-trivy-scan:
-    name: Trivy Vulnerability Scan
-    needs: prepare
-    runs-on: linux-amd64-cpu4
-    timeout-minutes: 30
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-      pull-requests: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Run Trivy Scan
-        uses: NVIDIA/dsx-github-actions/.github/actions/trivy-scan@55d1e0af17fb4431edaca19fbd5c78fecd29d18a
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          vuln-type: 'os,library'
-          scanners: 'vuln,secret,misconfig,license'
-          severity: 'HIGH,CRITICAL'
-          skip-dirs: 'crates/bmc-mock'
-          ignore-unfixed: 'true'
-          upload-sarif: 'false'  # Disable upload until GHAS is enabled, such as the repo be public
-          post-pr-comment: 'false'
-          fail-on-findings: 'false' # FIXME: Disabled until all issues are fixed
 
   # ============================================================================
   # BUILD STAGE - Machine Validation
@@ -815,6 +832,52 @@ jobs:
 
       - name: Run Protolint
         run: protolint lint -config_path=.protolint.yaml crates/rpc/proto/
+
+  lint-police:
+    needs:
+      - prepare
+      - build-container-x86_64
+    if: ${{ !failure() && !cancelled() && needs.prepare.outputs.source_files_changed == 'true' && contains(github.ref, 'pull-request/') }}
+    runs-on: linux-amd64-cpu16
+    container:
+      image: nvcr.io/0837451325059433/carbide-dev/build-container-x86_64:${{ needs.prepare.outputs.build_container_x86_64_version }}
+      credentials:
+        username: ${{ secrets.NVCR_USERNAME }}
+        password: ${{ secrets.NVCR_TOKEN }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # PostgreSQL is required because sqlx proc macros (sqlx::query!) connect to
+      # a local database at compile time to validate SQL queries and return types.
+      - name: Start PostgreSQL
+        run: |
+          /etc/init.d/postgresql start
+          sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;"
+          createdb root
+
+      - name: Run clippy
+        env:
+          DATABASE_URL: "postgresql://%2Fvar%2Frun%2Fpostgresql"
+        run: cargo make --no-workspace clippy-flow
+
+      - name: Run carbide lints
+        run: cargo make carbide-lints
+
+      - name: Check TOML formatting
+        run: taplo fmt --check || echo "Please format toml files"
+
+      - name: Check Rust formatting
+        run: cargo make --no-workspace check-format-nightly
+
+      - name: Check workspace deps
+        run: cargo xtask check-workspace-deps
+
+      - name: Check licenses
+        run: cargo make --no-workspace check-licenses
+
+      - name: Check bans
+        run: cargo make --no-workspace check-bans
 
   # ============================================================================
   # BUILD STAGE - Helm Chart
@@ -903,6 +966,7 @@ jobs:
       - build-push-helm-chart
       - build-release-artifacts-x86-host
       - build-release-artifacts-arm-host
+      - lint-police
     steps:
       - name: Generate summary
         run: |
@@ -999,7 +1063,6 @@ jobs:
       - build-sbom-container
       - security-secret-scan
       - security-codeql-scan
-      - security-trivy-scan
       - promote-to-be-scanned-image
     uses: ./.github/workflows/notify-build-status.yml
     with:

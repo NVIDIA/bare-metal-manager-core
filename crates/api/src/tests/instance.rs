@@ -36,7 +36,8 @@ use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZ
 use common::api_fixtures::{
     TestEnvOverrides, create_managed_host, create_test_env, create_test_env_with_overrides, dpu,
     get_config, get_vpc_fixture_id, inject_machine_measurements, network_configured_with_health,
-    persist_machine_validation_result, populate_network_security_groups, site_explorer,
+    network_configured_with_health_and_ext_services, persist_machine_validation_result,
+    populate_network_security_groups, site_explorer,
 };
 use config_version::ConfigVersion;
 use db::instance_address::UsedOverlayNetworkIpResolver;
@@ -62,11 +63,11 @@ use model::machine::{
 };
 use model::metadata::Metadata;
 use model::network_security_group::NetworkSecurityGroupStatusObservation;
-use model::network_segment::NetworkSegmentSearchConfig;
+use model::network_segment::{NetworkSegmentSearchConfig, NetworkSegmentSearchFilter};
 use model::vpc::UpdateVpcVirtualization;
 use model::vpc_prefix::VpcPrefixConfig;
 use rpc::forge::{
-    DpuExtensionService, Issue, IssueCategory, NetworkSegmentSearchFilter, TpmCaCert, TpmCaCertId,
+    DpuExtensionService, Issue, IssueCategory, ManagedHostQuarantineMode, TpmCaCert, TpmCaCertId,
 };
 use rpc::{InstanceReleaseRequest, InterfaceFunctionType, Timestamp};
 use sqlx::PgPool;
@@ -472,7 +473,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
-        5,
+        7,
         ManagedHostState::Assigned {
             instance_state: model::machine::InstanceState::HostPlatformConfiguration {
                 platform_config_state:
@@ -486,7 +487,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
-        1,
+        2,
         ManagedHostState::Assigned {
             instance_state: model::machine::InstanceState::WaitingForDpusToUp,
         },
@@ -899,6 +900,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
                 device: None,
                 device_instance: 0u32,
                 virtual_function_id: None,
+                ip_address: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -907,6 +909,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
                 device: None,
                 device_instance: 0u32,
                 virtual_function_id: None,
+                ip_address: None,
             },
         ],
     };
@@ -1690,6 +1693,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
                 device: None,
                 device_instance: 0u32,
                 virtual_function_id: None,
+                ip_address: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -1698,6 +1702,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
                 device: None,
                 device_instance: 0u32,
                 virtual_function_id: None,
+                ip_address: None,
             },
         ],
     };
@@ -1806,6 +1811,7 @@ async fn test_cannot_create_instance_on_unhealthy_dpu(
         &dpu_machine_id,
         Some(rpc::health::HealthReport {
             source: "forge-dpu-agent".to_string(),
+            triggered_by: None,
             observed_at: None,
             successes: vec![],
             alerts: vec![rpc::health::HealthProbeAlert {
@@ -1870,6 +1876,7 @@ async fn test_create_instance_with_allow_unhealthy_machine_true(
         &dpu_machine_id,
         Some(rpc::health::HealthReport {
             source: "forge-dpu-agent".to_string(),
+            triggered_by: None,
             observed_at: None,
             successes: vec![],
             alerts: vec![rpc::health::HealthProbeAlert {
@@ -1986,7 +1993,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
-        5,
+        7,
         ManagedHostState::Assigned {
             instance_state: model::machine::InstanceState::HostPlatformConfiguration {
                 platform_config_state:
@@ -2000,7 +2007,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
-        1,
+        2,
         ManagedHostState::Assigned {
             instance_state: model::machine::InstanceState::WaitingForDpusToUp,
         },
@@ -2276,6 +2283,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
             device: None,
             device_instance: 0u32,
             virtual_function_id: None,
+            ip_address: None,
         }],
     };
 
@@ -2356,7 +2364,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     let update_vpc = UpdateVpcVirtualization {
         id: vpc.id,
         if_version_match: None,
-        network_virtualization_type: forge_network::virtualization::VpcVirtualizationType::Fnn,
+        network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
     };
     db::vpc::update_virtualization(&update_vpc, &mut txn)
         .await
@@ -2622,7 +2630,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     .unwrap();
 
     let (ns_id, _prefix) = allocator
-        .allocate_network_segment(&mut txn, vpc_id)
+        .allocate_network_segment(&mut txn, vpc_id, None)
         .await
         .unwrap();
 
@@ -2649,7 +2657,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     .unwrap();
 
     let (ns_id, _prefix) = allocator
-        .allocate_network_segment(&mut txn, vpc_id)
+        .allocate_network_segment(&mut txn, vpc_id, None)
         .await
         .unwrap();
 
@@ -2675,7 +2683,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     .unwrap();
 
     let (ns_id, _prefix) = allocator
-        .allocate_network_segment(&mut txn, vpc_id)
+        .allocate_network_segment(&mut txn, vpc_id, None)
         .await
         .unwrap();
 
@@ -2710,7 +2718,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     .unwrap();
 
     let (ns_id, _prefix) = allocator
-        .allocate_network_segment(&mut txn, vpc_id)
+        .allocate_network_segment(&mut txn, vpc_id, None)
         .await
         .unwrap();
 
@@ -2724,9 +2732,42 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
 
     let address4 = ns4[0].prefixes[0].prefix.network();
 
+    assert_eq!(IpAddr::from(Ipv4Addr::new(10, 217, 5, 236)), address4);
+
+    // Try getting a segment with an explicit request for a good prefix
+    let (ns_id, _prefix) = allocator
+        .allocate_network_segment(
+            &mut txn,
+            vpc_id,
+            Some(IpNetwork::new("10.217.5.251".parse().unwrap(), 31).unwrap()),
+        )
+        .await
+        .unwrap();
+
+    let ns4 = db::network_segment::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(IdColumn, &ns_id),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await
+    .unwrap();
+
+    let address4 = ns4[0].prefixes[0].prefix.network();
+    assert_eq!(IpAddr::from(Ipv4Addr::new(10, 217, 5, 250)), address4);
+
     txn.commit().await.unwrap();
 
-    assert_eq!(IpAddr::from(Ipv4Addr::new(10, 217, 5, 236)), address4);
+    let mut txn = env.db_txn().await;
+
+    // Try getting a segment with an explicit request for a bad prefix
+    allocator
+        .allocate_network_segment(
+            &mut txn,
+            vpc_id,
+            Some(IpNetwork::new("100.217.5.250".parse().unwrap(), 31).unwrap()),
+        )
+        .await
+        .unwrap_err();
 }
 
 async fn create_tenant_overlay_prefix(
@@ -2789,6 +2830,8 @@ async fn test_allocate_with_instance_type_id(
         .find_instance_types_by_ids(tonic::Request::new(
             rpc::forge::FindInstanceTypesByIdsRequest {
                 instance_type_ids: existing_instance_type_ids,
+                include_allocation_stats: false,
+                tenant_organization_id: None,
             },
         ))
         .await
@@ -3114,6 +3157,7 @@ async fn test_network_details_migration(
                                 device: None,
                                 device_instance: 0,
                                 virtual_function_id: None,
+                                ip_address: None,
                             }],
                         })
                         .rpc(),
@@ -3187,6 +3231,8 @@ async fn test_network_details_migration(
                 os: Some(default_os_config()),
                 network: Some(rpc::InstanceNetworkConfig {
                     interfaces: vec![rpc::InstanceInterfaceConfig {
+                        ip_address: None,
+
                         function_type: rpc::InterfaceFunctionType::Physical as i32,
                         network_segment_id: None,
                         network_details: Some(
@@ -3267,6 +3313,8 @@ async fn test_network_details_migration(
                 os: Some(default_os_config()),
                 network: Some(rpc::InstanceNetworkConfig {
                     interfaces: vec![rpc::InstanceInterfaceConfig {
+                        ip_address: None,
+
                         function_type: rpc::InterfaceFunctionType::Physical as i32,
                         network_segment_id: None,
                         network_details: Some(
@@ -3372,6 +3420,86 @@ pub async fn validate_post_migration_instance_network_config(
 }
 
 #[crate::sqlx_test]
+async fn test_instance_cannot_allocate_requested_ip_with_network_segment(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let (segment_id, segment_id2) = env.create_vpc_and_dual_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+
+    let mut txn = env.db_txn().await;
+    assert_eq!(
+        db::instance_address::count_by_segment_id(&mut txn, &segment_id)
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(matches!(
+        mh.host().db_machine(&mut txn).await.current_state(),
+        ManagedHostState::Ready
+    ));
+    txn.commit().await.unwrap();
+
+    // Attempt to create an instance with a network segment and
+    // an explicit IP request.
+    let err = env
+        .api
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.id)
+                .config(rpc::InstanceConfig {
+                    tenant: Some(default_tenant_config()),
+                    os: Some(rpc::forge::OperatingSystem {
+                        phone_home_enabled: false,
+                        run_provisioning_instructions_on_every_boot: false,
+                        user_data: Some("SomeRandomData1".to_string()),
+                        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+                            rpc::forge::InlineIpxe {
+                                ipxe_script: "SomeRandomiPxe1".to_string(),
+                                user_data: Some("SomeRandomData1".to_string()),
+                            },
+                        )),
+                    }),
+                    network: Some(rpc::InstanceNetworkConfig {
+                        interfaces: vec![rpc::InstanceInterfaceConfig {
+                            ip_address: Some("192.168.0.1".to_string()),
+
+                            function_type: rpc::InterfaceFunctionType::Physical as i32,
+                            network_segment_id: None,
+                            network_details: Some(
+                                rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
+                                    segment_id2,
+                                ),
+                            ),
+                            device: None,
+                            device_instance: 0,
+                            virtual_function_id: None,
+                        }],
+                    }),
+                    infiniband: None,
+                    network_security_group_id: None,
+                    dpu_extension_services: None,
+                    nvlink: None,
+                })
+                .metadata(rpc::Metadata {
+                    name: "test_instance".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
+        .await
+        .expect_err("IP request with network segment should not be allowed");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(
+        err.message()
+            .contains("explicit IP requests are only supported for VPC prefixes")
+    );
+}
+
+#[crate::sqlx_test]
 async fn test_allocate_and_update_network_config_instance(
     _: PgPoolOptions,
     options: PgConnectOptions,
@@ -3411,6 +3539,7 @@ async fn test_allocate_and_update_network_config_instance(
 
     let new_network_config = rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
+            ip_address: None,
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: None,
             network_details: Some(
@@ -3536,6 +3665,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
+                ip_address: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -3546,6 +3676,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
+                ip_address: None,
             },
         ],
     };
@@ -3680,6 +3811,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
+                ip_address: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -3690,6 +3822,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 device: None,
                 device_instance: 0,
                 virtual_function_id: Some(0),
+                ip_address: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -3700,6 +3833,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 device: None,
                 device_instance: 0,
                 virtual_function_id: Some(1),
+                ip_address: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -3710,6 +3844,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 device: None,
                 device_instance: 0,
                 virtual_function_id: Some(2),
+                ip_address: None,
             },
         ],
     };
@@ -3775,6 +3910,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
+                ip_address: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -3785,6 +3921,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 device: None,
                 device_instance: 0,
                 virtual_function_id: Some(0),
+                ip_address: None,
             },
             // VF 1 is deleted.
             rpc::InstanceInterfaceConfig {
@@ -3796,6 +3933,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 device: None,
                 device_instance: 0,
                 virtual_function_id: Some(2),
+                ip_address: None,
             },
         ],
     };
@@ -3933,6 +4071,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
             device: None,
             device_instance: 0,
             virtual_function_id: None,
+            ip_address: None,
         }],
     };
 
@@ -4066,6 +4205,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
             device: None,
             device_instance: 0,
             virtual_function_id: None,
+            ip_address: None,
         }],
     };
 
@@ -4112,6 +4252,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
+                ip_address: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -4122,6 +4263,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
+                ip_address: None,
             },
         ],
     };
@@ -4257,6 +4399,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
                 device: Some("BlueField SoC".to_string()),
                 device_instance: 0,
                 virtual_function_id: None,
+                ip_address: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: 0,
@@ -4269,6 +4412,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
                 device: Some("BlueField SoC".to_string()),
                 device_instance: 1,
                 virtual_function_id: None,
+                ip_address: None,
             },
         ],
     };
@@ -4417,7 +4561,7 @@ async fn test_instance_release_backward_compatibility(_: PgPoolOptions, options:
     // When using old API format (no issue, no is_repair_tenant), NO health overrides should be applied
     assert_eq!(
         host_machine.health_report_overrides.merges.len(),
-        0,
+        1, // Single HealthOverride for HardwareHealth
         "Backward compatibility test: NO health overrides should be applied when using old API format"
     );
 
@@ -4721,10 +4865,10 @@ async fn test_instance_release_auto_repair_enabled(_: PgPoolOptions, options: Pg
     );
 
     // CRITICAL VERIFICATIONS for auto-repair enabled scenario:
-    // 1. Should have TWO health overrides (TenantReportedIssue + RequestRepair)
+    // 1. Should have THREE health overrides (TenantReportedIssue + RequestRepair + Default HardwareHealth)
     assert_eq!(
         host_machine.health_report_overrides.merges.len(),
-        2,
+        3,
         "Auto-repair enabled should apply both TenantReportedIssue and RequestRepair overrides"
     );
 
@@ -4823,7 +4967,7 @@ async fn test_instance_release_repair_tenant_successful_completion(
 
     assert_eq!(
         host_machine.health_report_overrides.merges.len(),
-        2,
+        3,
         "Should have both TenantReportedIssue and RequestRepair after regular tenant release"
     );
 
@@ -5734,6 +5878,172 @@ async fn test_update_instance_with_extension_services(
 }
 
 #[crate::sqlx_test]
+async fn test_extension_service_removed_after_all_dpus_report_terminated(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+
+    let (_, service2, _) = create_dpu_extension_services(&env).await?;
+    let service2_version = service2
+        .latest_version_info
+        .as_ref()
+        .unwrap()
+        .version
+        .clone();
+
+    let config = rpc::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(default_os_config()),
+        network: Some(single_interface_network_config(segment_id)),
+        infiniband: None,
+        network_security_group_id: None,
+        nvlink: None,
+        dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
+            service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
+                service_id: service2.service_id.clone(),
+                version: service2_version,
+            }],
+        }),
+    };
+
+    let tinstance = mh.instance_builer(&env).config(config).build().await;
+    let instance_id = tinstance.id;
+
+    // Explicitly mock healthy/running extension-service status from the DPU.
+    network_configured_with_health_and_ext_services(&env, &mh.dpu().id, None, None).await;
+
+    // Remove all extension services from desired config.
+    env.api
+        .update_instance_config(Request::new(rpc::forge::InstanceConfigUpdateRequest {
+            if_version_match: None,
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(single_interface_network_config(segment_id)),
+                infiniband: None,
+                network_security_group_id: None,
+                nvlink: None,
+                dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
+                    service_configs: vec![],
+                }),
+            }),
+            instance_id: Some(instance_id),
+            metadata: Some(rpc::forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await?;
+
+    // Update instance config should not change the instance state from Ready
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        10,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        },
+    )
+    .await;
+
+    let rpc_instance = tinstance.rpc_instance().await.into_inner();
+
+    // Since the extension services are removed from the instance config, the config should be empty.
+    assert!(
+        rpc_instance
+            .config
+            .unwrap()
+            .dpu_extension_services
+            .is_none()
+    );
+
+    // At this point, since DPUs have not reported any extension services, the tenant state should
+    // be in Configuring state.
+    let rpc_status = rpc_instance.status.unwrap();
+    assert_eq!(
+        rpc_status.tenant.unwrap().state,
+        rpc::TenantState::Configuring as i32
+    );
+
+    // The extension services status should still be tracked until fully terminated.
+    let dpu_extension_services_status = rpc_status.dpu_extension_services.unwrap();
+    assert_eq!(
+        dpu_extension_services_status.dpu_extension_services.len(),
+        1
+    );
+    assert_eq!(
+        dpu_extension_services_status.configs_synced,
+        rpc::forge::SyncState::Pending as i32
+    );
+    // The status should be Unknown until the DPU reports the status.
+    assert_eq!(
+        dpu_extension_services_status.dpu_extension_services[0].deployment_status,
+        rpc::forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceUnknown as i32
+    );
+
+    // Mock DPU reporting removed services as fully terminated.
+    // Instance should be in Ready state after this.
+    // Tenant state should be Ready.
+    // Instance config and status should no long have the extension services.
+    network_configured_with_health_and_ext_services(
+        &env,
+        &mh.dpu().id,
+        None,
+        Some(rpc::forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated),
+    )
+    .await;
+
+    // Let state handler process cleanup and persist instance extension-services config.
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let snapshot = mh.snapshot(&mut txn).await;
+    let instance_snapshot = snapshot.instance.unwrap();
+
+    // The extension services should be removed from the instance config.
+    assert!(
+        instance_snapshot
+            .config
+            .extension_services
+            .service_configs
+            .is_empty(),
+        "Instance config should not have extension services"
+    );
+
+    // However, the observations should still be in record.
+    assert!(!instance_snapshot.observations.extension_services.is_empty(),);
+
+    let rpc_instance = tinstance.rpc_instance().await.into_inner();
+    assert!(
+        rpc_instance
+            .config
+            .unwrap()
+            .dpu_extension_services
+            .is_none()
+    );
+
+    // The tenant status should now be Ready.
+    let rpc_status = rpc_instance.status.unwrap();
+    assert_eq!(
+        rpc_status.tenant.unwrap().state,
+        rpc::TenantState::Ready as i32
+    );
+    assert!(
+        rpc_status
+            .dpu_extension_services
+            .unwrap()
+            .dpu_extension_services
+            .is_empty()
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_extension_services_status_observation(
     _: PgPoolOptions,
     options: PgConnectOptions,
@@ -5962,4 +6272,57 @@ async fn test_allocate_instance_with_invalid_ib_partition(
     );
 
     Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_can_not_create_instances_with_machine_in_quarantine(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
+
+    let config = InstanceConfig::default_tenant_and_os()
+        .network(single_interface_network_config(segment_id))
+        .rpc();
+
+    let instance_id: InstanceId = uuid::Uuid::new_v4().into();
+
+    env.api
+        .set_managed_host_quarantine_state(tonic::Request::new(
+            rpc::forge::SetManagedHostQuarantineStateRequest {
+                machine_id: Some(host_machine_id),
+                quarantine_state: Some(rpc::forge::ManagedHostQuarantineState {
+                    mode: ManagedHostQuarantineMode::BlockAllTraffic as i32,
+                    reason: Some("test".to_string()),
+                }),
+            },
+        ))
+        .await
+        .unwrap();
+
+    let result = env
+        .api
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .instance_id(instance_id)
+                .machine_id(host_machine_id)
+                .config(config.clone())
+                .metadata(rpc::Metadata {
+                    name: "test_instance".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
+        .await;
+
+    // TODO: Do not leak the full database error to users
+    let err = result.expect_err("Expect instance creation to fail");
+    assert!(
+        err.message()
+            .contains("Host is not available for allocation due to health probe alert")
+    );
 }

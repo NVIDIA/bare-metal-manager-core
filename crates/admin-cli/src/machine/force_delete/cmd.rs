@@ -46,15 +46,8 @@ pub async fn force_delete(mut query: Args, api_client: &ApiClient) -> CarbideCli
     }
 
     loop {
-        let response = api_client
-            .0
-            .admin_force_delete_machine(AdminForceDeleteMachineRequest {
-                host_query: query.machine.clone(),
-                delete_interfaces: query.delete_interfaces,
-                delete_bmc_interfaces: query.delete_bmc_interfaces,
-                delete_bmc_credentials: query.delete_bmc_credentials,
-            })
-            .await?;
+        let req: AdminForceDeleteMachineRequest = (&query).into();
+        let response = api_client.0.admin_force_delete_machine(req).await?;
         println!(
             "Force delete response: {}",
             serde_json::to_string_pretty(&response)?

@@ -51,6 +51,7 @@ casbin = { features = ["glob"], workspace = true }
 chrono = { workspace = true }
 duration-str = { workspace = true }
 eyre = { workspace = true }
+hex = { workspace = true }
 ipnetwork = { workspace = true, features = ["serde"] }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
@@ -91,6 +92,7 @@ carbide-version = { path = "../version" }
 lazy_static = { workspace = true }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
 prost = { workspace = true }
+toml = { workspace = true }
 
 [lints]
 workspace = true

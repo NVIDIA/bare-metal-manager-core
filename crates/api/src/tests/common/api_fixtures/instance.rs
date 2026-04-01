@@ -26,6 +26,7 @@ use model::instance::config::network::DeviceLocator;
 use model::instance::config::nvlink::InstanceNvLinkConfig;
 use model::instance::snapshot::InstanceSnapshot;
 use model::instance::status::network::InstanceNetworkStatusObservation;
+use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::{
     CleanupState, Machine, MachineState, MachineValidatingState, ManagedHostState, ValidationState,
 };
@@ -199,6 +200,7 @@ pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::Ins
             device: None,
             device_instance: 0,
             virtual_function_id: None,
+            ip_address: None,
         }],
     }
 }
@@ -215,6 +217,7 @@ pub fn single_interface_network_config_with_vfs(
         device: None,
         device_instance: 0,
         virtual_function_id: None,
+        ip_address: None,
     }];
 
     interfaces.extend(
@@ -225,6 +228,7 @@ pub fn single_interface_network_config_with_vfs(
             device: None,
             device_instance: 0,
             virtual_function_id: Some(function_id as u32),
+            ip_address: None,
         }),
     );
 
@@ -245,6 +249,7 @@ pub fn interface_network_config_with_devices(
             device: Some(dl.device.clone()),
             device_instance: dl.device_instance as u32,
             virtual_function_id: None,
+            ip_address: None,
         })
         .collect();
     rpc::InstanceNetworkConfig { interfaces }
@@ -261,6 +266,7 @@ pub fn single_interface_network_config_with_vpc_prefix(
             device: None,
             device_instance: 0u32,
             virtual_function_id: None,
+            ip_address: None,
         }],
     }
 }
@@ -371,7 +377,7 @@ pub async fn advance_created_instance_into_state(
     super::simulate_hardware_health_report(
         env,
         &mh.host().id,
-        health_report::HealthReport::empty("hardware-health".to_string()),
+        health_report::HealthReport::empty(format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health")),
     )
     .await;
 
@@ -424,7 +430,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestMa
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
-        5,
+        7,
         ManagedHostState::Assigned {
             instance_state: model::machine::InstanceState::HostPlatformConfiguration {
                 platform_config_state:
@@ -438,7 +444,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestMa
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
-        1,
+        2,
         ManagedHostState::Assigned {
             instance_state: model::machine::InstanceState::WaitingForDpusToUp,
         },

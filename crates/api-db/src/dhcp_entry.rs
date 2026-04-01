@@ -22,7 +22,6 @@ use super::DatabaseError;
 /// A machine dhcp response is a representation of some booting interface by Mac Address or DUID
 /// (not implemented) that returns the network information for that interface on that node, and
 /// contains everything necessary to return a DHCP response
-///
 #[derive(Debug, FromRow)]
 pub struct DhcpEntry {
     pub machine_interface_id: MachineInterfaceId,

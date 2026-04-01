@@ -124,12 +124,15 @@ async fn send_one_report(
         return Ok(());
     }
 
-    let request = tonic::Request::new(rpc::HardwareHealthReport {
+    let request = tonic::Request::new(rpc::InsertHealthReportOverrideRequest {
         machine_id: MachineId::from_str(machine_id).ok(),
-        report: Some(report.clone().into()),
+        r#override: Some(rpc::HealthReportOverride {
+            mode: rpc::OverrideMode::Merge.into(),
+            report: Some(report.clone().into()),
+        }),
     });
     client
-        .record_log_parser_health_report(request)
+        .insert_health_report_override(request)
         .await
         .map_err(ReportingError::ApiInvocationError)?;
     machine_id.clear();
@@ -139,10 +142,12 @@ async fn send_one_report(
 pub(crate) async fn send_health_alerts(
     client: &mut ForgeClientT,
     events: &VecDeque<Event>,
-    pipeline: &String,
+    pipeline: &str,
+    file_name: &str,
 ) -> Result<(), ReportingError> {
     let mut report = HealthReport {
-        source: pipeline.to_string(),
+        source: format!("log-parser.{pipeline}.{file_name}"),
+        triggered_by: None,
         observed_at: None,
         successes: vec![],
         alerts: vec![],

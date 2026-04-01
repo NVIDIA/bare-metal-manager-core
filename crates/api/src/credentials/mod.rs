@@ -18,7 +18,7 @@
 use ::rpc::forge::MachineCredentialsUpdateResponse;
 use ::rpc::forge::machine_credentials_update_request::{CredentialPurpose, Credentials};
 use carbide_uuid::machine::MachineId;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialProvider};
+use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialWriter};
 use mac_address::MacAddress;
 
 use crate::{CarbideError, CarbideResult};
@@ -32,7 +32,7 @@ pub struct UpdateCredentials {
 impl UpdateCredentials {
     pub async fn execute(
         &self,
-        credential_provider: &dyn CredentialProvider,
+        credential_writer: &dyn CredentialWriter,
     ) -> CarbideResult<MachineCredentialsUpdateResponse> {
         for credential in self.credentials.iter() {
             let credential_purpose = CredentialPurpose::try_from(credential.credential_purpose)
@@ -46,9 +46,6 @@ impl UpdateCredentials {
                 CredentialPurpose::Hbn => CredentialKey::DpuHbn {
                     machine_id: self.machine_id,
                 },
-                CredentialPurpose::LoginUser => CredentialKey::DpuSsh {
-                    machine_id: self.machine_id,
-                },
                 CredentialPurpose::Bmc => CredentialKey::BmcCredentials {
                     credential_type: BmcCredentialType::BmcRoot {
                         bmc_mac_address: self
@@ -58,7 +55,7 @@ impl UpdateCredentials {
                 },
             };
 
-            credential_provider
+            credential_writer
                 .set_credentials(
                     &key,
                     &forge_secrets::credentials::Credentials::UsernamePassword {

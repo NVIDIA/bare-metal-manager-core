@@ -22,3 +22,9 @@ pub struct Args {
     #[clap(help = "ID of the configuration to delete")]
     pub id: String,
 }
+
+impl From<Args> for rpc::forge::RackFirmwareDeleteRequest {
+    fn from(args: Args) -> Self {
+        Self { id: args.id }
+    }
+}

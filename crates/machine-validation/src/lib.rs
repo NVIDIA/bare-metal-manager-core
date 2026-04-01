@@ -45,7 +45,7 @@ pub struct MachineValidationOptions {
 }
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MachineValidation {
-    options: MachineValidationOptions,
+    pub options: MachineValidationOptions,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -111,7 +111,7 @@ impl MachineValidationManager {
         uuid: String,
         machine_validation_filter: MachineValidationFilter,
     ) -> Result<(), MachineValidationError> {
-        let mc = MachineValidation::new(options);
+        let mc = MachineValidation { options };
 
         let tests = mc
             .clone()
@@ -154,7 +154,8 @@ impl MachineValidationManager {
             if !machine_validation_filter.allowed_tests.is_empty()
                 && !machine_validation_filter
                     .allowed_tests
-                    .contains(&test.test_id)
+                    .iter()
+                    .any(|t| t.eq_ignore_ascii_case(&test.test_id))
             {
                 continue;
             }

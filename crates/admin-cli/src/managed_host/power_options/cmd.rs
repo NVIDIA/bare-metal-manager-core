@@ -20,9 +20,9 @@ use std::fmt::Write;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use mac_address::MacAddress;
 use prettytable::{Cell, Row, Table};
-use rpc::forge::{BmcEndpointRequest, PowerOptionUpdateRequest, PowerOptions};
+use rpc::forge::{BmcEndpointRequest, PowerOptions};
 
-use super::args::{DesiredPowerState, ShowPowerOptions, UpdatePowerOptions};
+use super::args::{ShowPowerOptions, UpdatePowerOptions};
 use crate::rpc::ApiClient;
 
 pub async fn power_options_show(
@@ -212,19 +212,7 @@ pub async fn update_power_option(
     args: UpdatePowerOptions,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let power_state = match args.desired_power_state {
-        DesiredPowerState::On => ::rpc::forge::PowerState::On,
-        DesiredPowerState::Off => ::rpc::forge::PowerState::Off,
-        DesiredPowerState::PowerManagerDisabled => ::rpc::forge::PowerState::PowerManagerDisabled,
-    };
-    let updated_power_option = api_client
-        .0
-        .update_power_option(PowerOptionUpdateRequest {
-            machine_id: Some(args.machine),
-            power_state: power_state as i32,
-        })
-        .await?
-        .response;
+    let updated_power_option = api_client.0.update_power_option(args).await?.response;
     println!("Power options updated successfully!!");
     println!("Updated power options are");
     power_options_show_one(

@@ -52,6 +52,13 @@ carbide-pxe:
 ## carbide-ssh-console-rs: SSH console proxy
 carbide-ssh-console-rs:
   enabled: true
+  ## Loki log collector sidecar — disabled by default.
+  ## Enable if you have a Loki instance at http://loki.loki.svc.cluster.local:3100.
+  # lokiLogCollector:
+  #   enabled: true
+  #   image:
+  #     repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
+  #     tag: "0.81.0"
 
 ## unbound: Recursive DNS resolver (disabled by default)
 ## Enable if your environment does not already provide a recursive DNS

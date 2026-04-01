@@ -35,6 +35,7 @@ byte-unit = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 eyre = { workspace = true }
+itertools = { workspace = true }
 prettytable-rs = { default-features = false, features = [
   "csv",
 ], workspace = true }

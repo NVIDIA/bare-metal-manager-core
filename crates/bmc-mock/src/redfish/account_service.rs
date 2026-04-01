@@ -26,7 +26,7 @@ use serde_json::json;
 
 use crate::bmc_state::BmcState;
 use crate::json::JsonExt;
-use crate::redfish;
+use crate::{http, redfish};
 
 pub fn resource() -> redfish::Resource<'static> {
     redfish::Resource {
@@ -72,7 +72,7 @@ pub async fn get_root() -> Response {
 }
 
 pub async fn patch_root() -> Response {
-    json!({}).into_ok_response()
+    http::ok_no_content()
 }
 
 pub fn account_resource(id: impl Display) -> redfish::Resource<'static> {
@@ -99,7 +99,7 @@ pub async fn create_account(Path(_account_id): Path<String>) -> Response {
 }
 
 pub async fn patch_account(Path(_account_id): Path<String>) -> Response {
-    json!({}).into_ok_response()
+    http::ok_no_content()
 }
 
 pub async fn get_account(Path(account_id): Path<String>) -> Response {

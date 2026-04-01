@@ -19,12 +19,12 @@ use color_eyre::Result;
 use prettytable::{Cell, Row, Table};
 use rpc::admin_cli::OutputFormat;
 
+use crate::cfg::runtime::RuntimeConfig;
 use crate::rpc::ApiClient;
 
-pub async fn list_racks(api_client: &ApiClient) -> Result<()> {
-    let query = rpc::forge::GetRackRequest { id: None };
-    let response = api_client.0.get_rack(query).await?;
-    let racks = response.rack;
+pub async fn list_racks(api_client: &ApiClient, config: &RuntimeConfig) -> Result<()> {
+    let response = api_client.get_all_racks(config.page_size).await?;
+    let racks = response.racks;
     if racks.is_empty() {
         println!("No racks found");
         return Ok(());

@@ -23,3 +23,9 @@ pub struct Args {
     #[clap(long, help = "Id of the network segment")]
     pub id: NetworkSegmentId,
 }
+
+impl From<Args> for ::rpc::forge::NetworkSegmentDeletionRequest {
+    fn from(args: Args) -> Self {
+        Self { id: Some(args.id) }
+    }
+}

@@ -18,14 +18,17 @@
 mod metrics;
 
 use std::default::Default;
+use std::io;
 use std::sync::Arc;
 
 use db::ObjectFilter;
-use tokio::sync::oneshot;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 
 use self::metrics::MachineValidationMetrics;
 use crate::CarbideResult;
 use crate::cfg::file::MachineValidationConfig;
+use crate::periodic_timer::PeriodicTimer;
 
 pub struct MachineValidationManager {
     database_connection: sqlx::PgPool,
@@ -51,27 +54,31 @@ impl MachineValidationManager {
             metric_holder,
         }
     }
-    pub fn start(self) -> eyre::Result<oneshot::Sender<i32>> {
-        let (stop_sender, stop_receiver) = oneshot::channel();
-
+    pub fn start(
+        self,
+        join_set: &mut JoinSet<()>,
+        cancel_token: CancellationToken,
+    ) -> io::Result<()> {
         if self.config.enabled {
-            tokio::task::Builder::new()
+            join_set
+                .build_task()
                 .name("machine_validation_manager")
-                .spawn(async move { self.run(stop_receiver).await })?;
+                .spawn(async move { self.run(cancel_token).await })?;
         }
-
-        Ok(stop_sender)
+        Ok(())
     }
 
-    async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {
+    async fn run(&self, cancel_token: CancellationToken) {
+        let timer = PeriodicTimer::new(self.config.run_interval);
         loop {
+            let tick = timer.tick();
             if let Err(e) = self.run_single_iteration().await {
                 tracing::warn!("MachineValidationManager error: {}", e);
             }
 
             tokio::select! {
-                _ = tokio::time::sleep(self.config.run_interval) => {},
-                _ = &mut stop_receiver => {
+                _ = tick.sleep() => {},
+                _ = cancel_token.cancelled() => {
                     tracing::info!("MachineValidationManager stop was requested");
                     return;
                 }
@@ -111,7 +118,7 @@ impl MachineValidationManager {
 
         metrics.tests = db::machine_validation_suites::find(
             &mut txn,
-            rpc::forge::MachineValidationTestsGetRequest::default(),
+            model::machine_validation::MachineValidationTestsGetRequest::default(),
         )
         .await?;
         tracing::debug!(

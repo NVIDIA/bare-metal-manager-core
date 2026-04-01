@@ -16,7 +16,6 @@
  */
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::{self as forgerpc, CreateInstanceTypeRequest, InstanceTypeAttributes};
 
 use super::args::Args;
 use crate::instance_type::common::convert_itypes_to_table;
@@ -32,36 +31,10 @@ pub async fn create(
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
-    let id = args.id;
-
-    let labels = if let Some(l) = args.labels {
-        serde_json::from_str(&l)?
-    } else {
-        vec![]
-    };
-
-    let metadata = forgerpc::Metadata {
-        name: args.name.unwrap_or_default(),
-        description: args.description.unwrap_or_default(),
-        labels,
-    };
-
-    let instance_type_attributes = args
-        .desired_capabilities
-        .map(|d| {
-            serde_json::from_str(&d).map(|desired_capabilities| InstanceTypeAttributes {
-                desired_capabilities,
-            })
-        })
-        .transpose()?;
-
+    let req: ::rpc::forge::CreateInstanceTypeRequest = args.try_into()?;
     let itype = api_client
         .0
-        .create_instance_type(CreateInstanceTypeRequest {
-            id,
-            metadata: Some(metadata),
-            instance_type_attributes,
-        })
+        .create_instance_type(req)
         .await?
         .instance_type
         .ok_or(CarbideCliError::Empty)?;

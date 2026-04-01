@@ -16,7 +16,7 @@
  */
 
 use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
-use rpc::admin_cli::CarbideCliError;
+use carbide_uuid::machine::MachineId;
 
 use crate::dpf::common::DpfQuery;
 use crate::rpc::ApiClient;
@@ -27,17 +27,7 @@ pub async fn modify_dpf_state(
     api_client: &ApiClient,
     enabled: bool,
 ) -> CarbideCliResult<()> {
-    let Some(host) = query.host else {
-        return Err(CarbideCliError::GenericError(
-            "Host id is required!!".to_string(),
-        ));
-    };
-
-    if host.machine_type() != carbide_uuid::machine::MachineType::Host {
-        return Err(CarbideCliError::GenericError(
-            "Only host id is expected!!".to_string(),
-        ));
-    }
+    let host: MachineId = query.try_into()?;
     api_client.modify_dpf_state(host, enabled).await?;
     println!("DPF state modified for machine {host} with state {enabled} successfully!!",);
     Ok(())

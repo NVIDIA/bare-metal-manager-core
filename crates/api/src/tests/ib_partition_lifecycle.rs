@@ -19,9 +19,9 @@ use std::collections::HashMap;
 
 use carbide_uuid::infiniband::IBPartitionId;
 use db::db_read::PgPoolReader;
-use db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionStatus, NewIBPartition};
 use db::{self, ObjectColumnFilter};
 use model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
+use model::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionStatus, NewIBPartition};
 use model::metadata::Metadata;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{Label, TenantState};
@@ -684,4 +684,421 @@ async fn test_duplicate_ib_partition(pool: sqlx::PgPool) {
         .await
         .unwrap_err();
     txn.rollback().await.unwrap();
+}
+
+#[crate::sqlx_test]
+async fn test_handler_update_ib_partition_success(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
+    let created = create_ib_partition_with_api(&env.api, "partition_to_update".to_string())
+        .await?
+        .into_inner();
+
+    let created_config = created.config.unwrap();
+
+    let updated = env
+        .api
+        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+            id: created.id,
+            config: Some(IbPartitionConfig {
+                name: created_config.name.clone(),
+                tenant_organization_id: created_config.tenant_organization_id.clone(),
+                pkey: None,
+            }),
+            if_version_match: None,
+            metadata: Some(rpc::Metadata {
+                name: "updated_name".into(),
+                labels: vec![Label {
+                    key: "new_key".into(),
+                    value: Some("new_value".into()),
+                }],
+                description: "updated description".into(),
+            }),
+        }))
+        .await?
+        .into_inner();
+
+    let updated_metadata = updated.metadata.unwrap();
+    assert_eq!(updated_metadata.name, "updated_name");
+    assert_eq!(updated_metadata.description, "updated description");
+    assert_eq!(updated_metadata.labels.len(), 1);
+    assert_eq!(updated_metadata.labels[0].key, "new_key");
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_handler_update_ib_partition_missing_id(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let err = env
+        .api
+        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+            id: None,
+            config: Some(IbPartitionConfig {
+                name: "x".into(),
+                tenant_organization_id: "t".into(),
+                pkey: None,
+            }),
+            if_version_match: None,
+            metadata: Some(rpc::Metadata {
+                name: "x".into(),
+                labels: vec![],
+                description: "".into(),
+            }),
+        }))
+        .await
+        .expect_err("expected missing id to fail");
+
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(
+        err.message().contains("id"),
+        "error should mention 'id': {err}"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_handler_update_ib_partition_missing_config(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let err = env
+        .api
+        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+            id: Some(IBPartitionId::new()),
+            config: None,
+            if_version_match: None,
+            metadata: Some(rpc::Metadata {
+                name: "x".into(),
+                labels: vec![],
+                description: "".into(),
+            }),
+        }))
+        .await
+        .expect_err("expected missing config to fail");
+
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(
+        err.message().contains("config"),
+        "error should mention 'config': {err}"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_handler_update_ib_partition_missing_metadata(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let err = env
+        .api
+        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+            id: Some(IBPartitionId::new()),
+            config: Some(IbPartitionConfig {
+                name: "x".into(),
+                tenant_organization_id: "t".into(),
+                pkey: None,
+            }),
+            if_version_match: None,
+            metadata: None,
+        }))
+        .await
+        .expect_err("expected missing metadata to fail");
+
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(
+        err.message().contains("metadata"),
+        "error should mention 'metadata': {err}"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_handler_update_ib_partition_not_found(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let err = env
+        .api
+        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+            id: Some(IBPartitionId::new()),
+            config: Some(IbPartitionConfig {
+                name: "x".into(),
+                tenant_organization_id: "t".into(),
+                pkey: None,
+            }),
+            if_version_match: None,
+            metadata: Some(rpc::Metadata {
+                name: "x".into(),
+                labels: vec![],
+                description: "".into(),
+            }),
+        }))
+        .await
+        .expect_err("expected not-found to fail");
+
+    assert_eq!(err.code(), tonic::Code::NotFound);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_handler_update_ib_partition_version_mismatch(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
+    let created = create_ib_partition_with_api(&env.api, "version_test".to_string())
+        .await?
+        .into_inner();
+
+    let created_config = created.config.unwrap();
+
+    let err = env
+        .api
+        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+            id: created.id,
+            config: Some(IbPartitionConfig {
+                name: created_config.name.clone(),
+                tenant_organization_id: created_config.tenant_organization_id.clone(),
+                pkey: None,
+            }),
+            if_version_match: Some("V999-T0".to_string()),
+            metadata: Some(rpc::Metadata {
+                name: "updated".into(),
+                labels: vec![],
+                description: "".into(),
+            }),
+        }))
+        .await
+        .expect_err("expected version mismatch to fail");
+
+    assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_handler_update_ib_partition_version_match(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
+    let created = create_ib_partition_with_api(&env.api, "version_match_test".to_string())
+        .await?
+        .into_inner();
+
+    let created_config = created.config.unwrap();
+    let version = created.config_version.clone();
+
+    let updated = env
+        .api
+        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+            id: created.id,
+            config: Some(IbPartitionConfig {
+                name: created_config.name.clone(),
+                tenant_organization_id: created_config.tenant_organization_id.clone(),
+                pkey: None,
+            }),
+            if_version_match: Some(version),
+            metadata: Some(rpc::Metadata {
+                name: "updated_with_version".into(),
+                labels: vec![],
+                description: "".into(),
+            }),
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(updated.metadata.unwrap().name, "updated_with_version");
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_handler_update_ib_partition_reject_tenant_org_change(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
+    let created = create_ib_partition_with_api(&env.api, "tenant_test".to_string())
+        .await?
+        .into_inner();
+
+    let created_config = created.config.unwrap();
+
+    let err = env
+        .api
+        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+            id: created.id,
+            config: Some(IbPartitionConfig {
+                name: created_config.name.clone(),
+                tenant_organization_id: "different_tenant".to_string(),
+                pkey: None,
+            }),
+            if_version_match: None,
+            metadata: Some(rpc::Metadata {
+                name: "updated".into(),
+                labels: vec![],
+                description: "".into(),
+            }),
+        }))
+        .await
+        .expect_err("expected tenant org change to be rejected");
+
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(
+        err.message()
+            .contains("Tenant organization ID should not be updated"),
+        "unexpected error: {err}"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_handler_update_ib_partition_reject_pkey_change(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
+    let created = create_ib_partition_with_api(&env.api, "pkey_test".to_string())
+        .await?
+        .into_inner();
+
+    let created_config = created.config.unwrap();
+
+    let err = env
+        .api
+        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+            id: created.id,
+            config: Some(IbPartitionConfig {
+                name: created_config.name.clone(),
+                tenant_organization_id: created_config.tenant_organization_id.clone(),
+                pkey: Some("0xFFFF".to_string()),
+            }),
+            if_version_match: None,
+            metadata: Some(rpc::Metadata {
+                name: "updated".into(),
+                labels: vec![],
+                description: "".into(),
+            }),
+        }))
+        .await
+        .expect_err("expected pkey change to be rejected");
+
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(
+        err.message().contains("Partition key cannot be updated"),
+        "unexpected error: {err}"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_handler_update_ib_partition_reject_invalid_metadata(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
+    let created = create_ib_partition_with_api(&env.api, "invalid_meta_test".to_string())
+        .await?
+        .into_inner();
+
+    let created_config = created.config.unwrap();
+
+    let err = env
+        .api
+        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+            id: created.id,
+            config: Some(IbPartitionConfig {
+                name: created_config.name.clone(),
+                tenant_organization_id: created_config.tenant_organization_id.clone(),
+                pkey: None,
+            }),
+            if_version_match: None,
+            metadata: Some(rpc::Metadata {
+                name: "".into(),
+                labels: vec![],
+                description: "".into(),
+            }),
+        }))
+        .await
+        .expect_err("expected invalid metadata to be rejected");
+
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+
+    Ok(())
 }

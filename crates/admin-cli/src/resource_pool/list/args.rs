@@ -17,5 +17,13 @@
 
 use clap::Parser;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Default)]
 pub struct Args;
+
+impl From<Args> for ::rpc::forge::ListResourcePoolsRequest {
+    fn from(_args: Args) -> Self {
+        Self {
+            auto_assignable: None,
+        }
+    }
+}

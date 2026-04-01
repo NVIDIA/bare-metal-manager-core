@@ -1,7 +1,7 @@
 # Help! My Instance/Subnet/VPC is stuck in a certain state
 
-A common issue that is observed in sites managed by NVIDIA Bare Metal Manager
-(BMM) is that objects do not move into the desired state - even after a user waits
+A common issue that is observed in sites managed by NCX Infra Controller
+(NICo) is that objects do not move into the desired state - even after a user waits
 for a long amount of time.
 
 Examples of these problems are:

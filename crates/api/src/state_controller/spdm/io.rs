@@ -88,9 +88,20 @@ impl StateControllerIO for SpdmStateControllerIO {
         txn: &mut PgConnection,
         object_id: &Self::ObjectId,
         _old_version: ConfigVersion,
+        _new_version: ConfigVersion,
+        new_state: &Self::ControllerState,
+    ) -> Result<bool, DatabaseError> {
+        db::attestation::spdm::persist_controller_state(txn, object_id, new_state).await
+    }
+
+    async fn persist_state_history(
+        &self,
+        txn: &mut PgConnection,
+        object_id: &Self::ObjectId,
+        _new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        db::attestation::spdm::persist_controller_state(txn, object_id, new_state).await
+        db::attestation::spdm::update_history(txn, object_id, new_state).await
     }
 
     async fn persist_outcome(
@@ -119,7 +130,10 @@ impl StateControllerIO for SpdmStateControllerIO {
         }
     }
 
-    fn state_sla(_state: &Versioned<Self::ControllerState>) -> StateSla {
+    fn state_sla(
+        _state: &Versioned<Self::ControllerState>,
+        _object_state: &Self::State,
+    ) -> StateSla {
         StateSla::no_sla()
     }
 }

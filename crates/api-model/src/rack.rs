@@ -29,6 +29,7 @@ use sqlx::{FromRow, Row};
 
 use crate::StateSla;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
+use crate::machine::health_override::HealthReportOverrides;
 
 #[derive(Debug, Clone)]
 pub struct Rack {
@@ -36,6 +37,7 @@ pub struct Rack {
     pub config: RackConfig,
     pub controller_state: Versioned<RackState>,
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+    pub health_report_overrides: HealthReportOverrides,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub deleted: Option<DateTime<Utc>>,
@@ -43,6 +45,17 @@ pub struct Rack {
 
 impl From<Rack> for rpc::forge::Rack {
     fn from(value: Rack) -> Self {
+        let health = derive_rack_aggregate_health(&value.health_report_overrides);
+        let health_overrides = value
+            .health_report_overrides
+            .clone()
+            .into_iter()
+            .map(|(hr, m)| rpc::forge::HealthOverrideOrigin {
+                mode: m as i32,
+                source: hr.source,
+            })
+            .collect();
+
         rpc::forge::Rack {
             id: Some(value.id),
             rack_state: value.controller_state.value.to_string(),
@@ -58,14 +71,42 @@ impl From<Rack> for rpc::forge::Rack {
                 .iter()
                 .map(|x| x.to_string())
                 .collect(),
-            expected_nvlink_switches: vec![],
+            expected_nvlink_switches: value
+                .config
+                .expected_switches
+                .iter()
+                .map(|x| x.to_string())
+                .collect(),
             compute_trays: value.config.compute_trays,
             power_shelves: value.config.power_shelves,
             created: Some(Timestamp::from(value.created)),
             updated: Some(Timestamp::from(value.updated)),
             deleted: value.deleted.map(Timestamp::from),
+            health: Some(health.into()),
+            health_overrides,
         }
     }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RackSearchFilter {}
+
+impl From<rpc::forge::RackSearchFilter> for RackSearchFilter {
+    fn from(_filter: rpc::forge::RackSearchFilter) -> Self {
+        RackSearchFilter {}
+    }
+}
+
+fn derive_rack_aggregate_health(overrides: &HealthReportOverrides) -> health_report::HealthReport {
+    if let Some(replace) = &overrides.replace {
+        return replace.clone();
+    }
+    let mut output = health_report::HealthReport::empty("rack-aggregate-health".to_string());
+    for report in overrides.merges.values() {
+        output.merge(report);
+    }
+    output.observed_at = Some(chrono::Utc::now());
+    output
 }
 
 impl<'r> FromRow<'r, PgRow> for Rack {
@@ -74,6 +115,10 @@ impl<'r> FromRow<'r, PgRow> for Rack {
         let controller_state: sqlx::types::Json<RackState> = row.try_get("controller_state")?;
         let controller_state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
             row.try_get("controller_state_outcome").ok();
+        let health_report_overrides: HealthReportOverrides = row
+            .try_get::<sqlx::types::Json<HealthReportOverrides>, _>("health_report_overrides")
+            .map(|j| j.0)
+            .unwrap_or_default();
         Ok(Rack {
             id: row.try_get("id")?,
             config: config.0,
@@ -82,6 +127,7 @@ impl<'r> FromRow<'r, PgRow> for Rack {
                 version: row.try_get("controller_state_version")?,
             },
             controller_state_outcome: controller_state_outcome.map(|o| o.0),
+            health_report_overrides,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deleted: row.try_get("deleted")?,
@@ -89,57 +135,78 @@ impl<'r> FromRow<'r, PgRow> for Rack {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "state", rename_all = "lowercase")]
-/// Overall state of the rack. When the rack identifier is supplied in ExpectedMachine/Switch/PS,
-/// the rack is expected. Once any one of the devices is found, the rack state moves to discovering
-/// till all expected devices with the given rack id are found. The discovered devices are put into
-/// rack level holding substates while the rack state controller acts on them via rack manager calls.
-/// once the maintenance is completed, they are restored to their prior device specific state.
+// ============================================================================
+// RACK STATES
+// ============================================================================
+
+/// Overall state of the rack lifecycle.
+///
+/// The rack progresses through discovery and maintenance phases, then enters
+/// validation where partitions (groups of nodes) are validated by an external
+/// service (RVS).
+///
+/// ## Simplified State Flow
+///
+/// Most important transitions are shown below.
+///
+/// ```text
+/// Expected -> Discovering -> Maintenance -> Validation
+///                                                |
+///                                                v
+///                           Validation(Failed) <---> Validation(Validated)
+///                                                         |
+///                                                         v
+///                                                       Ready
+/// ```
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
 pub enum RackState {
-    // initial state when added via Expected[Machine/Switch/PS]
+    /// Default DB column value. The rack SM does not transition out of this
+    /// state on its own -- the transition to `Expected` is forced by
+    /// `db::rack::create()`, which explicitly writes `{"state":"expected"}`
+    /// when a rack is first created via the ExpectedMachine/Switch/PS APIs.
+    ///
+    /// This variant exists solely to deserialize rows that were inserted with
+    /// the column default (`{"state":"unknown"}`). Under normal operation no
+    /// rack should remain in this state.
+    #[default]
+    Unknown,
+
+    /// Rack is expected - waiting for machines to be discovered.
+    /// Created when ExpectedMachine/Switch/PS references this rack.
     Expected,
 
-    // when any of the trays show up
+    /// Discovery in progress - waiting for all expected devices to appear
+    /// and reach ManagedHostState::Ready.
     Discovering,
 
-    // once devices are discovered, put some/all in maintenance and do firmware upgrades
+    /// Rack is in the validation phase. The sub-state tracks progress from
+    /// waiting for RVS through partition-level pass/fail to a final verdict.
+    Validation {
+        rack_validation: RackValidationState,
+    },
+
+    /// Rack is fully validated and ready for production workloads.
+    Ready,
+
+    /// Rack is undergoing maintenance (firmware upgrade, power sequencing, etc.).
+    /// Maintenance happens after discovery and before validation.
     Maintenance {
         rack_maintenance: RackMaintenanceState,
     },
 
-    // rack is ready
-    Ready {
-        rack_ready: RackReadyState,
-    },
+    /// Rack encountered an unrecoverable error.
+    Error { cause: String },
 
-    // todo: error enum for recovery actions
-    Error {
-        cause: String,
-    },
+    /// Rack is being deleted.
     Deleting,
-    // default state
-    Unknown,
 }
 
-impl Display for RackState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RackReadyState {
-    Partial,
-    Full,
-}
-
-impl Display for RackReadyState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
-    }
-}
-
+/// Sub-states of rack maintenance.
+///
+/// The rack enters maintenance after discovery (all devices found, all machines
+/// ready) and exits into `Validation(Pending)` once maintenance is complete,
+/// at which point the validation flow takes over.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RackMaintenanceState {
     FirmwareUpgrade {
@@ -148,15 +215,22 @@ pub enum RackMaintenanceState {
     PowerSequence {
         rack_power: RackPowerState,
     },
-    RackValidation {
-        rack_validation: RackValidationState,
-    },
     Completed,
 }
 
 impl Display for RackMaintenanceState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
+        match self {
+            RackMaintenanceState::FirmwareUpgrade {
+                rack_firmware_upgrade,
+            } => {
+                write!(f, "FirmwareUpgrade({})", rack_firmware_upgrade)
+            }
+            RackMaintenanceState::PowerSequence { rack_power } => {
+                write!(f, "PowerSequence({})", rack_power)
+            }
+            RackMaintenanceState::Completed => write!(f, "Completed"),
+        }
     }
 }
 
@@ -170,7 +244,12 @@ pub enum RackFirmwareUpgradeState {
 
 impl Display for RackFirmwareUpgradeState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
+        match self {
+            RackFirmwareUpgradeState::Compute => write!(f, "Compute"),
+            RackFirmwareUpgradeState::Switch => write!(f, "Switch"),
+            RackFirmwareUpgradeState::PowerShelf => write!(f, "PowerShelf"),
+            RackFirmwareUpgradeState::All => write!(f, "All"),
+        }
     }
 }
 
@@ -183,46 +262,156 @@ pub enum RackPowerState {
 
 impl Display for RackPowerState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
+        match self {
+            RackPowerState::PoweringOn => write!(f, "PoweringOn"),
+            RackPowerState::PoweringOff => write!(f, "PoweringOff"),
+            RackPowerState::PowerReset => write!(f, "PowerReset"),
+        }
     }
 }
 
+/// Sub-states of rack validation.
+///
+/// The rack enters validation after maintenance completes (starting in
+/// `Pending`). RVS drives transitions by writing instance metadata labels
+/// that BMMC polls and aggregates into partition-level summaries.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RackValidationState {
-    Compute,
-    Switch,
-    Power,
-    Nvlink,
-    Topology,
+    /// All nodes discovered and all machines have reached
+    /// ManagedHostState::Ready. Waiting for RVS to begin partition
+    /// validation.
+    ///
+    /// TODO[#416]: The responsibility of gating production instance allocation
+    /// should live in the node/tray-level state machine, not the rack SM.
+    /// The proposed mechanism is to force health overrides for each
+    /// node that transitioning into READY state, essentially make
+    /// nodes "unhealthy". This way no instance can be allocated
+    /// for the tenant. RVS, however, will be able to force the
+    /// instance via supplying "allow_unhealthy" flag while creating
+    /// instances.
+    Pending,
+
+    /// At least one partition has started validation, but none have
+    /// completed (neither passed nor failed yet).
+    InProgress,
+
+    /// At least one partition has passed validation, and no partitions
+    /// have failed. Waiting for remaining partitions to complete.
+    Partial,
+
+    /// At least one partition has failed validation.
+    /// Can recover to Partial if failed partitions are re-validated.
+    FailedPartial,
+
+    /// All partitions have passed validation successfully.
+    /// Rack is ready to transition to the Ready state.
+    Validated,
+
+    /// All partitions have failed validation.
+    /// Requires intervention before the rack can be used.
+    Failed,
 }
 
 impl Display for RackValidationState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
+        match self {
+            RackValidationState::Pending => write!(f, "Pending"),
+            RackValidationState::InProgress => write!(f, "InProgress"),
+            RackValidationState::Partial => write!(f, "Partial"),
+            RackValidationState::FailedPartial => write!(f, "FailedPartial"),
+            RackValidationState::Validated => write!(f, "Validated"),
+            RackValidationState::Failed => write!(f, "Failed"),
+        }
     }
 }
+
+impl Display for RackState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RackState::Unknown => write!(f, "Unknown"),
+            RackState::Expected => write!(f, "Expected"),
+            RackState::Discovering => write!(f, "Discovering"),
+            RackState::Validation { rack_validation } => {
+                write!(f, "Validation({})", rack_validation)
+            }
+            RackState::Ready => write!(f, "Ready"),
+            RackState::Maintenance { rack_maintenance } => {
+                write!(f, "Maintenance({})", rack_maintenance)
+            }
+            RackState::Error { cause } => write!(f, "Error({})", cause),
+            RackState::Deleting => write!(f, "Deleting"),
+        }
+    }
+}
+
+/// Machine metadata labels set by RVS to communicate validation state.
+pub enum MachineRvLabels {
+    /// Partition ID grouping nodes into validation partitions.
+    PartitionId,
+    /// Run correlation ID -- must match rack's validation_run_id.
+    RunId,
+    /// Per-node validation status.
+    State,
+    /// Failure description (only when status is `fail`).
+    FailDesc,
+}
+
+impl MachineRvLabels {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MachineRvLabels::PartitionId => "rv.part-id",
+            MachineRvLabels::RunId => "rv.run-id",
+            MachineRvLabels::State => "rv.st",
+            MachineRvLabels::FailDesc => "rv.fail-desc",
+        }
+    }
+}
+
+// ============================================================================
+// RACK CONFIG & HISTORY
+// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RackStateHistory {
     /// The state that was entered
     pub state: String,
-    // The version number associated with the state change
+    /// The version number associated with the state change
     pub state_version: ConfigVersion,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct RackConfig {
     pub compute_trays: Vec<MachineId>,
-    // todo: put in nvlink switch ids here when that code lands
-    // pub nvlink_switches: Vec<NvlinkSwitchId>
     pub power_shelves: Vec<PowerShelfId>,
 
-    // store bmc mac address of every tray in the rack
+    /// expected_compute_trays contains the BMC MAC addresses of every
+    /// expected compute tray in the rack.
     pub expected_compute_trays: Vec<MacAddress>,
-    // todo: nvlink switches
-    // pub expected_nvlink_switches: Vec<MacAddress>,
+    /// expected_switches contains the BMC MAC addresses of every expected
+    /// switch in the rack. The NVOS management MAC address is stored
+    /// separately in the expected switch's metadata labels, and validated
+    /// separately as part of the switch state controller.
+    #[serde(default)]
+    pub expected_switches: Vec<MacAddress>,
+    /// expected_power_shelves contains the BMC MAC addresses of every
+    /// expected power shelf in the rack.
     pub expected_power_shelves: Vec<MacAddress>,
+
+    /// rack_type is the name of the rack type (e.g. "NVL72") that maps to
+    /// a RackCapabilitiesSet in the config file. The capabilities are looked
+    /// up at runtime so config changes apply retroactively to all racks.
+    #[serde(default)]
+    pub rack_type: Option<String>,
+
+    /// Active validation run ID. Set when entering Validation(Pending),
+    /// used to filter stale machine labels from previous runs.
+    #[serde(default)]
+    pub validation_run_id: Option<String>,
 }
+
+// ============================================================================
+// SLA & CONVERSIONS
+// ============================================================================
 
 pub fn state_sla(state: &RackState, state_version: &ConfigVersion) -> StateSla {
     let _time_in_state = chrono::Utc::now()
@@ -230,14 +419,16 @@ pub fn state_sla(state: &RackState, state_version: &ConfigVersion) -> StateSla {
         .to_std()
         .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
 
+    // TODO[#416]: Define SLAs for validation and maintenance states
     match state {
+        RackState::Unknown => StateSla::no_sla(),
         RackState::Expected => StateSla::no_sla(),
         RackState::Discovering => StateSla::no_sla(),
+        RackState::Validation { .. } => StateSla::no_sla(),
+        RackState::Ready => StateSla::no_sla(),
         RackState::Maintenance { .. } => StateSla::no_sla(),
-        RackState::Ready { .. } => StateSla::no_sla(),
         RackState::Error { .. } => StateSla::no_sla(),
         RackState::Deleting => StateSla::no_sla(),
-        RackState::Unknown => StateSla::no_sla(),
     }
 }
 

@@ -21,10 +21,9 @@ use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn delete(opts: Args, api_client: &ApiClient) -> Result<(), CarbideCliError> {
-    let id = opts.id;
-    let request = rpc::forge::RackFirmwareDeleteRequest { id: id.clone() };
+    let id = opts.id.clone();
 
-    match api_client.0.delete_rack_firmware(request).await {
+    match api_client.0.delete_rack_firmware(opts).await {
         Ok(_) => {
             println!("Deleted Rack firmware configuration: {}", id);
         }

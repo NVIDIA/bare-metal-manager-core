@@ -27,8 +27,14 @@
  *  - `site trusted-profile approve`: Create a trusted profile approval.
  *  - `site trusted-profile remove`: Remove a trusted profile approval.
  *  - `site trusted-profile list`: List all trusted profile approvals.
-*/
+ */
 
+use ::rpc::protos::measured_boot::{
+    AddMeasurementTrustedMachineRequest, AddMeasurementTrustedProfileRequest,
+    MeasurementApprovedTypePb, RemoveMeasurementTrustedMachineRequest,
+    RemoveMeasurementTrustedProfileRequest, remove_measurement_trusted_machine_request,
+    remove_measurement_trusted_profile_request,
+};
 use carbide_uuid::measured_boot::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
     TrustedMachineId,
@@ -211,3 +217,75 @@ pub struct RemoveProfileByProfileId {
 /// ListProfiles is used to list all active profile approvals.
 #[derive(Parser, Debug)]
 pub struct ListProfiles {}
+
+impl From<ApproveMachine> for AddMeasurementTrustedMachineRequest {
+    fn from(approve: ApproveMachine) -> Self {
+        let approval_type: MeasurementApprovedTypePb = approve.approval_type.into();
+        Self {
+            machine_id: approve.machine_id.to_string(),
+            approval_type: approval_type.into(),
+            pcr_registers: approve.pcr_registers.unwrap_or_default(),
+            comments: approve.comments.unwrap_or_default(),
+        }
+    }
+}
+
+impl From<RemoveMachineByApprovalId> for RemoveMeasurementTrustedMachineRequest {
+    fn from(by_approval_id: RemoveMachineByApprovalId) -> Self {
+        Self {
+            selector: Some(
+                remove_measurement_trusted_machine_request::Selector::ApprovalId(
+                    by_approval_id.approval_id,
+                ),
+            ),
+        }
+    }
+}
+
+impl From<RemoveMachineByMachineId> for RemoveMeasurementTrustedMachineRequest {
+    fn from(by_machine_id: RemoveMachineByMachineId) -> Self {
+        Self {
+            selector: Some(
+                remove_measurement_trusted_machine_request::Selector::MachineId(
+                    by_machine_id.machine_id.to_string(),
+                ),
+            ),
+        }
+    }
+}
+
+impl From<ApproveProfile> for AddMeasurementTrustedProfileRequest {
+    fn from(approve: ApproveProfile) -> Self {
+        let approval_type: MeasurementApprovedTypePb = approve.approval_type.into();
+        Self {
+            profile_id: Some(approve.profile_id),
+            approval_type: approval_type.into(),
+            pcr_registers: approve.pcr_registers,
+            comments: approve.comments,
+        }
+    }
+}
+
+impl From<RemoveProfileByApprovalId> for RemoveMeasurementTrustedProfileRequest {
+    fn from(by_approval_id: RemoveProfileByApprovalId) -> Self {
+        Self {
+            selector: Some(
+                remove_measurement_trusted_profile_request::Selector::ApprovalId(
+                    by_approval_id.approval_id,
+                ),
+            ),
+        }
+    }
+}
+
+impl From<RemoveProfileByProfileId> for RemoveMeasurementTrustedProfileRequest {
+    fn from(by_profile_id: RemoveProfileByProfileId) -> Self {
+        Self {
+            selector: Some(
+                remove_measurement_trusted_profile_request::Selector::ProfileId(
+                    by_profile_id.profile_id,
+                ),
+            ),
+        }
+    }
+}

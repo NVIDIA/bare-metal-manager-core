@@ -317,7 +317,7 @@ fn generate_single_filter_code(filter: &Filter) -> String {
     };
 
     format!(
-        "crate::device::filters::DeviceFilter::new({field_code}, {values_code}, {match_mode_code})",
+        "crate::device::filters::DeviceFilter {{ field: {field_code}, values: {values_code}, match_mode: {match_mode_code} }}",
     )
 }
 

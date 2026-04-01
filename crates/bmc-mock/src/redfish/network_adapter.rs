@@ -73,8 +73,9 @@ pub fn builder(resource: &redfish::Resource) -> NetworkAdapterBuilder {
 }
 
 pub fn builder_from_nic(resource: &redfish::Resource, nic: &hw::nic::Nic) -> NetworkAdapterBuilder {
-    let b = builder(resource).serial_number(&nic.serial_number);
-    b.maybe_with(NetworkAdapterBuilder::description, &nic.description)
+    builder(resource)
+        .maybe_with(NetworkAdapterBuilder::serial_number, &nic.serial_number)
+        .maybe_with(NetworkAdapterBuilder::description, &nic.description)
         .maybe_with(NetworkAdapterBuilder::manufacturer, &nic.manufacturer)
         .maybe_with(NetworkAdapterBuilder::model, &nic.model)
         .maybe_with(NetworkAdapterBuilder::part_number, &nic.part_number)

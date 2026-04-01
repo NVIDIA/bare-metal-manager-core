@@ -19,18 +19,12 @@ use ::rpc::admin_cli::CarbideCliResult;
 use ::rpc::forge::DeleteOsImageRequest;
 
 use super::args::Args;
-use crate::os_image::common::str_to_rpc_uuid;
 use crate::rpc::ApiClient;
 
 pub async fn delete(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let id = str_to_rpc_uuid(&args.id)?;
-    api_client
-        .0
-        .delete_os_image(DeleteOsImageRequest {
-            id: Some(id.clone()),
-            tenant_organization_id: args.tenant_org_id,
-        })
-        .await?;
+    let req: DeleteOsImageRequest = args.try_into()?;
+    let id = req.id.clone().expect("id is always set by TryFrom<Args>");
+    api_client.0.delete_os_image(req).await?;
     println!("OS image {id} deleted successfully.");
     Ok(())
 }

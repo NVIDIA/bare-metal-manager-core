@@ -23,6 +23,7 @@ use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 use utils::HostPortPair;
 
+use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 
 pub(crate) fn version(
@@ -72,32 +73,34 @@ pub(crate) fn set_dynamic_config(
     let req = request.into_inner();
     let exp_str = req.expiry.as_deref().unwrap_or("1h");
     let expiry = duration_str::parse(exp_str).map_err(|err| {
-        Status::invalid_argument(format!("Invalid expiry string '{exp_str}'. {err}"))
+        CarbideError::InvalidArgument(format!("Invalid expiry string '{exp_str}'. {err}"))
     })?;
     const MAX_SET_INTERNAL_EXPIRY: Duration = Duration::from_secs(60 * 60 * 60); // 60 hours
     if MAX_SET_INTERNAL_EXPIRY < expiry {
-        return Err(Status::invalid_argument(
-            "Expiry exceeds max allowed of 60 hours",
-        ));
+        return Err(CarbideError::InvalidArgument(
+            "Expiry exceeds max allowed of 60 hours".to_string(),
+        )
+        .into());
     }
     let expire_at = chrono::Utc::now() + expiry;
 
     let Ok(requested_setting) = rpc::ConfigSetting::try_from(req.setting) else {
-        return Err(Status::invalid_argument(format!(
+        return Err(CarbideError::InvalidArgument(format!(
             "Not a supported dynamic config setting: {}",
             req.setting
-        )));
+        ))
+        .into());
     };
 
     if req.value.is_empty() && !matches!(requested_setting, rpc::ConfigSetting::BmcProxy) {
-        return Err(Status::invalid_argument("'value' cannot be empty"));
+        return Err(CarbideError::InvalidArgument("'value' cannot be empty".to_string()).into());
     }
 
     match requested_setting {
         rpc::ConfigSetting::LogFilter => {
             let level = &api.dynamic_settings.log_filter;
             level.update(&req.value, Some(expire_at)).map_err(|err| {
-                Status::invalid_argument(format!(
+                CarbideError::InvalidArgument(format!(
                     "Invalid log filter string '{}'. {err}",
                     req.value
                 ))
@@ -110,7 +113,7 @@ pub(crate) fn set_dynamic_config(
         }
         rpc::ConfigSetting::CreateMachines => {
             let is_enabled = req.value.parse::<bool>().map_err(|err| {
-                Status::invalid_argument(format!(
+                CarbideError::InvalidArgument(format!(
                     "Invalid create_machines string '{}'. {err}",
                     req.value
                 ))
@@ -122,16 +125,17 @@ pub(crate) fn set_dynamic_config(
         }
         rpc::ConfigSetting::BmcProxy => {
             let Some(true) = api.runtime_config.site_explorer.allow_changing_bmc_proxy else {
-                return Err(Status::permission_denied(
-                    "site-explorer.bmc_proxy is not allowed to be changed on this server",
-                ));
+                return Err(CarbideError::PermissionDeniedError(
+                    "site-explorer.bmc_proxy is not allowed to be changed on this server".into(),
+                )
+                .into());
             };
 
             if req.value.is_empty() {
                 api.dynamic_settings.bmc_proxy.store(Arc::new(None))
             } else {
                 let host_port_pair = req.value.parse::<HostPortPair>().map_err(|err| {
-                    Status::invalid_argument(format!(
+                    CarbideError::InvalidArgument(format!(
                         "Invalid bmc_proxy string '{}': {err}",
                         req.value
                     ))
@@ -145,7 +149,7 @@ pub(crate) fn set_dynamic_config(
         }
         rpc::ConfigSetting::TracingEnabled => {
             let enable = req.value.parse().map_err(|_| {
-                Status::invalid_argument(format!(
+                CarbideError::InvalidArgument(format!(
                     "Expected bool for TracingEnabled, got {}",
                     &req.value
                 ))

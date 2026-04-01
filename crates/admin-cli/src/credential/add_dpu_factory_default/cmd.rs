@@ -16,19 +16,11 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::{CredentialType, forge as forgerpc};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn add_dpu_factory_default(c: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let req = forgerpc::CredentialCreationRequest {
-        credential_type: CredentialType::DpuBmcFactoryDefault.into(),
-        username: Some(c.username),
-        password: c.password,
-        mac_address: None,
-        vendor: None,
-    };
-    api_client.0.create_credential(req).await?;
+pub async fn add_dpu_factory_default(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+    api_client.0.create_credential(data).await?;
     Ok(())
 }

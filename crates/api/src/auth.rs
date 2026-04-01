@@ -29,6 +29,7 @@ use crate::cfg::file::{AllowedCertCriteria, CertComponent};
 mod casbin_engine;
 pub mod internal_rbac_rules;
 pub mod middleware;
+pub mod mqtt_auth;
 pub mod spiffe_id; // public for doctests
 mod test_certs;
 

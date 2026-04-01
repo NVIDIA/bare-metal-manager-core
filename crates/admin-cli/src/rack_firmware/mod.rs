@@ -19,6 +19,7 @@ mod apply;
 mod create;
 mod delete;
 mod get;
+mod history;
 mod list;
 mod status;
 
@@ -48,4 +49,7 @@ pub enum Cmd {
 
     #[clap(about = "Check the status of an async firmware update job")]
     Status(status::Args),
+
+    #[clap(about = "Show history of rack firmware apply operations")]
+    History(history::Args),
 }

@@ -88,11 +88,11 @@ fn test_registry_builder_pattern() {
     let variables = create_test_variables();
     let registry = MlxVariableRegistry::new("builder_test")
         .variables(variables)
-        .with_filter(DeviceFilter::new(
-            DeviceField::DeviceType,
-            vec!["BlueField3".to_string()],
-            MatchMode::Exact,
-        ));
+        .with_filter(DeviceFilter {
+            field: DeviceField::DeviceType,
+            values: vec!["BlueField3".to_string()],
+            match_mode: MatchMode::Exact,
+        });
 
     assert_eq!(registry.name, "builder_test");
     assert_eq!(registry.variables.len(), 4);
@@ -141,11 +141,11 @@ fn test_registry_variable_names() {
 #[test]
 fn test_registry_with_single_filter() {
     let variables = create_test_variables();
-    let filter = DeviceFilter::new(
-        DeviceField::DeviceType,
-        vec!["BlueField3".to_string()],
-        MatchMode::Exact,
-    );
+    let filter = DeviceFilter {
+        field: DeviceField::DeviceType,
+        values: vec!["BlueField3".to_string()],
+        match_mode: MatchMode::Exact,
+    };
 
     let registry = MlxVariableRegistry::new("single_filter_test")
         .variables(variables)
@@ -166,16 +166,16 @@ fn test_registry_with_multiple_filters() {
 
     let registry = MlxVariableRegistry::new("multi_filter_test")
         .variables(variables)
-        .with_filter(DeviceFilter::new(
-            DeviceField::DeviceType,
-            vec!["BlueField3".to_string(), "ConnectX-6".to_string()],
-            MatchMode::Exact,
-        ))
-        .with_filter(DeviceFilter::new(
-            DeviceField::PartNumber,
-            vec!["MCX.*".to_string()],
-            MatchMode::Regex,
-        ));
+        .with_filter(DeviceFilter {
+            field: DeviceField::DeviceType,
+            values: vec!["BlueField3".to_string(), "ConnectX-6".to_string()],
+            match_mode: MatchMode::Exact,
+        })
+        .with_filter(DeviceFilter {
+            field: DeviceField::PartNumber,
+            values: vec!["MCX.*".to_string()],
+            match_mode: MatchMode::Regex,
+        });
 
     assert!(registry.has_filters());
     assert_eq!(registry.filters.as_ref().unwrap().filters.len(), 2);
@@ -190,16 +190,16 @@ fn test_registry_with_filter_set() {
     let variables = create_test_variables();
 
     let mut filter_set = DeviceFilterSet::default();
-    filter_set.add_filter(DeviceFilter::new(
-        DeviceField::DeviceType,
-        vec!["BlueField3".to_string()],
-        MatchMode::Exact,
-    ));
-    filter_set.add_filter(DeviceFilter::new(
-        DeviceField::FirmwareVersion,
-        vec!["28.*.1010".to_string()],
-        MatchMode::Regex,
-    ));
+    filter_set.add_filter(DeviceFilter {
+        field: DeviceField::DeviceType,
+        values: vec!["BlueField3".to_string()],
+        match_mode: MatchMode::Exact,
+    });
+    filter_set.add_filter(DeviceFilter {
+        field: DeviceField::FirmwareVersion,
+        values: vec!["28.*.1010".to_string()],
+        match_mode: MatchMode::Regex,
+    });
 
     let registry = MlxVariableRegistry::new("filter_set_test")
         .variables(variables)
@@ -225,16 +225,16 @@ fn test_registry_device_matching_with_filters() {
     let variables = create_test_variables();
     let registry = MlxVariableRegistry::new("device_match_test")
         .variables(variables)
-        .with_filter(DeviceFilter::new(
-            DeviceField::DeviceType,
-            vec!["BlueField3".to_string()],
-            MatchMode::Exact,
-        ))
-        .with_filter(DeviceFilter::new(
-            DeviceField::PartNumber,
-            vec!["MCX.*".to_string()],
-            MatchMode::Regex,
-        ));
+        .with_filter(DeviceFilter {
+            field: DeviceField::DeviceType,
+            values: vec!["BlueField3".to_string()],
+            match_mode: MatchMode::Exact,
+        })
+        .with_filter(DeviceFilter {
+            field: DeviceField::PartNumber,
+            values: vec!["MCX.*".to_string()],
+            match_mode: MatchMode::Regex,
+        });
 
     // Device that matches both filters
     let matching_device = create_test_device("BlueField3", "MCX623106AS-CDAT", "28.38.1010");
@@ -262,11 +262,11 @@ fn test_registry_filter_summary_with_filters() {
     let variables = create_test_variables();
     let registry = MlxVariableRegistry::new("summary_test")
         .variables(variables)
-        .with_filter(DeviceFilter::new(
-            DeviceField::DeviceType,
-            vec!["BlueField3".to_string()],
-            MatchMode::Exact,
-        ));
+        .with_filter(DeviceFilter {
+            field: DeviceField::DeviceType,
+            values: vec!["BlueField3".to_string()],
+            match_mode: MatchMode::Exact,
+        });
 
     let summary = registry.filter_summary();
     assert!(summary.contains("device_type"));
@@ -303,11 +303,11 @@ fn test_registry_serde_serialization_with_filters() {
     let variables = create_test_variables();
     let registry = MlxVariableRegistry::new("serde_filter_test")
         .variables(variables)
-        .with_filter(DeviceFilter::new(
-            DeviceField::DeviceType,
-            vec!["BlueField3".to_string()],
-            MatchMode::Exact,
-        ));
+        .with_filter(DeviceFilter {
+            field: DeviceField::DeviceType,
+            values: vec!["BlueField3".to_string()],
+            match_mode: MatchMode::Exact,
+        });
 
     // Test JSON serialization with filters
     let json = serde_json::to_string(&registry).expect("JSON serialization failed");
@@ -365,11 +365,11 @@ fn test_registry_clone() {
     let variables = create_test_variables();
     let registry = MlxVariableRegistry::new("clone_test")
         .variables(variables)
-        .with_filter(DeviceFilter::new(
-            DeviceField::DeviceType,
-            vec!["BlueField3".to_string()],
-            MatchMode::Exact,
-        ));
+        .with_filter(DeviceFilter {
+            field: DeviceField::DeviceType,
+            values: vec!["BlueField3".to_string()],
+            match_mode: MatchMode::Exact,
+        });
 
     let cloned = registry.clone();
 
@@ -387,11 +387,11 @@ fn test_registry_debug_formatting() {
     let variables = create_test_variables();
     let registry = MlxVariableRegistry::new("debug_test")
         .variables(variables)
-        .with_filter(DeviceFilter::new(
-            DeviceField::DeviceType,
-            vec!["BlueField3".to_string()],
-            MatchMode::Exact,
-        ));
+        .with_filter(DeviceFilter {
+            field: DeviceField::DeviceType,
+            values: vec!["BlueField3".to_string()],
+            match_mode: MatchMode::Exact,
+        });
 
     let debug_str = format!("{registry:?}");
 

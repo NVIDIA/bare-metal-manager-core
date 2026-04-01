@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}{{ id }}{% endblock %}
+
+{% block content %}
+<div id="json">
+	<a id="json-link" href="">JSON</a>
+</div>
+<h1>Rack {{ id }}</h1>
+
+{% if let Some(rack) = rack %}
+<table class="detailsview">
+	<tr><th>State</th>
+		<td>
+			{% if rack.rack_state.to_lowercase().contains("failed") %}
+				<span class="bubble error">{{ rack.rack_state }}</span>
+			{% else if rack.rack_state == "Ready" %}
+				<span class="bubble success">{{ rack.rack_state }}</span>
+			{% else %}
+				<span class="bubble">{{ rack.rack_state }}</span>
+			{% endif %}
+		</td>
+	</tr>
+</table>
+{% endif %}
+
+<!-- TODO: Add expected rack definition -->
+
+<h2>Managed Rack Components</h2>
+
+<h3>Compute Trays (Host machines)</h3>
+<table class="detailsview">
+	<thead>
+		<tr>
+			<th>ID</th>
+		</tr>
+	</thead>
+	<tbody>
+	{% for machine_id in associated_machines %}
+		<tr>
+			<td>{{ machine_id|machine_id_link|safe }}</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
+
+<h3>Switches</h3>
+<table class="detailsview">
+	<thead>
+		<tr>
+			<th>ID</th>
+		</tr>
+	</thead>
+	<tbody>
+	{% for switch_id in associated_switches %}
+		<tr>
+			<td>{{ switch_id }}</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
+
+<h3>Power Shelves</h3>
+<table class="detailsview">
+	<thead>
+		<tr>
+			<th>ID</th>
+		</tr>
+	</thead>
+	<tbody>
+	{% for ps_id in associated_power_shelves %}
+		<tr>
+			<td>{{ ps_id }}</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
+
+<h3>History</h3>
+🚧
+{# Commented till implemented
+<a href="/admin/rack/{{ id }}/state-history">Open History on separate page</a>
+{{ history|safe }}
+#}
+
+{% endblock %}

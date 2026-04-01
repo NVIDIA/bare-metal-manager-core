@@ -31,7 +31,6 @@ use crate::vendor_class::{MachineArchitecture, VendorClass};
 ///
 /// This just stores the protobuf DHCP record and the discovery info the client used so we can add
 /// additional constraints (options) to and from the client.
-///
 #[derive(Debug, Clone)]
 pub struct Machine {
     pub inner: rpc::DhcpRecord,
@@ -86,7 +85,6 @@ impl Machine {
 ///
 /// This function dereferences a pointer to a Machine object which is an opaque pointer
 /// consumed in C code.
-///
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
@@ -131,7 +129,6 @@ pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
 /// # Safety
 /// This function dereferences a pointer to a Machine object which is an opaque pointer
 /// consumed in C code.
-///
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_get_interface_address(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
@@ -158,7 +155,6 @@ pub extern "C" fn machine_get_interface_address(ctx: *mut Machine) -> u32 {
 ///
 /// # Safety
 /// This function checks for null pointer and unboxes into a machine object
-///
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_get_interface_hostname(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
@@ -173,7 +169,6 @@ pub extern "C" fn machine_get_interface_hostname(ctx: *mut Machine) -> *mut libc
 ///
 /// # Safety
 /// This function checks for null pointer and unboxes into a machine object
-///
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char {
     assert!(!ctx.is_null());
@@ -413,7 +408,6 @@ pub extern "C" fn machine_free_ntpservers(ntpservers: *mut libc::c_char) {
 ///
 /// This function dereferences a pointer to a Machine object which is an opaque pointer
 /// consumed in C code.
-///
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_get_interface_subnet_mask(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
@@ -452,7 +446,6 @@ pub extern "C" fn machine_get_interface_mtu(ctx: *mut Machine) -> u16 {
 ///
 /// This does not forget the memory afterwards, so the opaque pointer in the C code is now
 /// unusable.
-///
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_free(ctx: *mut Machine) {
     if ctx.is_null() {

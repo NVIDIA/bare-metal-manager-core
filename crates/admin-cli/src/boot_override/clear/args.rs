@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use carbide_uuid::machine::MachineInterfaceId;
 use clap::Parser;
 
 use crate::boot_override::common::BootOverride;
@@ -26,4 +27,10 @@ use crate::boot_override::common::BootOverride;
 pub struct Args {
     #[clap(flatten)]
     pub inner: BootOverride,
+}
+
+impl From<Args> for MachineInterfaceId {
+    fn from(args: Args) -> Self {
+        args.inner.interface_id
+    }
 }

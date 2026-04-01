@@ -16,6 +16,10 @@
  */
 
 use clap::Parser;
+use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use rpc::forge::{
+    self as forgerpc, CreateNetworkSecurityGroupRequest, NetworkSecurityGroupAttributes,
+};
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -59,4 +63,38 @@ pub struct Args {
         help = "Optional, JSON array containing a defined set of network security group rules"
     )]
     pub rules: Option<String>,
+}
+
+impl TryFrom<Args> for CreateNetworkSecurityGroupRequest {
+    type Error = CarbideCliError;
+
+    fn try_from(args: Args) -> CarbideCliResult<Self> {
+        let labels = if let Some(l) = args.labels {
+            serde_json::from_str(&l)?
+        } else {
+            vec![]
+        };
+
+        let metadata = forgerpc::Metadata {
+            name: args.name.unwrap_or_default(),
+            description: args.description.unwrap_or_default(),
+            labels,
+        };
+
+        let rules = if let Some(r) = args.rules {
+            serde_json::from_str(&r)?
+        } else {
+            vec![]
+        };
+
+        Ok(CreateNetworkSecurityGroupRequest {
+            id: args.id,
+            tenant_organization_id: args.tenant_organization_id,
+            metadata: Some(metadata),
+            network_security_group_attributes: Some(NetworkSecurityGroupAttributes {
+                stateful_egress: args.stateful_egress,
+                rules,
+            }),
+        })
+    }
 }

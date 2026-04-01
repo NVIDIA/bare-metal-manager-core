@@ -23,8 +23,13 @@
  *  - `journal show`: Show all info about journal entr(ies).
  *  - `journal list`: List all journal entries.
  *  - `journal promote`: Promote the report from a journal entry into a bundle.
-*/
+ */
 
+use ::rpc::admin_cli::CarbideCliError;
+use ::rpc::protos::measured_boot::{
+    DeleteMeasurementJournalRequest, ListMeasurementJournalRequest, ShowMeasurementJournalRequest,
+    list_measurement_journal_request, show_measurement_journal_request,
+};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::measured_boot::MeasurementJournalId;
 use clap::Parser;
@@ -85,4 +90,38 @@ pub struct Promote {
     )]
     #[arg(value_parser = parse_pcr_index_input)]
     pub pcr_registers: Option<PcrSet>,
+}
+
+impl From<Delete> for DeleteMeasurementJournalRequest {
+    fn from(delete: Delete) -> Self {
+        Self {
+            journal_id: Some(delete.journal_id),
+        }
+    }
+}
+
+impl TryFrom<Show> for ShowMeasurementJournalRequest {
+    type Error = CarbideCliError;
+    fn try_from(show: Show) -> Result<Self, Self::Error> {
+        let journal_id = show
+            .journal_id
+            .ok_or(CarbideCliError::GenericError(String::from(
+                "journal_id must be set to get a journal",
+            )))?;
+        Ok(Self {
+            selector: Some(show_measurement_journal_request::Selector::JournalId(
+                journal_id,
+            )),
+        })
+    }
+}
+
+impl From<List> for ListMeasurementJournalRequest {
+    fn from(list: List) -> Self {
+        Self {
+            selector: list.machine_id.map(|machine_id| {
+                list_measurement_journal_request::Selector::MachineId(machine_id.to_string())
+            }),
+        }
+    }
 }

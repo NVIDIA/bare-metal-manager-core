@@ -22,7 +22,6 @@
 /// be short lived.
 ///
 /// The cache is a static because we are called from Kea's hooks, potentially from multiple threads.
-///
 use std::{
     net::IpAddr,
     sync::Mutex,

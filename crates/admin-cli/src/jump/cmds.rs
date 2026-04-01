@@ -27,8 +27,8 @@ use mac_address::MacAddress;
 use super::args::Cmd;
 use crate::cfg::runtime::RuntimeContext;
 use crate::{
-    domain, dpa, instance, machine, machine_interfaces, network_segment, resource_pool,
-    site_explorer, vpc,
+    compute_allocation, domain, dpa, instance, machine, machine_interfaces, network_segment,
+    resource_pool, site_explorer, vpc,
 };
 
 pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()> {
@@ -176,7 +176,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                     )
                     .await?
                 }
-                ResourcePool => resource_pool::list(&ctx.api_client).await?,
+                ResourcePool => resource_pool::list(Default::default(), &ctx.api_client).await?,
                 DpaInterface =>  {
                     dpa::show(
                         &ShowDpa {
@@ -281,6 +281,21 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                         ctx.config.format,
                         &ctx.api_client,
                         1,
+                    )
+                    .await?
+                }
+                forgerpc::UuidType::ComputeAllocationId => {
+                    compute_allocation::show(
+                        compute_allocation::ShowComputeAllocation {
+                            id: Some(args.id.parse()?),
+                            tenant_organization_id: None,
+                            name: None,
+                            instance_type_id: None,
+                        },
+                        ctx.config.format,
+                        &ctx.api_client,
+                        1,
+                        true,
                     )
                     .await?
                 }

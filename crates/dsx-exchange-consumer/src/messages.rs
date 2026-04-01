@@ -10,10 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-//! Cronus BMS message types defined from the AsyncAPI spec in cronus.yaml.
+//! BMS BMS message types defined from the AsyncAPI spec in BMS.yaml.
 //!
 //! This module contains the message types for leak detection events published
-//! by Cronus on the DSX Exchange Event Bus.
+//! by BMS on the DSX Exchange Event Bus.
 
 use chrono::{DateTime, Utc};
 use health_report::HealthProbeId;
@@ -21,7 +21,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 /// Point type identifier for leak detection events.
 ///
-/// Note: Variant names match the Cronus AsyncAPI spec exactly.
+/// Note: Variant names match the BMS AsyncAPI spec exactly.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(clippy::enum_variant_names)]
 pub enum LeakPointType {
@@ -124,7 +124,7 @@ impl<'de> Deserialize<'de> for FaultValue {
 
 /// Value message for all BMS points.
 ///
-/// Published on `cronus/v1/{pointPath}/Value` topics.
+/// Published on `BMS/v1/{pointPath}/Value` topics.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ValueMessage {
     /// Binary value for the point.

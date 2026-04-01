@@ -33,6 +33,7 @@ use futures::future::join_all;
 use itertools::Itertools;
 use sqlx::{Postgres, Row};
 use tokio::time::sleep;
+use tokio_util::sync::CancellationToken;
 
 #[ctor::ctor]
 fn setup() {
@@ -48,6 +49,7 @@ async fn test_integration() -> eyre::Result<()> {
     let Some(test_env) =
         IntegrationTestEnvironment::try_from_environment(2, "api_server_test_integration").await?
     else {
+        println!("test_integration: SKIPPED (set REPO_ROOT and DATABASE_URL to run)");
         return Ok(());
     };
 
@@ -74,6 +76,7 @@ async fn test_integration() -> eyre::Result<()> {
 
     // Begin the integration test by starting an API server. This will be shared between multiple
     // individual machine-a-tron-based tests, which can run in parallel against the same instance.
+    let cancel_token = CancellationToken::new();
     let (server_handle_1, server_handle_2) = (
         utils::start_api_server(
             test_env.clone(),
@@ -84,6 +87,7 @@ async fn test_integration() -> eyre::Result<()> {
             empty_firmware_dir.path().to_owned(),
             0,
             true,
+            cancel_token.clone(),
         )
         .await?,
         utils::start_api_server(
@@ -95,6 +99,7 @@ async fn test_integration() -> eyre::Result<()> {
             empty_firmware_dir.path().to_owned(),
             1,
             true,
+            cancel_token.clone(),
         )
         .await?,
     );
@@ -111,6 +116,15 @@ async fn test_integration() -> eyre::Result<()> {
     let all_tests = join_all([
         test_machine_a_tron_multidpu(
             HostHardwareType::DellPowerEdgeR750,
+            &test_env,
+            &bmc_address_registry,
+            &managed_segment_id,
+            // Relay IP in admin net
+            Ipv4Addr::new(172, 20, 0, 2),
+        )
+        .boxed(),
+        test_machine_a_tron_multidpu(
+            HostHardwareType::NvidiaDgxH100,
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
@@ -154,8 +168,9 @@ async fn test_integration() -> eyre::Result<()> {
 
     generate_core_metric_docs(&test_env.carbide_metrics_addrs);
 
-    server_handle_1.stop().await?;
-    server_handle_2.stop().await?;
+    cancel_token.cancel();
+    server_handle_1.wait().await?;
+    server_handle_2.wait().await?;
     test_env.db_pool.close().await;
     bmc_mock_handle.stop().await?;
     Ok(())
@@ -168,14 +183,14 @@ fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
         .into_iter()
         .filter(|metric| !metric.name.starts_with("alt_metric"))
         .collect();
-    let mut docs = "# Carbide core metrics\n\n".to_string();
+    let mut docs = "# NCX Infra Controller (NICo) core metrics\n\n".to_string();
     use std::fmt::Write;
 
     use askama_escape::Escaper;
 
     writeln!(
         &mut docs,
-        "This file contains a list of metrics exported by Carbide. \
+        "This file contains a list of metrics exported by NCX Infra Controller (NICo). \
         The list is auto-generated from an integration test (`test_integration`). \
         Metrics for workflows which are not exercised by the test are missing."
     )
@@ -213,7 +228,7 @@ fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
 
 pub(crate) const METRIC_DOC_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../book/src/manuals/metrics/carbide_core_metrics.md"
+    "/../../book/src/manuals/metrics/core_metrics.md"
 );
 
 /// Run integration tests with machine-a-tron, asserting on metrics. This has to run as its own
@@ -235,7 +250,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
         db_pool,
         metrics: _,
         db_url: _,
-        vault_config: _,
+        credential_config: _,
         _vault_handle,
     } = test_env.clone();
 
@@ -260,6 +275,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
 
     // Begin the integration test by starting an API server. This will be shared between multiple
     // individual machine-a-tron-based tests, which can run in parallel against the same instance.
+    let cancel_token = CancellationToken::new();
     let server_handle = utils::start_api_server(
         test_env.clone(),
         Some(HostPortPair::HostAndPort(
@@ -269,6 +285,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
         empty_firmware_dir.path().to_owned(),
         0,
         true,
+        cancel_token.clone(),
     )
     .await?;
 
@@ -410,7 +427,8 @@ async fn test_metrics_integration() -> eyre::Result<()> {
 
     sleep(time::Duration::from_millis(500)).await;
     bmc_mock_handle.stop().await?;
-    server_handle.stop().await?;
+    cancel_token.cancel();
+    server_handle.wait().await?;
     db_pool.close().await;
     Ok(())
 }

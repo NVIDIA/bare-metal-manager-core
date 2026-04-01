@@ -26,8 +26,19 @@
  *  - `bundle show`: Show all details about measurement bundle(s).
  *  - `bundle list all`: List high level metadata about all bundles.
  *  - `bundle list machines`: List all matchines matching a given bundle.
-*/
+ */
 
+use std::str::FromStr;
+
+use ::rpc::admin_cli::CarbideCliError;
+use ::rpc::protos::measured_boot::{
+    CreateMeasurementBundleRequest, DeleteMeasurementBundleRequest, FindClosestBundleMatchRequest,
+    ListMeasurementBundleMachinesRequest, MeasurementBundleStatePb, RenameMeasurementBundleRequest,
+    ShowMeasurementBundleRequest, UpdateMeasurementBundleRequest,
+    delete_measurement_bundle_request, list_measurement_bundle_machines_request,
+    rename_measurement_bundle_request, show_measurement_bundle_request,
+    update_measurement_bundle_request,
+};
 use carbide_uuid::measured_boot::{
     MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId,
 };
@@ -36,7 +47,7 @@ use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::MeasurementBundleState;
 
 use crate::cfg::measurement::parse_pcr_register_values;
-use crate::measurement::global::cmds::IdNameIdentifier;
+use crate::measurement::global::cmds::{IdNameIdentifier, IdentifierType, get_identifier};
 
 /// CmdBundle provides a container for the `bundle` subcommand, which itself
 /// contains other subcommands for working with profiles.
@@ -248,4 +259,164 @@ pub enum FindClosestMatch {
 pub struct ReportId {
     #[clap(help = "Report ID.")]
     pub id: MeasurementReportId,
+}
+
+impl From<Create> for CreateMeasurementBundleRequest {
+    fn from(create: Create) -> Self {
+        let state: MeasurementBundleStatePb = match create.state {
+            Some(input_state) => input_state.into(),
+            None => MeasurementBundleStatePb::Active,
+        };
+        Self {
+            name: Some(create.name),
+            profile_id: Some(create.profile_id),
+            pcr_values: create.values.into_iter().map(Into::into).collect(),
+            state: state.into(),
+        }
+    }
+}
+
+impl From<Delete> for DeleteMeasurementBundleRequest {
+    fn from(delete: Delete) -> Self {
+        Self {
+            selector: Some(delete_measurement_bundle_request::Selector::BundleId(
+                delete.bundle_id,
+            )),
+        }
+    }
+}
+
+impl TryFrom<Rename> for RenameMeasurementBundleRequest {
+    type Error = CarbideCliError;
+    fn try_from(rename: Rename) -> Result<Self, Self::Error> {
+        let selector = match get_identifier(&rename)? {
+            IdentifierType::ForId => {
+                let bundle_id = MeasurementBundleId::from_str(&rename.identifier)
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
+                Some(rename_measurement_bundle_request::Selector::BundleId(
+                    bundle_id,
+                ))
+            }
+            IdentifierType::ForName => Some(
+                rename_measurement_bundle_request::Selector::BundleName(rename.identifier),
+            ),
+            IdentifierType::Detect => match MeasurementBundleId::from_str(&rename.identifier) {
+                Ok(bundle_id) => Some(rename_measurement_bundle_request::Selector::BundleId(
+                    bundle_id,
+                )),
+                Err(_) => Some(rename_measurement_bundle_request::Selector::BundleName(
+                    rename.identifier,
+                )),
+            },
+        };
+        Ok(Self {
+            new_bundle_name: rename.new_bundle_name,
+            selector,
+        })
+    }
+}
+
+impl TryFrom<SetState> for UpdateMeasurementBundleRequest {
+    type Error = CarbideCliError;
+    fn try_from(set_state: SetState) -> Result<Self, Self::Error> {
+        let state: MeasurementBundleStatePb = set_state.state.into();
+        let selector = match get_identifier(&set_state)? {
+            IdentifierType::ForId => {
+                let bundle_id = MeasurementBundleId::from_str(&set_state.identifier)
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
+                Some(update_measurement_bundle_request::Selector::BundleId(
+                    bundle_id,
+                ))
+            }
+            IdentifierType::ForName => Some(
+                update_measurement_bundle_request::Selector::BundleName(set_state.identifier),
+            ),
+            IdentifierType::Detect => match MeasurementBundleId::from_str(&set_state.identifier) {
+                Ok(bundle_id) => Some(update_measurement_bundle_request::Selector::BundleId(
+                    bundle_id,
+                )),
+                Err(_) => Some(update_measurement_bundle_request::Selector::BundleName(
+                    set_state.identifier,
+                )),
+            },
+        };
+        Ok(Self {
+            state: state.into(),
+            selector,
+        })
+    }
+}
+
+impl TryFrom<Show> for ShowMeasurementBundleRequest {
+    type Error = CarbideCliError;
+    fn try_from(show: Show) -> Result<Self, Self::Error> {
+        let identifier_type = get_identifier(&show)?;
+        let identifier = show
+            .identifier
+            .ok_or(CarbideCliError::GenericError(String::from(
+                "identifier expected to be set here",
+            )))?;
+        let selector = match identifier_type {
+            IdentifierType::ForId => {
+                let bundle_id = MeasurementBundleId::from_str(&identifier)
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
+                Some(show_measurement_bundle_request::Selector::BundleId(
+                    bundle_id,
+                ))
+            }
+            IdentifierType::ForName => Some(show_measurement_bundle_request::Selector::BundleName(
+                identifier,
+            )),
+            IdentifierType::Detect => match MeasurementBundleId::from_str(&identifier) {
+                Ok(bundle_id) => Some(show_measurement_bundle_request::Selector::BundleId(
+                    bundle_id,
+                )),
+                Err(_) => Some(show_measurement_bundle_request::Selector::BundleName(
+                    identifier,
+                )),
+            },
+        };
+        Ok(Self { selector })
+    }
+}
+
+impl TryFrom<ListMachines> for ListMeasurementBundleMachinesRequest {
+    type Error = CarbideCliError;
+    fn try_from(list_machines: ListMachines) -> Result<Self, Self::Error> {
+        let selector = match get_identifier(&list_machines)? {
+            IdentifierType::ForId => {
+                let bundle_id = MeasurementBundleId::from_str(&list_machines.identifier)
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
+                Some(list_measurement_bundle_machines_request::Selector::BundleId(bundle_id))
+            }
+            IdentifierType::ForName => Some(
+                list_measurement_bundle_machines_request::Selector::BundleName(
+                    list_machines.identifier,
+                ),
+            ),
+            IdentifierType::Detect => {
+                match MeasurementBundleId::from_str(&list_machines.identifier) {
+                    Ok(bundle_id) => Some(
+                        list_measurement_bundle_machines_request::Selector::BundleId(bundle_id),
+                    ),
+                    Err(_) => Some(
+                        list_measurement_bundle_machines_request::Selector::BundleName(
+                            list_machines.identifier,
+                        ),
+                    ),
+                }
+            }
+        };
+        Ok(Self { selector })
+    }
+}
+
+impl From<FindClosestMatch> for FindClosestBundleMatchRequest {
+    fn from(args: FindClosestMatch) -> Self {
+        match args {
+            FindClosestMatch::Report(report_id) => Self {
+                report_id: Some(report_id.id),
+            },
+        }
+    }
 }

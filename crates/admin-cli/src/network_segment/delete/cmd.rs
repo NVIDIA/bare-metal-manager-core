@@ -16,7 +16,6 @@
  */
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::NetworkSegmentDeletionRequest;
 
 use super::args::Args;
 use crate::cfg::runtime::RuntimeContext;
@@ -28,9 +27,6 @@ pub async fn handle_delete(args: Args, ctx: &mut RuntimeContext) -> CarbideCliRe
                 .to_owned(),
         ));
     }
-    ctx.api_client
-        .0
-        .delete_network_segment(NetworkSegmentDeletionRequest { id: Some(args.id) })
-        .await?;
+    ctx.api_client.0.delete_network_segment(args).await?;
     Ok(())
 }

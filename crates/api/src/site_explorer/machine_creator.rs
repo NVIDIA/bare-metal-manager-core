@@ -21,13 +21,12 @@ use carbide_uuid::machine::MachineId;
 use db::{ObjectColumnFilter, Transaction};
 use librms::RmsApi;
 use model::bmc_info::BmcInfo;
-use model::expected_machine::ExpectedMachine;
+use model::expected_machine::ExpectedMachineData;
 use model::hardware_info::HardwareInfo;
 use model::machine::machine_id::host_id_from_dpu_hardware_info;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{Machine, MachineInterfaceSnapshot, ManagedHostState};
 use model::machine_interface_address::MachineInterfaceAssociation;
-use model::metadata::Metadata;
 use model::network_segment::NetworkSegmentType;
 use model::predicted_machine_interface::NewPredictedMachineInterface;
 use model::resource_pool::common::CommonPools;
@@ -76,8 +75,9 @@ impl MachineCreator {
         // for every identified ManagedHost even if we don't create any objects.
         // We can perform a single query upfront to identify which ManagedHosts don't yet have Machines
         for (host, report) in explored_managed_hosts {
-            let expected_machine =
-                expected_explored_endpoint_index.matched_expected_machine(&host.host_bmc_ip);
+            let expected_machine = expected_explored_endpoint_index
+                .matched_expected_machine(&host.host_bmc_ip)
+                .map(|em| &em.data);
 
             match self
                 .create_managed_host(host, report, expected_machine, &self.database_connection)
@@ -104,21 +104,12 @@ impl MachineCreator {
         &self,
         explored_host: &ExploredManagedHost,
         report: &mut EndpointExplorationReport,
-        expected_machine: Option<&ExpectedMachine>,
+        machine_data: Option<&ExpectedMachineData>,
         pool: &PgPool,
     ) -> CarbideResult<bool> {
         let mut managed_host = ManagedHost::init(explored_host);
 
         let mut txn = Transaction::begin(pool).await?;
-
-        let (metadata, sku_id, dpf_enabled) = match expected_machine {
-            Some(m) => (
-                Some(&m.data.metadata),
-                m.data.sku_id.as_ref(),
-                m.data.dpf_enabled,
-            ),
-            None => (None, None, true),
-        };
 
         // Zero-dpu case: If the explored host had no DPUs, we can create the machine now
         if managed_host.explored_host.dpus.is_empty() {
@@ -128,12 +119,7 @@ impl MachineCreator {
                 return Err(error);
             }
             if let Some(machine_id) = self
-                .create_zero_dpu_machine(
-                    &mut txn,
-                    &managed_host,
-                    report,
-                    metadata.unwrap_or(&Metadata::default()),
-                )
+                .create_zero_dpu_machine(&mut txn, &managed_host, report, machine_data)
                 .await?
             {
                 managed_host.machine_id = Some(machine_id);
@@ -152,7 +138,7 @@ impl MachineCreator {
             let dpu_machine_id = *dpu_report.machine_id_if_valid_report()?;
             dpu_ids.push(dpu_machine_id);
 
-            if !self.create_dpu(&mut txn, dpu_report, dpf_enabled).await? {
+            if !self.create_dpu(&mut txn, dpu_report).await? {
                 // Site explorer has already created a machine for this DPU previously.
                 //
                 // If the DPU's machine is not attached to its machine interface, do so here.
@@ -164,14 +150,7 @@ impl MachineCreator {
             }
 
             let host_machine_id = self
-                .attach_dpu_to_host(
-                    &mut txn,
-                    &managed_host,
-                    dpu_report,
-                    metadata.unwrap_or(&Metadata::default()),
-                    sku_id,
-                    dpf_enabled,
-                )
+                .attach_dpu_to_host(&mut txn, &managed_host, dpu_report, machine_data)
                 .await?;
             managed_host.machine_id = Some(host_machine_id)
         }
@@ -201,7 +180,7 @@ impl MachineCreator {
         txn: &mut PgConnection,
         managed_host: &ManagedHost<'_>,
         report: &mut EndpointExplorationReport,
-        metadata: &Metadata,
+        machine_data: Option<&ExpectedMachineData>,
     ) -> CarbideResult<Option<MachineId>> {
         // If there's already a machine with the same MAC address as this endpoint, return false. We
         // can't rely on matching the machine_id, as it may have migrated to a stable MachineID
@@ -242,7 +221,7 @@ impl MachineCreator {
         tracing::info!(%machine_id, "Minted predicted host ID for zero-DPU machine");
 
         let existing_machine = db::machine::find_one(
-            txn,
+            &mut *txn,
             machine_id,
             MachineSearchConfig {
                 include_predicted_host: true,
@@ -269,21 +248,14 @@ impl MachineCreator {
             return Ok(None);
         }
 
-        self.create_machine_from_explored_managed_host(
-            txn,
-            managed_host,
-            machine_id,
-            metadata,
-            None,
-            true,
-        )
-        .await?;
+        self.create_machine_from_explored_managed_host(txn, managed_host, machine_id, machine_data)
+            .await?;
 
         // Create and attach a non-DPU machine_interface to the host for every MAC address we see in
         // the exploration report
         for mac_address in mac_addresses {
             if let Some(machine_interface) =
-                db::machine_interface::find_by_mac_address(txn, mac_address)
+                db::machine_interface::find_by_mac_address(&mut *txn, mac_address)
                     .await?
                     .into_iter()
                     .next()
@@ -336,12 +308,8 @@ impl MachineCreator {
         &self,
         txn: &mut PgConnection,
         explored_dpu: &ExploredDpu,
-        dpf_enabled: bool,
     ) -> CarbideResult<bool> {
-        if let Some(dpu_machine) = self
-            .create_dpu_machine(txn, explored_dpu, dpf_enabled)
-            .await?
-        {
+        if let Some(dpu_machine) = self.create_dpu_machine(txn, explored_dpu).await? {
             self.configure_dpu_interface(txn, explored_dpu).await?;
             self.update_dpu_network_config(txn, &dpu_machine).await?;
             let dpu_machine_id: &MachineId = explored_dpu.report.machine_id.as_ref().unwrap();
@@ -361,18 +329,14 @@ impl MachineCreator {
         txn: &mut PgConnection,
         managed_host: &ManagedHost<'_>,
         predicted_machine_id: &MachineId,
-        metadata: &Metadata,
-        sku_id: Option<&String>,
-        dpf_enabled: bool,
+        machine_data: Option<&ExpectedMachineData>,
     ) -> CarbideResult<()> {
         _ = db::machine::create(
             txn,
             Some(&self.common_pools),
             predicted_machine_id,
             ManagedHostState::Created,
-            metadata,
-            sku_id,
-            dpf_enabled,
+            machine_data,
             CURRENT_STATE_MODEL_VERSION,
         )
         .await?;
@@ -410,7 +374,7 @@ impl MachineCreator {
 
         // If machine_interface exists for the DPU and machine_id is not updated, do it now.
         if let Some(oob_net0_mac) = oob_net0_mac {
-            let mi = db::machine_interface::find_by_mac_address(txn, oob_net0_mac).await?;
+            let mi = db::machine_interface::find_by_mac_address(&mut *txn, oob_net0_mac).await?;
 
             if let Some(interface) = mi.first()
                 && interface.machine_id.is_none()
@@ -445,10 +409,11 @@ impl MachineCreator {
         &self,
         txn: &mut PgConnection,
         explored_dpu: &ExploredDpu,
-        dpf_enabled: bool,
     ) -> CarbideResult<Option<Machine>> {
         let dpu_machine_id = explored_dpu.report.machine_id.as_ref().unwrap();
-        match db::machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default()).await? {
+        match db::machine::find_one(&mut *txn, dpu_machine_id, MachineSearchConfig::default())
+            .await?
+        {
             // Do nothing if machine exists. It'll be reprovisioned via redfish
             Some(_existing_machine) => Ok(None),
             None => match db::machine::create(
@@ -456,11 +421,7 @@ impl MachineCreator {
                 Some(&self.common_pools),
                 dpu_machine_id,
                 ManagedHostState::Created,
-                &Metadata::default(),
                 None,
-                // Although this field is not used in case of DPU, but let's keep them
-                // in sync.
-                dpf_enabled,
                 CURRENT_STATE_MODEL_VERSION,
             )
             .await
@@ -482,9 +443,7 @@ impl MachineCreator {
         txn: &mut PgConnection,
         explored_host: &ManagedHost<'_>,
         explored_dpu: &ExploredDpu,
-        metadata: &Metadata,
-        sku_id: Option<&String>,
-        dpf_enabled: bool,
+        machine_data: Option<&ExpectedMachineData>,
     ) -> CarbideResult<MachineId> {
         let dpu_hw_info = explored_dpu.hardware_info()?;
         // Create Host proactively.
@@ -512,9 +471,7 @@ impl MachineCreator {
                 explored_host,
                 &host_machine_interface,
                 explored_dpu,
-                metadata,
-                sku_id,
-                dpf_enabled,
+                machine_data,
             )
             .await?;
 
@@ -611,9 +568,7 @@ impl MachineCreator {
         explored_host: &ManagedHost<'_>,
         host_machine_interface: &MachineInterfaceSnapshot,
         explored_dpu: &ExploredDpu,
-        metadata: &Metadata,
-        sku_id: Option<&String>,
-        dpf_enabled: bool,
+        machine_data: Option<&ExpectedMachineData>,
     ) -> CarbideResult<MachineId> {
         match &explored_host.machine_id {
             Some(host_machine_id) => {
@@ -636,9 +591,7 @@ impl MachineCreator {
                         txn,
                         explored_host.explored_host,
                         explored_dpu,
-                        metadata,
-                        sku_id,
-                        dpf_enabled,
+                        machine_data,
                     )
                     .await?;
 
@@ -663,9 +616,7 @@ impl MachineCreator {
         txn: &mut PgConnection,
         explored_host: &ExploredManagedHost,
         explored_dpu: &ExploredDpu,
-        metadata: &Metadata,
-        sku_id: Option<&String>,
-        dpf_enabled: bool,
+        machine_data: Option<&ExpectedMachineData>,
     ) -> CarbideResult<MachineId> {
         let dpu_hw_info = explored_dpu.hardware_info()?;
         let predicted_machine_id = host_id_from_dpu_hardware_info(&dpu_hw_info)
@@ -676,9 +627,7 @@ impl MachineCreator {
             Some(&self.common_pools),
             &predicted_machine_id,
             ManagedHostState::Created,
-            metadata,
-            sku_id,
-            dpf_enabled,
+            machine_data,
             CURRENT_STATE_MODEL_VERSION,
         )
         .await?;

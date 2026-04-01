@@ -603,12 +603,12 @@ fn test_get_type_info_methods() {
 // Tests for MessageTypeInfo utility methods
 #[test]
 fn test_message_type_info_methods() {
-    let info = MessageTypeInfo::new(
-        "TestType".to_string(),
-        vec!["pattern1".to_string(), "pattern2".to_string()],
-        Some(PublishOptions::default().with_qos(QoS::AtLeastOnce)),
-        SerializationFormat::Json,
-    );
+    let info = MessageTypeInfo {
+        type_name: "TestType".to_string(),
+        patterns: vec!["pattern1".to_string(), "pattern2".to_string()],
+        publish_options: Some(PublishOptions::default().with_qos(QoS::AtLeastOnce)),
+        format: SerializationFormat::Json,
+    };
 
     assert_eq!(info.pattern_count(), 2);
     assert!(info.has_pattern("pattern1"));
@@ -622,12 +622,12 @@ fn test_message_type_info_methods() {
 
 #[test]
 fn test_message_type_info_no_qos_override() {
-    let info = MessageTypeInfo::new(
-        "TestType".to_string(),
-        vec!["pattern".to_string()],
-        None,
-        SerializationFormat::Raw,
-    );
+    let info = MessageTypeInfo {
+        type_name: "TestType".to_string(),
+        patterns: vec!["pattern".to_string()],
+        publish_options: None,
+        format: SerializationFormat::Raw,
+    };
 
     assert!(!info.uses_qos_override());
     assert_eq!(info.effective_qos(QoS::ExactlyOnce), QoS::ExactlyOnce); // Uses default

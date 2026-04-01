@@ -57,6 +57,7 @@ sqlx = { workspace = true, features = [
 ] }
 tempfile = { workspace = true }
 tokio.workspace = true
+tokio-util.workspace = true
 tracing = { workspace = true }
 tracing-subscriber = { features = [
   "env-filter",

@@ -20,10 +20,10 @@ use std::fs;
 use std::path::Path;
 
 use ::rpc::forge as rpc;
+use carbide_network::ip::prefix::{IpNet, Ipv4Net};
+use carbide_network::sanitized_mac;
+use carbide_network::virtualization::VpcVirtualizationType;
 use eyre::WrapErr;
-use forge_network::ip::prefix::Ipv4Net;
-use forge_network::sanitized_mac;
-use forge_network::virtualization::VpcVirtualizationType;
 use gtmpl_derive::Gtmpl;
 use mac_address::MacAddress;
 use serde::Deserialize;
@@ -34,6 +34,17 @@ pub const PATH_ACL: &str = "etc/cumulus/acl/policy.d/70-forge_nvue.rules";
 
 const TMPL_ETV_WITH_NVUE: &str = include_str!("../templates/nvue_startup_etv.conf");
 const TMPL_FNN: &str = include_str!("../templates/nvue_startup_fnn.conf");
+
+/// Returns the NVUE template for the given virtualization type.
+pub fn template_for(vtype: VpcVirtualizationType) -> eyre::Result<&'static str> {
+    match vtype {
+        VpcVirtualizationType::EthernetVirtualizerWithNvue => Ok(TMPL_ETV_WITH_NVUE),
+        VpcVirtualizationType::Fnn => Ok(TMPL_FNN),
+        VpcVirtualizationType::EthernetVirtualizer => Err(eyre::eyre!(
+            "Legacy EthernetVirtualizer is no longer supported"
+        )),
+    }
+}
 
 /// This value is added to the priority value specified
 /// by users for their NSG rules.
@@ -58,14 +69,42 @@ const NETWORK_SECURITY_GROUP_RULE_PRIORITY_START: u32 = 2000;
 /// associations per interface._*
 const NETWORK_SECURITY_GROUP_RULE_COUNT_MAX: usize = 10000;
 
-pub fn build(conf: NvueConfig) -> eyre::Result<String> {
-    if !conf.vpc_virtualization_type.supports_nvue() {
-        return Err(eyre::eyre!(
-            "cannot nvue::build. provided virtualizaton type does not support nvue: {}",
-            conf.vpc_virtualization_type,
-        ));
-    }
+/// split_prefixes_by_family splits a list of CIDR prefix strings
+/// into IPv4 and IPv6 buckets. Each bucket gets sequential indices
+/// starting at `start_index`. Unparseable prefixes are warned and
+/// dropped (because NVUE would fail on invalid addresses anyway).
+fn split_prefixes_by_family(prefixes: &[String], start_index: usize) -> (Vec<Prefix>, Vec<Prefix>) {
+    let valid: Vec<_> = prefixes
+        .iter()
+        .filter_map(|s| match s.parse::<IpNet>() {
+            Ok(net) => Some((s.clone(), net)),
+            Err(e) => {
+                tracing::warn!(prefix = %s, error = %e, "dropping unparseable prefix");
+                None
+            }
+        })
+        .collect();
 
+    let (v4, v6): (Vec<_>, Vec<_>) = valid
+        .into_iter()
+        .partition(|(_, net)| matches!(net, IpNet::V4(_)));
+
+    let make_prefixes = |items: Vec<(String, IpNet)>| -> Vec<Prefix> {
+        items
+            .into_iter()
+            .enumerate()
+            .map(|(idx, (s, _))| Prefix {
+                Index: format!("{}", idx + start_index),
+                Prefix: s,
+            })
+            .collect()
+    };
+
+    (make_prefixes(v4), make_prefixes(v6))
+}
+
+pub fn build(conf: NvueConfig) -> eyre::Result<String> {
+    let template = template_for(conf.vpc_virtualization_type)?;
     let host_interfaces: Vec<TmplHostInterfaces> = conf
         .ct_access_vlans
         .into_iter()
@@ -86,6 +125,8 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         .ct_routing_profile
         .as_ref()
         .map(|rt| TmplRoutingProfile {
+            LeakDefaultRouteFromUnderlay: rt.leak_default_route_from_underlay,
+            LeakTenantHostRoutesToUnderlay: rt.leak_tenant_host_routes_to_underlay,
             RouteTargetImports: rt
                 .route_target_imports
                 .iter()
@@ -159,44 +200,44 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     let mut port_configs = Vec::with_capacity(conf.ct_port_configs.len());
     let mut vpc_configs = HashMap::<u32, TmplVpc>::new();
 
-    let mut has_vpc_peer_prefixes = false;
-    let mut vpc_peer_prefixes = vec![];
-    let mut has_vpc_peer_vnis = false;
-    let mut vpc_peer_vnis = vec![];
-    for (base_i, network) in conf.ct_port_configs.into_iter().enumerate() {
-        // If the instance is NOT in an FNN VPC, We make an assumption
-        // here that there is only one tenant interface or at least
-        // the same VPC for all interfaces if there are multiple
-        // interfaces.
-        // Log if multiple interfaces are seen.
-        // This could be removed if we stop supporting non-FNN sites.
-        if has_vpc_peer_prefixes {
-            tracing::info!(
-                "Found more than one tenant interface, so VPC peering details of only the first found will be used when FNN is not in use."
-            );
-        }
-        if !has_vpc_peer_prefixes && !network.vpc_peer_prefixes.is_empty() {
-            has_vpc_peer_prefixes = true;
-            vpc_peer_prefixes = network
-                .vpc_peer_prefixes
-                .iter()
-                .enumerate()
-                .map(|(i, prefix)| Prefix {
-                    Index: format!("{}", i + 1),
-                    Prefix: prefix.to_string(),
-                })
-                .collect();
-        }
-        if !has_vpc_peer_vnis && !network.vpc_peer_vnis.is_empty() {
-            has_vpc_peer_vnis = true;
-            vpc_peer_vnis = network
-                .vpc_peer_vnis
+    // For non-FNN (ETV), tenant-wide VPC peer prefixes and VNIs come from
+    // the first port config that has them. Extract these before the loop.
+    let (vpc_peer_prefixes, vpc_peer_prefixes_ipv6) = conf
+        .ct_port_configs
+        .iter()
+        .find(|p| !p.vpc_peer_prefixes.is_empty())
+        .map(|p| split_prefixes_by_family(&p.vpc_peer_prefixes, 1))
+        .unwrap_or_default();
+    let vpc_peer_vnis: Vec<TmplVni> = conf
+        .ct_port_configs
+        .iter()
+        .find(|p| !p.vpc_peer_vnis.is_empty())
+        .map(|p| {
+            p.vpc_peer_vnis
                 .iter()
                 .map(|vni| TmplVni { Vni: *vni })
                 .collect()
-        }
+        })
+        .unwrap_or_default();
 
+    if conf
+        .ct_port_configs
+        .iter()
+        .filter(|p| !p.vpc_peer_prefixes.is_empty())
+        .count()
+        > 1
+    {
+        tracing::info!(
+            "Found more than one tenant interface, so VPC peering details of only the first found will be used when FNN is not in use."
+        );
+    }
+
+    let mut has_any_vpc_tenant_host_leak_to_underlay = false;
+
+    for (base_i, network) in conf.ct_port_configs.into_iter().enumerate() {
         let svi_mac = vni_to_svi_mac(network.vni.unwrap_or(0))?.to_string();
+        let (vpc_ipv4, vpc_ipv6) =
+            split_prefixes_by_family(&network.vpc_prefixes, (base_i + 1) * 10);
         let port = TmplConfigPort {
             InterfaceName: network.interface_name.clone(),
             Index: format!("{}", (base_i + 1) * 10),
@@ -206,19 +247,16 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             IPs: vec![network.gateway_cidr.clone()],
             SviIP: network.svi_ip.unwrap_or("".to_string()), // FNN only
             SviMAC: svi_mac,
-            VrfLoopback: network.tenant_vrf_loopback_ip.unwrap_or_default(),
             VrfName: format!("vpc_{}", network.l3_vni.unwrap_or_default()),
             HasVpcPeerPrefixes: !network.vpc_peer_prefixes.is_empty(),
-            HasVpcPrefixes: !network.vpc_prefixes.is_empty(),
-            VpcPrefixes: network
-                .vpc_prefixes
+            HasVpcPeerPrefixesIpv6: network
+                .vpc_peer_prefixes
                 .iter()
-                .enumerate()
-                .map(|(i, prefix)| Prefix {
-                    Index: format!("{}", (base_i + 1) * 10 + i),
-                    Prefix: prefix.to_string(),
-                })
-                .collect(),
+                .any(|p| matches!(p.parse::<IpNet>(), Ok(IpNet::V6(_)))),
+            HasVpcPrefixes: !vpc_ipv4.is_empty(),
+            VpcPrefixes: vpc_ipv4,
+            HasVpcPrefixesIpv6: !vpc_ipv6.is_empty(),
+            VpcPrefixesIpv6: vpc_ipv6,
             IsL2Segment: network.is_l2_segment,
             StorageTarget: false, // XXX (Classic, L3)
             HasNetworkSecurityGroup: network.network_security_group_id.is_some(),
@@ -238,28 +276,35 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                 .transpose()?,
         };
 
+        has_any_vpc_tenant_host_leak_to_underlay = has_any_vpc_tenant_host_leak_to_underlay
+            || routing_profile
+                .as_ref()
+                .map(|p| p.LeakTenantHostRoutesToUnderlay)
+                .unwrap_or_default();
+        let (vpc_peer_ipv4, vpc_peer_ipv6) =
+            split_prefixes_by_family(&network.vpc_peer_prefixes, 1);
+
         vpc_configs
             .entry(network.l3_vni.unwrap_or_default())
-            .and_modify(|v| v.PortPrefixes.extend_from_slice(&port.VpcPrefixes))
+            .and_modify(|v| {
+                v.PortPrefixes.extend_from_slice(&port.VpcPrefixes);
+                v.PortPrefixesIpv6.extend_from_slice(&port.VpcPrefixesIpv6);
+                v.PortConfigs.push(port.clone());
+            })
             .or_insert_with(|| TmplVpc {
                 VrfName: port.VrfName.clone(),
                 L3VNI: network.l3_vni.unwrap_or_default(),
-                VrfLoopback: port.VrfLoopback.clone(),
+                VrfLoopback: network.tenant_vrf_loopback_ip.unwrap_or_default(),
                 // TODO: This is wasteful because it should be specific to a VPC.
                 // Otherwise, all VPCs will have a BGP peer config for each
                 // interface, regardless of whether the interface is owned by
                 // that VPC.
                 HostInterfaces: host_interfaces.clone(),
-                HasVpcPeerPrefixes: !network.vpc_peer_prefixes.is_empty(),
-                VpcPeerPrefixes: network
-                    .vpc_peer_prefixes
-                    .iter()
-                    .enumerate()
-                    .map(|(i, prefix)| Prefix {
-                        Index: format!("{}", i + 1),
-                        Prefix: prefix.to_string(),
-                    })
-                    .collect(),
+                PortConfigs: vec![port.clone()],
+                HasVpcPeerPrefixes: !vpc_peer_ipv4.is_empty(),
+                VpcPeerPrefixes: vpc_peer_ipv4,
+                HasVpcPeerPrefixesIpv6: !vpc_peer_ipv6.is_empty(),
+                VpcPeerPrefixesIpv6: vpc_peer_ipv6,
                 HasVpcPeerVnis: !network.vpc_peer_vnis.is_empty(),
                 VpcPeerVnis: network
                     .vpc_peer_vnis
@@ -268,19 +313,13 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                     .collect(),
                 RoutingProfile: routing_profile.clone(),
                 PortPrefixes: port.VpcPrefixes.clone(),
+                PortPrefixesIpv6: port.VpcPrefixesIpv6.clone(),
             });
 
         port_configs.push(port);
     }
 
-    if port_configs.is_empty() {
-        return Err(eyre::eyre!(
-            "cannot configure VrfLoopback; no address allocations",
-        ));
-    }
-
-    let vrf_loopback = port_configs[0].VrfLoopback.clone();
-    let include_bridge = port_configs.iter().fold(true, |a, b| a & b.IsL2Segment);
+    let include_bridge = !port_configs.is_empty() && port_configs.iter().all(|b| b.IsL2Segment);
 
     let (
         ingress_ipv4_override_rules,
@@ -359,6 +398,14 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     let mut vpcs = vpc_configs.into_values().collect::<Vec<TmplVpc>>();
     vpcs.sort_by(|a, b| a.L3VNI.cmp(&b.L3VNI));
 
+    let (traffic_intercept_ipv4, traffic_intercept_ipv6) =
+        split_prefixes_by_family(&conf.traffic_intercept_public_prefixes, 1);
+    let (anycast_ipv4, anycast_ipv6) = split_prefixes_by_family(&conf.anycast_site_prefixes, 1000);
+    let (site_fabric_ipv4, site_fabric_ipv6) =
+        split_prefixes_by_family(&conf.site_fabric_prefixes, 1000);
+    let (deny_ipv4, deny_ipv6) =
+        split_prefixes_by_family(&conf.deny_prefixes, 1000 + deny_prefix_index_offset);
+
     let params = TmplNvue {
         UseAdminNetwork: conf.use_admin_network,
         LoopbackIP: conf.loopback_ip,
@@ -373,15 +420,9 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         PublicPrefixInternalNextHop: public_prefix_internal_next_hop,
         VfInterceptHbnRepresentorIp: vf_intercept_hbn_representor_ip,
         VfInterceptBridgeSf: conf.vf_intercept_bridge_sf.unwrap_or_default(),
-        TrafficInterceptPublicPrefixes: conf
-            .traffic_intercept_public_prefixes
-            .iter()
-            .enumerate()
-            .map(|(i, s)| Prefix {
-                Index: format!("{}", 1 + i),
-                Prefix: s.to_string(),
-            })
-            .collect(),
+        HasAnyVpcTenantHostLeakToUnderlay: has_any_vpc_tenant_host_leak_to_underlay,
+        TrafficInterceptPublicPrefixes: traffic_intercept_ipv4,
+        TrafficInterceptPublicPrefixesIpv6: traffic_intercept_ipv6,
         ASN: conf.asn,
         DatacenterASN: conf.datacenter_asn,
         UseCommonInternalTenantRouteTarget: conf.common_internal_route_target.is_some(),
@@ -404,35 +445,16 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         Uplinks: conf.uplinks.clone(),
         RouteServers: conf.route_servers.clone(),
         DHCPServers: conf.dhcp_servers.clone(),
-        AnycastSitePrefixes: conf
-            .anycast_site_prefixes
-            .iter()
-            .enumerate()
-            .map(|(i, s)| Prefix {
-                Index: format!("{}", 1000 + i),
-                Prefix: s.to_string(),
-            })
-            .collect(),
-        HasSiteFabricPrefixes: !conf.site_fabric_prefixes.is_empty(),
-        SiteFabricPrefixes: conf
-            .site_fabric_prefixes
-            .iter()
-            .enumerate()
-            .map(|(i, s)| Prefix {
-                Index: format!("{}", 1000 + i),
-                Prefix: s.to_string(),
-            })
-            .collect(),
-        HasDenyPrefixes: !conf.deny_prefixes.is_empty(),
-        DenyPrefixes: conf
-            .deny_prefixes
-            .iter()
-            .enumerate()
-            .map(|(i, s)| Prefix {
-                Index: format!("{}", 1000 + deny_prefix_index_offset + i),
-                Prefix: s.to_string(),
-            })
-            .collect(),
+        AnycastSitePrefixes: anycast_ipv4,
+        AnycastSitePrefixesIpv6: anycast_ipv6,
+        HasSiteFabricPrefixes: !site_fabric_ipv4.is_empty(),
+        SiteFabricPrefixes: site_fabric_ipv4,
+        HasSiteFabricPrefixesIpv6: !site_fabric_ipv6.is_empty(),
+        SiteFabricPrefixesIpv6: site_fabric_ipv6,
+        HasDenyPrefixes: !deny_ipv4.is_empty(),
+        DenyPrefixes: deny_ipv4,
+        HasDenyPrefixesIpv6: !deny_ipv6.is_empty(),
+        DenyPrefixesIpv6: deny_ipv6,
         StatefulAclsEnabled: conf.stateful_acls_enabled,
         UseVpcIsolation: conf.use_vpc_isolation,
         HasIpv4IngressSecurityPolicyOverrideRules: !ingress_ipv4_override_rules.is_empty(),
@@ -449,7 +471,6 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             Vpcs: vpcs,
             VrfName: conf.ct_vrf_name,
             L3VNI: conf.ct_l3_vni.unwrap_or_default().to_string(),
-            VrfLoopback: vrf_loopback,
             PortConfigs: port_configs,
             HasHostASN: conf.tenant_host_asn.is_some(),
             HostASN: conf.tenant_host_asn.unwrap_or_default(),
@@ -464,9 +485,11 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             EgressNetworkSecurityGroupRulesIpv4: merged_egress_ipv4_nsg_rules,
             IngressNetworkSecurityGroupRulesIpv6: merged_ingress_ipv6_nsg_rules,
             EgressNetworkSecurityGroupRulesIpv6: merged_egress_ipv6_nsg_rules,
-            HasVpcPeerPrefixes: has_vpc_peer_prefixes,
+            HasVpcPeerPrefixes: !vpc_peer_prefixes.is_empty(),
             VpcPeerPrefixes: vpc_peer_prefixes,
-            HasVpcPeerVnis: has_vpc_peer_vnis,
+            HasVpcPeerPrefixesIpv6: !vpc_peer_prefixes_ipv6.is_empty(),
+            VpcPeerPrefixesIpv6: vpc_peer_prefixes_ipv6,
+            HasVpcPeerVnis: !vpc_peer_vnis.is_empty(),
             VpcPeerVnis: vpc_peer_vnis,
         },
         // XXX: Unused placeholders for later.
@@ -479,28 +502,10 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         IncludeBridge: include_bridge,
     };
 
-    // Returns the full content of the nvue template for the forge-dpu-agent
-    // to load for the given virtualization type. Since `EthernetVirtualizer`
-    // (non-nvue) is still in the mix, this is an Option<String>. However, once
-    // we're fully moved away from ETV (and everything is nvue), this can simply
-    // become a String.
-    let virtualization_template = match conf.vpc_virtualization_type {
-        VpcVirtualizationType::EthernetVirtualizer => None,
-        VpcVirtualizationType::EthernetVirtualizerWithNvue => Some(TMPL_ETV_WITH_NVUE),
-        VpcVirtualizationType::Fnn => Some(TMPL_FNN),
-    };
-
-    if let Some(template) = virtualization_template {
-        gtmpl::template(template, params).map_err(|e| {
-            println!("ERR filling template: {e}",);
-            e.into()
-        })
-    } else {
-        Err(eyre::eyre!(
-            "cannot nvue::build. no nvue template configured for virtualization type: {}",
-            conf.vpc_virtualization_type
-        ))
-    }
+    gtmpl::template(template, params).map_err(|e| {
+        println!("ERR filling template: {e}",);
+        e.into()
+    })
 }
 
 /// Prepares a set of network security groups rules for template use.
@@ -508,7 +513,6 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
 /// exceed predefined limits.
 ///
 /// * `rules` - A list of network security group rules
-///
 #[allow(clippy::type_complexity)]
 fn prepare_network_security_group_rules(
     rules: Vec<NetworkSecurityGroupRule>,
@@ -597,7 +601,6 @@ fn prepare_network_security_group_rules(
 /// groups will be returned.
 ///
 /// * `nsgs` - A list of references to network security groups to expand.
-///
 fn expand_network_security_group_rules(
     rules: Vec<&NetworkSecurityGroupRule>,
 ) -> Vec<TmplNetworkSecurityGroupRule> {
@@ -825,6 +828,19 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
         tracing::info!("nv config apply: {stdout}");
     }
 
+    // Restart nl2doca
+    // This is a workaround for a bug in versions of HBN 3.2.0 and older that
+    // will sometimes lead to loss of connectivity when switch over to an L3 evpn overlay.
+    let stdout = super::hbn::run_in_container(
+        &container_id,
+        &["supervisorctl", "restart", "nl2doca"],
+        false,
+    )
+    .await?;
+    if !stdout.is_empty() {
+        tracing::info!("nl2doca restart: {stdout}");
+    }
+
     Ok(())
 }
 
@@ -901,6 +917,8 @@ pub struct NvueConfig {
 
 #[derive(Clone, Deserialize, Debug)]
 pub struct RoutingProfile {
+    pub leak_default_route_from_underlay: bool,
+    pub leak_tenant_host_routes_to_underlay: bool,
     pub route_target_imports: Vec<RouteTargetConfig>,
     pub route_targets_on_exports: Vec<RouteTargetConfig>,
 }
@@ -1037,11 +1055,16 @@ struct TmplNvue {
     /// The SF used to route traffic VF traffic to the HBN pod.
     VfInterceptBridgeSf: String,
 
+    /// Does any VPC at all have a routing profile that says
+    /// tenant routes should leak to the underlay?
+    HasAnyVpcTenantHostLeakToUnderlay: bool,
+
     /// The size of the of the prefix used for the internal
     /// bridge routing.
     InterceptBridgePrefixLen: u8,
 
     TrafficInterceptPublicPrefixes: Vec<Prefix>,
+    TrafficInterceptPublicPrefixesIpv6: Vec<Prefix>,
 
     ASN: u32,
     DatacenterASN: u32,
@@ -1059,19 +1082,24 @@ struct TmplNvue {
 
     /// Format: CIDR of the infastructure prefixes to block. Origin is carbide-api config file.
     DenyPrefixes: Vec<Prefix>,
+    DenyPrefixesIpv6: Vec<Prefix>,
 
     HasDenyPrefixes: bool,
+    HasDenyPrefixesIpv6: bool,
 
     /// Format: CIDR of the site prefixes for tenant use.  If VPC isolation is applied,
     /// and there is no network security group applied overriding the behavior,
     /// these will be blocked as well.
     SiteFabricPrefixes: Vec<Prefix>,
+    SiteFabricPrefixesIpv6: Vec<Prefix>,
 
     HasSiteFabricPrefixes: bool,
+    HasSiteFabricPrefixesIpv6: bool,
 
     /// Format: CIDR of the site prefixes that tenants are allowed to
     /// from the host to the DPU.
     AnycastSitePrefixes: Vec<Prefix>,
+    AnycastSitePrefixesIpv6: Vec<Prefix>,
 
     // Whether VPC-isolation should be applied.
     UseVpcIsolation: bool,
@@ -1146,6 +1174,8 @@ struct TmplNetworkSecurityGroupRule {
 #[allow(non_snake_case)]
 #[derive(Clone, Gtmpl, Debug)]
 struct TmplRoutingProfile {
+    LeakTenantHostRoutesToUnderlay: bool,
+    LeakDefaultRouteFromUnderlay: bool,
     RouteTargetImports: Vec<TmplRouteTargetConfig>,
     RouteTargetsOnExports: Vec<TmplRouteTargetConfig>,
 }
@@ -1168,16 +1198,8 @@ struct TmplComputeTenant {
     /// a pool of VNIs to assign as we see fit, so we carve out blocks
     /// per-site, and then manage them via the VPC_VNI (vpc-vni) resource
     /// pool.
-    ///
     // TODO(chet): Does this need to be a string?
     L3VNI: String,
-
-    /// VrfLoopback is the tenant loopback IP assigned to each DPU.
-    /// It was originally expected to be allocated from an interface-specific
-    /// /30 (as the first IP in the allocation), but it's actually allocated
-    /// from a dedicated resource-pool, handed out as un-related /32s, and
-    /// interfaces in FNN get /31s.
-    VrfLoopback: String, // XXX: This is in the Classic template -- where does the IP come from?
 
     HasHostASN: bool,
     /// An ASN allocated for tenants to use
@@ -1192,6 +1214,8 @@ struct TmplComputeTenant {
 
     HasVpcPeerPrefixes: bool,
     VpcPeerPrefixes: Vec<Prefix>,
+    HasVpcPeerPrefixesIpv6: bool,
+    VpcPeerPrefixesIpv6: Vec<Prefix>,
 
     HasVpcPeerVnis: bool,
     VpcPeerVnis: Vec<TmplVni>,
@@ -1241,15 +1265,19 @@ struct TmplVpc {
     VrfLoopback: String,
 
     HostInterfaces: Vec<TmplHostInterfaces>,
+    PortConfigs: Vec<TmplConfigPort>,
 
     HasVpcPeerPrefixes: bool,
     VpcPeerPrefixes: Vec<Prefix>,
+    HasVpcPeerPrefixesIpv6: bool,
+    VpcPeerPrefixesIpv6: Vec<Prefix>,
 
     // The relationship between interface:VPC is 1:1 but VPC:interface is 1:M.
     // So, a single VPC could have multiple, per-port, VpcPrefixes.  We can
     // accumulate these and pass them into the template for ease-of-use.
     /// The list of prefixes for all ports/interfaces that belong to this VPC.
     PortPrefixes: Vec<Prefix>,
+    PortPrefixesIpv6: Vec<Prefix>,
 
     HasVpcPeerVnis: bool,
     VpcPeerVnis: Vec<TmplVni>,
@@ -1303,8 +1331,6 @@ struct TmplConfigPort {
     /// Format: 48bit mac address in standard hex notation, e.g: 00:00:00:00:00:10
     SviMAC: String,
 
-    VrfLoopback: String,
-
     /// The name of the VRF this interface belongs to.
     VrfName: String,
 
@@ -1323,6 +1349,9 @@ struct TmplConfigPort {
     IsPhy: bool,
 
     HasVpcPeerPrefixes: bool,
+    HasVpcPrefixesIpv6: bool,
+    VpcPrefixesIpv6: Vec<Prefix>,
+    HasVpcPeerPrefixesIpv6: bool,
 
     HasNetworkSecurityGroup: bool,
     NetworkSecurityGroupIndex: Option<u16>,
@@ -1339,4 +1368,426 @@ struct Prefix {
 #[derive(Clone, Gtmpl, Debug)]
 struct TmplVni {
     Vni: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_split_prefixes_by_family() {
+        let prefixes = vec![
+            "10.0.0.0/8".to_string(),
+            "2001:db8::/32".to_string(),
+            "192.168.0.0/16".to_string(),
+            "fd00::/8".to_string(),
+        ];
+        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, 1000);
+
+        assert_eq!(ipv4.len(), 2);
+        assert_eq!(ipv6.len(), 2);
+
+        assert_eq!(ipv4[0].Index, "1000");
+        assert_eq!(ipv4[0].Prefix, "10.0.0.0/8");
+        assert_eq!(ipv4[1].Index, "1001");
+        assert_eq!(ipv4[1].Prefix, "192.168.0.0/16");
+
+        assert_eq!(ipv6[0].Index, "1000");
+        assert_eq!(ipv6[0].Prefix, "2001:db8::/32");
+        assert_eq!(ipv6[1].Index, "1001");
+        assert_eq!(ipv6[1].Prefix, "fd00::/8");
+    }
+
+    #[test]
+    fn test_split_prefixes_ipv4_only() {
+        let prefixes = vec!["10.0.0.0/8".to_string(), "172.16.0.0/12".to_string()];
+        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, 1);
+
+        assert_eq!(ipv4.len(), 2);
+        assert!(ipv6.is_empty());
+    }
+
+    #[test]
+    fn test_split_prefixes_ipv6_only() {
+        let prefixes = vec!["2001:db8::/32".to_string(), "fd00::/8".to_string()];
+        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, 1);
+
+        assert!(ipv4.is_empty());
+        assert_eq!(ipv6.len(), 2);
+    }
+
+    #[test]
+    fn test_split_prefixes_empty() {
+        let prefixes: Vec<String> = vec![];
+        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, 1000);
+
+        assert!(ipv4.is_empty());
+        assert!(ipv6.is_empty());
+    }
+
+    #[test]
+    fn test_split_prefixes_unparseable_dropped() {
+        let prefixes = vec!["not-a-cidr".to_string(), "10.0.0.0/8".to_string()];
+        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, 1);
+
+        assert_eq!(ipv4.len(), 1);
+        assert_eq!(ipv4[0].Prefix, "10.0.0.0/8");
+        assert_eq!(ipv4[0].Index, "1");
+        assert!(ipv6.is_empty());
+    }
+
+    #[test]
+    fn test_split_prefixes_ipv4_mapped_ipv6() {
+        // IPv4-mapped IPv6 addresses (::ffff:x.x.x.x) parse as V6
+        let prefixes = vec![
+            "::ffff:192.0.2.33/128".to_string(),
+            "10.0.0.0/8".to_string(),
+            "2001:db8::/32".to_string(),
+        ];
+        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, 1);
+
+        assert_eq!(ipv4.len(), 1);
+        assert_eq!(ipv4[0].Prefix, "10.0.0.0/8");
+
+        assert_eq!(ipv6.len(), 2);
+        assert_eq!(ipv6[0].Prefix, "::ffff:192.0.2.33/128");
+        assert_eq!(ipv6[1].Prefix, "2001:db8::/32");
+    }
+
+    /// Helper to build a minimal NvueConfig for template rendering tests.
+    /// Uses EthernetVirtualizerWithNvue (ETV) by default.
+    fn minimal_nvue_config() -> NvueConfig {
+        NvueConfig {
+            is_fnn: false,
+            vpc_virtualization_type: VpcVirtualizationType::EthernetVirtualizerWithNvue,
+            use_admin_network: false,
+            loopback_ip: "10.0.0.1".to_string(),
+            asn: 65000,
+            datacenter_asn: 11414,
+            site_global_vpc_vni: None,
+            common_internal_route_target: None,
+            additional_route_target_imports: vec![],
+            secondary_overlay_vtep_ip: None,
+            vf_intercept_bridge_port_name: None,
+            vf_intercept_bridge_sf: None,
+            host_intercept_bridge_port_name: None,
+            internal_bridge_routing_prefix: None,
+            traffic_intercept_public_prefixes: vec![],
+            dpu_hostname: "test-dpu".to_string(),
+            dpu_search_domain: "test.local".to_string(),
+            hbn_version: None,
+            uplinks: vec!["p0_if".to_string()],
+            route_servers: vec![],
+            dhcp_servers: vec![],
+            l3_domains: vec![],
+            deny_prefixes: vec![],
+            site_fabric_prefixes: vec![],
+            anycast_site_prefixes: vec![],
+            tenant_host_asn: Some(65100),
+            use_vpc_isolation: false,
+            stateful_acls_enabled: false,
+            network_security_groups: vec![],
+            network_security_policy_override_rules: vec![],
+            ct_vrf_name: "vpc_100".to_string(),
+            ct_l3_vni: Some(100),
+            ct_vrf_loopback: "10.0.0.2".to_string(),
+            ct_port_configs: vec![],
+            ct_access_vlans: vec![],
+            ct_routing_profile: None,
+        }
+    }
+
+    #[test]
+    fn test_template_for_etv_nvue() {
+        assert!(template_for(VpcVirtualizationType::EthernetVirtualizerWithNvue).is_ok());
+    }
+
+    #[test]
+    fn test_template_for_fnn() {
+        assert!(template_for(VpcVirtualizationType::Fnn).is_ok());
+    }
+
+    #[test]
+    fn test_template_for_rejects_legacy_etv() {
+        let err = template_for(VpcVirtualizationType::EthernetVirtualizer).unwrap_err();
+        assert!(
+            err.to_string().contains("EthernetVirtualizer"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// Helper to compare build() output against a golden file, using the same
+    /// diff-based comparison as the ethernet_virtualization tests.
+    fn assert_build_matches_golden(conf: NvueConfig, golden_file: &str) {
+        let output = build(conf).expect("build should succeed");
+        let expected = golden_file;
+        let r = crate::util::compare_lines(&output, expected, None);
+        if !r.is_identical() {
+            eprintln!("Golden file diff:\n{}", r.report());
+            panic!("build output does not match golden file");
+        }
+    }
+
+    #[test]
+    fn test_build_rejects_legacy_ethernet_virtualizer() {
+        let mut conf = minimal_nvue_config();
+        conf.vpc_virtualization_type = VpcVirtualizationType::EthernetVirtualizer;
+        let err = build(conf).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("EthernetVirtualizer"),
+            "unexpected error message: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_build_etv_no_ipv6_acls_even_with_ipv6_data() {
+        // ETV templates do not support IPv6 ACLs. Even when IPv6 prefix data
+        // is provided, the ETV template should not emit any IPv6 ACL blocks.
+        let mut conf = minimal_nvue_config();
+        conf.use_vpc_isolation = true;
+        conf.deny_prefixes = vec!["192.0.2.0/24".into(), "2001:db8:dead::/48".into()];
+        conf.site_fabric_prefixes = vec!["10.0.0.0/16".into(), "fd00::/48".into()];
+        conf.ct_port_configs = vec![PortConfig {
+            interface_name: "pf0vf0_if".into(),
+            vlan: 100,
+            vni: Some(1000),
+            l3_vni: Some(100),
+            gateway_cidr: "10.0.1.1/24".into(),
+            vpc_prefixes: vec!["10.0.1.0/24".into(), "2001:db8:1::/48".into()],
+            vpc_peer_prefixes: vec!["10.0.2.0/24".into(), "2001:db8:2::/48".into()],
+            vpc_peer_vnis: vec![],
+            svi_ip: None,
+            tenant_vrf_loopback_ip: None,
+            is_l2_segment: true,
+            is_phy: false,
+            network_security_group_id: None,
+        }];
+        conf.ct_access_vlans = vec![VlanConfig {
+            vlan_id: 100,
+            network: "10.0.1.0/24".into(),
+            ip: "10.0.1.2".into(),
+        }];
+        assert_build_matches_golden(
+            conf,
+            include_str!("../templates/tests/nvue_build_etv_ipv6_data.yaml.expected"),
+        );
+    }
+
+    #[test]
+    fn test_build_fnn_ipv6_acls() {
+        let mut conf = minimal_nvue_config();
+        conf.is_fnn = true;
+        conf.vpc_virtualization_type = VpcVirtualizationType::Fnn;
+        conf.use_vpc_isolation = true;
+        conf.deny_prefixes = vec!["192.0.2.0/24".into(), "2001:db8:bad::/48".into()];
+        conf.site_fabric_prefixes = vec!["10.0.0.0/16".into(), "fd00:abcd::/32".into()];
+        conf.ct_routing_profile = Some(RoutingProfile {
+            leak_default_route_from_underlay: false,
+            leak_tenant_host_routes_to_underlay: false,
+            route_target_imports: vec![],
+            route_targets_on_exports: vec![],
+        });
+        conf.ct_port_configs = vec![PortConfig {
+            interface_name: "pf0vf0_if".into(),
+            vlan: 100,
+            vni: Some(1000),
+            l3_vni: Some(100),
+            gateway_cidr: "10.0.1.1/24".into(),
+            vpc_prefixes: vec!["10.0.1.0/24".into(), "2001:db8:1::/48".into()],
+            vpc_peer_prefixes: vec!["10.0.2.0/24".into(), "2001:db8:2::/48".into()],
+            vpc_peer_vnis: vec![],
+            svi_ip: Some("10.0.1.254".into()),
+            tenant_vrf_loopback_ip: Some("10.0.0.2".into()),
+            is_l2_segment: false,
+            is_phy: false,
+            network_security_group_id: None,
+        }];
+        conf.ct_access_vlans = vec![VlanConfig {
+            vlan_id: 100,
+            network: "10.0.1.0/24".into(),
+            ip: "10.0.1.2".into(),
+        }];
+        assert_build_matches_golden(
+            conf,
+            include_str!("../templates/tests/nvue_build_fnn_ipv6_acls.yaml.expected"),
+        );
+    }
+
+    #[test]
+    fn test_build_ipv4_only_no_ipv6_acls() {
+        let mut conf = minimal_nvue_config();
+        conf.use_vpc_isolation = true;
+        conf.deny_prefixes = vec!["192.0.2.0/24".into()];
+        conf.site_fabric_prefixes = vec!["10.0.0.0/16".into()];
+        conf.ct_port_configs = vec![PortConfig {
+            interface_name: "pf0vf0_if".into(),
+            vlan: 100,
+            vni: Some(1000),
+            l3_vni: Some(100),
+            gateway_cidr: "10.0.1.1/24".into(),
+            vpc_prefixes: vec!["10.0.1.0/24".into()],
+            vpc_peer_prefixes: vec!["10.0.2.0/24".into()],
+            vpc_peer_vnis: vec![],
+            svi_ip: None,
+            tenant_vrf_loopback_ip: None,
+            is_l2_segment: true,
+            is_phy: false,
+            network_security_group_id: None,
+        }];
+        conf.ct_access_vlans = vec![VlanConfig {
+            vlan_id: 100,
+            network: "10.0.1.0/24".into(),
+            ip: "10.0.1.2".into(),
+        }];
+        assert_build_matches_golden(
+            conf,
+            include_str!("../templates/tests/nvue_build_etv_ipv4_only.yaml.expected"),
+        );
+    }
+
+    #[test]
+    fn test_build_fnn_ipv6_only_vpc_prefixes() {
+        // When vpc_prefixes contains only IPv6 entries, HasVpcPrefixes (IPv4)
+        // should be false, and HasVpcPrefixesIpv6 should be true.
+        let mut conf = minimal_nvue_config();
+        conf.is_fnn = true;
+        conf.vpc_virtualization_type = VpcVirtualizationType::Fnn;
+        conf.use_vpc_isolation = true;
+        conf.deny_prefixes = vec!["192.0.2.0/24".into()];
+        conf.site_fabric_prefixes = vec!["10.0.0.0/16".into(), "fd00::/48".into()];
+        conf.ct_routing_profile = Some(RoutingProfile {
+            leak_default_route_from_underlay: false,
+            leak_tenant_host_routes_to_underlay: false,
+
+            route_target_imports: vec![],
+            route_targets_on_exports: vec![],
+        });
+        conf.ct_port_configs = vec![PortConfig {
+            interface_name: "pf0vf0_if".into(),
+            vlan: 100,
+            vni: Some(1000),
+            l3_vni: Some(100),
+            gateway_cidr: "10.0.1.1/24".into(),
+            vpc_prefixes: vec!["2001:db8:1::/48".into(), "2001:db8:2::/48".into()],
+            vpc_peer_prefixes: vec![],
+            vpc_peer_vnis: vec![],
+            svi_ip: Some("10.0.1.254".into()),
+            tenant_vrf_loopback_ip: Some("10.0.0.2".into()),
+            is_l2_segment: false,
+            is_phy: false,
+            network_security_group_id: None,
+        }];
+        conf.ct_access_vlans = vec![VlanConfig {
+            vlan_id: 100,
+            network: "10.0.1.0/24".into(),
+            ip: "10.0.1.2".into(),
+        }];
+        assert_build_matches_golden(
+            conf,
+            include_str!("../templates/tests/nvue_build_fnn_ipv6_only_vpc.yaml.expected"),
+        );
+    }
+
+    #[test]
+    fn test_build_deny_prefix_index_offset() {
+        // When site_fabric_prefixes has entries, deny prefix indices should
+        // start after them (offset by site_fabric_prefixes.len()).
+        let mut conf = minimal_nvue_config();
+        conf.deny_prefixes = vec!["192.0.2.0/24".into(), "2001:db8:bad::/48".into()];
+        conf.site_fabric_prefixes = vec![
+            "10.0.0.0/16".into(),
+            "172.16.0.0/12".into(),
+            "fd00::/48".into(),
+        ];
+        conf.ct_port_configs = vec![PortConfig {
+            interface_name: "pf0vf0_if".into(),
+            vlan: 100,
+            vni: Some(1000),
+            l3_vni: Some(100),
+            gateway_cidr: "10.0.1.1/24".into(),
+            vpc_prefixes: vec!["10.0.1.0/24".into()],
+            vpc_peer_prefixes: vec![],
+            vpc_peer_vnis: vec![],
+            svi_ip: None,
+            tenant_vrf_loopback_ip: None,
+            is_l2_segment: true,
+            is_phy: false,
+            network_security_group_id: None,
+        }];
+        conf.ct_access_vlans = vec![VlanConfig {
+            vlan_id: 100,
+            network: "10.0.1.0/24".into(),
+            ip: "10.0.1.2".into(),
+        }];
+        assert_build_matches_golden(
+            conf,
+            include_str!("../templates/tests/nvue_build_etv_deny_prefix_offset.yaml.expected"),
+        );
+    }
+
+    #[test]
+    fn test_build_fnn_multi_port_ipv6_accumulation() {
+        // When multiple ports belong to the same VPC (same l3_vni),
+        // PortPrefixesIpv6 should accumulate from all ports.
+        let mut conf = minimal_nvue_config();
+        conf.is_fnn = true;
+        conf.vpc_virtualization_type = VpcVirtualizationType::Fnn;
+        conf.use_vpc_isolation = true;
+        conf.site_fabric_prefixes = vec!["10.0.0.0/16".into(), "fd00::/32".into()];
+        conf.ct_routing_profile = Some(RoutingProfile {
+            leak_default_route_from_underlay: false,
+            leak_tenant_host_routes_to_underlay: false,
+            route_target_imports: vec![],
+            route_targets_on_exports: vec![],
+        });
+        conf.ct_port_configs = vec![
+            PortConfig {
+                interface_name: "pf0vf0_if".into(),
+                vlan: 100,
+                vni: Some(1000),
+                l3_vni: Some(200),
+                gateway_cidr: "10.0.1.1/24".into(),
+                vpc_prefixes: vec!["10.0.1.0/24".into(), "2001:db8:1::/48".into()],
+                vpc_peer_prefixes: vec![],
+                vpc_peer_vnis: vec![],
+                svi_ip: Some("10.0.1.254".into()),
+                tenant_vrf_loopback_ip: Some("10.0.0.2".into()),
+                is_l2_segment: false,
+                is_phy: false,
+                network_security_group_id: None,
+            },
+            PortConfig {
+                interface_name: "pf0hpf_if".into(),
+                vlan: 101,
+                vni: Some(1001),
+                l3_vni: Some(200),
+                gateway_cidr: "10.0.2.1/24".into(),
+                vpc_prefixes: vec!["10.0.2.0/24".into(), "2001:db8:2::/48".into()],
+                vpc_peer_prefixes: vec![],
+                vpc_peer_vnis: vec![],
+                svi_ip: Some("10.0.2.254".into()),
+                tenant_vrf_loopback_ip: Some("10.0.0.2".into()),
+                is_l2_segment: false,
+                is_phy: false,
+                network_security_group_id: None,
+            },
+        ];
+        conf.ct_access_vlans = vec![
+            VlanConfig {
+                vlan_id: 100,
+                network: "10.0.1.0/24".into(),
+                ip: "10.0.1.2".into(),
+            },
+            VlanConfig {
+                vlan_id: 101,
+                network: "10.0.2.0/24".into(),
+                ip: "10.0.2.2".into(),
+            },
+        ];
+        assert_build_matches_golden(
+            conf,
+            include_str!("../templates/tests/nvue_build_fnn_multi_port_ipv6.yaml.expected"),
+        );
+    }
 }

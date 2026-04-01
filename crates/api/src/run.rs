@@ -18,10 +18,10 @@
 use std::sync::Arc;
 
 use eyre::WrapErr;
-use forge_secrets::forge_vault;
-use forge_secrets::forge_vault::VaultConfig;
-use tokio::sync::oneshot;
-use tokio::sync::oneshot::{Receiver, Sender};
+use forge_secrets::{CredentialConfig, create_credential_manager, create_vault_client};
+use tokio::sync::oneshot::Sender;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 use tracing::subscriber::NoSubscriber;
 use utils::HostPortPair;
 
@@ -29,6 +29,7 @@ use crate::logging::metrics_endpoint::{MetricsEndpointConfig, run_metrics_endpoi
 use crate::logging::setup::{
     Logging, create_metric_for_spancount_reader, create_metrics, setup_logging,
 };
+use crate::nv_redfish::NvRedfishClientPool;
 use crate::redfish::RedfishClientPoolImpl;
 use crate::{CarbideError, dynamic_settings, setup};
 
@@ -36,9 +37,9 @@ pub async fn run(
     debug: u8,
     config_str: String,
     site_config_str: Option<String>,
-    vault_config: VaultConfig,
+    credential_config: CredentialConfig,
     skip_logging_setup: bool,
-    stop_channel: Receiver<()>,
+    cancel_token: CancellationToken,
     ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
     let carbide_config = setup::parse_carbide_config(config_str, site_config_str)?;
@@ -84,30 +85,35 @@ pub async fn run(
     let metrics = create_metrics()?;
     create_metric_for_spancount_reader(&metrics.meter, tconf.spancount_reader);
 
+    // All background tasks that run "forever" (until canceled) are added to this JoinSet. When
+    // initialization is complete, we use [`JoinSet::join_all`] to wait for them all to complete,
+    // while propagating any panics to the current task.
+    let mut join_set = JoinSet::new();
+
     // Spin up the webserver which servers `/metrics` requests
-    let (metrics_stop_tx, metrics_stop_rx) = oneshot::channel();
     if let Some(metrics_address) = carbide_config.metrics_endpoint {
         // If a replacement prefix for "carbide_" is configured, also emit metrics under that
         let additional_prefix = carbide_config
             .alt_metric_prefix
             .clone()
             .map(|alt_prefix| ("carbide_".to_string(), alt_prefix));
-        tokio::task::Builder::new()
-            .name("metrics_endpoint")
-            .spawn(async move {
+        join_set.build_task().name("metrics_endpoint").spawn({
+            let cancel_token = cancel_token.clone();
+            async move {
                 if let Err(e) = run_metrics_endpoint(
                     &MetricsEndpointConfig {
                         address: metrics_address,
                         registry: metrics.registry,
                         additional_prefix,
                     },
-                    metrics_stop_rx,
+                    cancel_token,
                 )
                 .await
                 {
                     tracing::error!("Metrics endpoint failed with error: {}", e);
                 }
-            })?;
+            }
+        })?;
     }
 
     let dynamic_settings = crate::dynamic_settings::DynamicSettings {
@@ -116,7 +122,11 @@ pub async fn run(
         bmc_proxy: carbide_config.site_explorer.bmc_proxy.clone(),
         tracing_enabled: tconf.tracing_enabled,
     };
-    dynamic_settings.start_reset_task(dynamic_settings::RESET_PERIOD);
+    dynamic_settings.start_reset_task(
+        &mut join_set,
+        dynamic_settings::RESET_PERIOD,
+        cancel_token.clone(),
+    );
 
     tracing::info!(
         address = carbide_config.listen.to_string(),
@@ -126,7 +136,11 @@ pub async fn run(
         "Start carbide-api",
     );
 
-    let vault_client = forge_vault::create_vault_client(&vault_config, metrics.meter.clone())?;
+    let certificate_provider =
+        create_vault_client(&credential_config.vault, metrics.meter.clone())?;
+    let credential_manager =
+        create_credential_manager(&credential_config, metrics.meter.clone()).await?;
+
     let redfish_pool = {
         let rf_pool = libredfish::RedfishClientPool::builder()
             .build()
@@ -174,37 +188,36 @@ pub async fn run(
             }
             (None, None, _) => {} // leave bmc_proxy untouched
         }
+
         let redfish_pool = RedfishClientPoolImpl::new(
-            vault_client.clone(),
+            credential_manager.clone(),
             rf_pool,
             carbide_config.site_explorer.bmc_proxy.clone(),
         );
         Arc::new(redfish_pool)
     };
 
-    // Split stop_channel into a task which will stop both the API server and metrics server
-    let (api_stop_tx, api_stop_rx) = oneshot::channel();
-    tokio::spawn(async move {
-        stop_channel.await.inspect_err(|error| {
-            tracing::error!(%error, "error waiting on stop channel");
-        })?;
-        _ = metrics_stop_tx.send(()).inspect_err(|_| {
-            tracing::error!("could not send stop signal to metrics server. already stopped?");
-        });
-        _ = api_stop_tx.send(()).inspect_err(|_| {
-            tracing::error!("could not send stop signal to api server. already stopped?");
-        });
-        Ok::<(), eyre::Report>(())
-    });
+    let nv_redfish_pool = Arc::new(NvRedfishClientPool::new(
+        carbide_config.site_explorer.bmc_proxy.clone(),
+    ));
 
     setup::start_api(
+        &mut join_set,
         carbide_config,
         metrics.meter,
         dynamic_settings,
         redfish_pool,
-        vault_client,
-        api_stop_rx,
+        nv_redfish_pool,
+        credential_manager,
+        certificate_provider,
+        cancel_token,
         ready_channel,
     )
-    .await
+    .await?;
+
+    // Block forever until all spawned tasks complete. Any panics in spawned tasks will be
+    // propagated here.
+    join_set.join_all().await;
+
+    Ok(())
 }

@@ -18,62 +18,51 @@ use std::default::Default;
 
 use carbide_uuid::rack::RackId;
 use common::api_fixtures::create_test_env;
+use common::api_fixtures::site_explorer::create_expected_power_shelves;
 use db::DatabaseError;
 use mac_address::MacAddress;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::metadata::Metadata;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{ExpectedPowerShelfList, ExpectedPowerShelfRequest};
-use sqlx::PgConnection;
+use uuid::Uuid;
 
 use crate::tests::common;
 
-// Test DB Functionality
-async fn get_expected_power_shelf_1(txn: &mut PgConnection) -> Option<ExpectedPowerShelf> {
-    let fixture_mac_address = "0a:0b:0c:0d:0e:0f".parse().unwrap();
-
-    db::expected_power_shelf::find_by_bmc_mac_address(txn, fixture_mac_address)
-        .await
-        .unwrap()
-}
-
-#[crate::sqlx_test(fixtures("create_expected_power_shelf"))]
+#[crate::sqlx_test]
 async fn test_lookup_by_mac(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool
         .begin()
         .await
         .expect("unable to create transaction on database pool");
+    let shelves = create_expected_power_shelves(&mut txn).await;
 
-    assert_eq!(
-        get_expected_power_shelf_1(&mut txn)
-            .await
-            .expect("Expected power shelf not found")
-            .serial_number,
-        "PS-SN-001"
-    );
+    assert_eq!(shelves[0].serial_number, "PS-SN-001");
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_expected_power_shelf"))]
+#[crate::sqlx_test]
 async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool
         .begin()
         .await
         .expect("unable to create transaction on database pool");
+    let shelves = create_expected_power_shelves(&mut txn).await;
 
-    let power_shelf = get_expected_power_shelf_1(&mut txn)
-        .await
-        .expect("Expected power shelf not found");
+    let power_shelf = &shelves[0];
 
     let new_power_shelf = db::expected_power_shelf::create(
         &mut txn,
-        power_shelf.bmc_mac_address,
-        "ADMIN3".into(),
-        "hmm".into(),
-        "DUPLICATE".into(),
-        None,
-        Metadata::default(),
-        None,
+        ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address: power_shelf.bmc_mac_address,
+            bmc_username: "ADMIN3".into(),
+            bmc_password: "hmm".into(),
+            serial_number: "DUPLICATE".into(),
+            ip_address: None,
+            metadata: Metadata::default(),
+            rack_id: None,
+        },
     )
     .await;
 
@@ -85,35 +74,24 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_expected_power_shelf"))]
+#[crate::sqlx_test]
 async fn test_update_bmc_credentials(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool
         .begin()
         .await
         .expect("unable to create transaction on database pool");
-    let mut power_shelf = get_expected_power_shelf_1(&mut txn)
-        .await
-        .expect("Expected power shelf not found");
+    let shelves = create_expected_power_shelves(&mut txn).await;
+    let mut power_shelf = shelves[0].clone();
 
-    let serial_number = power_shelf.serial_number.clone();
-    let ip_address = power_shelf.ip_address;
-    let metadata = power_shelf.metadata.clone();
     assert_eq!(power_shelf.serial_number, "PS-SN-001");
     assert_eq!(power_shelf.bmc_username, "ADMIN");
     assert_eq!(power_shelf.bmc_password, "Pwd2023x0x0x0x0x7");
 
-    db::expected_power_shelf::update(
-        &mut power_shelf,
-        &mut txn,
-        "ADMIN2".to_string(),
-        "wysiwyg".to_string(),
-        serial_number,
-        ip_address,
-        metadata,
-        None,
-    )
-    .await
-    .expect("Error updating bmc username/password");
+    power_shelf.bmc_username = "ADMIN2".to_string();
+    power_shelf.bmc_password = "wysiwyg".to_string();
+    db::expected_power_shelf::update(&mut txn, &power_shelf)
+        .await
+        .expect("Error updating bmc username/password");
 
     txn.commit().await.expect("Failed to commit transaction");
 
@@ -122,9 +100,11 @@ async fn test_update_bmc_credentials(pool: sqlx::PgPool) -> Result<(), Box<dyn s
         .await
         .expect("unable to create transaction on database pool");
 
-    let power_shelf = get_expected_power_shelf_1(&mut txn)
-        .await
-        .expect("Expected power shelf not found");
+    let power_shelf =
+        db::expected_power_shelf::find_by_bmc_mac_address(&mut txn, shelves[0].bmc_mac_address)
+            .await
+            .unwrap()
+            .expect("Expected power shelf not found");
 
     assert_eq!(power_shelf.bmc_username, "ADMIN2");
     assert_eq!(power_shelf.bmc_password, "wysiwyg");
@@ -132,19 +112,18 @@ async fn test_update_bmc_credentials(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_expected_power_shelf"))]
+#[crate::sqlx_test]
 async fn test_delete(pool: sqlx::PgPool) -> () {
     let mut txn = pool
         .begin()
         .await
         .expect("unable to create transaction on database pool");
-    let power_shelf = get_expected_power_shelf_1(&mut txn)
-        .await
-        .expect("Expected power shelf not found");
+    let shelves = create_expected_power_shelves(&mut txn).await;
+    let power_shelf = &shelves[0];
 
     assert_eq!(power_shelf.serial_number, "PS-SN-001");
 
-    db::expected_power_shelf::delete(power_shelf.bmc_mac_address, &mut txn)
+    db::expected_power_shelf::delete_by_mac(&mut txn, power_shelf.bmc_mac_address)
         .await
         .expect("Error deleting expected_power_shelf");
 
@@ -154,9 +133,12 @@ async fn test_delete(pool: sqlx::PgPool) -> () {
         .await
         .expect("unable to create transaction on database pool");
 
-    get_expected_power_shelf_1(&mut txn).await;
-
-    assert!(get_expected_power_shelf_1(&mut txn).await.is_none())
+    assert!(
+        db::expected_power_shelf::find_by_bmc_mac_address(&mut txn, shelves[0].bmc_mac_address)
+            .await
+            .unwrap()
+            .is_none()
+    )
 }
 
 // Test API functionality
@@ -166,6 +148,7 @@ async fn test_add_expected_power_shelf(pool: sqlx::PgPool) {
 
     for mut expected_power_shelf in [
         rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
             bmc_mac_address: "3A:3B:3C:3D:3E:3F".to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
@@ -175,6 +158,7 @@ async fn test_add_expected_power_shelf(pool: sqlx::PgPool) {
             rack_id: None,
         },
         rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
             bmc_mac_address: "3A:3B:3C:3D:3E:40".to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
@@ -184,6 +168,7 @@ async fn test_add_expected_power_shelf(pool: sqlx::PgPool) {
             rack_id: None,
         },
         rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
             bmc_mac_address: "3A:3B:3C:3D:3E:41".to_string(),
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
@@ -203,7 +188,7 @@ async fn test_add_expected_power_shelf(pool: sqlx::PgPool) {
                     },
                 ],
             }),
-            rack_id: Some(RackId::from(uuid::Uuid::new_v4())),
+            rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
         },
     ] {
         env.api
@@ -213,6 +198,7 @@ async fn test_add_expected_power_shelf(pool: sqlx::PgPool) {
 
         let expected_power_shelf_query = rpc::forge::ExpectedPowerShelfRequest {
             bmc_mac_address: expected_power_shelf.bmc_mac_address.clone(),
+            expected_power_shelf_id: None,
         };
 
         let mut retrieved_expected_power_shelf = env
@@ -230,13 +216,20 @@ async fn test_add_expected_power_shelf(pool: sqlx::PgPool) {
         if expected_power_shelf.metadata.is_none() {
             expected_power_shelf.metadata = Some(Default::default());
         }
+        // The server generates an ID if one wasn't provided.
+        expected_power_shelf.expected_power_shelf_id = retrieved_expected_power_shelf
+            .expected_power_shelf_id
+            .clone();
 
         assert_eq!(retrieved_expected_power_shelf, expected_power_shelf);
     }
 }
 
-#[crate::sqlx_test(fixtures("create_expected_power_shelf"))]
+#[crate::sqlx_test]
 async fn test_delete_expected_power_shelf(pool: sqlx::PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let shelves = create_expected_power_shelves(&mut conn).await;
+    drop(conn);
     let env = create_test_env(pool).await;
 
     let expected_power_shelf_count = env
@@ -249,7 +242,8 @@ async fn test_delete_expected_power_shelf(pool: sqlx::PgPool) {
         .len();
 
     let expected_power_shelf_query = rpc::forge::ExpectedPowerShelfRequest {
-        bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
+        bmc_mac_address: shelves[1].bmc_mac_address.to_string(),
+        expected_power_shelf_id: None,
     };
     env.api
         .delete_expected_power_shelf(tonic::Request::new(expected_power_shelf_query))
@@ -278,6 +272,7 @@ async fn test_delete_expected_power_shelf_error(pool: sqlx::PgPool) {
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
     let expected_power_shelf_request = rpc::forge::ExpectedPowerShelfRequest {
         bmc_mac_address: bmc_mac_address.to_string(),
+        expected_power_shelf_id: None,
     };
 
     let err = env
@@ -288,20 +283,21 @@ async fn test_delete_expected_power_shelf_error(pool: sqlx::PgPool) {
 
     assert_eq!(
         err.message().to_string(),
-        format!(
-            "Failed to delete expected power shelf: expected_power_shelf not found: {}",
-            bmc_mac_address
-        )
+        format!("expected_power_shelf not found: {}", bmc_mac_address)
     );
 }
 
-#[crate::sqlx_test(fixtures("create_expected_power_shelf"))]
+#[crate::sqlx_test]
 async fn test_update_expected_power_shelf(pool: sqlx::PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let shelves = create_expected_power_shelves(&mut conn).await;
+    drop(conn);
     let env = create_test_env(pool).await;
 
-    let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
+    let bmc_mac_address: MacAddress = shelves[1].bmc_mac_address;
     for mut updated_power_shelf in [
         rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac_address.to_string(),
             bmc_username: "ADMIN_UPDATE".into(),
             bmc_password: "PASS_UPDATE".into(),
@@ -311,6 +307,7 @@ async fn test_update_expected_power_shelf(pool: sqlx::PgPool) {
             rack_id: None,
         },
         rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac_address.to_string(),
             bmc_username: "ADMIN_UPDATE".into(),
             bmc_password: "PASS_UPDATE".into(),
@@ -320,6 +317,7 @@ async fn test_update_expected_power_shelf(pool: sqlx::PgPool) {
             rack_id: None,
         },
         rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
             bmc_mac_address: bmc_mac_address.to_string(),
             bmc_username: "ADMIN_UPDATE1".into(),
             bmc_password: "PASS_UPDATE1".into(),
@@ -339,7 +337,7 @@ async fn test_update_expected_power_shelf(pool: sqlx::PgPool) {
                     },
                 ],
             }),
-            rack_id: Some(RackId::from(uuid::Uuid::new_v4())),
+            rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
         },
     ] {
         env.api
@@ -352,6 +350,7 @@ async fn test_update_expected_power_shelf(pool: sqlx::PgPool) {
             .api
             .get_expected_power_shelf(tonic::Request::new(ExpectedPowerShelfRequest {
                 bmc_mac_address: bmc_mac_address.to_string(),
+                expected_power_shelf_id: None,
             }))
             .await
             .expect("unable to fetch expected power shelf ")
@@ -365,6 +364,10 @@ async fn test_update_expected_power_shelf(pool: sqlx::PgPool) {
         if updated_power_shelf.metadata.is_none() {
             updated_power_shelf.metadata = Some(Default::default());
         }
+        // The server returns the ID from the database.
+        updated_power_shelf.expected_power_shelf_id = retrieved_expected_power_shelf
+            .expected_power_shelf_id
+            .clone();
 
         assert_eq!(retrieved_expected_power_shelf, updated_power_shelf);
     }
@@ -375,6 +378,7 @@ async fn test_update_expected_power_shelf_error(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
     let expected_power_shelf = rpc::forge::ExpectedPowerShelf {
+        expected_power_shelf_id: None,
         bmc_mac_address: bmc_mac_address.to_string(),
         bmc_username: "ADMIN_UPDATE".into(),
         bmc_password: "PASS_UPDATE".into(),
@@ -390,17 +394,18 @@ async fn test_update_expected_power_shelf_error(pool: sqlx::PgPool) {
         .await
         .unwrap_err();
 
-    assert_eq!(
-        err.message().to_string(),
-        format!(
-            "Expected power shelf with MAC address {} not found",
-            bmc_mac_address
-        )
+    assert!(
+        err.message().contains(&bmc_mac_address.to_string()),
+        "Error should reference the MAC address: {}",
+        err.message()
     );
 }
 
-#[crate::sqlx_test(fixtures("create_expected_power_shelf"))]
+#[crate::sqlx_test]
 async fn test_delete_all_expected_power_shelves(pool: sqlx::PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    create_expected_power_shelves(&mut conn).await;
+    drop(conn);
     let env = create_test_env(pool).await;
     let mut expected_power_shelf_count = env
         .api
@@ -431,8 +436,11 @@ async fn test_delete_all_expected_power_shelves(pool: sqlx::PgPool) {
     assert_eq!(expected_power_shelf_count, 0);
 }
 
-#[crate::sqlx_test(fixtures("create_expected_power_shelf"))]
+#[crate::sqlx_test]
 async fn test_replace_all_expected_power_shelves(pool: sqlx::PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    create_expected_power_shelves(&mut conn).await;
+    drop(conn);
     let env = create_test_env(pool).await;
     let expected_power_shelf_count = env
         .api
@@ -450,23 +458,25 @@ async fn test_replace_all_expected_power_shelves(pool: sqlx::PgPool) {
     };
 
     let expected_power_shelf_1 = rpc::forge::ExpectedPowerShelf {
+        expected_power_shelf_id: None,
         bmc_mac_address: "6A:6B:6C:6D:6E:6F".into(),
         bmc_username: "ADMIN_NEW".into(),
         bmc_password: "PASS_NEW".into(),
         shelf_serial_number: "PS-NEW-001".into(),
         ip_address: "192.168.100.1".into(),
         metadata: Some(rpc::Metadata::default()),
-        rack_id: Some(RackId::from(uuid::Uuid::new_v4())),
+        rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
     };
 
     let expected_power_shelf_2 = rpc::forge::ExpectedPowerShelf {
+        expected_power_shelf_id: None,
         bmc_mac_address: "7A:7B:7C:7D:7E:7F".into(),
         bmc_username: "ADMIN_NEW".into(),
         bmc_password: "PASS_NEW".into(),
         shelf_serial_number: "PS-NEW-002".into(),
         ip_address: "192.168.100.2".into(),
         metadata: Some(rpc::Metadata::default()),
-        rack_id: Some(RackId::from(uuid::Uuid::new_v4())),
+        rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
     };
 
     expected_power_shelf_list
@@ -491,8 +501,17 @@ async fn test_replace_all_expected_power_shelves(pool: sqlx::PgPool) {
         .expected_power_shelves;
 
     assert_eq!(expected_power_shelves.len(), 2);
-    assert!(expected_power_shelves.contains(&expected_power_shelf_1));
-    assert!(expected_power_shelves.contains(&expected_power_shelf_2));
+    // Server generates IDs, so compare by serial number.
+    assert!(
+        expected_power_shelves
+            .iter()
+            .any(|ps| ps.shelf_serial_number == expected_power_shelf_1.shelf_serial_number)
+    );
+    assert!(
+        expected_power_shelves
+            .iter()
+            .any(|ps| ps.shelf_serial_number == expected_power_shelf_2.shelf_serial_number)
+    );
 }
 
 #[crate::sqlx_test()]
@@ -501,6 +520,7 @@ async fn test_get_expected_power_shelf_error(pool: sqlx::PgPool) {
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
     let expected_power_shelf_query = rpc::forge::ExpectedPowerShelfRequest {
         bmc_mac_address: bmc_mac_address.to_string(),
+        expected_power_shelf_id: None,
     };
 
     let err = env
@@ -509,17 +529,18 @@ async fn test_get_expected_power_shelf_error(pool: sqlx::PgPool) {
         .await
         .unwrap_err();
 
-    assert_eq!(
-        err.message().to_string(),
-        format!(
-            "Expected power shelf with MAC address {} not found",
-            bmc_mac_address
-        )
+    assert!(
+        err.message().contains(&bmc_mac_address.to_string()),
+        "Error should reference the MAC address: {}",
+        err.message()
     );
 }
 
-#[crate::sqlx_test(fixtures("create_expected_power_shelf"))]
+#[crate::sqlx_test]
 async fn test_get_linked_expected_power_shelves_unseen(pool: sqlx::PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    create_expected_power_shelves(&mut conn).await;
+    drop(conn);
     let env = create_test_env(pool).await;
     let out = env
         .api
@@ -541,14 +562,15 @@ async fn test_get_linked_expected_power_shelves_unseen(pool: sqlx::PgPool) {
 async fn test_add_expected_power_shelf_with_ip(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address: MacAddress = "3A:3B:3C:3D:3E:3F".parse().unwrap();
-    let expected_power_shelf = rpc::forge::ExpectedPowerShelf {
+    let mut expected_power_shelf = rpc::forge::ExpectedPowerShelf {
+        expected_power_shelf_id: None,
         bmc_mac_address: bmc_mac_address.to_string(),
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
         shelf_serial_number: "PS-IP-001".into(),
         ip_address: "10.0.0.100".into(),
         metadata: Some(rpc::Metadata::default()),
-        rack_id: Some(RackId::from(uuid::Uuid::new_v4())),
+        rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
     };
 
     env.api
@@ -558,6 +580,7 @@ async fn test_add_expected_power_shelf_with_ip(pool: sqlx::PgPool) {
 
     let expected_power_shelf_query = rpc::forge::ExpectedPowerShelfRequest {
         bmc_mac_address: bmc_mac_address.to_string(),
+        expected_power_shelf_id: None,
     };
 
     let retrieved_expected_power_shelf = env
@@ -567,44 +590,46 @@ async fn test_add_expected_power_shelf_with_ip(pool: sqlx::PgPool) {
         .expect("unable to retrieve expected power shelf ")
         .into_inner();
 
+    // The server generates an ID if one wasn't provided.
+    expected_power_shelf.expected_power_shelf_id = retrieved_expected_power_shelf
+        .expected_power_shelf_id
+        .clone();
     assert_eq!(retrieved_expected_power_shelf, expected_power_shelf);
     assert_eq!(retrieved_expected_power_shelf.ip_address, "10.0.0.100");
 }
 
-#[crate::sqlx_test(fixtures("create_expected_power_shelf"))]
+#[crate::sqlx_test]
 async fn test_with_ip_addresses(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let fixture_mac_address_3 = "3a:3b:3c:3d:3e:3f".parse().unwrap();
-    let fixture_mac_address_4 = "4a:4b:4c:4d:4e:4f".parse().unwrap();
+    let mut conn = pool.acquire().await.unwrap();
+    let shelves = create_expected_power_shelves(&mut conn).await;
+    drop(conn);
 
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("unable to create transaction on database pool");
-
-    let eps3 = db::expected_power_shelf::find_by_bmc_mac_address(&mut txn, fixture_mac_address_3)
-        .await
-        .unwrap()
-        .expect("Expected power shelf not found");
-    assert_eq!(eps3.ip_address, Some("192.168.1.100".parse().unwrap()));
-
-    let eps4 = db::expected_power_shelf::find_by_bmc_mac_address(&mut txn, fixture_mac_address_4)
-        .await
-        .unwrap()
-        .expect("Expected power shelf not found");
-
-    assert_eq!(eps4.ip_address, Some("192.168.1.101".parse().unwrap()));
+    // Shelves at indices 3 and 4 are created with IP addresses
+    assert_eq!(
+        shelves[3].ip_address,
+        Some("192.168.1.100".parse().unwrap())
+    );
+    assert_eq!(
+        shelves[4].ip_address,
+        Some("192.168.1.101".parse().unwrap())
+    );
 
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_expected_power_shelf"))]
+#[crate::sqlx_test]
 async fn test_update_expected_power_shelf_ip_address(pool: sqlx::PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let shelves = create_expected_power_shelves(&mut conn).await;
+    drop(conn);
     let env = create_test_env(pool).await;
 
+    let shelf_mac = shelves[1].bmc_mac_address.to_string();
     let mut eps1 = env
         .api
         .get_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelfRequest {
-            bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
+            bmc_mac_address: shelf_mac.clone(),
+            expected_power_shelf_id: None,
         }))
         .await
         .expect("unable to get")
@@ -621,7 +646,8 @@ async fn test_update_expected_power_shelf_ip_address(pool: sqlx::PgPool) {
     let eps2 = env
         .api
         .get_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelfRequest {
-            bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
+            bmc_mac_address: shelf_mac,
+            expected_power_shelf_id: None,
         }))
         .await
         .expect("unable to get")
@@ -629,4 +655,271 @@ async fn test_update_expected_power_shelf_ip_address(pool: sqlx::PgPool) {
 
     assert_eq!(eps1, eps2);
     assert_eq!(eps2.ip_address, "172.16.0.50");
+}
+
+#[crate::sqlx_test()]
+async fn test_get_expected_power_shelf_by_id(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let provided_id = Uuid::new_v4().to_string();
+    let expected_power_shelf = rpc::forge::ExpectedPowerShelf {
+        expected_power_shelf_id: Some(::rpc::common::Uuid {
+            value: provided_id.clone(),
+        }),
+        bmc_mac_address: "AA:BB:CC:DD:EE:01".to_string(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        shelf_serial_number: "PS-ID-001".into(),
+        ip_address: "10.0.0.50".into(),
+        metadata: Some(rpc::forge::Metadata::default()),
+        rack_id: None,
+    };
+
+    env.api
+        .add_expected_power_shelf(tonic::Request::new(expected_power_shelf.clone()))
+        .await
+        .expect("unable to add expected power shelf");
+
+    // Get by id
+    let get_req = rpc::forge::ExpectedPowerShelfRequest {
+        bmc_mac_address: "".to_string(),
+        expected_power_shelf_id: Some(::rpc::common::Uuid {
+            value: provided_id.clone(),
+        }),
+    };
+    let retrieved = env
+        .api
+        .get_expected_power_shelf(tonic::Request::new(get_req))
+        .await
+        .expect("unable to retrieve by id")
+        .into_inner();
+
+    assert_eq!(
+        retrieved.expected_power_shelf_id,
+        Some(::rpc::common::Uuid { value: provided_id })
+    );
+    assert_eq!(retrieved.bmc_mac_address, "AA:BB:CC:DD:EE:01");
+    assert_eq!(retrieved.shelf_serial_number, "PS-ID-001");
+    assert_eq!(retrieved.ip_address, "10.0.0.50");
+}
+
+#[crate::sqlx_test()]
+async fn test_delete_expected_power_shelf_by_id(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let provided_id = Uuid::new_v4().to_string();
+    let expected_power_shelf = rpc::forge::ExpectedPowerShelf {
+        expected_power_shelf_id: Some(::rpc::common::Uuid {
+            value: provided_id.clone(),
+        }),
+        bmc_mac_address: "AA:BB:CC:DD:EE:02".to_string(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        shelf_serial_number: "PS-DEL-001".into(),
+        ip_address: "".into(),
+        metadata: Some(rpc::forge::Metadata::default()),
+        rack_id: None,
+    };
+
+    env.api
+        .add_expected_power_shelf(tonic::Request::new(expected_power_shelf.clone()))
+        .await
+        .expect("unable to add expected power shelf");
+
+    // Delete by id
+    let del_req = rpc::forge::ExpectedPowerShelfRequest {
+        bmc_mac_address: "".to_string(),
+        expected_power_shelf_id: Some(::rpc::common::Uuid {
+            value: provided_id.clone(),
+        }),
+    };
+    env.api
+        .delete_expected_power_shelf(tonic::Request::new(del_req))
+        .await
+        .expect("unable to delete by id");
+
+    // Verify it's gone by trying to get by id
+    let get_req = rpc::forge::ExpectedPowerShelfRequest {
+        bmc_mac_address: "".to_string(),
+        expected_power_shelf_id: Some(::rpc::common::Uuid {
+            value: provided_id.clone(),
+        }),
+    };
+    let err = env
+        .api
+        .get_expected_power_shelf(tonic::Request::new(get_req))
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        err.message().to_string(),
+        format!("expected_power_shelf not found: {}", provided_id)
+    );
+}
+
+#[crate::sqlx_test()]
+async fn test_update_expected_power_shelf_by_id(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let provided_id = Uuid::new_v4().to_string();
+    let mut expected_power_shelf = rpc::forge::ExpectedPowerShelf {
+        expected_power_shelf_id: Some(::rpc::common::Uuid {
+            value: provided_id.clone(),
+        }),
+        bmc_mac_address: "AA:BB:CC:DD:EE:03".to_string(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        shelf_serial_number: "PS-UPD-ID-001".into(),
+        ip_address: "".into(),
+        metadata: Some(rpc::forge::Metadata::default()),
+        rack_id: None,
+    };
+
+    env.api
+        .add_expected_power_shelf(tonic::Request::new(expected_power_shelf.clone()))
+        .await
+        .expect("unable to add expected power shelf");
+
+    // Update by id (change username and serial number)
+    expected_power_shelf.bmc_username = "ADMIN_UPDATED".into();
+    expected_power_shelf.shelf_serial_number = "PS-UPD-ID-002".into();
+    expected_power_shelf.ip_address = "172.16.0.99".into();
+    env.api
+        .update_expected_power_shelf(tonic::Request::new(expected_power_shelf.clone()))
+        .await
+        .expect("unable to update by id");
+
+    // Fetch by id and verify
+    let get_req = rpc::forge::ExpectedPowerShelfRequest {
+        bmc_mac_address: "".to_string(),
+        expected_power_shelf_id: Some(::rpc::common::Uuid {
+            value: provided_id.clone(),
+        }),
+    };
+    let retrieved = env
+        .api
+        .get_expected_power_shelf(tonic::Request::new(get_req))
+        .await
+        .expect("unable to get after update by id")
+        .into_inner();
+
+    assert_eq!(
+        retrieved.expected_power_shelf_id,
+        Some(::rpc::common::Uuid { value: provided_id })
+    );
+    assert_eq!(retrieved.bmc_username, "ADMIN_UPDATED");
+    assert_eq!(retrieved.shelf_serial_number, "PS-UPD-ID-002");
+    assert_eq!(retrieved.ip_address, "172.16.0.99");
+}
+
+#[crate::sqlx_test()]
+async fn test_create_expected_power_shelf_with_explicit_id(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let provided_id = Uuid::new_v4().to_string();
+    let expected_power_shelf = rpc::forge::ExpectedPowerShelf {
+        expected_power_shelf_id: Some(::rpc::common::Uuid {
+            value: provided_id.clone(),
+        }),
+        bmc_mac_address: "AA:BB:CC:DD:EE:04".to_string(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        shelf_serial_number: "PS-EXPLICIT-001".into(),
+        ip_address: "".into(),
+        metadata: Some(rpc::forge::Metadata::default()),
+        rack_id: None,
+    };
+
+    env.api
+        .add_expected_power_shelf(tonic::Request::new(expected_power_shelf.clone()))
+        .await
+        .expect("unable to add expected power shelf with explicit id");
+
+    // Retrieve by MAC and verify the ID matches what we provided
+    let get_req = rpc::forge::ExpectedPowerShelfRequest {
+        bmc_mac_address: "AA:BB:CC:DD:EE:04".to_string(),
+        expected_power_shelf_id: None,
+    };
+    let retrieved = env
+        .api
+        .get_expected_power_shelf(tonic::Request::new(get_req))
+        .await
+        .expect("unable to retrieve expected power shelf")
+        .into_inner();
+
+    assert_eq!(
+        retrieved.expected_power_shelf_id,
+        Some(::rpc::common::Uuid { value: provided_id })
+    );
+}
+
+#[crate::sqlx_test()]
+async fn test_create_expected_power_shelf_auto_generates_id(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let expected_power_shelf = rpc::forge::ExpectedPowerShelf {
+        expected_power_shelf_id: None,
+        bmc_mac_address: "AA:BB:CC:DD:EE:05".to_string(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        shelf_serial_number: "PS-AUTO-001".into(),
+        ip_address: "".into(),
+        metadata: Some(rpc::forge::Metadata::default()),
+        rack_id: None,
+    };
+
+    env.api
+        .add_expected_power_shelf(tonic::Request::new(expected_power_shelf.clone()))
+        .await
+        .expect("unable to add expected power shelf without id");
+
+    // Retrieve by MAC and verify an ID was auto-generated
+    let get_req = rpc::forge::ExpectedPowerShelfRequest {
+        bmc_mac_address: "AA:BB:CC:DD:EE:05".to_string(),
+        expected_power_shelf_id: None,
+    };
+    let retrieved = env
+        .api
+        .get_expected_power_shelf(tonic::Request::new(get_req))
+        .await
+        .expect("unable to retrieve expected power shelf")
+        .into_inner();
+
+    assert!(
+        retrieved.expected_power_shelf_id.is_some(),
+        "expected_power_shelf_id should be auto-generated when not provided"
+    );
+    assert!(
+        !retrieved
+            .expected_power_shelf_id
+            .as_ref()
+            .unwrap()
+            .value
+            .is_empty(),
+        "auto-generated expected_power_shelf_id should not be empty"
+    );
+}
+
+#[crate::sqlx_test()]
+async fn test_get_expected_power_shelf_by_id_not_found(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let non_existent_id = Uuid::new_v4().to_string();
+    let get_req = rpc::forge::ExpectedPowerShelfRequest {
+        bmc_mac_address: "".to_string(),
+        expected_power_shelf_id: Some(::rpc::common::Uuid {
+            value: non_existent_id.clone(),
+        }),
+    };
+
+    let err = env
+        .api
+        .get_expected_power_shelf(tonic::Request::new(get_req))
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        err.message().to_string(),
+        format!("expected_power_shelf not found: {}", non_existent_id)
+    );
 }

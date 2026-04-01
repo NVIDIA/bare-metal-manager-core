@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 use std::net::UdpSocket;
-use std::thread;
 use std::time::Duration;
 
 use dhcp::mock_api_server;
@@ -49,22 +48,11 @@ fn test_booturl_internal_with_mtu() -> Result<(), eyre::Report> {
     socket.connect(format!("127.0.0.1:{dhcp_in_port}"))?;
     socket.set_read_timeout(Some(READ_TIMEOUT))?;
 
-    // The first packet doesn't get a response. I don't know why. dhcp-relay also sends two.
-    // So sacrifice a packet, and wait to be sure it's the first packet received by Kea.
     {
-        let mut msg = DHCPFactory::discover(0);
+        let mut msg = DHCPFactory::discover(1);
         msg.set_xid(0);
         let pkt = DHCPFactory::encode(msg)?;
         socket.send(&pkt)?;
-    }
-
-    thread::sleep(Duration::from_millis(20));
-
-    {
-        let mut msg = DHCPFactory::discover(1);
-        msg.set_xid(1);
-        let pkt = DHCPFactory::encode(msg).unwrap();
-        socket.send(&pkt).unwrap();
     }
 
     let mut recv_buf = [0u8; 1500]; // packet is 470 bytes, but allow for full MTU
@@ -123,22 +111,11 @@ fn test_booturl_from_api() -> Result<(), eyre::Report> {
     socket.connect(format!("127.0.0.1:{dhcp_in_port}"))?;
     socket.set_read_timeout(Some(READ_TIMEOUT))?;
 
-    // The first packet doesn't get a response. I don't know why. dhcp-relay also sends two.
-    // So sacrifice a packet, and wait to be sure it's the first packet received by Kea.
     {
         let mut msg = DHCPFactory::discover(0xAA);
         msg.set_xid(0);
         let pkt = DHCPFactory::encode(msg)?;
         socket.send(&pkt)?;
-    }
-
-    thread::sleep(Duration::from_millis(20));
-
-    {
-        let mut msg = DHCPFactory::discover(0xAA);
-        msg.set_xid(1);
-        let pkt = DHCPFactory::encode(msg).unwrap();
-        socket.send(&pkt).unwrap();
     }
 
     let mut recv_buf = [0u8; 1500]; // packet is 470 bytes, but allow for full MTU

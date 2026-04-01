@@ -34,6 +34,7 @@ namespaceOverride: ""
 
 replicas: 1
 serviceAccountName: carbide-api
+automountServiceAccountToken: true
 annotations:
   configmap.reloader.stakater.com/reload: "carbide-api-config-files,carbide-api-site-config-files"
 
@@ -68,6 +69,9 @@ certificate:
   serviceName: carbide-api
   extraDnsNames: []
   extraUris: []
+
+migrationJob:
+  sslMode: require
 
 ## Container command (override to customise startup)
 command:

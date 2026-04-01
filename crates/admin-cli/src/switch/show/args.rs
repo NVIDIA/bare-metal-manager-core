@@ -15,10 +15,37 @@
  * limitations under the License.
  */
 
+use std::str::FromStr;
+
+use carbide_uuid::switch::SwitchId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
 pub struct Args {
     #[clap(help = "Switch ID or name to show (leave empty for all)")]
     pub identifier: Option<String>,
+}
+
+impl From<Args> for ::rpc::forge::SwitchQuery {
+    fn from(args: Args) -> Self {
+        match args.identifier {
+            Some(id) if !id.is_empty() => {
+                // Try to parse as SwitchId, otherwise treat as name
+                match SwitchId::from_str(&id) {
+                    Ok(switch_id) => Self {
+                        name: None,
+                        switch_id: Some(switch_id),
+                    },
+                    Err(_) => Self {
+                        name: Some(id),
+                        switch_id: None,
+                    },
+                }
+            }
+            _ => Self {
+                name: None,
+                switch_id: None,
+            },
+        }
+    }
 }

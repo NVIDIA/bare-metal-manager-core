@@ -16,19 +16,12 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge as rpc;
 
 use crate::route_server::common::AddressArgs;
 use crate::rpc::ApiClient;
 
 pub async fn replace(args: AddressArgs, api_client: &ApiClient) -> CarbideCliResult<()> {
-    api_client
-        .0
-        .replace_route_servers(rpc::RouteServers {
-            route_servers: args.ip.iter().map(ToString::to_string).collect(),
-            source_type: args.source_type as i32,
-        })
-        .await?;
+    api_client.0.replace_route_servers(args).await?;
 
     Ok(())
 }

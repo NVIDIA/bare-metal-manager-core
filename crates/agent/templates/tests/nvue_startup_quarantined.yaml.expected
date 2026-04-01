@@ -4,16 +4,6 @@
     rev-id: 1.0
     version: Cumulus Linux 5.6.0
 - set:
-    bridge:
-      domain:
-        br_default:
-          vlan:
-            '196':
-              vni:
-                '1025196': {}
-            '185':
-              vni:
-                '1025185': {}
     evpn:
       enable: on
     interface:

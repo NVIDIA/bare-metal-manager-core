@@ -160,6 +160,70 @@ pub(crate) async fn find_machine_health_histories(
     request: Request<rpc::MachineHealthHistoriesRequest>,
 ) -> Result<Response<rpc::MachineHealthHistories>, Status> {
     log_request_data(&request);
+    let request_inner = request.into_inner();
+
+    // Check if time range filtering is requested
+    if let (Some(start_time), Some(end_time)) = (request_inner.start_time, request_inner.end_time) {
+        // Time-filtered query path
+        let machine_id = request_inner
+            .machine_ids
+            .first()
+            .ok_or_else(|| CarbideError::InvalidArgument("machine_id is required".to_string()))?;
+
+        // Convert protobuf timestamps to chrono DateTime
+        let start_dt = chrono::DateTime::<chrono::Utc>::from_timestamp(
+            start_time.seconds,
+            start_time.nanos as u32,
+        )
+        .ok_or_else(|| CarbideError::InvalidArgument("Invalid start_time timestamp".to_string()))?;
+        let end_dt = chrono::DateTime::<chrono::Utc>::from_timestamp(
+            end_time.seconds,
+            end_time.nanos as u32,
+        )
+        .ok_or_else(|| CarbideError::InvalidArgument("Invalid end_time timestamp".to_string()))?;
+
+        // Start database transaction
+        let mut txn = api.txn_begin().await?;
+
+        // Call database function to get health history records with time filter
+        let db_records = db::machine_health_history::find_by_time_range(
+            &mut txn, machine_id, &start_dt, &end_dt,
+        )
+        .await?;
+
+        // Convert database records to MachineHealthHistories format
+        let response_records: Vec<rpc::MachineHealthHistoryRecord> = db_records
+            .into_iter()
+            .map(|db_rec| rpc::MachineHealthHistoryRecord {
+                health: Some(db_rec.health.into()),
+                time: Some(db_rec.time.into()),
+            })
+            .collect();
+
+        // Put records in a map keyed by machine ID string
+        let machine_id_str = machine_id.to_string();
+        let mut histories = HashMap::new();
+        histories.insert(
+            machine_id_str,
+            rpc::MachineHealthHistoryRecords {
+                records: response_records,
+            },
+        );
+
+        txn.commit().await?;
+
+        Ok(Response::new(rpc::MachineHealthHistories { histories }))
+    } else {
+        // Original behavior: no time filtering
+        find_machine_health_histories_no_time_range(api, Request::new(request_inner)).await
+    }
+}
+
+async fn find_machine_health_histories_no_time_range(
+    api: &Api,
+    request: Request<rpc::MachineHealthHistoriesRequest>,
+) -> Result<Response<rpc::MachineHealthHistories>, Status> {
+    log_request_data(&request);
     let request = request.into_inner();
 
     let machine_ids = request.machine_ids;
@@ -209,7 +273,11 @@ pub(crate) async fn machine_set_auto_update(
     let Some(_machine) =
         db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?
     else {
-        return Err(Status::not_found("The machine ID was not found"));
+        return Err(CarbideError::NotFoundError {
+            kind: "machine",
+            id: request.machine_id.unwrap_or_default().to_string(),
+        }
+        .into());
     };
 
     let state = match request.action() {
@@ -485,18 +553,31 @@ pub(crate) async fn admin_force_delete_machine(
                     machine.id
                 );
             }
-
-            if machine.dpf.used_for_ingestion {
-                api.kube_client_provider
-                    .force_delete_machine(ip, &response.dpu_machine_ids)
-                    .await
-                    .map_err(CarbideError::DpfError)?;
-            }
         } else {
             tracing::warn!(
                 "Failed to unlock this host because Forge could not retrieve the BMC IP address for machine {}",
                 machine.id
             );
+        }
+
+        if let Some(ref ops) = api.dpf_sdk
+            && !dpu_machines.is_empty()
+        {
+            let host_dpf_id = machine
+                .dpf_id()
+                .ok_or_else(|| CarbideError::internal("BMC MAC not set for host".to_string()))?;
+            let node_name = carbide_dpf::dpu_node_cr_name(&host_dpf_id);
+            let dpu_device_names: Vec<String> = dpu_machines
+                .iter()
+                .map(|d| {
+                    d.dpf_id().ok_or_else(|| {
+                        CarbideError::internal("BMC MAC not set for DPU".to_string())
+                    })
+                })
+                .collect::<Result<_, _>>()?;
+            ops.force_delete_host(&node_name, &dpu_device_names)
+                .await
+                .map_err(CarbideError::DpfError)?;
         }
     }
 
@@ -649,7 +730,9 @@ pub(crate) async fn get_dpu_info_list(
 
     txn.commit().await?;
 
-    let response = rpc::GetDpuInfoListResponse { dpu_list };
+    let response = rpc::GetDpuInfoListResponse {
+        dpu_list: dpu_list.into_iter().map(rpc::DpuInfo::from).collect(),
+    };
     Ok(Response::new(response))
 }
 

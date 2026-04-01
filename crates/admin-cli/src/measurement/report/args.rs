@@ -29,8 +29,14 @@
  *  - `report list all`: List high level info about all reports.
  *  - `report list machine`: List all reports for a given machine.
  *  - `report match``
-*/
+ */
 
+use ::rpc::protos::measured_boot::{
+    CreateMeasurementReportRequest, DeleteMeasurementReportRequest, ListMeasurementReportRequest,
+    MatchMeasurementReportRequest, PromoteMeasurementReportRequest, RevokeMeasurementReportRequest,
+    ShowMeasurementReportForIdRequest, ShowMeasurementReportsForMachineRequest,
+    list_measurement_report_request,
+};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::measured_boot::MeasurementReportId;
 use clap::Parser;
@@ -203,4 +209,79 @@ pub struct Match {
     )]
     #[arg(value_parser = parse_pcr_register_values)]
     pub values: Vec<PcrRegisterValue>,
+}
+
+impl From<Create> for CreateMeasurementReportRequest {
+    fn from(create: Create) -> Self {
+        Self {
+            machine_id: create.machine_id.to_string(),
+            pcr_values: create.values.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<Delete> for DeleteMeasurementReportRequest {
+    fn from(delete: Delete) -> Self {
+        Self {
+            report_id: Some(delete.report_id),
+        }
+    }
+}
+
+impl From<Promote> for PromoteMeasurementReportRequest {
+    fn from(promote: Promote) -> Self {
+        Self {
+            report_id: Some(promote.report_id),
+            pcr_registers: match &promote.pcr_registers {
+                None => "".to_string(),
+                Some(pcr_set) => pcr_set.to_string(),
+            },
+        }
+    }
+}
+
+impl From<Revoke> for RevokeMeasurementReportRequest {
+    fn from(revoke: Revoke) -> Self {
+        Self {
+            report_id: Some(revoke.report_id),
+            pcr_registers: match &revoke.pcr_registers {
+                None => "".to_string(),
+                Some(pcr_set) => pcr_set.to_string(),
+            },
+        }
+    }
+}
+
+impl From<ShowForId> for ShowMeasurementReportForIdRequest {
+    fn from(show_for_id: ShowForId) -> Self {
+        Self {
+            report_id: Some(show_for_id.report_id),
+        }
+    }
+}
+
+impl From<ShowForMachine> for ShowMeasurementReportsForMachineRequest {
+    fn from(show_for_machine: ShowForMachine) -> Self {
+        Self {
+            machine_id: show_for_machine.machine_id,
+        }
+    }
+}
+
+impl From<ListMachines> for ListMeasurementReportRequest {
+    fn from(list_machines: ListMachines) -> Self {
+        Self {
+            selector: Some(list_measurement_report_request::Selector::MachineId(
+                list_machines.machine_id.to_string(),
+            )),
+        }
+    }
+}
+
+impl From<Match> for MatchMeasurementReportRequest {
+    fn from(match_args: Match) -> Self {
+        Self {
+            pcr_values: match_args.values.into_iter().map(Into::into).collect(),
+        }
+    }
 }

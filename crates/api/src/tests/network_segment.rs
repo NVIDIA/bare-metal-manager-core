@@ -20,6 +20,7 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
 
+use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_uuid::network::NetworkSegmentId;
 use common::network_segment::{
     NetworkSegmentHelper, create_network_segment_with_api, get_segment_state, get_segments,
@@ -28,7 +29,6 @@ use common::network_segment::{
 use db::ObjectColumnFilter;
 use db::network_segment::VpcColumn;
 use db::vpc::IdColumn;
-use forge_network::virtualization::VpcVirtualizationType;
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::network_prefix::NewNetworkPrefix;
@@ -316,18 +316,24 @@ async fn test_network_segment_max_history_length(
 
     for _ in 0..HISTORY_LIMIT + 50 {
         let mut txn = env.pool.begin().await.unwrap();
+        let state = NetworkSegmentControllerState::Deleting {
+            deletion_state: NetworkSegmentDeletionState::DBDelete,
+        };
+        let next_version = version.increment();
         assert!(
             db::network_segment::try_update_controller_state(
                 &mut txn,
                 segment_id,
                 version,
-                &NetworkSegmentControllerState::Deleting {
-                    deletion_state: NetworkSegmentDeletionState::DBDelete
-                }
+                next_version,
+                &state,
             )
             .await
             .unwrap()
         );
+        db::network_segment_state_history::persist(&mut txn, segment_id, &state, next_version)
+            .await
+            .unwrap();
         version = db::network_segment::find_by(
             txn.as_mut(),
             ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
@@ -825,12 +831,14 @@ async fn test_network_segment_metrics(
         );
     }
 
+    let actual_metrics = env.test_meter.export_metrics();
+
     assert_eq!(
-        env.test_meter
-            .export_metrics()
-            .parse::<ParsedPrometheusMetrics>()
-            .unwrap(),
-        test_type.fixture()
+        actual_metrics.parse::<ParsedPrometheusMetrics>().unwrap(),
+        test_type.fixture(),
+        "Metrics for test {} are not as expected, Actual metrics are:\n{}",
+        test_type,
+        actual_metrics
     );
 
     Ok(())
@@ -929,7 +937,7 @@ async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let update_request = UpdateVpcVirtualization {
         id: vpc_id,
         if_version_match: None,
-        network_virtualization_type: forge_network::virtualization::VpcVirtualizationType::Fnn,
+        network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
     };
     db::vpc::update_virtualization(&update_request, &mut txn).await?;
     txn.commit().await?;
@@ -1068,7 +1076,7 @@ async fn test_update_svi_ip_post_instance_allocation(
     let update_request = UpdateVpcVirtualization {
         id: segment.vpc_id.unwrap(),
         if_version_match: None,
-        network_virtualization_type: forge_network::virtualization::VpcVirtualizationType::Fnn,
+        network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
     };
     db::vpc::update_virtualization(&update_request, &mut txn).await?;
     txn.commit().await?;
@@ -1153,6 +1161,7 @@ async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(),
         .api
         .create_vpc(
             VpcCreationRequest::builder("dual-stack vpc", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
                 .tonic_request(),
         )
         .await?
@@ -1236,6 +1245,7 @@ async fn test_ipv6_tenant_prefix_rejected_when_not_in_site_fabric(
                 "uncontained-ipv6-vpc",
                 "2829bbe3-c169-4cd9-8b2a-19a8b1618a93",
             )
+            .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
             .tonic_request(),
         )
         .await?

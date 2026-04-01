@@ -16,6 +16,7 @@
  */
 
 use clap::Parser;
+use rpc::forge as forgerpc;
 
 use crate::bmc_machine::common::InfiniteBootArgs;
 
@@ -26,4 +27,13 @@ use crate::bmc_machine::common::InfiniteBootArgs;
 pub struct Args {
     #[clap(flatten)]
     pub inner: InfiniteBootArgs,
+}
+
+impl From<Args> for forgerpc::IsInfiniteBootEnabledRequest {
+    fn from(args: Args) -> Self {
+        Self {
+            bmc_endpoint_request: None,
+            machine_id: Some(args.inner.machine),
+        }
+    }
 }

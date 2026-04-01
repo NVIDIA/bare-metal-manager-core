@@ -113,6 +113,15 @@
 					<br>
 					Last Redfish BMC Powercycle: {{ endpoint.last_redfish_powercycle }}
 				</div>
+				{% if let Some(status) = action_status %}
+				{% if status.action == action_status::Type::Power %}
+				<div id="action-cell-status">
+					<span class="bubble {{ status.class.as_str() }}">{{ status.message }}</span>
+				</div>
+				{{ ActionStatus::url_cleanup_script()|safe }}
+				{% endif %}
+				{% endif %}
+				<span class="action-spinner"></span>
 				<div>
 					{% set bmc_ip = endpoint.address.clone() %}
 					{% include "power_control.html" %}
@@ -127,6 +136,15 @@
 					<br>
 					Last IPMI BMC Reset: {{ endpoint.last_ipmitool_bmc_reset }}
 				</div>
+				{% if let Some(status) = action_status %}
+				{% if status.action == action_status::Type::ResetBmc %}
+				<div id="action-cell-status">
+					<span class="bubble {{ status.class.as_str() }}">{{ status.message }}</span>
+				</div>
+				{{ ActionStatus::url_cleanup_script()|safe }}
+				{% endif %}
+				{% endif %}
+				<span class="action-spinner"></span>
 				<div>
 					{% set bmc_ip = endpoint.address.clone() %}
 					{% include "bmc_reset.html" %}
@@ -139,20 +157,28 @@
 				<div>
 					<span class="bubble {% if machine_setup_status == "OK" %}success{% else %}error{% endif %}">{{ machine_setup_status }}</span>
 				</div>
-						<div>
-				<form id="machine_setup" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/machine-setup">
-					<div style="display: flex; gap: 8px; align-items: center;">
-						{% if is_dell_endpoint %}
-						<input type="text" id="boot_interface_mac" name="boot_interface_mac" 
-							   placeholder="Boot Interface MAC"
-							   title="Enter a valid MAC address (e.g. 00:11:22:33:44:55)"
-							   required>
-						{% endif %}
-						<input type="submit" value="Machine Setup" class="disabled">
-					</div>
-				</form>
-
-			</div>
+				{% if let Some(status) = action_status %}
+				{% if status.action == action_status::Type::MachineSetup %}
+				<div id="action-cell-status">
+					<span class="bubble {{ status.class.as_str() }}">{{ status.message }}</span>
+				</div>
+				{{ ActionStatus::url_cleanup_script()|safe }}
+				{% endif %}
+				{% endif %}
+				<div>
+					<form id="machine_setup" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/machine-setup">
+						<div style="display: flex; gap: 8px; align-items: center;">
+							{% if is_dell_endpoint %}
+							<input type="text" id="boot_interface_mac" name="boot_interface_mac" 
+								placeholder="Boot Interface MAC"
+								title="Enter a valid MAC address (e.g. 00:11:22:33:44:55)"
+								required>
+							{% endif %}
+							<input type="submit" value="Machine Setup">
+						</div>
+					</form>
+					{{ action_status::action_spinner_script("machine_setup")|safe }}
+				</div>
 			</td>
 		</tr>
 		<tr>
@@ -261,20 +287,25 @@
 		<tr><th>Power State</th><td>{{ "{:?}"|format(system.power_state()) }}</td></tr>
 		<tr>
 			<th>Boot Order</th>
-			<td>
-				<div style="margin-bottom: 12px;">
-					<form id="set_first_boot_order" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/set-dpu-first-boot-order" onsubmit="reminder(event)">
-						<div style="display: flex; gap: 8px; align-items: center;">
-							<input type="text" name="boot_interface_mac" 
-								   placeholder="Boot Interface MAC"
-								   title="Enter a valid MAC address (e.g. 00:11:22:33:44:55)"
-								   style="width: 200px;"
-								   required>
-							<input type="submit" value="Set First">
-							{% include "restart_reminder.html" %}
-						</div>
-					</form>
+			<td class="action-cell" style="display: table-cell">
+				<div></div>
+				<div style="display: flex">
+					<div style="margin-bottom: 12px;">
+						<form id="set_first_boot_order" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/set-dpu-first-boot-order" onsubmit="action_reminder(event)">
+							<div style="display: flex; gap: 8px; align-items: center;">
+								<input type="text" name="boot_interface_mac" 
+								       placeholder="Boot Interface MAC"
+								       title="Enter a valid MAC address (e.g. 00:11:22:33:44:55)"
+								       style="width: 200px;"
+								       required>
+								<input type="submit" value="Set First">
+							</div>
+						</form>
+						{{ action_status::action_spinner_script("set_first_boot_order")|safe }}
+					</div>
+					<span class="action-spinner"></span>
 				</div>
+				{% include "restart_reminder.html" %}
 				<div style="max-height: 300px; overflow: auto;">
 					<pre><code>{{ system.boot_order|boot_order_fmt }}</code></pre>
 				</div>

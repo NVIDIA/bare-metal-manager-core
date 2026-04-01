@@ -16,18 +16,13 @@
  */
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge as forgerpc;
 use prettytable::{Table, row};
 
+use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn list(api_client: &ApiClient) -> CarbideCliResult<()> {
-    let response = api_client
-        .0
-        .admin_list_resource_pools(forgerpc::ListResourcePoolsRequest {
-            auto_assignable: None,
-        })
-        .await?;
+pub async fn list(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+    let response = api_client.0.admin_list_resource_pools(data).await?;
     if response.pools.is_empty() {
         println!("No resource pools defined");
         return Err(CarbideCliError::Empty);

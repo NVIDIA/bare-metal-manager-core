@@ -37,14 +37,14 @@ fn test_queried_variable_construction() {
     let default_value = sriov_var.with(false).unwrap();
     let next_value = sriov_var.with(true).unwrap();
 
-    let queried_var = QueriedVariable::new(
-        sriov_var.clone(),
+    let queried_var = QueriedVariable {
+        variable: sriov_var.clone(),
         current_value,
         default_value,
         next_value,
-        true,  // modified
-        false, // read_only
-    );
+        modified: true,
+        read_only: false,
+    };
 
     assert_eq!(queried_var.name(), "SRIOV_EN");
     assert_eq!(
@@ -65,14 +65,14 @@ fn test_queried_variable_pending_change_detection() {
     let default_value = sriov_var.with(false).unwrap();
     let next_value = sriov_var.with(true).unwrap();
 
-    let queried_var_with_pending = QueriedVariable::new(
-        sriov_var.clone(),
+    let queried_var_with_pending = QueriedVariable {
+        variable: sriov_var.clone(),
         current_value,
         default_value,
         next_value,
-        true,
-        false,
-    );
+        modified: true,
+        read_only: false,
+    };
 
     assert!(queried_var_with_pending.is_pending_change());
 
@@ -81,14 +81,14 @@ fn test_queried_variable_pending_change_detection() {
     let next_value = sriov_var.with(true).unwrap();
     let default_value = sriov_var.with(false).unwrap();
 
-    let queried_var_no_pending = QueriedVariable::new(
-        sriov_var,
+    let queried_var_no_pending = QueriedVariable {
+        variable: sriov_var,
         current_value,
         default_value,
         next_value,
-        true,
-        false,
-    );
+        modified: true,
+        read_only: false,
+    };
 
     assert!(!queried_var_no_pending.is_pending_change());
 }
@@ -102,26 +102,29 @@ fn test_query_result_construction() {
     let sriov_var = registry.get_variable("SRIOV_EN").unwrap().clone();
     let vfs_var = registry.get_variable("NUM_OF_VFS").unwrap().clone();
 
-    let sriov_queried = QueriedVariable::new(
-        sriov_var.clone(),
-        sriov_var.with(true).unwrap(),
-        sriov_var.with(false).unwrap(),
-        sriov_var.with(true).unwrap(),
-        true,
-        false,
-    );
+    let sriov_queried = QueriedVariable {
+        variable: sriov_var.clone(),
+        current_value: sriov_var.with(true).unwrap(),
+        default_value: sriov_var.with(false).unwrap(),
+        next_value: sriov_var.with(true).unwrap(),
+        modified: true,
+        read_only: false,
+    };
 
-    let vfs_queried = QueriedVariable::new(
-        vfs_var.clone(),
-        vfs_var.with(16i64).unwrap(),
-        vfs_var.with(8i64).unwrap(),
-        vfs_var.with(16i64).unwrap(),
-        true,
-        false,
-    );
+    let vfs_queried = QueriedVariable {
+        variable: vfs_var.clone(),
+        current_value: vfs_var.with(16i64).unwrap(),
+        default_value: vfs_var.with(8i64).unwrap(),
+        next_value: vfs_var.with(16i64).unwrap(),
+        modified: true,
+        read_only: false,
+    };
 
     let variables = vec![sriov_queried, vfs_queried];
-    let query_result = QueryResult::new(device_info, variables);
+    let query_result = QueryResult {
+        device_info,
+        variables,
+    };
 
     assert_eq!(query_result.variable_count(), 2);
     assert_eq!(
@@ -145,7 +148,10 @@ fn test_query_result_construction() {
 #[test]
 fn test_sync_result_construction() {
     let device_info = common::create_test_device_info();
-    let query_result = QueryResult::new(device_info, vec![]);
+    let query_result = QueryResult {
+        device_info,
+        variables: vec![],
+    };
     let registry = common::create_test_registry();
 
     // Create proper MlxConfigValue instances for VariableChange
@@ -153,25 +159,25 @@ fn test_sync_result_construction() {
     let vfs_var = registry.get_variable("NUM_OF_VFS").unwrap();
 
     let changes = vec![
-        VariableChange::new(
-            "SRIOV_EN".to_string(),
-            sriov_var.with(false).unwrap(),
-            sriov_var.with(true).unwrap(),
-        ),
-        VariableChange::new(
-            "NUM_OF_VFS".to_string(),
-            vfs_var.with(8i64).unwrap(),
-            vfs_var.with(16i64).unwrap(),
-        ),
+        VariableChange {
+            variable_name: "SRIOV_EN".to_string(),
+            old_value: sriov_var.with(false).unwrap(),
+            new_value: sriov_var.with(true).unwrap(),
+        },
+        VariableChange {
+            variable_name: "NUM_OF_VFS".to_string(),
+            old_value: vfs_var.with(8i64).unwrap(),
+            new_value: vfs_var.with(16i64).unwrap(),
+        },
     ];
 
-    let sync_result = SyncResult::new(
-        5, // variables_checked
-        2, // variables_changed
-        changes,
-        Duration::from_millis(500),
+    let sync_result = SyncResult {
+        variables_checked: 5,
+        variables_changed: 2,
+        changes_applied: changes,
+        execution_time: Duration::from_millis(500),
         query_result,
-    );
+    };
 
     assert_eq!(sync_result.variables_checked, 5);
     assert_eq!(sync_result.variables_changed, 2);
@@ -186,7 +192,10 @@ fn test_sync_result_construction() {
 #[test]
 fn test_comparison_result_construction() {
     let device_info = common::create_test_device_info();
-    let query_result = QueryResult::new(device_info, vec![]);
+    let query_result = QueryResult {
+        device_info,
+        variables: vec![],
+    };
     let registry = common::create_test_registry();
 
     // Create proper MlxConfigValue instances for PlannedChange
@@ -194,24 +203,24 @@ fn test_comparison_result_construction() {
     let power_var = registry.get_variable("POWER_MODE").unwrap();
 
     let planned_changes = vec![
-        PlannedChange::new(
-            "SRIOV_EN".to_string(),
-            sriov_var.with(false).unwrap(),
-            sriov_var.with(true).unwrap(),
-        ),
-        PlannedChange::new(
-            "POWER_MODE".to_string(),
-            power_var.with("LOW").unwrap(),
-            power_var.with("HIGH").unwrap(),
-        ),
+        PlannedChange {
+            variable_name: "SRIOV_EN".to_string(),
+            current_value: sriov_var.with(false).unwrap(),
+            desired_value: sriov_var.with(true).unwrap(),
+        },
+        PlannedChange {
+            variable_name: "POWER_MODE".to_string(),
+            current_value: power_var.with("LOW").unwrap(),
+            desired_value: power_var.with("HIGH").unwrap(),
+        },
     ];
 
-    let comparison_result = ComparisonResult::new(
-        3, // variables_checked
-        2, // variables_needing_change
+    let comparison_result = ComparisonResult {
+        variables_checked: 3,
+        variables_needing_change: 2,
         planned_changes,
         query_result,
-    );
+    };
 
     assert_eq!(comparison_result.variables_checked, 3);
     assert_eq!(comparison_result.variables_needing_change, 2);
@@ -227,11 +236,11 @@ fn test_planned_change_description() {
     let registry = common::create_test_registry();
     let sriov_var = registry.get_variable("SRIOV_EN").unwrap();
 
-    let planned_change = PlannedChange::new(
-        "SRIOV_EN".to_string(),
-        sriov_var.with(false).unwrap(),
-        sriov_var.with(true).unwrap(),
-    );
+    let planned_change = PlannedChange {
+        variable_name: "SRIOV_EN".to_string(),
+        current_value: sriov_var.with(false).unwrap(),
+        desired_value: sriov_var.with(true).unwrap(),
+    };
 
     let description = planned_change.description();
     assert!(description.contains("SRIOV_EN"));
@@ -245,11 +254,11 @@ fn test_variable_change_description() {
     let registry = common::create_test_registry();
     let vfs_var = registry.get_variable("NUM_OF_VFS").unwrap();
 
-    let variable_change = VariableChange::new(
-        "NUM_OF_VFS".to_string(),
-        vfs_var.with(8i64).unwrap(),
-        vfs_var.with(16i64).unwrap(),
-    );
+    let variable_change = VariableChange {
+        variable_name: "NUM_OF_VFS".to_string(),
+        old_value: vfs_var.with(8i64).unwrap(),
+        new_value: vfs_var.with(16i64).unwrap(),
+    };
 
     let description = variable_change.description();
     assert!(description.contains("NUM_OF_VFS"));
@@ -261,7 +270,10 @@ fn test_variable_change_description() {
 #[test]
 fn test_query_result_empty() {
     let device_info = QueriedDeviceInfo::new();
-    let query_result = QueryResult::new(device_info, vec![]);
+    let query_result = QueryResult {
+        device_info,
+        variables: vec![],
+    };
 
     assert_eq!(query_result.variable_count(), 0);
     assert!(query_result.variable_names().is_empty());
@@ -271,15 +283,18 @@ fn test_query_result_empty() {
 #[test]
 fn test_sync_result_no_changes() {
     let device_info = common::create_test_device_info();
-    let query_result = QueryResult::new(device_info, vec![]);
+    let query_result = QueryResult {
+        device_info,
+        variables: vec![],
+    };
 
-    let sync_result = SyncResult::new(
-        5,      // variables_checked
-        0,      // variables_changed
-        vec![], // no changes
-        Duration::from_millis(100),
+    let sync_result = SyncResult {
+        variables_checked: 5,
+        variables_changed: 0,
+        changes_applied: vec![],
+        execution_time: Duration::from_millis(100),
         query_result,
-    );
+    };
 
     assert_eq!(sync_result.variables_checked, 5);
     assert_eq!(sync_result.variables_changed, 0);
@@ -292,14 +307,17 @@ fn test_sync_result_no_changes() {
 #[test]
 fn test_comparison_result_no_changes_needed() {
     let device_info = common::create_test_device_info();
-    let query_result = QueryResult::new(device_info, vec![]);
+    let query_result = QueryResult {
+        device_info,
+        variables: vec![],
+    };
 
-    let comparison_result = ComparisonResult::new(
-        5,      // variables_checked
-        0,      // variables_needing_change
-        vec![], // no planned changes
+    let comparison_result = ComparisonResult {
+        variables_checked: 5,
+        variables_needing_change: 0,
+        planned_changes: vec![],
         query_result,
-    );
+    };
 
     assert_eq!(comparison_result.variables_checked, 5);
     assert_eq!(comparison_result.variables_needing_change, 0);
@@ -318,14 +336,14 @@ fn test_array_values_in_results() {
     let default_array = gpio_var.with(vec![false, false, false, false]).unwrap();
     let next_array = gpio_var.with(vec![true, false, true, false]).unwrap();
 
-    let gpio_queried = QueriedVariable::new(
-        gpio_var,
-        current_array,
-        default_array,
-        next_array,
-        true,
-        false,
-    );
+    let gpio_queried = QueriedVariable {
+        variable: gpio_var,
+        current_value: current_array,
+        default_value: default_array,
+        next_value: next_array,
+        modified: true,
+        read_only: false,
+    };
 
     assert_eq!(gpio_queried.name(), "GPIO_ENABLED");
 
@@ -356,11 +374,11 @@ fn test_enum_values_in_planned_changes() {
     let mut output_full = output_sparse;
     output_full.resize(8, None);
 
-    let planned_change = PlannedChange::new(
-        "GPIO_MODES[0]".to_string(),
-        gpio_modes_var.with(input_full).unwrap(),
-        gpio_modes_var.with(output_full).unwrap(),
-    );
+    let planned_change = PlannedChange {
+        variable_name: "GPIO_MODES[0]".to_string(),
+        current_value: gpio_modes_var.with(input_full).unwrap(),
+        desired_value: gpio_modes_var.with(output_full).unwrap(),
+    };
 
     let description = planned_change.description();
     assert!(description.contains("GPIO_MODES[0]"));
@@ -374,11 +392,11 @@ fn test_preset_values_in_variable_changes() {
     let registry = common::create_test_registry();
     let preset_var = registry.get_variable("PERFORMANCE_PRESET").unwrap();
 
-    let variable_change = VariableChange::new(
-        "PERFORMANCE_PRESET".to_string(),
-        preset_var.with(3u8).unwrap(),
-        preset_var.with(7u8).unwrap(),
-    );
+    let variable_change = VariableChange {
+        variable_name: "PERFORMANCE_PRESET".to_string(),
+        old_value: preset_var.with(3u8).unwrap(),
+        new_value: preset_var.with(7u8).unwrap(),
+    };
 
     let description = variable_change.description();
     assert!(description.contains("PERFORMANCE_PRESET"));
@@ -393,7 +411,10 @@ fn test_device_info_in_query_result() {
         .with_device_type("BlueField3")
         .with_part_number("MCX713106AS-VDAT");
 
-    let query_result = QueryResult::new(device_info, vec![]);
+    let query_result = QueryResult {
+        device_info,
+        variables: vec![],
+    };
 
     assert_eq!(
         query_result.device_info.device_id,
@@ -418,14 +439,14 @@ mod serialization_tests {
         let registry = common::create_test_registry();
         let sriov_var = registry.get_variable("SRIOV_EN").unwrap().clone();
 
-        let queried_var = QueriedVariable::new(
-            sriov_var.clone(),
-            sriov_var.with(true).unwrap(),
-            sriov_var.with(false).unwrap(),
-            sriov_var.with(true).unwrap(),
-            true,
-            false,
-        );
+        let queried_var = QueriedVariable {
+            variable: sriov_var.clone(),
+            current_value: sriov_var.with(true).unwrap(),
+            default_value: sriov_var.with(false).unwrap(),
+            next_value: sriov_var.with(true).unwrap(),
+            modified: true,
+            read_only: false,
+        };
 
         // Should be able to serialize and deserialize
         let json = serde_json::to_string(&queried_var).unwrap();
@@ -439,9 +460,18 @@ mod serialization_tests {
     #[test]
     fn test_sync_result_serialization() {
         let device_info = common::create_test_device_info();
-        let query_result = QueryResult::new(device_info, vec![]);
+        let query_result = QueryResult {
+            device_info,
+            variables: vec![],
+        };
 
-        let sync_result = SyncResult::new(3, 1, vec![], Duration::from_millis(200), query_result);
+        let sync_result = SyncResult {
+            variables_checked: 3,
+            variables_changed: 1,
+            changes_applied: vec![],
+            execution_time: Duration::from_millis(200),
+            query_result,
+        };
 
         let json = serde_json::to_string(&sync_result).unwrap();
         let deserialized: SyncResult = serde_json::from_str(&json).unwrap();

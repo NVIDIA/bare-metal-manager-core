@@ -51,6 +51,7 @@ fn main() {
         .compile("keashim");
 
     println!("cargo:rerun-if-changed=src/kea/callouts.cc");
+    println!("cargo:rerun-if-changed=src/kea/callouts.h");
     println!("cargo:rerun-if-changed=src/kea/loader.cc");
     println!("cargo:rerun-if-changed=src/kea/logger.cc");
     println!("cargo:rerun-if-changed=src/kea/carbide_rust.h");

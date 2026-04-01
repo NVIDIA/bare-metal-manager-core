@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: otel-agent-service
+spec:
+  hostNetwork: true
+  hostAliases:
+    - ip: ${CARBIDE_API_IP_ADDR}
+      hostnames:
+        - carbide-api.forge
+  containers:
+    - name: otel-agent
+      image: otel-agent
+      imagePullPolicy: IfNotPresent
+      args:
+        - --config-path
+        - /config/config.toml
+        - run
+      volumeMounts:
+        - name: certs
+          mountPath: /etc/otelcol-contrib/certs
+        - name: config
+          mountPath: /config/config.toml
+          readOnly: true
+  volumes:
+    - name: certs
+      hostPath:
+        path: /etc/otelcol-contrib/certs
+        type: Directory
+    - name: config
+      hostPath:
+        path: /etc/otelcol-contrib/otel-agent.toml
+        type: File

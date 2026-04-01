@@ -33,18 +33,11 @@ use crate::rpc::ApiClient;
 // interface if it doesn't exist, or return the existing
 // interface otherwise.
 pub async fn ensure(
-    args: &Args,
+    args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let request = forgerpc::DpaInterfaceCreationRequest {
-        machine_id: Some(args.machine_id),
-        mac_addr: args.mac_addr.clone(),
-        device_type: args.device_type.clone(),
-        pci_name: args.pci_name.clone(),
-    };
-
-    let interface = api_client.0.ensure_dpa_interface(request).await?;
+    let interface = api_client.0.ensure_dpa_interface(args).await?;
 
     if output_format == OutputFormat::Json {
         println!("{}", serde_json::to_string_pretty(&interface)?);

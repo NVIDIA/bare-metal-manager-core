@@ -17,6 +17,7 @@
 
 use clap::Parser;
 use mac_address::MacAddress;
+use rpc::forge as forgerpc;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -29,4 +30,23 @@ pub struct Args {
 
     #[clap(long, short, help = "Username of BMC account to delete")]
     pub username: String,
+}
+
+impl From<Args> for forgerpc::DeleteBmcUserRequest {
+    fn from(args: Args) -> Self {
+        let bmc_endpoint_request = if args.ip_address.is_some() || args.mac_address.is_some() {
+            Some(forgerpc::BmcEndpointRequest {
+                ip_address: args.ip_address.unwrap_or_default(),
+                mac_address: args.mac_address.map(|mac| mac.to_string()),
+            })
+        } else {
+            None
+        };
+
+        Self {
+            bmc_endpoint_request,
+            machine_id: args.machine,
+            delete_username: args.username,
+        }
+    }
 }

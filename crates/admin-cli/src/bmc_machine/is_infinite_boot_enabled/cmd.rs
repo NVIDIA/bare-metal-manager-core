@@ -17,16 +17,11 @@
 
 use ::rpc::admin_cli::CarbideCliResult;
 
-use crate::bmc_machine::common::InfiniteBootArgs;
+use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn is_infinite_boot_enabled(
-    args: InfiniteBootArgs,
-    api_client: &ApiClient,
-) -> CarbideCliResult<()> {
-    let response = api_client
-        .is_infinite_boot_enabled(None, Some(args.machine))
-        .await?;
+pub async fn is_infinite_boot_enabled(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+    let response = api_client.0.is_infinite_boot_enabled(args).await?;
     match response.is_enabled {
         Some(true) => println!("Enabled"),
         Some(false) => println!("Disabled"),

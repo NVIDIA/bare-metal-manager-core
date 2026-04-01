@@ -127,6 +127,8 @@ spec:
             #     configMapKeyRef:
             #       name: carbide-web-api-hostname
             #       key: hostname
+            # Admin UI: omit or CARBIDE_WEB_AUTH_TYPE=none (no in-process auth; use network/proxy).
+            # For Entra SSO: CARBIDE_WEB_AUTH_TYPE=oauth2 plus OAuth env vars below.
             # - name: CARBIDE_WEB_AUTH_TYPE
             #   value: oauth2
             - name: BITNAMI_DEBUG

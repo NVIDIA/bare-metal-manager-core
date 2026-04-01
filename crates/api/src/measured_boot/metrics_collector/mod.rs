@@ -20,7 +20,8 @@ use std::sync::Arc;
 
 use measured_boot::journal::MeasurementJournal;
 use measured_boot::records::MeasurementBundleState;
-use tokio::sync::oneshot;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 
 use crate::CarbideResult;
 use crate::cfg::file::MeasuredBootMetricsCollectorConfig;
@@ -61,19 +62,22 @@ impl MeasuredBootMetricsCollector {
 
     /// Start the MeasuredBootMetricsCollector and return a [sending channel](tokio::sync::oneshot::Sender)
     /// that will stop the MeasuredBootMetricsCollector when dropped.
-    pub fn start(self) -> eyre::Result<oneshot::Sender<i32>> {
-        let (stop_sender, stop_receiver) = oneshot::channel();
-
+    pub fn start(
+        self,
+        join_set: &mut JoinSet<()>,
+        cancel_token: CancellationToken,
+    ) -> std::io::Result<()> {
         if self.config.enabled {
-            tokio::task::Builder::new()
+            join_set
+                .build_task()
                 .name("measured_boot_collector")
-                .spawn(async move { self.run(stop_receiver).await })?;
+                .spawn(async move { self.run(cancel_token).await })?;
         }
 
-        Ok(stop_sender)
+        Ok(())
     }
 
-    async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {
+    async fn run(&self, cancel_token: CancellationToken) {
         loop {
             if let Err(e) = self.run_single_iteration().await {
                 tracing::warn!("MeasuredBootMetricsCollector error: {}", e);
@@ -81,7 +85,7 @@ impl MeasuredBootMetricsCollector {
 
             tokio::select! {
                 _ = tokio::time::sleep(self.config.run_interval) => {},
-                _ = &mut stop_receiver => {
+                _ = cancel_token.cancelled() => {
                     tracing::info!("MeasuredBootMetricsCollector stop was requested");
                     return;
                 }

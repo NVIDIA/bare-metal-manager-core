@@ -18,9 +18,13 @@ generate_bmc_password() {
   echo "${part1}-${part2}_${part3}${part4}${part5}"
 }
 
+BMC_USER="fw_updater"
 BMC_PASSWORD="$(generate_bmc_password)"
-BMC_USER="firmware_updater"
 USER_ID=8
+
+# Reboot CEC after CEC firmware update to apply the new version
+# NOTE: CEC_REBOOT is supported only if currently installed CEC firmware version is 00.02.0180.0000 or newer
+export CEC_REBOOT="yes"
 
 # Shell function called by BFB's installer before updating BMC components
 # https://docs.nvidia.com/networking/display/bluefieldbsp4130/customizing-bluefield-software-deployment
@@ -102,14 +106,13 @@ bfb_post_install() {
   # There is a possibility that all db certificates have been lost. If this occurs, all capsule updates (UEFI/ATF) will fail.
   add_db_cert
 
-  # The BlueField-2 BMC needs a graceful reboot in order to update itself
-  if (lspci -n | grep -wq '15b3:a2d6'); then
-    ilog "Found BlueField-2 card (15b3:a2d6)"
-    if [[ "$BMC_FIRMWARE_UPDATED" == "yes" ]]; then
-      ilog "DPU BMC reboot is triggered to apply new BMC version"
-      bmc_reboot
-      wait_bmc_boot
-    fi
+  # The BlueField BMC needs a graceful reboot in order to update itself
+  if [[ "$BMC_FIRMWARE_UPDATED" == "yes" ]]; then
+    ilog "DPU BMC reboot is triggered to apply new BMC version"
+    # Calling bmc_reboot function defined in the upstream installer
+    # https://github.com/Mellanox/bfb-build/blob/bf-bundle-3.2.0-113_25.10_ubuntu-22.04/common/install.env/bmc#L570
+    bmc_reboot
+    wait_bmc_boot
   fi
 
   ilog "Removing $BMC_USER user after BFB install complete"

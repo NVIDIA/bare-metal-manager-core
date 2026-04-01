@@ -14,18 +14,73 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+//! State Handler implementation for Switches (mirrors Machine state handler structure).
+
 use carbide_uuid::switch::SwitchId;
-use db::switch as db_switch;
 use model::switch::{Switch, SwitchControllerState};
+use tracing::instrument;
 
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
+use crate::state_controller::switch::bom_validating::handle_bom_validating;
+use crate::state_controller::switch::configuring::handle_configuring;
 use crate::state_controller::switch::context::SwitchStateHandlerContextObjects;
+use crate::state_controller::switch::created::handle_created;
+use crate::state_controller::switch::deleting::handle_deleting;
+use crate::state_controller::switch::error_state::handle_error;
+use crate::state_controller::switch::initializing::handle_initializing;
+use crate::state_controller::switch::ready::handle_ready;
+use crate::state_controller::switch::reprovisioning::handle_reprovisioning;
+use crate::state_controller::switch::validating::handle_validating;
 
-/// The actual Switch State handler
+/// The actual Switch State handler (structure mirrors MachineStateHandler).
 #[derive(Debug, Default, Clone)]
 pub struct SwitchStateHandler {}
+
+impl SwitchStateHandler {
+    /// Records metrics for the switch. Stub for now; extend when switch metrics are defined.
+    fn record_metrics(
+        &self,
+        _state: &Switch,
+        _ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
+    ) {
+        // TODO: Populate when SwitchMetrics has fields (e.g. health, version, etc.)
+    }
+
+    /// Attempts a state transition by delegating to the appropriate state handler.
+    async fn attempt_state_transition(
+        &self,
+        switch_id: &SwitchId,
+        state: &mut Switch,
+        ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
+    ) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
+        let controller_state = &state.controller_state.value;
+
+        match controller_state {
+            SwitchControllerState::Created => handle_created(switch_id, state, ctx).await,
+            SwitchControllerState::Initializing { .. } => {
+                handle_initializing(switch_id, state, ctx).await
+            }
+            SwitchControllerState::Configuring { .. } => {
+                handle_configuring(switch_id, state, ctx).await
+            }
+            SwitchControllerState::Validating { .. } => {
+                handle_validating(switch_id, state, ctx).await
+            }
+            SwitchControllerState::BomValidating { .. } => {
+                handle_bom_validating(switch_id, state, ctx).await
+            }
+            SwitchControllerState::ReProvisioning { .. } => {
+                handle_reprovisioning(switch_id, state, ctx).await
+            }
+            SwitchControllerState::Ready => handle_ready(switch_id, state, ctx).await,
+            SwitchControllerState::Deleting => handle_deleting(switch_id, state, ctx).await,
+            SwitchControllerState::Error { .. } => handle_error(switch_id, state, ctx).await,
+        }
+    }
+}
 
 #[async_trait::async_trait]
 impl StateHandler for SwitchStateHandler {
@@ -34,86 +89,15 @@ impl StateHandler for SwitchStateHandler {
     type ControllerState = SwitchControllerState;
     type ContextObjects = SwitchStateHandlerContextObjects;
 
+    #[instrument(skip_all, fields(object_id=%switch_id))]
     async fn handle_object_state(
         &self,
         switch_id: &SwitchId,
         state: &mut Switch,
-        controller_state: &Self::ControllerState,
+        _controller_state: &SwitchControllerState,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
-        match controller_state {
-            SwitchControllerState::Initializing => {
-                // TODO: Implement Switch initialization logic
-                // This would typically involve:
-                // 1. Validating the Switch configuration
-                // 2. Allocating resources
-                tracing::info!("Initializing Switch");
-                let new_state = SwitchControllerState::FetchingData;
-                Ok(StateHandlerOutcome::transition(new_state))
-            }
-
-            SwitchControllerState::FetchingData => {
-                tracing::info!("Fetching Switch data");
-                // TODO: Implement Switch fetching data logic
-                // This would typically involve:
-                // 1. Fetching data from the Switch
-                // 2. Updating the Switch status
-                let new_state = SwitchControllerState::Configuring;
-                Ok(StateHandlerOutcome::transition(new_state))
-            }
-
-            SwitchControllerState::Configuring => {
-                tracing::info!("Configuring Switch");
-                // TODO: Implement Switch configuring logic
-                // This would typically involve:
-                // 1. Configuring the Switch
-                // 2. Updating the Switch status
-                let new_state = SwitchControllerState::Ready;
-                Ok(StateHandlerOutcome::transition(new_state))
-            }
-
-            SwitchControllerState::Deleting => {
-                tracing::info!("Deleting Switch");
-                // TODO: Implement Switch deletion logic
-                // This would typically involve:
-                // 1. Checking if the Switch is in use
-                // 2. Safely shutting down the Switch
-                // 3. Releasing allocated resources
-
-                // For now, just delete the Switch from the database
-                let mut txn = ctx.services.db_pool.begin().await?;
-                db_switch::final_delete(*switch_id, &mut txn).await?;
-                Ok(StateHandlerOutcome::deleted().with_txn(txn))
-            }
-
-            SwitchControllerState::Ready => {
-                tracing::info!("Switch is ready");
-                if state.is_marked_as_deleted() {
-                    Ok(StateHandlerOutcome::transition(
-                        SwitchControllerState::Deleting,
-                    ))
-                } else {
-                    // TODO: Implement Switch monitoring logic
-                    // This would typically involve:
-                    // 1. Checking Switch health status
-                    // 2. Updating Switch status
-
-                    // For now, just do nothing
-                    Ok(StateHandlerOutcome::do_nothing())
-                }
-            }
-
-            SwitchControllerState::Error { .. } => {
-                tracing::info!("Switch is in error state");
-                if state.is_marked_as_deleted() {
-                    Ok(StateHandlerOutcome::transition(
-                        SwitchControllerState::Deleting,
-                    ))
-                } else {
-                    // If Switch is in error state, keep it there for manual intervention
-                    Ok(StateHandlerOutcome::do_nothing())
-                }
-            }
-        }
+        self.record_metrics(state, ctx);
+        self.attempt_state_transition(switch_id, state, ctx).await
     }
 }

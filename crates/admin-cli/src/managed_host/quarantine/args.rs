@@ -17,6 +17,7 @@
 
 use carbide_uuid::machine::MachineId;
 use clap::Parser;
+use rpc::forge as forgerpc;
 
 /// Enable or disable quarantine mode on a managed host.
 #[derive(Parser, Debug)]
@@ -41,8 +42,28 @@ pub struct QuarantineOn {
     pub reason: String,
 }
 
+impl From<QuarantineOn> for forgerpc::SetManagedHostQuarantineStateRequest {
+    fn from(args: QuarantineOn) -> Self {
+        Self {
+            machine_id: Some(args.host),
+            quarantine_state: Some(forgerpc::ManagedHostQuarantineState {
+                mode: forgerpc::ManagedHostQuarantineMode::BlockAllTraffic as i32,
+                reason: Some(args.reason),
+            }),
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 pub struct QuarantineOff {
     #[clap(long, required(true), help = "Managed Host ID")]
     pub host: MachineId,
+}
+
+impl From<QuarantineOff> for forgerpc::ClearManagedHostQuarantineStateRequest {
+    fn from(args: QuarantineOff) -> Self {
+        Self {
+            machine_id: Some(args.host),
+        }
+    }
 }

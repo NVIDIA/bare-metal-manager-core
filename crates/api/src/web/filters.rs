@@ -35,6 +35,8 @@ pub fn machine_id_link(id: impl Display) -> ::askama::Result<String> {
 /// Generates a formatted link for Machine IDs to a predefined path
 fn machine_link(id: impl Display, path: impl Display) -> ::askama::Result<String> {
     let id = id.to_string();
+    let link_path: String = url::form_urlencoded::byte_serialize(id.as_bytes()).collect();
+
     let short_id = if MachineId::from_str(&id).is_err() {
         // Not a Machine ID. Escape HTML to make it safe for post processing with safe filter
         let mut output = String::new();
@@ -47,9 +49,36 @@ fn machine_link(id: impl Display, path: impl Display) -> ::askama::Result<String
 
     let formatted = format!(
         r#"
-    <a href="/admin/{path}/{id}">
+    <a href="/admin/{path}/{link_path}">
         <div class="machine_id">
             <div>{id}</div><div>{short_id}</div>
+        </div>
+    </a>"#
+    );
+
+    Ok(formatted)
+}
+
+pub fn rack_id_link(id: impl Display) -> ::askama::Result<String> {
+    // Sanitize rack ID for HTML content and links (it can contain arbitrary content)
+    let id = id.to_string();
+    let link_path: String = url::form_urlencoded::byte_serialize(id.as_bytes()).collect();
+
+    let mut rack_id = String::new();
+    askama_escape::Html.write_escaped(&mut rack_id, &id)?;
+
+    let short_id = if rack_id.len() < 10 {
+        &rack_id
+    } else {
+        &rack_id[0..6] // Shorter to have space for ellipsis ("...")
+    };
+
+    // machine_id is used here since its already a defined CSS class
+    let formatted = format!(
+        r#"
+    <a href="/admin/rack/{link_path}">
+        <div class="machine_id">
+            <div>{rack_id}</div><div>{short_id}</div>
         </div>
     </a>"#
     );

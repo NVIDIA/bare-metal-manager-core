@@ -18,7 +18,7 @@
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
 use prettytable::{Table, row};
-use rpc::forge::{FindTenantRequest, TenantByOrganizationIdsRequest};
+use rpc::forge::TenantByOrganizationIdsRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -79,12 +79,13 @@ pub async fn show(
     api_client: &ApiClient,
     page_size: usize,
 ) -> CarbideCliResult<()> {
-    let tenants = if let Some(id) = args.tenant_org {
+    let req: Option<rpc::forge::FindTenantRequest> = (&args).into();
+
+    let tenants = if let Some(req) = req {
+        let id = req.tenant_organization_id.clone();
         let tenant = api_client
             .0
-            .find_tenant(FindTenantRequest {
-                tenant_organization_id: id.clone(),
-            })
+            .find_tenant(req)
             .await?
             .tenant
             .ok_or(CarbideCliError::TenantNotFound(id))?;

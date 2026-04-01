@@ -93,6 +93,7 @@ impl From<Args> for rpc::forge::ExpectedPowerShelf {
             labels,
         };
         rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
             bmc_mac_address: value.bmc_mac_address.to_string(),
             bmc_username: value.bmc_username,
             bmc_password: value.bmc_password,

@@ -24,6 +24,7 @@ use axum::response::{Html, IntoResponse, Response};
 use carbide_uuid::machine::{MachineId, MachineType};
 use health_report::HealthReport;
 use hyper::http::StatusCode;
+use model::machine::health_override::HealthReportOverrides;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     InsertHealthReportOverrideRequest, MachinesByIdsRequest, OverrideMode,
@@ -32,6 +33,7 @@ use rpc::forge::{
 
 use super::filters;
 use crate::api::Api;
+use crate::auth::AuthContext;
 
 #[derive(Template)]
 #[template(path = "machine_health.html")]
@@ -128,7 +130,7 @@ pub async fn health(
     };
 
     let request = tonic::Request::new(machine_id);
-    let mut overrides = match state
+    let mut listed_overrides = match state
         .list_health_report_overrides(request)
         .await
         .map(|response| response.into_inner().overrides)
@@ -140,6 +142,28 @@ pub async fn health(
             return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response();
         }
     };
+    let mut hardware_health: Option<health_report::HealthReport> = None;
+    let mut overrides = Vec::new();
+    for override_entry in listed_overrides.drain(..) {
+        let source = override_entry
+            .report
+            .as_ref()
+            .map(|report| report.source.as_str())
+            .unwrap_or_default();
+        if HealthReportOverrides::is_hardware_health_override_source(source) {
+            if let Some(report) = override_entry.report {
+                let report = health_report_from_rpc_convert_invalid(report);
+                if let Some(aggregated) = hardware_health.as_mut() {
+                    aggregated.merge(&report);
+                } else {
+                    hardware_health = Some(report);
+                }
+            }
+            continue;
+        }
+        overrides.push(override_entry);
+    }
+
     // Sort by type first and source name second.
     overrides.sort_by(|a, b| {
         if a.mode() == OverrideMode::Replace {
@@ -159,23 +183,9 @@ pub async fn health(
         .collect();
 
     let mut component_health = Vec::new();
-
-    let request = tonic::Request::new(machine_id);
-    let hw_report = match state
-        .get_hardware_health_report(request)
-        .await
-        .map(|response| response.into_inner().report)
-    {
-        Ok(m) => m,
-        Err(err) if err.code() == tonic::Code::NotFound => None,
-        Err(err) => {
-            tracing::error!(%err, %machine_id, "get_hardware_health_report");
-            return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response();
-        }
-    };
     component_health.push(LabeledHealthReport {
         label: "Hardware Health".to_string(),
-        report: hw_report.map(health_report_from_rpc_convert_invalid),
+        report: hardware_health,
     });
 
     if !associated_dpu_machine_ids.is_empty() {
@@ -291,6 +301,7 @@ pub struct RemoveOverride {
 pub async fn add_override(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
+    auth_context: Option<axum::Extension<AuthContext>>,
     extract::Json(payload): extract::Json<HealthReportOverride>,
 ) -> impl IntoResponse {
     let report_override = match ::rpc::forge::HealthReportOverride::try_from(payload) {
@@ -303,10 +314,13 @@ pub async fn add_override(
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()),
     };
 
-    let request = tonic::Request::new(InsertHealthReportOverrideRequest {
+    let mut request = tonic::Request::new(InsertHealthReportOverrideRequest {
         machine_id: Some(machine_id),
         r#override: Some(report_override),
     });
+    if let Some(axum::Extension(auth_context)) = auth_context {
+        request.extensions_mut().insert(auth_context);
+    }
     match state
         .insert_health_report_override(request)
         .await

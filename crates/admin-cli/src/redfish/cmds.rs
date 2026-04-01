@@ -133,6 +133,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                     machine_setup_args.boot_interface_mac.as_deref(),
                     &bios_profiles,
                     selected_profile,
+                    &HashMap::new(),
                 )
                 .await?;
         }

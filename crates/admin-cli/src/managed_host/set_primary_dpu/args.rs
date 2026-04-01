@@ -17,6 +17,7 @@
 
 use carbide_uuid::machine::MachineId;
 use clap::Parser;
+use rpc::forge as forgerpc;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -26,4 +27,14 @@ pub struct Args {
     pub dpu_machine_id: MachineId,
     #[clap(long, help = "Reboot the host after the update")]
     pub reboot: bool,
+}
+
+impl From<Args> for forgerpc::SetPrimaryDpuRequest {
+    fn from(args: Args) -> Self {
+        Self {
+            host_machine_id: Some(args.host_machine_id),
+            dpu_machine_id: Some(args.dpu_machine_id),
+            reboot: args.reboot,
+        }
+    }
 }

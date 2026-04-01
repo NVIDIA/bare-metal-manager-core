@@ -20,10 +20,9 @@ use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::machine::MachineId;
 use model::dpu_remediation::{
     AppliedRemediation, ApproveRemediation, DisableRemediation, EnableRemediation,
-    NewAppliedRemediation, NewRemediation, Remediation, RevokeRemediation,
+    NewAppliedRemediation, NewRemediation, Remediation, RemediationApplicationStatus,
+    RevokeRemediation,
 };
-use model::metadata::Metadata;
-use rpc::forge::RemediationApplicationStatus;
 use sqlx::Postgres;
 
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
@@ -152,11 +151,7 @@ pub async fn remediation_applied(
         Some(last_applied_remediation) => last_applied_remediation.attempt + 1,
         None => 1,
     };
-    let metadata: Metadata = status
-        .metadata
-        .unwrap_or_default()
-        .try_into()
-        .map_err(DatabaseError::from)?;
+    let metadata = status.metadata.unwrap_or_default();
 
     let new_applied_remediation = NewAppliedRemediation {
         dpu_machine_id: machine_id.to_string(),

@@ -17,6 +17,7 @@
 use std::error::Error;
 use std::fmt;
 
+pub mod compute_allocation;
 pub mod domain;
 pub mod dpa_interface;
 pub mod dpu_remediations;

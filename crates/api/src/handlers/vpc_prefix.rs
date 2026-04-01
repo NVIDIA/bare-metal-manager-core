@@ -18,6 +18,7 @@
 use ::db::{ObjectColumnFilter, vpc_prefix as db};
 use ::rpc::forge as rpc;
 use ::rpc::forge::PrefixMatchType;
+use carbide_network::virtualization::VpcVirtualizationType;
 use ipnetwork::IpNetwork;
 use model::network_prefix::NetworkPrefix;
 use model::vpc_prefix;
@@ -61,6 +62,24 @@ pub async fn create(
     }
 
     let mut txn = api.txn_begin().await?;
+
+    // IPv6 VPC prefixes are only supported for FNN VPCs.
+    if new_prefix.config.prefix.is_ipv6() {
+        let vpcs = ::db::vpc::find_by(
+            &mut txn,
+            ObjectColumnFilter::One(::db::vpc::IdColumn, &new_prefix.vpc_id),
+        )
+        .await?;
+        let vpc = vpcs.first().ok_or_else(|| {
+            CarbideError::internal(format!("VPC ID: {} not found", new_prefix.vpc_id))
+        })?;
+        if vpc.network_virtualization_type != VpcVirtualizationType::Fnn {
+            return Err(CarbideError::InvalidArgument(
+                "IPv6 VPC prefixes are only supported for FNN VPCs".to_string(),
+            )
+            .into());
+        }
+    }
 
     let conflicting_vpc_prefixes = db::probe(new_prefix.config.prefix, &mut txn).await?;
     if !conflicting_vpc_prefixes.is_empty() {

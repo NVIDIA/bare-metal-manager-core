@@ -24,7 +24,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use forge_secrets::SecretsError;
 use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
+    BmcCredentialType, CredentialKey, CredentialReader, CredentialType, Credentials,
 };
 use libredfish::model::BootProgress;
 use libredfish::{Endpoint, PowerState, Redfish, RedfishError, SystemPowerControl};
@@ -93,8 +93,8 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         initialize: bool, // fetch some initial values like system id and manager id
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError>;
 
-    /// Returns a CredentialProvider for use in setting credentials in the UEFI/BMC.
-    fn credential_provider(&self) -> Arc<dyn CredentialProvider>;
+    /// Returns a CredentialReader for use in setting credentials in the UEFI/BMC.
+    fn credential_reader(&self) -> &dyn CredentialReader;
 
     // MARK: - Default (helper) methods
 
@@ -159,7 +159,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         };
 
         let credentials = self
-            .credential_provider()
+            .credential_reader()
             .get_credentials(&credential_key)
             .await?
             .ok_or_else(|| RedfishClientCreationError::MissingCredentials {
@@ -229,7 +229,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             // site password is taken from DpuUefi:site_default key
             //
             let credentials = self
-                .credential_provider()
+                .credential_reader()
                 .get_credentials(&CredentialKey::DpuUefi {
                     credential_type: CredentialType::DpuHardwareDefault,
                 })
@@ -247,7 +247,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
                 credential_type: CredentialType::SiteDefault,
             };
             let credentials = self
-                .credential_provider()
+                .credential_reader()
                 .get_credentials(&credential_key)
                 .await?
                 .ok_or_else(|| RedfishClientCreationError::MissingCredentials {
@@ -263,7 +263,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
                 credential_type: CredentialType::SiteDefault,
             };
             let credentials = self
-                .credential_provider()
+                .credential_reader()
                 .get_credentials(&credential_key)
                 .await?
                 .ok_or_else(|| RedfishClientCreationError::MissingCredentials {
@@ -306,18 +306,18 @@ pub trait RedfishClientPool: Send + Sync + 'static {
 
 pub struct RedfishClientPoolImpl {
     pool: libredfish::RedfishClientPool,
-    credential_provider: Arc<dyn CredentialProvider>,
+    credential_reader: Arc<dyn CredentialReader>,
     proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,
 }
 
 impl RedfishClientPoolImpl {
     pub fn new(
-        credential_provider: Arc<dyn CredentialProvider>,
+        credential_reader: Arc<dyn CredentialReader>,
         pool: libredfish::RedfishClientPool,
         proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,
     ) -> Self {
         RedfishClientPoolImpl {
-            credential_provider,
+            credential_reader,
             pool,
             proxy_address,
         }
@@ -354,7 +354,7 @@ impl RedfishClientPool for RedfishClientPoolImpl {
             RedfishAuth::Direct(username, password) => (Some(username), Some(password)),
             RedfishAuth::Key(credential_key) => {
                 let credentials = self
-                    .credential_provider
+                    .credential_reader
                     .get_credentials(&credential_key)
                     .await?
                     .ok_or_else(|| RedfishClientCreationError::MissingCredentials {
@@ -409,8 +409,8 @@ impl RedfishClientPool for RedfishClientPoolImpl {
         }
     }
 
-    fn credential_provider(&self) -> Arc<dyn CredentialProvider> {
-        self.credential_provider.clone()
+    fn credential_reader(&self) -> &dyn CredentialReader {
+        &*self.credential_reader
     }
 }
 
@@ -632,7 +632,7 @@ pub mod test_support {
     use std::time::Duration;
 
     use chrono::Utc;
-    use forge_secrets::credentials::TestCredentialProvider;
+    use forge_secrets::credentials::TestCredentialManager;
     use libredfish::model::certificate::Certificate;
     use libredfish::model::component_integrity::{ComponentIntegrities, ComponentIntegrity};
     use libredfish::model::oem::nvidia_dpu::{HostPrivilegeLevel, NicMode};
@@ -680,6 +680,7 @@ pub mod test_support {
     #[derive(Default)]
     pub struct RedfishSim {
         state: Arc<Mutex<RedfishSimState>>,
+        credential_manager: TestCredentialManager,
     }
 
     impl RedfishSim {
@@ -798,6 +799,13 @@ pub mod test_support {
                 >,
             >,
             _profile_type: libredfish::BiosProfileType,
+            _oem_manager_profiles: &HashMap<
+                libredfish::model::service_root::RedfishVendor,
+                HashMap<
+                    String,
+                    HashMap<libredfish::BiosProfileType, HashMap<String, serde_json::Value>>,
+                >,
+            >,
         ) -> Result<(), RedfishError> {
             Ok(())
         }
@@ -1931,10 +1939,6 @@ pub mod test_support {
                 .push(RedfishSimAction::SetUtcTimezone);
             Ok(())
         }
-
-        async fn disable_psu_hot_spare(&self) -> Result<(), RedfishError> {
-            todo!()
-        }
     }
 
     #[async_trait]
@@ -1970,8 +1974,8 @@ pub mod test_support {
             }))
         }
 
-        fn credential_provider(&self) -> Arc<dyn CredentialProvider> {
-            Arc::new(TestCredentialProvider::default())
+        fn credential_reader(&self) -> &dyn CredentialReader {
+            &self.credential_manager
         }
 
         async fn create_client_for_ingested_host(

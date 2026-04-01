@@ -17,7 +17,7 @@
 
 /*!
  *  RPC handler tests for measured boot.
-*/
+ */
 
 #[cfg(test)]
 mod tests {
@@ -28,7 +28,6 @@ mod tests {
     use measured_boot::pcr::PcrRegisterValue;
     use measured_boot::records::MeasurementApprovedMachineRecord;
     use model::machine::ManagedHostState;
-    use model::metadata::Metadata;
     use rpc::protos::measured_boot as mbrpc;
 
     use crate::measured_boot::rpc::{bundle, journal, machine, profile, report, site};
@@ -2036,9 +2035,7 @@ mod tests {
             None,
             &machine_id,
             ManagedHostState::Ready,
-            &Metadata::default(),
             None,
-            true,
             CURRENT_STATE_MODEL_VERSION,
         )
         .await

@@ -41,3 +41,12 @@ pub struct AddressArgs {
     )]
     pub source_type: RouteServerSourceType,
 }
+
+impl From<AddressArgs> for ::rpc::forge::RouteServers {
+    fn from(args: AddressArgs) -> Self {
+        Self {
+            route_servers: args.ip.iter().map(ToString::to_string).collect(),
+            source_type: args.source_type as i32,
+        }
+    }
+}

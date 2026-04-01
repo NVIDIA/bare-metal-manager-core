@@ -45,8 +45,10 @@ spec:
           ports:
             - name: udp
               containerPort: 53
+              protocol: UDP
             - name: tcp
               containerPort: 53
+              protocol: TCP
           volumeMounts:
             - name: spiffe
               mountPath: /var/run/secrets/spiffe.io

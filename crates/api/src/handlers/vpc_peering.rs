@@ -17,8 +17,8 @@
 
 use ::db::{ObjectColumnFilter, vpc, vpc_peering as db};
 use ::rpc::forge as rpc;
+use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_uuid::vpc_peering::VpcPeeringId;
-use forge_network::virtualization::VpcVirtualizationType;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -60,7 +60,7 @@ pub async fn create(
                 vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
             let vpc1 = vpcs1.first().ok_or_else(|| CarbideError::NotFoundError {
                 kind: "VPC",
-                id: vpc_id.clone().to_string(),
+                id: vpc_id.to_string(),
             })?;
             let vpcs2 = vpc::find_by(
                 &mut txn,
@@ -69,14 +69,13 @@ pub async fn create(
             .await?;
             let vpc2 = vpcs2.first().ok_or_else(|| CarbideError::NotFoundError {
                 kind: "VPC",
-                id: peer_vpc_id.clone().to_string(),
+                id: peer_vpc_id.to_string(),
             })?;
-            // If nvue_enabled, then ETHERNET_VIRTUALIZER = ETHERNET_VIRTUALIZER_WITH_NVUE and
-            // only type of peering not allowed is between Fnn <-> ETV/ETV_WITH_NVUE
+            // Peering not allowed between Fnn <-> ETV/ETV_NVUE.
+            // ETV and ETV_NVUE are treated as equivalent since NVUE is always enabled.
             if vpc1.network_virtualization_type != vpc2.network_virtualization_type
-                && (!api.runtime_config.nvue_enabled
-                    || (vpc1.network_virtualization_type == VpcVirtualizationType::Fnn
-                        || vpc2.network_virtualization_type == VpcVirtualizationType::Fnn))
+                && (vpc1.network_virtualization_type == VpcVirtualizationType::Fnn
+                    || vpc2.network_virtualization_type == VpcVirtualizationType::Fnn)
             {
                 return Err(CarbideError::internal(
                             "VPC peering between VPCs of different network virtualization type not allowed.".to_string(),

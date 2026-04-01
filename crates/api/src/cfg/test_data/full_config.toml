@@ -12,7 +12,6 @@ machine_update_run_interval = 60
 dpu_ipmi_tool_impl = "fake"
 dpu_ipmi_reboot_attempts = 1
 max_find_by_ids = 75
-nvue_enabled = true
 vpc_peering_policy = "exclusive"
 vpc_peering_policy_on_existing = "mixed"
 internet_l3_vni = 1337
@@ -82,7 +81,7 @@ machines_created_per_run = 2
 override_target_ip = "1.2.3.4"
 override_target_port = 10443
 reset_rate_limit = "2h"
-use_onboard_nic = false
+force_dpu_nic_mode = false
 
 # Unit is mandatory
 [machine_state_controller]
@@ -91,6 +90,11 @@ power_down_wait = "13s"
 failure_retry_time = "31m"
 dpu_up_threshold = "33m"
 scout_reporting_timeout = "20m"
+
+[host_health]
+prevent_allocations_on_stale_dpu_agent_version = true
+prevent_allocations_on_scout_heartbeat_timeout = true
+suppress_external_alerting_on_scout_heartbeat_timeout = false
 
 [machine_state_controller.controller]
 iteration_time = "9m"
@@ -189,6 +193,28 @@ OperatingModes_ChooseOperatingMode = "MaximumPerformance"
 [bios_profiles.Lenovo.ThinkSystem_SR655_V3.powerefficiency]
 DevicesandIOPorts_IOMMU = "Disabled"
 OperatingModes_ChooseOperatingMode = "MinimalPower"
+
+[rack_types.NVL72]
+[rack_types.NVL72.compute]
+name = "GB200"
+count = 18
+vendor = "NVIDIA"
+
+[rack_types.NVL72.switch]
+count = 9
+
+[rack_types.NVL72.power_shelf]
+count = 8
+
+[rack_types.NVL36]
+[rack_types.NVL36.compute]
+count = 9
+
+[rack_types.NVL36.switch]
+count = 9
+
+[rack_types.NVL36.power_shelf]
+count = 2
 
 [mlx-config-profiles.test-profile]
 name = "test-profile"

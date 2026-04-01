@@ -17,7 +17,6 @@
 
 use ::rpc::admin_cli::CarbideCliResult;
 use ::rpc::admin_cli::output::OutputFormat;
-use ::rpc::forge::DeleteDpuExtensionServiceRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -27,13 +26,7 @@ pub async fn handle_delete(
     _output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    api_client
-        .0
-        .delete_dpu_extension_service(DeleteDpuExtensionServiceRequest {
-            service_id: args.service_id,
-            versions: args.versions,
-        })
-        .await?;
+    api_client.0.delete_dpu_extension_service(args).await?;
 
     println!("Delete successful");
     Ok(())

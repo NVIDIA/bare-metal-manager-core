@@ -20,6 +20,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use ::rpc::protos::{common as rpc_common, forge as rpc};
+use carbide_network::ip::IdentifyAddressFamily;
 use carbide_uuid::domain::DomainId;
 use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::instance::InstanceId;
@@ -27,7 +28,6 @@ use carbide_uuid::machine::MachineInterfaceId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use db::{DatabaseError, ObjectColumnFilter, instance, network_segment, vpc};
-use forge_network::ip::IdentifyAddressFamily;
 use model::network_segment::NetworkSegmentSearchConfig;
 use model::resource_pool::ResourcePoolEntryState;
 use model::route_server::RouteServerSourceType;
@@ -66,7 +66,7 @@ pub(crate) async fn identify_uuid(
     let req = request.into_inner();
 
     let Some(u) = req.uuid else {
-        return Err(tonic::Status::invalid_argument("UUID missing from query"));
+        return Err(CarbideError::InvalidArgument("UUID missing from query".to_string()).into());
     };
     match by_uuid(api, &u).await {
         Ok(Some(object_type)) => Ok(tonic::Response::new(rpc::IdentifyUuidResponse {
@@ -90,12 +90,12 @@ pub(crate) async fn identify_mac(
     let req = request.into_inner();
 
     if req.mac_address.is_empty() {
-        return Err(tonic::Status::invalid_argument("MAC missing from query"));
+        return Err(CarbideError::InvalidArgument("MAC missing from query".to_string()).into());
     };
     let Ok(mac) = mac_address::MacAddress::from_str(&req.mac_address) else {
-        return Err(tonic::Status::invalid_argument(
-            "Could not parse MAC address",
-        ));
+        return Err(
+            CarbideError::InvalidArgument("Could not parse MAC address".to_string()).into(),
+        );
     };
     match by_mac(api, mac).await {
         Ok(Some((primary_key, object_type))) => {
@@ -203,7 +203,7 @@ async fn search(
 ) -> Result<Option<rpc::IpAddressMatch>, CarbideError> {
     let addr: IpAddr = ip.parse()?;
 
-    let mut txn = api.txn_begin().await?;
+    let db = &api.database_connection;
 
     use Finder::*;
     let match_result = match finder {
@@ -222,7 +222,7 @@ async fn search(
 
         // Look for IP address in resource pools
         ResourcePools => {
-            let mut vec_out = db::resource_pool::find_value(&mut txn, ip).await?;
+            let mut vec_out = db::resource_pool::find_value(db, ip).await?;
             let entry = match vec_out.len() {
                 0 => return Ok(None),
                 1 => vec_out.remove(0),
@@ -259,7 +259,7 @@ async fn search(
 
         // Look in instance_addresses
         InstanceAddresses => {
-            let instance_address = db::instance_address::find_by_address(&mut txn, addr).await?;
+            let instance_address = db::instance_address::find_by_address(db, addr).await?;
 
             instance_address.map(|e| {
                 let message = format!(
@@ -276,7 +276,7 @@ async fn search(
 
         // Look in machine_interface_addresses
         MachineAddresses => {
-            let out = db::machine_interface_address::find_by_address(&mut txn, addr).await?;
+            let out = db::machine_interface_address::find_by_address(db, addr).await?;
             out.map(|e| {
                 let message = match e.machine_id.as_ref() {
                     Some(machine_id) => format!(
@@ -298,7 +298,7 @@ async fn search(
 
         // BMC IP of the host
         BmcIp => {
-            let out = db::machine_topology::find_machine_id_by_bmc_ip(&mut txn, ip).await?;
+            let out = db::machine_topology::find_machine_id_by_bmc_ip(db, ip).await?;
             out.map(|machine_id| rpc::IpAddressMatch {
                 ip_type: rpc::IpType::BmcIp as i32,
                 owner_id: Some(machine_id.to_string()),
@@ -306,7 +306,7 @@ async fn search(
             })
         }
         ExploredEndpoint => {
-            let out = db::explored_endpoints::find_by_ips(&mut txn, vec![addr]).await?;
+            let out = db::explored_endpoints::find_by_ips(db, vec![addr]).await?;
             out.first().map(|ee| rpc::IpAddressMatch {
                 ip_type: rpc::IpType::ExploredEndpoint as i32,
                 owner_id: Some(ee.address.to_string()),
@@ -316,7 +316,7 @@ async fn search(
 
         // Loopback IP of a DPU
         LoopbackIp => {
-            let out = db::machine::find_by_loopback_ip(&mut txn, ip).await?;
+            let out = db::machine::find_by_loopback_ip(db, ip).await?;
             out.map(|machine| rpc::IpAddressMatch {
                 ip_type: rpc::IpType::LoopbackIp as i32,
                 owner_id: Some(machine.id.to_string()),
@@ -328,8 +328,7 @@ async fn search(
         NetworkSegment => {
             let host_prefix = addr.address_family().interface_prefix_len();
             let out =
-                db::network_prefix::containing_prefix(&mut txn, &format!("{ip}/{host_prefix}"))
-                    .await?;
+                db::network_prefix::containing_prefix(db, &format!("{ip}/{host_prefix}")).await?;
             out.first().map(|prefix| {
                 let message = format!(
                     "{ip} is in prefix {} of segment {}, gateway {}",
@@ -352,7 +351,7 @@ async fn search(
         // source (via the config TOML), or an "admin" source (via
         // forge-admin-cli).
         RouteServers => {
-            let out = db::route_servers::find_by_address(&mut txn, addr).await?;
+            let out = db::route_servers::find_by_address(db, addr).await?;
             out.map(|route_server| rpc::IpAddressMatch {
                 ip_type: match route_server.source_type {
                     RouteServerSourceType::AdminApi => rpc::IpType::RouteServerFromAdminApi,
@@ -367,7 +366,7 @@ async fn search(
         }
 
         DpaAddresses => {
-            let out = db::dpa_interface::find_by_ip(&mut txn, addr).await?;
+            let out = db::dpa_interface::find_by_ip(db, addr).await?;
 
             out.first().map(|dpa| rpc::IpAddressMatch {
                 ip_type: rpc::IpType::DpaInterface as i32,
@@ -377,18 +376,16 @@ async fn search(
         }
     };
 
-    // not strictly necessary, we could drop the txn and it would rollback
-    txn.commit().await?;
-
     Ok(match_result)
 }
 
 async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType>, CarbideError> {
-    let mut txn = api.txn_begin().await?;
+    let db = &api.database_connection;
+    let mut db_reader = api.db_reader();
 
     if let Ok(ns_id) = NetworkSegmentId::from_str(&u.value) {
         let segments = db::network_segment::find_by(
-            &mut txn,
+            &mut db_reader,
             ObjectColumnFilter::List(network_segment::IdColumn, &[ns_id]),
             NetworkSegmentSearchConfig {
                 include_history: false,
@@ -403,7 +400,7 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
 
     if let Ok(instance_id) = InstanceId::from_str(&u.value) {
         let instances = db::instance::find(
-            &mut txn,
+            db,
             ObjectColumnFilter::One(instance::IdColumn, &instance_id),
         )
         .await?;
@@ -413,23 +410,20 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
     }
 
     if let Ok(mi_id) = MachineInterfaceId::from_str(&u.value)
-        && db::machine_interface::find_one(&mut txn, mi_id)
-            .await
-            .is_ok()
+        && db::machine_interface::find_one(db, mi_id).await.is_ok()
     {
         return Ok(Some(rpc::UuidType::MachineInterface));
     }
 
     if let Ok(vpc_id) = VpcId::from_str(&u.value) {
-        let vpcs =
-            db::vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
+        let vpcs = db::vpc::find_by(db, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
         if vpcs.len() == 1 {
             return Ok(Some(rpc::UuidType::Vpc));
         }
     }
 
     if let Ok(id) = DpaInterfaceId::from_str(&u.value) {
-        let dpas = db::dpa_interface::find_by_ids(&mut txn, &[id], false).await?;
+        let dpas = db::dpa_interface::find_by_ids(db, &[id], false).await?;
         if dpas.len() == 1 {
             return Ok(Some(rpc::UuidType::DpaInterfaceId));
         }
@@ -437,7 +431,7 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
 
     if let Ok(domain_id) = DomainId::from_str(&u.value) {
         let domains = db::dns::domain::find_by(
-            &mut txn,
+            db,
             ObjectColumnFilter::One(db::dns::domain::IdColumn, &domain_id),
         )
         .await?;
@@ -446,8 +440,6 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
         }
     }
 
-    txn.commit().await?;
-
     Ok(None)
 }
 
@@ -455,9 +447,9 @@ async fn by_mac(
     api: &Api,
     mac: mac_address::MacAddress,
 ) -> Result<Option<(String, rpc::MacOwner)>, DatabaseError> {
-    let mut txn = api.txn_begin().await?;
+    let db = &api.database_connection;
 
-    match db::machine_interface::find_by_mac_address(&mut txn, mac).await {
+    match db::machine_interface::find_by_mac_address(db, mac).await {
         Ok(interfaces) if interfaces.len() == 1 => {
             return Ok(Some((
                 interfaces[0].id.to_string(),
@@ -478,7 +470,7 @@ async fn by_mac(
         }
     }
 
-    let endpoints = db::explored_endpoints::find_by_mac_address(&mut txn, mac).await?;
+    let endpoints = db::explored_endpoints::find_by_mac_address(db, mac).await?;
     if endpoints.len() == 1 {
         return Ok(Some((
             endpoints[0].address.to_string(),
@@ -486,7 +478,7 @@ async fn by_mac(
         )));
     }
 
-    let expected = db::expected_machine::find_by_bmc_mac_address(&mut txn, mac).await?;
+    let expected = db::expected_machine::find_by_bmc_mac_address(db, mac).await?;
     if let Some(em) = expected {
         return Ok(Some((
             em.data.serial_number,
@@ -494,7 +486,7 @@ async fn by_mac(
         )));
     }
 
-    match db::dpa_interface::find_by_mac_addr(&mut txn, &mac).await {
+    match db::dpa_interface::find_by_mac_addr(db, &mac).await {
         Ok(ifs) => match ifs.as_slice() {
             [iface] => return Ok(Some((iface.id.to_string(), rpc::MacOwner::DpaInterface))),
             [] => {} // expected, continue to search other object types
@@ -507,7 +499,6 @@ async fn by_mac(
     };
 
     // Any other MAC addresses to search?
-    txn.commit().await?;
 
     Ok(None)
 }

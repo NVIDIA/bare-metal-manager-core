@@ -18,12 +18,12 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
+use carbide_network::ip::IpAddressFamily;
 use carbide_uuid::machine::MachineInterfaceId;
 use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, create_managed_host, create_test_env, dpu,
 };
 use db::{self, ObjectColumnFilter, dhcp_entry};
-use forge_network::ip::IpAddressFamily;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use rpc::forge::ManagedHostNetworkConfigRequest;
@@ -208,6 +208,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
                 device: None,
                 device_instance: 0u32,
                 virtual_function_id: None,
+                ip_address: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -216,6 +217,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
                 device: None,
                 device_instance: 0u32,
                 virtual_function_id: None,
+                ip_address: None,
             },
         ],
     };
@@ -300,7 +302,7 @@ async fn machine_interface_discovery_persists_vendor_strings(
         );
 
         // Also check via the MachineInterface API
-        let iface = db::machine_interface::find_one(&mut txn, *interface_id)
+        let iface = db::machine_interface::find_one(txn.as_mut(), *interface_id)
             .await
             .unwrap();
         assert_eq!(iface.vendors, expected);
@@ -408,7 +410,7 @@ async fn test_dhcp_record_address_family(
     // Insert an IPv6 address for the same interface, simulating dual-stack.
     let mut txn = pool.begin().await?;
     let parsed_mac: MacAddress = mac_address.parse().unwrap();
-    let interfaces = db::machine_interface::find_by_mac_address(&mut txn, parsed_mac).await?;
+    let interfaces = db::machine_interface::find_by_mac_address(txn.as_mut(), parsed_mac).await?;
     let interface = &interfaces[0];
 
     let ipv6_addr: IpAddr = "fd00::42".parse().unwrap();

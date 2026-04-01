@@ -26,6 +26,6 @@ use crate::cfg::runtime::RuntimeContext;
 
 impl Run for Args {
     async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
-        cmd::is_infinite_boot_enabled(self.inner, &ctx.api_client).await
+        cmd::is_infinite_boot_enabled(self, &ctx.api_client).await
     }
 }

@@ -26,7 +26,9 @@ use model::dpa_interface::DpaInterfaceNetworkStatusObservation;
 use mqttea::client::{ClientOptions, MqtteaClient};
 use mqttea::registry::traits::ProtobufRegistration;
 use rumqttc::QoS;
+use tokio::task::JoinSet;
 use tokio::time::{Duration, sleep};
+use tokio_util::sync::CancellationToken;
 use tracing::error;
 
 use crate::api::Api;
@@ -74,7 +76,7 @@ async fn handle_dpa_message(services: Arc<Api>, message: SetVni, topic: String) 
         }
     };
 
-    let mut dpa_ifs = match db::dpa_interface::find_by_mac_addr(&mut txn, &macaddr).await {
+    let mut dpa_ifs = match db::dpa_interface::find_by_mac_addr(txn.as_mut(), &macaddr).await {
         Ok(ifs) => ifs,
         Err(e) => {
             error!("handle_dpa_message -  Error from find_by_mac_addr {e}");
@@ -180,16 +182,38 @@ pub async fn send_dpa_command(
 
 // Create an MQTTEA client, and start up the thread that will do eventloop polling
 // by doing a connect.
-pub async fn start_dpa_handler(api_service: Arc<Api>) -> Result<Arc<MqtteaClient>, eyre::Report> {
+pub async fn start_dpa_handler(
+    join_set: &mut JoinSet<()>,
+    api_service: Arc<Api>,
+    cancel_token: CancellationToken,
+) -> Result<Arc<MqtteaClient>, eyre::Report> {
     let client_id = "forge-client".to_string();
 
     let default_qos = QoS::AtMostOnce;
+
+    let options = {
+        let defaults = ClientOptions::default().with_qos(default_qos);
+        if let Some(ref dpa_config) = api_service.runtime_config.dpa_config
+            && let Some(provider) = crate::auth::mqtt_auth::build_credentials_provider(
+                &dpa_config.auth,
+                forge_secrets::credentials::CredentialKey::MqttAuth {
+                    credential_type: forge_secrets::credentials::MqttCredentialType::Dpa,
+                },
+                api_service.credential_manager.clone(),
+            )
+            .await?
+        {
+            defaults.with_credentials_provider(provider)
+        } else {
+            defaults
+        }
+    };
 
     let client = MqtteaClient::new(
         &api_service.runtime_config.mqtt_broker_host().unwrap(),
         api_service.runtime_config.mqtt_broker_port().unwrap(),
         &client_id,
-        Some(ClientOptions::default().with_qos(QoS::AtMostOnce)),
+        Some(options),
     )
     .await?;
 
@@ -224,7 +248,7 @@ pub async fn start_dpa_handler(api_service: Arc<Api>) -> Result<Arc<MqtteaClient
 
     let stat_client = client.clone();
 
-    tokio::spawn(async move {
+    join_set.spawn(async move {
         loop {
             let queue_stats = stat_client.queue_stats();
             let publish_stats = stat_client.publish_stats();
@@ -243,7 +267,12 @@ pub async fn start_dpa_handler(api_service: Arc<Api>) -> Result<Arc<MqtteaClient
                 last_sent = publish_stats.total_published;
             }
 
-            sleep(Duration::from_secs(5)).await;
+            tokio::select! {
+                _ = sleep(Duration::from_secs(5)) => {}
+                _ = cancel_token.cancelled() => {
+                    break;
+                }
+            }
         }
     });
 

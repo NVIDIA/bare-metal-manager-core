@@ -17,15 +17,9 @@
 
 //!
 //! `measurement report` subcommand dispatcher + backing functions.
-//!
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
-use ::rpc::protos::measured_boot::{
-    CreateMeasurementReportRequest, DeleteMeasurementReportRequest, ListMeasurementReportRequest,
-    MatchMeasurementReportRequest, PromoteMeasurementReportRequest, RevokeMeasurementReportRequest,
-    ShowMeasurementReportForIdRequest, ShowMeasurementReportsForMachineRequest,
-    list_measurement_report_request,
-};
+use ::rpc::protos::measured_boot::ListMeasurementReportRequest;
 use measured_boot::bundle::MeasurementBundle;
 use measured_boot::records::MeasurementReportRecord;
 use measured_boot::report::MeasurementReport;
@@ -126,14 +120,7 @@ pub async fn create_for_id(
     grpc_conn: &ApiClient,
     create: Create,
 ) -> CarbideCliResult<MeasurementReport> {
-    // Request.
-    let request = CreateMeasurementReportRequest {
-        machine_id: create.machine_id.to_string(),
-        pcr_values: create.values.into_iter().map(Into::into).collect(),
-    };
-
-    // Response.
-    let response = grpc_conn.0.create_measurement_report(request).await?;
+    let response = grpc_conn.0.create_measurement_report(create).await?;
 
     MeasurementReport::from_grpc(response.report.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
@@ -141,13 +128,7 @@ pub async fn create_for_id(
 
 /// delete deletes a measurement report with the provided ID.
 pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<MeasurementReport> {
-    // Request.
-    let request = DeleteMeasurementReportRequest {
-        report_id: Some(delete.report_id),
-    };
-
-    // Response.
-    let response = grpc_conn.0.delete_measurement_report(request).await?;
+    let response = grpc_conn.0.delete_measurement_report(delete).await?;
 
     MeasurementReport::from_grpc(response.report.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
@@ -160,17 +141,7 @@ pub async fn promote(
     grpc_conn: &ApiClient,
     promote: Promote,
 ) -> CarbideCliResult<MeasurementBundle> {
-    // Request.
-    let request = PromoteMeasurementReportRequest {
-        report_id: Some(promote.report_id),
-        pcr_registers: match &promote.pcr_registers {
-            None => "".to_string(),
-            Some(pcr_set) => pcr_set.to_string(),
-        },
-    };
-
-    // Response.
-    let response = grpc_conn.0.promote_measurement_report(request).await?;
+    let response = grpc_conn.0.promote_measurement_report(promote).await?;
 
     MeasurementBundle::from_grpc(response.bundle.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
@@ -182,17 +153,7 @@ pub async fn promote(
 ///
 /// `journal revoke <journal-id> [pcr-selector]`
 pub async fn revoke(grpc_conn: &ApiClient, revoke: Revoke) -> CarbideCliResult<MeasurementBundle> {
-    // Request.
-    let request = RevokeMeasurementReportRequest {
-        report_id: Some(revoke.report_id),
-        pcr_registers: match &revoke.pcr_registers {
-            None => "".to_string(),
-            Some(pcr_set) => pcr_set.to_string(),
-        },
-    };
-
-    // Response.
-    let response = grpc_conn.0.revoke_measurement_report(request).await?;
+    let response = grpc_conn.0.revoke_measurement_report(revoke).await?;
 
     MeasurementBundle::from_grpc(response.bundle.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
@@ -203,13 +164,10 @@ pub async fn show_for_id(
     grpc_conn: &ApiClient,
     show_for_id: ShowForId,
 ) -> CarbideCliResult<MeasurementReport> {
-    // Request.
-    let request = ShowMeasurementReportForIdRequest {
-        report_id: Some(show_for_id.report_id),
-    };
-
-    // Response.
-    let response = grpc_conn.0.show_measurement_report_for_id(request).await?;
+    let response = grpc_conn
+        .0
+        .show_measurement_report_for_id(show_for_id)
+        .await?;
 
     MeasurementReport::from_grpc(response.report.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
@@ -220,16 +178,10 @@ pub async fn show_for_machine(
     grpc_conn: &ApiClient,
     show_for_machine: ShowForMachine,
 ) -> CarbideCliResult<MeasurementReportList> {
-    // Request.
-    let request = ShowMeasurementReportsForMachineRequest {
-        machine_id: show_for_machine.machine_id.to_string(),
-    };
-
-    // Response.
     Ok(MeasurementReportList(
         grpc_conn
             .0
-            .show_measurement_reports_for_machine(request)
+            .show_measurement_reports_for_machine(show_for_machine)
             .await?
             .reports
             .into_iter()
@@ -284,18 +236,10 @@ pub async fn list_machines(
     grpc_conn: &ApiClient,
     list_machines: ListMachines,
 ) -> CarbideCliResult<MeasurementReportRecordList> {
-    // Request.
-    let request = ListMeasurementReportRequest {
-        selector: Some(list_measurement_report_request::Selector::MachineId(
-            list_machines.machine_id.to_string(),
-        )),
-    };
-
-    // Response.
     Ok(MeasurementReportRecordList(
         grpc_conn
             .0
-            .list_measurement_report(request)
+            .list_measurement_report(list_machines)
             .await?
             .reports
             .into_iter()
@@ -314,16 +258,10 @@ pub async fn match_values(
     grpc_conn: &ApiClient,
     match_args: Match,
 ) -> CarbideCliResult<MeasurementReportRecordList> {
-    // Request.
-    let request = MatchMeasurementReportRequest {
-        pcr_values: match_args.values.into_iter().map(Into::into).collect(),
-    };
-
-    // Response.
     Ok(MeasurementReportRecordList(
         grpc_conn
             .0
-            .match_measurement_report(request)
+            .match_measurement_report(match_args)
             .await?
             .reports
             .into_iter()

@@ -62,8 +62,8 @@ pub async fn action(action: RmsAction, config: &CliOptions) -> color_eyre::Resul
 
     match action.command {
         Cmd::Inventory => cmds::get_all_inventory(&rms_client).await,
-        Cmd::PowerOnSequence(ref args) => cmds::power_on_sequence(args, &rms_client).await,
-        Cmd::PowerState(ref args) => cmds::power_state(args, &rms_client).await,
-        Cmd::FirmwareInventory(ref args) => cmds::get_firmware_inventory(args, &rms_client).await,
+        Cmd::PowerOnSequence(args) => cmds::power_on_sequence(args, &rms_client).await,
+        Cmd::PowerState(args) => cmds::power_state(args, &rms_client).await,
+        Cmd::FirmwareInventory(args) => cmds::get_firmware_inventory(args, &rms_client).await,
     }
 }

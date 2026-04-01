@@ -41,6 +41,7 @@ mod async_write;
 mod bmc_machine;
 mod boot_override;
 mod cfg;
+mod compute_allocation;
 mod credential;
 mod debug_bundle;
 mod devenv;
@@ -51,6 +52,7 @@ mod dpu;
 mod dpu_remediation;
 mod expected_machines;
 mod expected_power_shelf;
+mod expected_rack;
 mod expected_switch;
 mod extension_service;
 mod firmware;
@@ -66,6 +68,7 @@ mod machine;
 mod machine_interfaces;
 mod machine_validation;
 mod managed_host;
+mod managed_switch;
 mod measurement;
 mod metadata;
 mod mlx;
@@ -201,6 +204,7 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::BmcMachine(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::BootOverride(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Credential(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ComputeAllocation(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::DevEnv(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Domain(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Dpa(cmd) => cmd.dispatch(ctx).await?,
@@ -208,6 +212,7 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::DpuRemediation(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ExpectedMachine(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ExpectedPowerShelf(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ExpectedRack(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ExpectedSwitch(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ExtensionService(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Firmware(cmd) => cmd.dispatch(ctx).await?,
@@ -224,6 +229,7 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::MachineInterfaces(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::MachineValidation(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ManagedHost(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::ManagedSwitch(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Measurement(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Mlx(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NetworkDevice(cmd) => cmd.dispatch(ctx).await?,

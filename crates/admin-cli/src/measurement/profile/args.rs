@@ -26,12 +26,24 @@
  *  - `profile list all`: List high level info about all profiles.
  *  - `profile list bundles`: List all bundles for a given profile.
  *  - `profile list machines`: List all machines for a given profile.
-*/
+ */
 
+use std::str::FromStr;
+
+use ::rpc::admin_cli::CarbideCliError;
+use ::rpc::protos::measured_boot::{
+    CreateMeasurementSystemProfileRequest, DeleteMeasurementSystemProfileRequest, KvPair,
+    ListMeasurementSystemProfileBundlesRequest, ListMeasurementSystemProfileMachinesRequest,
+    RenameMeasurementSystemProfileRequest, ShowMeasurementSystemProfileRequest,
+    delete_measurement_system_profile_request, list_measurement_system_profile_bundles_request,
+    list_measurement_system_profile_machines_request, rename_measurement_system_profile_request,
+    show_measurement_system_profile_request,
+};
+use carbide_uuid::measured_boot::MeasurementSystemProfileId;
 use clap::Parser;
 
-use crate::cfg::measurement::{KvPair, parse_colon_pairs};
-use crate::measurement::global::cmds::IdNameIdentifier;
+use crate::cfg::measurement::{KvPair as CfgKvPair, parse_colon_pairs};
+use crate::measurement::global::cmds::{IdNameIdentifier, IdentifierType, get_identifier};
 
 // CmdProfile provides a container for the `profile`
 // subcommand, which itself contains other subcommands
@@ -84,7 +96,7 @@ pub struct Create {
         help = "A comma-separated list of additional k:v,k:v,... attributes to set."
     )]
     #[arg(value_parser = parse_colon_pairs)]
-    pub extra_attrs: Vec<KvPair>,
+    pub extra_attrs: Vec<CfgKvPair>,
 }
 
 /// Delete a profile by ID or name.
@@ -228,5 +240,190 @@ impl IdNameIdentifier for ListMachines {
 
     fn is_name(&self) -> bool {
         self.is_name
+    }
+}
+
+impl From<Create> for CreateMeasurementSystemProfileRequest {
+    fn from(create: Create) -> Self {
+        let extra_attrs = create
+            .extra_attrs
+            .into_iter()
+            .map(|kv_pair| KvPair {
+                key: kv_pair.key,
+                value: kv_pair.value,
+            })
+            .collect();
+        Self {
+            name: Some(create.name),
+            vendor: create.vendor,
+            product: create.product,
+            extra_attrs,
+        }
+    }
+}
+
+impl TryFrom<Delete> for DeleteMeasurementSystemProfileRequest {
+    type Error = CarbideCliError;
+    fn try_from(delete: Delete) -> Result<Self, Self::Error> {
+        let selector = match get_identifier(&delete)? {
+            IdentifierType::ForId => {
+                let profile_id = MeasurementSystemProfileId::from_str(&delete.identifier)
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
+                Some(delete_measurement_system_profile_request::Selector::ProfileId(profile_id))
+            }
+            IdentifierType::ForName => Some(
+                delete_measurement_system_profile_request::Selector::ProfileName(delete.identifier),
+            ),
+            IdentifierType::Detect => {
+                match MeasurementSystemProfileId::from_str(&delete.identifier) {
+                    Ok(profile_id) => Some(
+                        delete_measurement_system_profile_request::Selector::ProfileId(profile_id),
+                    ),
+                    Err(_) => Some(
+                        delete_measurement_system_profile_request::Selector::ProfileName(
+                            delete.identifier,
+                        ),
+                    ),
+                }
+            }
+        };
+        Ok(Self { selector })
+    }
+}
+
+impl TryFrom<Rename> for RenameMeasurementSystemProfileRequest {
+    type Error = CarbideCliError;
+    fn try_from(rename: Rename) -> Result<Self, Self::Error> {
+        let selector = match get_identifier(&rename)? {
+            IdentifierType::ForId => {
+                let profile_id = MeasurementSystemProfileId::from_str(&rename.identifier)
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
+                Some(rename_measurement_system_profile_request::Selector::ProfileId(profile_id))
+            }
+            IdentifierType::ForName => Some(
+                rename_measurement_system_profile_request::Selector::ProfileName(rename.identifier),
+            ),
+            IdentifierType::Detect => {
+                match MeasurementSystemProfileId::from_str(&rename.identifier) {
+                    Ok(profile_id) => Some(
+                        rename_measurement_system_profile_request::Selector::ProfileId(profile_id),
+                    ),
+                    Err(_) => Some(
+                        rename_measurement_system_profile_request::Selector::ProfileName(
+                            rename.identifier,
+                        ),
+                    ),
+                }
+            }
+        };
+        Ok(Self {
+            new_profile_name: rename.new_profile_name,
+            selector,
+        })
+    }
+}
+
+impl TryFrom<Show> for ShowMeasurementSystemProfileRequest {
+    type Error = CarbideCliError;
+    fn try_from(show: Show) -> Result<Self, Self::Error> {
+        let identifier_type = get_identifier(&show)?;
+        let identifier = show
+            .identifier
+            .ok_or(CarbideCliError::GenericError(String::from(
+                "identifier expected to be set here",
+            )))?;
+        let selector = match identifier_type {
+            IdentifierType::ForId => {
+                let profile_id = MeasurementSystemProfileId::from_str(&identifier)
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
+                Some(show_measurement_system_profile_request::Selector::ProfileId(profile_id))
+            }
+            IdentifierType::ForName => {
+                Some(show_measurement_system_profile_request::Selector::ProfileName(identifier))
+            }
+            IdentifierType::Detect => match MeasurementSystemProfileId::from_str(&identifier) {
+                Ok(profile_id) => {
+                    Some(show_measurement_system_profile_request::Selector::ProfileId(profile_id))
+                }
+                Err(_) => {
+                    Some(show_measurement_system_profile_request::Selector::ProfileName(identifier))
+                }
+            },
+        };
+        Ok(Self { selector })
+    }
+}
+
+impl TryFrom<ListBundles> for ListMeasurementSystemProfileBundlesRequest {
+    type Error = CarbideCliError;
+    fn try_from(list_bundles: ListBundles) -> Result<Self, Self::Error> {
+        let selector = match get_identifier(&list_bundles)? {
+            IdentifierType::ForId => {
+                let profile_id = MeasurementSystemProfileId::from_str(&list_bundles.identifier)
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
+                Some(
+                    list_measurement_system_profile_bundles_request::Selector::ProfileId(
+                        profile_id,
+                    ),
+                )
+            }
+            IdentifierType::ForName => Some(
+                list_measurement_system_profile_bundles_request::Selector::ProfileName(
+                    list_bundles.identifier,
+                ),
+            ),
+            IdentifierType::Detect => {
+                match MeasurementSystemProfileId::from_str(&list_bundles.identifier) {
+                    Ok(profile_id) => Some(
+                        list_measurement_system_profile_bundles_request::Selector::ProfileId(
+                            profile_id,
+                        ),
+                    ),
+                    Err(_) => Some(
+                        list_measurement_system_profile_bundles_request::Selector::ProfileName(
+                            list_bundles.identifier,
+                        ),
+                    ),
+                }
+            }
+        };
+        Ok(Self { selector })
+    }
+}
+
+impl TryFrom<ListMachines> for ListMeasurementSystemProfileMachinesRequest {
+    type Error = CarbideCliError;
+    fn try_from(list_machines: ListMachines) -> Result<Self, Self::Error> {
+        let selector = match get_identifier(&list_machines)? {
+            IdentifierType::ForId => {
+                let profile_id = MeasurementSystemProfileId::from_str(&list_machines.identifier)
+                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
+                Some(
+                    list_measurement_system_profile_machines_request::Selector::ProfileId(
+                        profile_id,
+                    ),
+                )
+            }
+            IdentifierType::ForName => Some(
+                list_measurement_system_profile_machines_request::Selector::ProfileName(
+                    list_machines.identifier,
+                ),
+            ),
+            IdentifierType::Detect => {
+                match MeasurementSystemProfileId::from_str(&list_machines.identifier) {
+                    Ok(profile_id) => Some(
+                        list_measurement_system_profile_machines_request::Selector::ProfileId(
+                            profile_id,
+                        ),
+                    ),
+                    Err(_) => Some(
+                        list_measurement_system_profile_machines_request::Selector::ProfileName(
+                            list_machines.identifier,
+                        ),
+                    ),
+                }
+            }
+        };
+        Ok(Self { selector })
     }
 }

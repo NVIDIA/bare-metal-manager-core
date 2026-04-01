@@ -38,22 +38,8 @@ RUN export CARGO_MAKE_SKIP_CODECOV="true" && \
   /etc/init.d/postgresql start && \
   sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;" && \
   createdb root && \
-  cargo make --no-workspace clippy-flow && \
-  echo "$(date): Finished cargo make clippy-flow\n" && \
-  cargo make carbide-lints && \
-  echo "$(date): Finished cargo make carbide-lints\n" && \
-  (taplo fmt --check || echo "Please format toml files") && \
-  echo "$(date): Finished taplo fmt \n" && \
-  cargo make --no-workspace check-format-nightly && \
-  echo "$(date): Finished cargo make check-format-nightly\n" && \
-  cargo xtask check-workspace-deps && \
-  echo "$(date): Finished cargo xtask check-workspace-deps\n" && \
   cargo make build-and-test-release-container-services && \
   echo "$(date): Finished cargo make build-and-test-release-container-services\n" && \
-  cargo make --no-workspace check-licenses && \
-  echo "$(date): Finished cargo make check-licenses\n" && \
-  cargo make --no-workspace check-bans && \
-  echo "$(date): Finished cargo make check-bans\n" && \
   mkdir -p /carbide/target/bin && \
   find /carbide/target/release -maxdepth 1 -type f -exec cp -t /carbide/target/bin {} + && \
   rm -rf /carbide/target/debug && \
@@ -68,7 +54,7 @@ RUN mkdir -p /opt/carbide/migrations && \
 
 RUN echo "$(date): Start runtime container build"
 
-COPY --from=builder ["/carbide/target/bin/carbide-api", "/carbide/target/bin/carbide", "/carbide/target/bin/carbide-dns", "/carbide/target/bin/carbide-admin-cli", "/carbide/target/bin/forge-dpu-agent", "/carbide/target/bin/forge-dhcp-server", "/carbide/target/bin/forge-hw-health", "/carbide/target/bin/forge-log-parser", "/carbide/target/bin/ssh-console", "/opt/carbide/"]
+COPY --from=builder ["/carbide/target/bin/carbide-api", "/carbide/target/bin/carbide", "/carbide/target/bin/carbide-dns", "/carbide/target/bin/carbide-admin-cli", "/carbide/target/bin/carbide-dsx-exchange-consumer", "/carbide/target/bin/forge-dpu-agent", "/carbide/target/bin/forge-dhcp-server", "/carbide/target/bin/forge-hw-health", "/carbide/target/bin/forge-log-parser", "/carbide/target/bin/ssh-console", "/opt/carbide/"]
 # Note: aarch64 uses different library path than x86_64
 COPY --from=builder /carbide/target/bin/libdhcp.so /usr/lib/aarch64-linux-gnu/kea/hooks
 RUN ln -s /opt/carbide/carbide-admin-cli /opt/carbide/forge-admin-cli

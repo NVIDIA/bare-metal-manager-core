@@ -29,7 +29,7 @@ pub async fn show(
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let machine_ids = if let Some(host) = query.host {
-        if host.machine_type() != carbide_uuid::machine::MachineType::Host {
+        if host.machine_type() != carbide_uuid::machine::MachineType::Dpu {
             return Err(CarbideCliError::GenericError(
                 "Only host id is expected!!".to_string(),
             ));

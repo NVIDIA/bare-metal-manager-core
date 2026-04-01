@@ -17,19 +17,18 @@
 
 use ::rpc::admin_cli::CarbideCliResult;
 
-use super::args::Args;
-use crate::os_image::common::str_to_rpc_uuid;
+use super::args::{Args, UpdateRequest};
 use crate::rpc::ApiClient;
 
 pub async fn update(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let id = str_to_rpc_uuid(&args.id)?;
+    let req: UpdateRequest = args.try_into()?;
     let image = api_client
         .update_os_image(
-            id,
-            args.auth_type,
-            args.auth_token,
-            args.name,
-            args.description,
+            req.id,
+            req.auth_type,
+            req.auth_token,
+            req.name,
+            req.description,
         )
         .await?;
     if let Some(x) = image.attributes {

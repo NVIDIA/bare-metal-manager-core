@@ -58,18 +58,24 @@ pub enum PxeError {
 pub async fn forge_agent_control(
     app_context: &MachineATronContext,
     machine_id: MachineId,
-) -> ForgeAgentControlResponse {
-    app_context
+) -> Option<ForgeAgentControlResponse> {
+    match app_context
         .forge_api_client
         .forge_agent_control(machine_id)
         .await
-        .unwrap_or_else(|e| {
+    {
+        Ok(response) => Some(response),
+        Err(e) => {
+            if e.code() == tonic::Code::NotFound {
+                return None;
+            }
             tracing::warn!("Error getting control action: {e}");
-            ForgeAgentControlResponse {
+            Some(ForgeAgentControlResponse {
                 action: Action::Noop as i32,
                 data: None,
-            }
-        })
+            })
+        }
+    }
 }
 
 pub fn get_fac_action(

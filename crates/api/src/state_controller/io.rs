@@ -87,12 +87,36 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
         state: &Self::State,
     ) -> Result<Versioned<Self::ControllerState>, DatabaseError>;
 
-    /// Persists the object state that is owned by the state controller
+    /// Persists the object state that is owned by the state controller.
+    ///
+    /// `old_version` is the current version (used in the WHERE clause for
+    /// optimistic locking). `new_version` is the incremented version to store.
+    /// Both are computed by the processor so that implementations do not need
+    /// to call `.increment()` themselves.
+    ///
+    /// Returns `true` if the state was successfully persisted, `false` if
+    /// the update was skipped (e.g. optimistic lock version mismatch).
+    /// The processor uses this to decide whether to persist state history.
     async fn persist_controller_state(
         &self,
         txn: &mut PgConnection,
         object_id: &Self::ObjectId,
         old_version: ConfigVersion,
+        new_version: ConfigVersion,
+        new_state: &Self::ControllerState,
+    ) -> Result<bool, DatabaseError>;
+
+    /// Persists a state history record for debugging and audit purposes.
+    ///
+    /// Called by the processor after each successful state transition
+    /// (i.e. when `persist_controller_state` returns `true`).
+    /// `new_version` is the version that was just written by
+    /// `persist_controller_state`.
+    async fn persist_state_history(
+        &self,
+        txn: &mut PgConnection,
+        object_id: &Self::ObjectId,
+        new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError>;
 
@@ -115,5 +139,5 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
     ///
     /// If an object stays in a state for longer than expected, a metric will
     /// be emitted.
-    fn state_sla(state: &Versioned<Self::ControllerState>) -> StateSla;
+    fn state_sla(state: &Versioned<Self::ControllerState>, object_state: &Self::State) -> StateSla;
 }

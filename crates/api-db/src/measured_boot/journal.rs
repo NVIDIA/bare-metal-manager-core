@@ -18,7 +18,7 @@
 /*!
  *  Code for working the measuremment_journal and measurement_journal_values
  *  tables in the database, leveraging the journal-specific record types.
-*/
+ */
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::measured_boot::{

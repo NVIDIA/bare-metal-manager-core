@@ -54,6 +54,7 @@ arc-swap = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros"] }
 axum-server = { features = ["tls-rustls"], workspace = true }
+backon = { workspace = true }
 blake3 = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
@@ -105,6 +106,8 @@ surge-ping = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
+tonic-prost = { workspace = true }
+prost = { workspace = true }
 tower = { workspace = true }
 tower-http = { features = ["trace"], workspace = true }
 tracing = { workspace = true }
@@ -115,6 +118,7 @@ version-compare = { workspace = true }
 
 [build-dependencies]
 carbide-version = { path = "../version" }
+tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
 ctor = { workspace = true }

@@ -17,6 +17,8 @@
 
 use carbide_uuid::machine::MachineId;
 use clap::Parser;
+use rpc::forge::dpu_reprovisioning_request::Mode;
+use rpc::forge::{DpuReprovisioningRequest, UpdateInitiator};
 
 #[derive(Parser, Debug)]
 pub enum Args {
@@ -50,6 +52,18 @@ pub struct DpuReprovisionSet {
     pub update_message: Option<String>,
 }
 
+impl From<&DpuReprovisionSet> for DpuReprovisioningRequest {
+    fn from(args: &DpuReprovisionSet) -> Self {
+        Self {
+            dpu_id: Some(args.id),
+            machine_id: Some(args.id),
+            mode: Mode::Set as i32,
+            initiator: UpdateInitiator::AdminCli as i32,
+            update_firmware: args.update_firmware,
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 pub struct DpuReprovisionClear {
     #[clap(
@@ -63,6 +77,18 @@ pub struct DpuReprovisionClear {
     pub update_firmware: bool,
 }
 
+impl From<&DpuReprovisionClear> for DpuReprovisioningRequest {
+    fn from(args: &DpuReprovisionClear) -> Self {
+        Self {
+            dpu_id: Some(args.id),
+            machine_id: Some(args.id),
+            mode: Mode::Clear as i32,
+            initiator: UpdateInitiator::AdminCli as i32,
+            update_firmware: args.update_firmware,
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 pub struct DpuReprovisionRestart {
     #[clap(
@@ -74,4 +100,16 @@ pub struct DpuReprovisionRestart {
 
     #[clap(short, long, action)]
     pub update_firmware: bool,
+}
+
+impl From<&DpuReprovisionRestart> for DpuReprovisioningRequest {
+    fn from(args: &DpuReprovisionRestart) -> Self {
+        Self {
+            dpu_id: Some(args.id),
+            machine_id: Some(args.id),
+            mode: Mode::Restart as i32,
+            initiator: UpdateInitiator::AdminCli as i32,
+            update_firmware: args.update_firmware,
+        }
+    }
 }

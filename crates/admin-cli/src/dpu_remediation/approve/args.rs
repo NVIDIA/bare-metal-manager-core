@@ -17,9 +17,18 @@
 
 use carbide_uuid::dpu_remediations::RemediationId;
 use clap::Parser;
+use rpc::forge::ApproveRemediationRequest;
 
 #[derive(Parser, Debug)]
 pub struct Args {
     #[clap(help = "The id of the remediation to approve", long)]
     pub id: RemediationId,
+}
+
+impl From<Args> for ApproveRemediationRequest {
+    fn from(args: Args) -> Self {
+        Self {
+            remediation_id: Some(args.id),
+        }
+    }
 }

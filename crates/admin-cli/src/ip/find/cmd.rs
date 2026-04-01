@@ -16,16 +16,12 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge as forgerpc;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn find(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let req = forgerpc::FindIpAddressRequest {
-        ip: args.ip.to_string(),
-    };
-    let resp = api_client.0.find_ip_address(req).await?;
+    let resp = api_client.0.find_ip_address(args).await?;
     for r in resp.matches {
         tracing::info!("{}", r.message);
     }

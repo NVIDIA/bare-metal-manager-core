@@ -30,6 +30,23 @@ use sqlx::{FromRow, Row};
 
 use crate::metadata::Metadata;
 
+pub struct RemediationApplicationStatus {
+    pub succeeded: bool,
+    pub metadata: Option<Metadata>,
+}
+
+impl TryFrom<rpc::forge::RemediationApplicationStatus> for RemediationApplicationStatus {
+    type Error = RpcDataConversionError;
+
+    fn try_from(status: rpc::forge::RemediationApplicationStatus) -> Result<Self, Self::Error> {
+        let metadata = status.metadata.map(Metadata::try_from).transpose()?;
+        Ok(RemediationApplicationStatus {
+            succeeded: status.succeeded,
+            metadata,
+        })
+    }
+}
+
 // about 16KB file size, long enough for any reasonable script but small enough to make it
 // almost impossible to stuff a binary in the DB, which is the point of the limit.
 const MAXIMUM_SCRIPT_LENGTH: usize = 2 << 13;
@@ -332,5 +349,41 @@ impl TryFrom<(DisableRemediationRequest, String)> for DisableRemediation {
         tracing::info!("Remediation: '{}' disabled by: '{}'", id, disabled_by);
 
         Ok(Self { id })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remediation_application_status_from_rpc_success_no_metadata() {
+        let rpc_status = rpc::forge::RemediationApplicationStatus {
+            succeeded: true,
+            metadata: None,
+        };
+        let status = RemediationApplicationStatus::try_from(rpc_status).unwrap();
+        assert!(status.succeeded);
+        assert!(status.metadata.is_none());
+    }
+
+    #[test]
+    fn remediation_application_status_from_rpc_with_metadata() {
+        let rpc_status = rpc::forge::RemediationApplicationStatus {
+            succeeded: false,
+            metadata: Some(rpc::Metadata {
+                name: "test".to_string(),
+                description: "desc".to_string(),
+                labels: vec![rpc::forge::Label {
+                    key: "status".to_string(),
+                    value: Some("failed".to_string()),
+                }],
+            }),
+        };
+        let status = RemediationApplicationStatus::try_from(rpc_status).unwrap();
+        assert!(!status.succeeded);
+        let metadata = status.metadata.unwrap();
+        assert_eq!(metadata.name, "test");
+        assert_eq!(metadata.labels.get("status"), Some(&"failed".to_string()));
     }
 }

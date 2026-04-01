@@ -2,6 +2,7 @@
 **/node_modules
 bluefield/forge-dpu*.deb
 bluefield/forge-dpu*/
+bluefield/otel-dpu*/
 public/
 .vagrant
 .DS_Store
@@ -19,6 +20,7 @@ dev/kube/kind/ci/*
 .skaffold/*/**
 cscope.*
 forged
+.devspace
 
 pxe/nvinit_setup/*
 !pxe/nvinit_setup/.gitkeep
@@ -36,3 +38,5 @@ ssh-console/legacy/ssh-console
 
 book/src/mdbook-plantuml-img/**
 dev/mac-local-dev/carbide-api-config-*.toml
+
+/helm/Chart.lock

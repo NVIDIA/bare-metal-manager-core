@@ -19,15 +19,11 @@ use std::borrow::Cow;
 
 use color_eyre::Result;
 
+use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn list_switches(api_client: &ApiClient) -> Result<()> {
-    let query = rpc::forge::SwitchQuery {
-        name: None,
-        switch_id: None,
-    };
-
-    let response = api_client.0.find_switches(query).await?;
+pub async fn list_switches(data: Args, api_client: &ApiClient) -> Result<()> {
+    let response = api_client.0.find_switches(data).await?;
 
     let switches = response.switches;
 

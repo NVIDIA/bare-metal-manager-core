@@ -15,10 +15,12 @@
  * limitations under the License.
  */
 
+use ::rpc::admin_cli::CarbideCliError;
 use carbide_uuid::rack::RackId;
 use clap::{ArgGroup, Parser};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Parser, Debug, Serialize, Deserialize)]
 #[clap(group(ArgGroup::new("group").required(true).multiple(true).args(&[
@@ -29,11 +31,14 @@ use serde::{Deserialize, Serialize};
 pub struct Args {
     #[clap(
         short = 'a',
-        required = true,
         long,
         help = "BMC MAC Address of the expected power shelf"
     )]
-    pub bmc_mac_address: MacAddress,
+    pub bmc_mac_address: Option<MacAddress>,
+
+    #[clap(long = "id", help = "ID (UUID) of the expected power shelf to update.")]
+    #[serde(skip)]
+    pub id: Option<Uuid>,
     #[clap(
         short = 'u',
         long,
@@ -105,15 +110,48 @@ pub struct Args {
     pub ip_address: Option<String>,
 }
 
-impl Args {
-    pub fn validate(&self) -> Result<(), String> {
-        // TODO: It is possible to do these checks by clap itself, via arg groups
-        if self.bmc_username.is_none()
-            && self.bmc_password.is_none()
-            && self.shelf_serial_number.is_none()
-        {
-            return Err("One of the following options must be specified: bmc-user-name and bmc-password or shelf-serial-number".to_string());
+impl TryFrom<Args> for rpc::forge::ExpectedPowerShelf {
+    type Error = CarbideCliError;
+
+    fn try_from(args: Args) -> Result<Self, Self::Error> {
+        match (&args.bmc_mac_address, &args.id) {
+            (Some(_), Some(_)) => {
+                return Err(CarbideCliError::ChooseOneError("--bmc-mac-address", "--id"));
+            }
+            (None, None) => {
+                return Err(CarbideCliError::RequireOneError(
+                    "--bmc-mac-address",
+                    "--id",
+                ));
+            }
+            _ => {}
         }
-        Ok(())
+        if args.bmc_username.is_none()
+            && args.bmc_password.is_none()
+            && args.shelf_serial_number.is_none()
+        {
+            return Err(CarbideCliError::GenericError(
+                "One of the following options must be specified: bmc-user-name and bmc-password or shelf-serial-number".to_string(),
+            ));
+        }
+        Ok(rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: args.id.map(|id| ::rpc::common::Uuid {
+                value: id.to_string(),
+            }),
+            bmc_mac_address: args
+                .bmc_mac_address
+                .map(|m| m.to_string())
+                .unwrap_or_default(),
+            bmc_username: args.bmc_username.unwrap_or_default(),
+            bmc_password: args.bmc_password.unwrap_or_default(),
+            shelf_serial_number: args.shelf_serial_number.unwrap_or_default(),
+            ip_address: args.ip_address.unwrap_or_default(),
+            metadata: Some(rpc::forge::Metadata {
+                name: args.meta_name.unwrap_or_default(),
+                description: args.meta_description.unwrap_or_default(),
+                labels: crate::metadata::parse_rpc_labels(args.labels.unwrap_or_default()),
+            }),
+            rack_id: args.rack_id,
+        })
     }
 }

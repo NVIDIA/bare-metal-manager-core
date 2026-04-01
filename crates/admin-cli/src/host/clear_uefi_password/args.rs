@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use ::rpc::forge::ClearHostUefiPasswordRequest;
 use clap::Parser;
 
 use crate::machine::MachineQuery;
@@ -26,4 +27,13 @@ use crate::machine::MachineQuery;
 pub struct Args {
     #[clap(flatten)]
     pub inner: MachineQuery,
+}
+
+impl From<Args> for ClearHostUefiPasswordRequest {
+    fn from(args: Args) -> Self {
+        Self {
+            host_id: None,
+            machine_query: Some(args.inner.query),
+        }
+    }
 }

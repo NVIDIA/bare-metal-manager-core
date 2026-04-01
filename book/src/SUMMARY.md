@@ -1,9 +1,9 @@
-# NVIDIA Bare Metal Manager
+# NCX Infra Controller
 
 - [Introduction](README.md)
-- [Hardware Compatbility List (WIP)](HCL.md)
+- [Hardware Compatbility List](hcl.md)
 - [Release Notes](release-notes.md)
-- [FAQs](faqs.md)
+- [FAQs](faq.md)
 
 # Architecture
 
@@ -11,6 +11,7 @@
 - [Redfish Workflow](architecture/redfish_workflow.md)
     - [Redfish Endpoints Reference](architecture/redfish/endpoints_reference.md)
 - [Reliable state handling](architecture/state_handling.md)
+- [Networking integrations](architecture/networking_integrations.md)
 - [DPU configuration](architecture/dpu_configuration.md)
 - [Health checks and health aggregation](architecture/health_aggregation.md)
     - [Health probe IDs](architecture/health/health_probe_ids.md)
@@ -20,12 +21,13 @@
     - [NIC and Port selection](architecture/infiniband/nic_selection.md)
 - [State Machines]()
     - [Managed Host](architecture/state_machines/managedhost.md)
+    - [Switch](architecture/state_machines/switch.md)
 
 # Manuals
 
 - [Site Setup](manuals/site-setup.md)
     - [Site Reference Architecture](manuals/site-reference-arch.md)
-- [Building BMM Containers](manuals/building_bmm_containers.md)
+- [Building NICo Containers](manuals/building_nico_containers.md)
 - [Ingesting Hosts](manuals/ingesting_machines.md)
 - [Removing Hosts](manuals/removing_machines.md)
 - [Updating Expected Hosts Manifest](manuals/expected_machine_update.md)
@@ -36,11 +38,11 @@
 - [Release Instance API Enhancements](manuals/breakfix_integration.md)
 - [Managing VPC Peering](manuals/vpc_peering_management.md)
 - [Metrics]()
-    - [Core metrics](manuals/metrics/carbide_core_metrics.md)
+    - [Core metrics](manuals/metrics/core_metrics.md)
 
-# Sites and site access
+# Design
 
-- [carbide-admin-cli access](sites/forge_admin_cli.md)
+- [SPIFFE SVID Design](design/machine-identity/spiffe-svid-sdd.md)
 
 # Development
 
@@ -62,7 +64,7 @@
 
 # Playbooks
 
-- [Azure OIDC for NVIDIA Bare Metal Manager-Web UI](playbooks/carbide_web_oauth2.md)
+- [Azure OIDC for NCX Infra Controller-Web UI](playbooks/carbide_web_oauth2.md)
 - [Force deleting and rebuilding Forge hosts](playbooks/force_delete.md)
 - [Rebooting a machine](playbooks/machine_reboot.md)
 - [Instance/Subnet/etc is stuck in a state]()
@@ -76,10 +78,6 @@
 - [Debugging Machine]()
     - [Collecting Debug Bundles](playbooks/debugging_machine/debug_bundle.md)
 - [InfiniBand setup](playbooks/ib_runbook.md)
-- [Hardware](playbooks/hardware/hardware.md)
-    - [Desired Firmware Version](desired_firmware.md)
-    - [Getting Support](playbooks/hardware/getsupport.md)
-    - [OneCLI](playbooks/hardware/onecli.md)
 
 # Glossary
 

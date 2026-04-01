@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 use carbide_uuid::machine::MachineId;
-use db::machine::find_machine_ids_by_sku_id;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{BomValidating, ManagedHostState};
 use model::sku::Sku;
@@ -69,8 +68,12 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> Result<Res
         return Err(CarbideError::NotImplemented.into());
     }
 
-    let machine_ids = db::machine::find_machine_ids_by_sku_id(&mut txn, &sku.id).await?;
-    if !machine_ids.is_empty() {
+    let machine_ids =
+        db::machine::find_machine_ids_by_sku_ids(&mut txn, std::slice::from_ref(&sku.id)).await?;
+    if machine_ids
+        .get(&sku.id)
+        .is_some_and(|machine_ids| !machine_ids.is_empty())
+    {
         return Err(CarbideError::InvalidArgument(format!(
             "The SKUs are in use by {} machines",
             machine_ids.len()
@@ -283,14 +286,15 @@ pub(crate) async fn find_skus_by_ids(
     let mut rpc_skus: Vec<rpc::forge::Sku> =
         skus.into_iter().map(std::convert::Into::into).collect();
 
-    for rpc_sku in rpc_skus.iter_mut() {
-        rpc_sku.associated_machine_ids = find_machine_ids_by_sku_id(&mut txn, &rpc_sku.id)
-            .await?
-            .into_iter()
-            .collect();
-    }
-
+    let mut machine_ids_by_sku_ids =
+        db::machine::find_machine_ids_by_sku_ids(&mut txn, &sku_ids).await?;
     txn.commit().await?;
+
+    for rpc_sku in rpc_skus.iter_mut() {
+        if let Some(associated_machine_ids) = machine_ids_by_sku_ids.remove(&rpc_sku.id) {
+            rpc_sku.associated_machine_ids = associated_machine_ids;
+        }
+    }
 
     Ok(Response::new(rpc::forge::SkuList { skus: rpc_skus }))
 }

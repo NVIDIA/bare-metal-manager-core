@@ -78,7 +78,7 @@ This shows all commands working together to create a compliant distroless contai
 FROM debian:bookworm AS builder
 
 # Install sbom and syft tools
-COPY --from=nvcr.io/nvidian/nvforge/sbom-tools:latest /app/sbom /usr/local/bin/sbom
+COPY --from=<sbom-tools-image> /app/sbom /usr/local/bin/sbom
 COPY --from=anchore/syft:latest /syft /usr/local/bin/syft
 
 # Optionally Build your application

@@ -12,12 +12,15 @@
 
 //! MQTT consumer that receives messages and writes them to a channel.
 
+use std::sync::Arc;
+
+use forge_secrets::credentials::CredentialReader;
 use mqttea::QoS;
 use mqttea::client::{ClientOptions, MqtteaClient};
 use mqttea::registry::JsonRegistration;
 use tokio::sync::mpsc;
 
-use crate::config::MqttConfig;
+use crate::config::{MqttAuthMode, MqttConfig};
 use crate::messages::{LeakMetadata, ValueMessage};
 use crate::{ConsumerMetrics, DsxConsumerError};
 
@@ -41,16 +44,28 @@ pub enum MqttMessage {
 pub async fn connect(
     config: &MqttConfig,
     metrics: ConsumerMetrics,
+    credential_reader: Arc<dyn CredentialReader>,
 ) -> Result<mpsc::Receiver<MqttMessage>, DsxConsumerError> {
     let (tx, rx) = mpsc::channel(config.queue_capacity);
+
+    // QoS 0 is the recommended setting for DSX Exchange integrations.
+    // BMS will republish all messages periodically to handle missed messages.
+    let options = {
+        let defaults = ClientOptions::default().with_qos(QoS::AtMostOnce);
+        if let Some(provider) =
+            build_credentials_provider(config, credential_reader.clone()).await?
+        {
+            defaults.with_credentials_provider(provider)
+        } else {
+            defaults
+        }
+    };
 
     let client = MqtteaClient::new(
         &config.endpoint,
         config.port,
         &config.client_id,
-        // QoS 0 is the recommended setting for DSX Exchange integrations.
-        // BMS will republish all messages periodically to handle missed messages.
-        Some(ClientOptions::default().with_qos(QoS::AtMostOnce)),
+        Some(options),
     )
     .await
     .map_err(|e| DsxConsumerError::Mqtt(e.to_string()))?;
@@ -115,4 +130,90 @@ pub async fn connect(
     tracing::info!("MQTT consumer connected");
 
     Ok(rx)
+}
+
+async fn build_credentials_provider(
+    config: &MqttConfig,
+    credential_reader: Arc<dyn CredentialReader>,
+) -> Result<Option<Arc<dyn mqttea::auth::CredentialsProvider>>, DsxConsumerError> {
+    let credential_key = forge_secrets::credentials::CredentialKey::MqttAuth {
+        credential_type: forge_secrets::credentials::MqttCredentialType::DsxExchangeConsumer,
+    };
+
+    match config.auth.auth_mode {
+        MqttAuthMode::None => Ok(None),
+        MqttAuthMode::BasicAuth => {
+            let creds = credential_reader
+                .get_credentials(&credential_key)
+                .await
+                .map_err(|e| DsxConsumerError::Secrets(e.to_string()))?
+                .ok_or_else(|| {
+                    DsxConsumerError::Secrets(format!(
+                        "Missing MQTT credentials for {}",
+                        credential_key.to_key_str()
+                    ))
+                })?;
+            let forge_secrets::credentials::Credentials::UsernamePassword { username, password } =
+                creds;
+            Ok(Some(Arc::new(mqttea::auth::StaticCredentials::new(
+                username, password,
+            ))
+            // cast not needed by rustc, but satisfies rust-analyzer
+            as Arc<dyn mqttea::auth::CredentialsProvider>))
+        }
+        MqttAuthMode::Oauth2 => {
+            let oauth2 = config.auth.oauth2.as_ref().ok_or_else(|| {
+                DsxConsumerError::Config(
+                    "auth_mode is oauth2 but oauth2 config is missing".to_string(),
+                )
+            })?;
+            let config = mqttea::auth::OAuth2Config::new(
+                &oauth2.token_url,
+                oauth2.scopes.clone(),
+                oauth2.http_timeout,
+            );
+            let client_credentials = Arc::new(SecretBackedOAuth2Credentials {
+                credential_key,
+                credential_reader,
+            });
+            let token_provider = mqttea::auth::OAuth2TokenProvider::new(config, client_credentials)
+                .map_err(|e| DsxConsumerError::Mqtt(e.to_string()))?;
+            let provider =
+                mqttea::auth::TokenCredentialsProvider::new(&oauth2.username, token_provider);
+            // cast not needed by rustc, but satisfies rust-analyzer
+            Ok(Some(
+                Arc::new(provider) as Arc<dyn mqttea::auth::CredentialsProvider>
+            ))
+        }
+    }
+}
+
+struct SecretBackedOAuth2Credentials {
+    credential_key: forge_secrets::credentials::CredentialKey,
+    credential_reader: Arc<dyn CredentialReader>,
+}
+
+#[async_trait::async_trait]
+impl mqttea::auth::ClientCredentialsProvider for SecretBackedOAuth2Credentials {
+    async fn get_client_credentials(
+        &self,
+    ) -> Result<(mqttea::ClientId, mqttea::ClientSecret), mqttea::MqtteaClientError> {
+        let creds = self
+            .credential_reader
+            .get_credentials(&self.credential_key)
+            .await
+            .map_err(|e| mqttea::MqtteaClientError::CredentialsError(e.to_string()))?
+            .ok_or_else(|| {
+                mqttea::MqtteaClientError::CredentialsError(format!(
+                    "Missing MQTT OAuth2 credentials for {}",
+                    self.credential_key.to_key_str()
+                ))
+            })?;
+        let forge_secrets::credentials::Credentials::UsernamePassword { username, password } =
+            creds;
+        Ok((
+            mqttea::ClientId::new(username),
+            mqttea::ClientSecret::new(password),
+        ))
+    }
 }

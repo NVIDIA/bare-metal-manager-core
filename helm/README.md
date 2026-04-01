@@ -1,10 +1,10 @@
 # Carbide Helm Chart
 
-NVIDIA Bare Metal Manager (Carbide) -- Kubernetes Deployment
+NCX Infra Controller (Carbide) -- Kubernetes Deployment
 
 ## Overview
 
-Carbide (also known as NVIDIA Bare Metal Manager) is a platform for provisioning, managing, and monitoring bare metal GPU servers, including DGX and HGX systems. This Helm chart deploys Carbide services into a Kubernetes cluster as a single umbrella chart with independently toggleable subcharts.
+Carbide (also known as NCX Infra Controller) is a platform for provisioning, managing, and monitoring bare metal GPU servers, including DGX and HGX systems. This Helm chart deploys Carbide services into a Kubernetes cluster as a single umbrella chart with independently toggleable subcharts.
 
 The chart is designed for production environments where Carbide manages the full lifecycle of bare metal infrastructure: DHCP/PXE-based OS provisioning, DNS resolution, hardware health monitoring, SSH console access, and a unified REST/gRPC API.
 
@@ -100,7 +100,7 @@ The `global.image.repository` and `global.image.tag` values **must** be set -- t
 
 | Subchart | Image Parameter | Default |
 |----------|----------------|---------|
-| `carbide-ssh-console-rs` (log collector) | `carbide-ssh-console-rs.lokiLogCollector.image.repository` / `.tag` | `""` (must be set) |
+| `carbide-ssh-console-rs` (log collector) | `carbide-ssh-console-rs.lokiLogCollector.image.repository` / `.tag` | `""` — sidecar disabled by default (`lokiLogCollector.enabled: false`); reference image: `ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.81.0` |
 | `unbound` | `unbound.image.repository` / `.tag` | `""` (must be set) |
 | `unbound` (exporter) | `unbound.exporterImage.repository` / `.tag` | `""` (must be set) |
 

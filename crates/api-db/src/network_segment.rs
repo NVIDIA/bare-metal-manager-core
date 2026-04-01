@@ -18,7 +18,6 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::ops::Deref;
 
-use ::rpc::forge as rpc;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
@@ -259,7 +258,7 @@ pub async fn list_segment_ids(
 
 pub async fn find_ids(
     txn: impl DbReader<'_>,
-    filter: rpc::NetworkSegmentSearchFilter,
+    filter: model::network_segment::NetworkSegmentSearchFilter,
 ) -> Result<Vec<NetworkSegmentId>, DatabaseError> {
     // build query
     let mut builder = sqlx::QueryBuilder::new("SELECT s.id FROM network_segments AS s");
@@ -455,33 +454,20 @@ pub async fn try_update_controller_state(
     txn: &mut PgConnection,
     segment_id: NetworkSegmentId,
     expected_version: ConfigVersion,
+    new_version: ConfigVersion,
     new_state: &NetworkSegmentControllerState,
 ) -> Result<bool, DatabaseError> {
-    let next_version = expected_version.increment();
-
     let query = "UPDATE network_segments SET controller_state_version=$1, controller_state=$2::json where id=$3::uuid AND controller_state_version=$4 returning id";
-    let query_result: Result<NetworkSegmentId, _> = sqlx::query_as(query)
-        .bind(next_version)
+    let result = sqlx::query_as::<_, NetworkSegmentId>(query)
+        .bind(new_version)
         .bind(sqlx::types::Json(new_state))
         .bind(segment_id)
         .bind(expected_version)
-        .fetch_one(&mut *txn)
-        .await;
+        .fetch_optional(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
 
-    match query_result {
-        Ok(_segment_id) => {
-            crate::network_segment_state_history::persist(
-                &mut *txn,
-                segment_id,
-                new_state,
-                next_version,
-            )
-            .await?;
-            Ok(true)
-        }
-        Err(sqlx::Error::RowNotFound) => Ok(false),
-        Err(e) => Err(DatabaseError::query(query, e)),
-    }
+    Ok(result.is_some())
 }
 
 pub async fn update_controller_state_outcome(

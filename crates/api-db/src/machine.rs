@@ -16,14 +16,12 @@
  */
 //!
 //! Machine - represents a database-backed Machine object
-//!
 
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::ops::Deref;
 use std::str::FromStr;
 
-use ::rpc::forge::DpuInfo;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineType};
 use chrono::prelude::*;
@@ -33,6 +31,7 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use model::controller_outcome::PersistentStateHandlerOutcome;
+use model::expected_machine::ExpectedMachineData;
 use model::hardware_info::{MachineInventory, MachineNvLinkInfo};
 use model::machine::infiniband::MachineInfinibandStatusObservation;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -42,7 +41,7 @@ use model::machine::network::{
 use model::machine::nvlink::MachineNvLinkStatusObservation;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::machine::{
-    Dpf, FailureDetails, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
+    Dpf, DpuInfo, FailureDetails, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
     MachineLastRebootRequestedMode, ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use model::machine_interface_address::MachineInterfaceAssociation;
@@ -83,7 +82,6 @@ lazy_static! {
 ///
 /// * `txn` - A reference to a currently open database transaction
 /// * `interface` - Network interface of the machine
-///
 pub async fn get_or_create(
     txn: &mut PgConnection,
     common_pools: Option<&CommonPools>,
@@ -128,17 +126,7 @@ pub async fn get_or_create(
         // Host and DPU machines are created in same `discover_machine` call. Update same
         // state in both machines.
         let state = ManagedHostState::Created;
-        let machine = create(
-            txn,
-            common_pools,
-            stable_machine_id,
-            state,
-            &Metadata::default(),
-            None,
-            true,
-            2,
-        )
-        .await?;
+        let machine = create(txn, common_pools, stable_machine_id, state, None, 2).await?;
         crate::machine_interface::associate_interface_with_machine(
             &interface.id,
             MachineInterfaceAssociation::Machine(machine.id),
@@ -150,7 +138,7 @@ pub async fn get_or_create(
 }
 
 pub async fn find_one(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     id: &MachineId,
     search_config: MachineSearchConfig,
 ) -> Result<Option<Machine>, DatabaseError> {
@@ -195,7 +183,6 @@ pub async fn find_existing_machine(
 ///
 /// * `txn` - A reference to a currently open database transaction
 /// * `state` - A reference to a MachineState enum
-///
 // TODO: abhi, Make it private.
 pub async fn advance(
     machine: &Machine,
@@ -284,6 +271,11 @@ pub async fn find(
     if let Some(id) = search_config.instance_type_id {
         builder.push(" AND m.instance_type_id = ");
         builder.push_bind(id);
+    }
+
+    if let Some(rack_id) = search_config.rack_id {
+        builder.push(" AND m.rack_id = ");
+        builder.push_bind(rack_id);
     }
 
     let all_machines: Vec<Machine> = builder
@@ -485,7 +477,7 @@ pub async fn find_by_mac_address(
 }
 
 pub async fn find_by_loopback_ip(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     loopback_ip: &str,
 ) -> Result<Option<Machine>, DatabaseError> {
     lazy_static! {
@@ -918,25 +910,6 @@ pub async fn update_hardware_health_report(
     update_health_report(txn, machine_id, "hardware_health_report", health_report).await
 }
 
-pub async fn update_log_parser_health_report(
-    txn: &mut PgConnection,
-    machine_id: &MachineId,
-    health_report: &HealthReport,
-) -> Result<(), DatabaseError> {
-    let query = String::from(
-        "UPDATE machines SET log_parser_health_report = $1::json WHERE id = $2
-            RETURNING id",
-    );
-    let _id: (MachineId,) = sqlx::query_as(&query)
-        .bind(sqlx::types::Json(&health_report))
-        .bind(machine_id)
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::new("update health report", e))?;
-
-    Ok(())
-}
-
 pub async fn update_machine_validation_health_report(
     txn: &mut PgConnection,
     machine_id: &MachineId,
@@ -1236,23 +1209,32 @@ pub async fn clear_failure_details(
 ///
 /// If metadata.name is empty then it is initialized in
 /// stable_machine_id.to_string().
-#[allow(clippy::too_many_arguments)]
 pub async fn create(
     txn: &mut PgConnection,
     common_pools: Option<&CommonPools>,
     stable_machine_id: &MachineId,
     state: ManagedHostState,
-    metadata: &Metadata,
-    sku_id: Option<&String>,
-    dpf_enabled: bool,
+    expected_machine_data: Option<&ExpectedMachineData>,
     state_model_version: i16,
 ) -> DatabaseResult<Machine> {
     let stable_machine_id_string = stable_machine_id.to_string();
-    let metadata_name = if metadata.name.is_empty() {
-        &stable_machine_id_string
-    } else {
+
+    let default_metadata = &Metadata::default();
+    let metadata = expected_machine_data
+        .map(|data| &data.metadata)
+        .unwrap_or(default_metadata);
+    let metadata_name = if !metadata.name.is_empty() {
         &metadata.name
+    } else {
+        &stable_machine_id_string
     };
+    let rack_id = expected_machine_data.and_then(|data| data.rack_id.as_ref());
+    let sku_id = expected_machine_data.and_then(|data| data.sku_id.as_ref());
+    let dpf_enabled = match expected_machine_data {
+        Some(data) => data.dpf_enabled.unwrap_or(false), // EM entry exists
+        None => true,                                    // EM entry does not exist
+    };
+
     // Host and DPU machines are created in same `discover_machine` call. Update same
     // state in both machines.
     let state_version = ConfigVersion::initial();
@@ -1285,8 +1267,8 @@ pub async fn create(
     };
 
     let query = r#"INSERT INTO machines(
-                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels, hw_sku, dpf)
-                            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::json, $12, $13) RETURNING id"#;
+                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels, rack_id, hw_sku, dpf)
+                            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::json, $12, $13, $14) RETURNING id"#;
     let machine_id: MachineId = sqlx::query_as(query)
         .bind(&stable_machine_id_string)
         .bind(state_version)
@@ -1299,6 +1281,7 @@ pub async fn create(
         .bind(metadata_name)
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
+        .bind(rack_id)
         .bind(sku_id)
         .bind(sqlx::types::Json(Dpf {
             enabled: dpf_enabled,
@@ -1314,7 +1297,7 @@ pub async fn create(
         )));
     }
 
-    let machine = find_one(txn, stable_machine_id, MachineSearchConfig::default())
+    let machine = find_one(&mut *txn, stable_machine_id, MachineSearchConfig::default())
         .await?
         .ok_or_else(|| DatabaseError::NotFoundError {
             kind: "machine",
@@ -1617,7 +1600,7 @@ pub async fn apply_agent_upgrade_policy(
     if policy == AgentUpgradePolicy::Off {
         return Ok(false);
     }
-    let machine = find_one(txn, machine_id, MachineSearchConfig::default())
+    let machine = find_one(&mut *txn, machine_id, MachineSearchConfig::default())
         .await?
         .ok_or_else(|| DatabaseError::NotFoundError {
             kind: "dpu_machine",
@@ -1677,6 +1660,14 @@ pub async fn find_machine_ids(
         qb.push(" INNER JOIN machine_topologies mt ON machines.id = mt.machine_id");
     }
 
+    // Return only machines that are powered on and have a health override with leak classification
+    if let Some(pstate) = &search_config.only_with_power_state {
+        let pstate_normalized = pstate.to_lowercase();
+        qb.push(" INNER JOIN power_options po ON po.host_id = machines.id AND po.last_fetched_power_state = ");
+        qb.push_bind(pstate_normalized);
+        qb.push("::host_power_state_t");
+    }
+
     qb.push(" WHERE TRUE");
 
     if search_config.only_maintenance {
@@ -1719,6 +1710,13 @@ pub async fn find_machine_ids(
         ));
     }
 
+    if let Some(ovrrd_str) = &search_config.only_with_health_alert {
+        qb.push(" AND health_report_overrides->'merges' ? ");
+        qb.push_bind(ovrrd_str.clone());
+        qb.push(" AND jsonb_array_length(health_report_overrides->'merges'->");
+        qb.push_bind(ovrrd_str);
+        qb.push("->'alerts') > 0");
+    }
     if search_config.mnnvl_only {
         qb.push(
             " AND mt.topology->'discovery_data'->'Info'->'dmi_data'->>'product_name' LIKE '%GB200%'",
@@ -1730,11 +1728,17 @@ pub async fn find_machine_ids(
         qb.push_bind(id);
     }
 
+    if let Some(rack_id) = search_config.rack_id {
+        qb.push(" AND rack_id = ");
+        qb.push_bind(rack_id);
+    }
+
     if search_config.for_update {
         qb.push(" FOR UPDATE");
     }
 
     let q = qb.build_query_as();
+
     let machine_ids: Vec<MachineId> = q
         .fetch_all(txn)
         .await
@@ -1749,7 +1753,7 @@ pub async fn update_state(
     new_state: &ManagedHostState,
 ) -> Result<(), DatabaseError> {
     let host = find_one(
-        txn,
+        &mut *txn,
         host_id,
         // TODO(?): Should we be using for_update/row-level locks here?
         // This is a select that's later used for an update on both version
@@ -1823,7 +1827,6 @@ pub async fn update_failure_details_by_machine_id(
 /// Arguments
 ///
 /// * `txn` - A reference to currently open database transaction
-///
 pub async fn find_dpu_ids_and_loopback_ips(
     txn: &mut PgConnection,
 ) -> Result<Vec<DpuInfo>, DatabaseError> {
@@ -2096,7 +2099,7 @@ pub async fn update_sku_status_last_match_attempt(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET hw_sku_status=jsonb_set(coalesce(hw_sku_status, '{}'), '{last_match_attempt}', $1) WHERE id=$2 RETURNING id";
 
-    let _: () = sqlx::query_as(query)
+    sqlx::query_as::<_, ()>(query)
         .bind(sqlx::types::Json(Utc::now()))
         .bind(machine_id)
         .fetch_one(txn)
@@ -2112,7 +2115,7 @@ pub async fn update_sku_status_last_generate_attempt(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET hw_sku_status=jsonb_set(coalesce(hw_sku_status, '{}'), '{last_generate_attempt}', $1) WHERE id=$2 RETURNING id";
 
-    let _: () = sqlx::query_as(query)
+    sqlx::query_as::<_, ()>(query)
         .bind(sqlx::types::Json(Utc::now()))
         .bind(machine_id)
         .fetch_one(txn)
@@ -2128,7 +2131,7 @@ pub async fn update_sku_status_verify_request_time(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET hw_sku_status=jsonb_set(coalesce(hw_sku_status, '{}'), '{verify_request_time}', $1) WHERE id=$2 RETURNING id";
 
-    let _: () = sqlx::query_as(query)
+    sqlx::query_as::<_, ()>(query)
         .bind(sqlx::types::Json(Utc::now()))
         .bind(machine_id)
         .fetch_one(txn)
@@ -2155,23 +2158,50 @@ pub async fn update_sku_status_verify_request_time_for_sku(
     Ok(())
 }
 
-pub async fn find_machine_ids_by_sku_id(
-    txn: &mut PgConnection,
-    sku_id: &String,
-) -> Result<Vec<MachineId>, DatabaseError> {
-    let query = "SELECT id FROM machines WHERE hw_sku=$1";
+pub async fn find_machine_ids_by_sku_ids(
+    db_reader: impl DbReader<'_>,
+    sku_ids: &[String],
+) -> Result<HashMap<String, Vec<MachineId>>, DatabaseError> {
+    let query = r#"SELECT skus.id, COALESCE(m.machine_ids, '[]'::jsonb) as associated_machine_ids
+  FROM machine_skus AS skus
+  LEFT JOIN LATERAL (
+    SELECT jsonb_agg(m.id) AS machine_ids
+    FROM machines AS m
+    WHERE m.hw_sku = skus.id
+  ) AS m ON TRUE
+  WHERE skus.id=ANY($1)"#;
 
-    let ids: Vec<MachineId> = sqlx::query_as(query)
-        .bind(sku_id)
-        .fetch_all(txn)
+    #[derive(FromRow)]
+    struct Result {
+        id: String,
+        associated_machine_ids: sqlx::types::Json<Vec<String>>,
+    }
+
+    let ids: Vec<Result> = sqlx::query_as(query)
+        .bind(sku_ids)
+        .fetch_all(db_reader)
         .await
-        .map_err(|e| DatabaseError::new("get assigned sku count", e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
-    Ok(ids)
+    // Build a HashMap of Sku ID to Vec<MachineId>
+    Ok(ids
+        .into_iter()
+        .map(|result| {
+            (
+                result.id,
+                result
+                    .associated_machine_ids
+                    .0
+                    .into_iter()
+                    .filter_map(|machine_id_str| machine_id_str.parse().ok())
+                    .collect(),
+            )
+        })
+        .collect())
 }
 
 pub async fn get_network_config(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     machine_id: &MachineId,
 ) -> Result<Versioned<ManagedHostNetworkConfig>, DatabaseError> {
     #[derive(FromRow)]
@@ -2195,7 +2225,7 @@ pub async fn get_network_config(
 }
 
 pub async fn get_quarantine_state(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     machine_id: &MachineId,
 ) -> Result<Option<ManagedHostQuarantineState>, DatabaseError> {
     let network_config = get_network_config(txn, machine_id).await?;
@@ -2208,7 +2238,7 @@ pub async fn set_quarantine_state(
     quarantine_state: ManagedHostQuarantineState,
 ) -> Result<Option<ManagedHostQuarantineState>, DatabaseError> {
     let (mut network_config, network_config_version) =
-        get_network_config(txn, machine_id).await?.take();
+        get_network_config(&mut *txn, machine_id).await?.take();
     let old_quarantine_state = network_config.quarantine_state.clone();
     network_config.quarantine_state = Some(quarantine_state);
     try_update_network_config(txn, machine_id, network_config_version, &network_config).await?;
@@ -2220,7 +2250,7 @@ pub async fn clear_quarantine_state(
     machine_id: &MachineId,
 ) -> Result<Option<ManagedHostQuarantineState>, DatabaseError> {
     let (mut network_config, network_config_version) =
-        get_network_config(txn, machine_id).await?.take();
+        get_network_config(&mut *txn, machine_id).await?.take();
     let old_quarantine_state = network_config.quarantine_state.clone();
     network_config.quarantine_state = None;
     try_update_network_config(txn, machine_id, network_config_version, &network_config).await?;
@@ -2312,7 +2342,6 @@ mod test {
     use carbide_uuid::machine::MachineId;
     use model::machine::ManagedHostState;
     use model::machine::machine_search_config::MachineSearchConfig;
-    use model::metadata::Metadata;
 
     #[crate::sqlx_test]
 
@@ -2322,22 +2351,12 @@ mod test {
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();
         let id =
             MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
-        super::create(
-            &mut txn,
-            None,
-            &id,
-            ManagedHostState::Ready,
-            &Metadata::default(),
-            None,
-            true,
-            2,
-        )
-        .await?;
+        super::create(&mut txn, None, &id, ManagedHostState::Ready, None, 2).await?;
         super::set_firmware_autoupdate(&mut txn, &id, Some(true)).await?;
         txn.commit().await?;
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();
 
-        let host = crate::machine::find_one(&mut txn, &id, MachineSearchConfig::default())
+        let host = crate::machine::find_one(&mut *txn, &id, MachineSearchConfig::default())
             .await
             .unwrap()
             .unwrap();
@@ -2346,7 +2365,7 @@ mod test {
         txn.commit().await?;
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();
         super::set_firmware_autoupdate(&mut txn, &id, None).await?;
-        let host = crate::machine::find_one(&mut txn, &id, MachineSearchConfig::default())
+        let host = crate::machine::find_one(&mut *txn, &id, MachineSearchConfig::default())
             .await
             .unwrap()
             .unwrap();

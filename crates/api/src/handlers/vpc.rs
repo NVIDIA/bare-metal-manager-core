@@ -258,7 +258,7 @@ pub(crate) async fn update_virtualization(
 
     let instances = db::instance::find_ids(
         &mut txn,
-        rpc::InstanceSearchFilter {
+        model::instance::InstanceSearchFilter {
             label: None,
             tenant_org_id: None,
             vpc_id: Some(updater.id.to_string()),
@@ -364,7 +364,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::VpcIdList>, Status> {
     log_request_data(&request);
 
-    let filter: rpc::VpcSearchFilter = request.into_inner();
+    let filter: model::vpc::VpcSearchFilter = request.into_inner().into();
 
     let vpc_ids = db::vpc::find_ids(&api.database_connection, filter).await?;
 

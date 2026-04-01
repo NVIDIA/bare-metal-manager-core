@@ -112,7 +112,7 @@ this DPU. The target configuration for a DPU can be found on the `Network Config
 The summary for this example is that the Machine is stuck because the DPU
 - is either not healthy at all (e.g. not booted)
 - is not running `forge-dpu-agent`
-- `forge-dpu-agent` is not reporting back to BMM
+- `forge-dpu-agent` is not reporting back to NICo
 
 ## Follow-up investigation steps
 
@@ -141,7 +141,7 @@ infrastructure. They can be queried from there via Loki.
 Search strings for DPU can be:
 ```
 {systemd_unit="forge-dpu-agent.service", machine_id="fm100ds006eliqt3u4h65ou9ebrqfq9th2jf39qqki68k9ueu2amearv47g"}
-{systemd_unit="forge-dpu-agent.service", host_name="192-168-155-135.bmm.example.org"}
+{systemd_unit="forge-dpu-agent.service", host_name="192-168-155-135.nico.example.org"}
 ```
 
 **Note that the query using the MachineId will only work if the DPU once had been fully ingested

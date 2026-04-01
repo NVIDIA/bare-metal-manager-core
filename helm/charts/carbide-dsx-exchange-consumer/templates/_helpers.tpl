@@ -51,9 +51,12 @@ Certificate spec
 {{- define "carbide-dsx-exchange-consumer.certificateSpec" -}}
 duration: {{ .global.certificate.duration }}
 renewBefore: {{ .global.certificate.renewBefore }}
+commonName: {{ printf "%s.%s.svc.cluster.local" .cert.serviceName .namespace }}
 dnsNames:
   - {{ printf "%s.%s.svc.cluster.local" .cert.serviceName .namespace }}
+{{- if not (eq (toString (.cert.includeShortDnsName | default true)) "false") }}
   - {{ printf "%s.%s" .cert.serviceName .namespace }}
+{{- end }}
 {{- range .cert.extraDnsNames | default list }}
   - {{ . }}
 {{- end }}

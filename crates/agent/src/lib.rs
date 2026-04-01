@@ -16,7 +16,7 @@
  */
 use std::process::Command;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use ::rpc::DiscoveryInfo;
 use ::rpc::forge_tls_client::ForgeClientConfig;
@@ -33,29 +33,29 @@ use utils::models::arch::CpuArchitecture;
 use version_compare::{Part, Version};
 
 use crate::duppet::{SummaryFormat, SyncOptions};
-use crate::frr::FrrVlanConfig;
+use crate::health::HealthCheckParams;
+use crate::host_machine_id::get_host_machine_id_retry;
 
 pub mod dpu;
 
-pub mod acl;
 mod acl_rules;
 pub mod agent_platform;
 mod command_line;
 pub mod containerd;
-mod daemons;
 mod dhcp;
+mod dhcp_server_grpc_client;
 mod ethernet_virtualization;
 use carbide_uuid::machine::MachineId;
 pub use ethernet_virtualization::FPath;
 pub mod extension_services;
+mod fmds_client;
 
 pub mod duppet;
-mod frr;
 mod hbn;
 mod health;
+mod host_machine_id;
 mod instance_metadata_endpoint;
 pub mod instrumentation;
-mod interfaces;
 pub mod lldp;
 mod machine_inventory_updater;
 mod main_loop;
@@ -77,7 +77,8 @@ pub mod util;
 /// The minimum version of HBN that FMDS supports
 pub const FMDS_MINIMUM_HBN_VERSION: &str = "1.5.0-doca2.2.0";
 
-/// The minimum version of HBN that has compatible NVUE
+/// The minimum version of HBN that supports NVUE. Since NVUE is now the only
+/// supported configuration path, DPUs running older HBN versions cannot be configured.
 pub const NVUE_MINIMUM_HBN_VERSION: &str = "2.0.0-doca2.5.0";
 
 pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
@@ -165,15 +166,16 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // it may fail when the real one would succeed for single-port setups.
         // This also only works with the newest HBN as the ifc suffix is hard coded to the new version
         Some(AgentCommand::Health) => {
-            let health_report = health::health_check(
-                &agent.hbn.root_dir,
-                &[],
-                Instant::now(),
-                false,
-                2,
-                &[],
-                HBNDeviceNames::hbn_23(),
-            )
+            let health_report = health::health_check(HealthCheckParams {
+                hbn_root: &agent.hbn.root_dir,
+                host_routes: &[],
+                has_changed_configs: false,
+                min_healthy_links: 2,
+                route_servers: &[],
+                hbn_device_names: HBNDeviceNames::hbn_23(),
+                include_dhcp_server: false,
+                run_restricted_mode_check: true,
+            })
             .await;
             println!("{}", serde_json::to_string_pretty(&health_report)?);
         }
@@ -216,9 +218,10 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 summary_format: parsed_format,
             };
 
-            // Since the duppet sync also syncs out the otel machine_id
-            // file, we need to make a registration call to get the machine_id,
-            // and a single fetch to get the host_machine_id.
+            // Since the duppet sync also syncs out the otel machine_id and
+            // host_machine_id files, we need to make a registration call to
+            // get the machine_id, and a carbide api request to get the
+            // host_machine_id.
             let Registration { machine_id, .. } =
                 register(&agent).await.wrap_err("registration error")?;
 
@@ -235,82 +238,33 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             )
             .await;
 
-            managed_files::main_sync(sync_options, &machine_id, &periodic_config_fetcher);
+            let host_machine_id = match get_host_machine_id_retry(
+                &agent,
+                &periodic_config_fetcher,
+                Arc::clone(&forge_client_config),
+                &forge_api_server,
+            )
+            .await
+            {
+                Ok(id) => id,
+                Err(e) => {
+                    tracing::error!("get_host_machine_id_retry() failed: {:?}", e);
+                    return Err(e);
+                }
+            };
+
+            managed_files::main_sync(sync_options, &machine_id, &host_machine_id);
         }
 
         // Output a templated file
         // Normally this is (will be) done when receiving requests from carbide-api
         Some(AgentCommand::Write(target)) => match target {
-            // Example:
-            // forge-dpu-agent
-            //     --config-path example_agent_config.toml
-            //     write frr
-            //     --path ~/Temp/frr.conf
-            //     --asn 1234
-            //     --loopback-ip 10.11.12.13
-            //     --vlan 1,bob
-            //     --vlan 2,bill
-            WriteTarget::Frr(opts) => {
-                let access_vlans = opts
-                    .vlan
-                    .into_iter()
-                    .map(|s| {
-                        let mut parts = s.split(',');
-                        let vlan_id = parts.next().unwrap().parse().unwrap();
-                        let ip = parts.next().unwrap().to_string();
-                        FrrVlanConfig {
-                            vlan_id,
-                            network: ip.clone() + "/32",
-                            ip,
-                        }
-                    })
-                    .collect();
-                let contents = frr::build(frr::FrrConfig {
-                    asn: opts.asn,
-                    uplinks: HBNDeviceNames::hbn_23()
-                        .uplinks
-                        .iter()
-                        .map(|x| x.to_string())
-                        .collect(),
-                    loopback_ip: opts.loopback_ip,
-                    access_vlans,
-                    vpc_vni: Some(opts.vpc_vni),
-                    route_servers: opts.route_servers.clone(),
-                    use_admin_network: opts.admin,
-                })?;
-                std::fs::write(&opts.path, contents)?;
-                println!("Wrote {}", opts.path);
+            // Legacy ETV write targets are no longer supported
+            WriteTarget::Frr(_) | WriteTarget::Interfaces(_) | WriteTarget::Dhcp(_) => {
+                eyre::bail!(
+                    "Legacy ETV write targets (frr, interfaces, dhcp) are no longer supported. Use 'write nvue' instead."
+                );
             }
-
-            // Example:
-            // forge-dpu-agent
-            //    --config-path example_agent_config.toml
-            //    write interfaces
-            //    --path /home/graham/Temp/if
-            //    --loopback-ip 1.2.3.4
-            //    --vni-device ""
-            //    --network '{"interface_name": "pf0hpf", "vlan": 1, "vni": 3042, "gateway_cidr": "6.5.4.3/24"}'`
-            WriteTarget::Interfaces(opts) => {
-                let mut networks = Vec::with_capacity(opts.network.len());
-                for net_json in opts.network {
-                    let c: interfaces::Network = serde_json::from_str(&net_json)?;
-                    networks.push(c);
-                }
-                let contents = interfaces::build(interfaces::InterfacesConfig {
-                    uplinks: HBNDeviceNames::hbn_23()
-                        .uplinks
-                        .iter()
-                        .map(|x| x.to_string())
-                        .collect(),
-                    loopback_ip: opts.loopback_ip,
-                    vni_device: opts.vni_device,
-                    networks,
-                })?;
-                std::fs::write(&opts.path, contents)?;
-                println!("Wrote {}", opts.path);
-            }
-
-            WriteTarget::Dhcp(_opts) => {}
 
             // Example:
             // forge-dpu-agent write nvue

@@ -123,9 +123,25 @@ impl StateControllerIO for MachineStateControllerIO {
         txn: &mut PgConnection,
         object_id: &Self::ObjectId,
         _old_version: ConfigVersion,
+        _new_version: ConfigVersion,
         new_state: &Self::ControllerState,
+    ) -> Result<bool, DatabaseError> {
+        db::machine::update_state(txn, object_id, new_state).await?;
+        Ok(true)
+    }
+
+    /// State history for machines (including DPUs) is persisted internally by
+    /// `db::machine::advance()` inside `update_state`, so this is actually a
+    /// no-op for now.
+    // TODO(chet): Pull this in as well.
+    async fn persist_state_history(
+        &self,
+        _txn: &mut PgConnection,
+        _object_id: &Self::ObjectId,
+        _new_version: ConfigVersion,
+        _new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        db::machine::update_state(txn, object_id, new_state).await
+        Ok(())
     }
 
     async fn persist_outcome(
@@ -300,7 +316,12 @@ impl StateControllerIO for MachineStateControllerIO {
         }
     }
 
-    fn state_sla(state: &Versioned<Self::ControllerState>) -> StateSla {
-        machine::state_sla(&state.value, &state.version)
+    fn state_sla(state: &Versioned<Self::ControllerState>, object_state: &Self::State) -> StateSla {
+        machine::state_sla(
+            &object_state.host_snapshot.id,
+            &state.value,
+            &state.version,
+            &object_state.aggregate_health,
+        )
     }
 }

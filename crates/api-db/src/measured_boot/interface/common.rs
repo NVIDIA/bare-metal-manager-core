@@ -18,7 +18,7 @@
 /*!
  *  Common code for working with the database. Provides constants and generics
  *  for making boilerplate copy-pasta code handled in a common way.
-*/
+ */
 
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;

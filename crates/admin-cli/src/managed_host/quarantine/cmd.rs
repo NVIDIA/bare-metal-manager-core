@@ -16,21 +16,13 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge as forgerpc;
 
 use super::args::{Args, QuarantineOff, QuarantineOn};
 use crate::rpc::ApiClient;
 
 pub async fn quarantine_on(api_client: &ApiClient, args: QuarantineOn) -> CarbideCliResult<()> {
     let host = args.host;
-    let req = forgerpc::SetManagedHostQuarantineStateRequest {
-        machine_id: Some(args.host),
-        quarantine_state: Some(forgerpc::ManagedHostQuarantineState {
-            mode: forgerpc::ManagedHostQuarantineMode::BlockAllTraffic as i32,
-            reason: Some(args.reason),
-        }),
-    };
-    let prior_state = api_client.0.set_managed_host_quarantine_state(req).await?;
+    let prior_state = api_client.0.set_managed_host_quarantine_state(args).await?;
     println!(
         "quarantine set for host {}, prior state: {:?}",
         host, prior_state.prior_quarantine_state
@@ -40,12 +32,9 @@ pub async fn quarantine_on(api_client: &ApiClient, args: QuarantineOn) -> Carbid
 
 pub async fn quarantine_off(api_client: &ApiClient, args: QuarantineOff) -> CarbideCliResult<()> {
     let host = args.host;
-    let req = forgerpc::ClearManagedHostQuarantineStateRequest {
-        machine_id: Some(host),
-    };
     let prior_state = api_client
         .0
-        .clear_managed_host_quarantine_state(req)
+        .clear_managed_host_quarantine_state(args)
         .await?;
     println!(
         "quarantine set for host {}, prior state: {:?}",

@@ -18,9 +18,9 @@ use std::collections::HashSet;
 use std::net::IpAddr;
 use std::ops::DerefMut;
 
+use carbide_network::virtualization::get_host_ip;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
-use forge_network::virtualization::get_host_ip;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::ConfigValidationError;
@@ -54,7 +54,7 @@ impl super::ColumnInfo<'_> for PrefixColumn {
 }
 
 pub async fn find_by_address(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     address: IpAddr,
 ) -> Result<Option<InstanceAddress>, DatabaseError> {
     let query = "SELECT * FROM instance_addresses WHERE address = $1::inet";
@@ -92,6 +92,18 @@ pub async fn find_by_prefix(
         .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::query(query.sql(), e))
+}
+
+pub async fn find_by_segment_id(
+    txn: impl DbReader<'_>,
+    segment_id: &NetworkSegmentId,
+) -> Result<Vec<InstanceAddress>, DatabaseError> {
+    let query = "SELECT * FROM instance_addresses WHERE segment_id = $1::uuid ORDER BY address";
+    sqlx::query_as(query)
+        .bind(segment_id)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 pub async fn delete(txn: &mut PgConnection, instance_id: InstanceId) -> Result<(), DatabaseError> {
@@ -645,6 +657,7 @@ mod tests {
                     host_inband_mac_address: None,
                     device_locator: None,
                     internal_uuid: uuid::Uuid::new_v4(),
+                    requested_ip_addr: None,
                 }
             })
             .collect();

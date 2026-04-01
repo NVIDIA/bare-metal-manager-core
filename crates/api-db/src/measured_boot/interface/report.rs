@@ -18,7 +18,7 @@
 /*!
  *  Code for working the measuremment_reports and measurement_reports_values
  *  tables in the database, leveraging the report-specific record types.
-*/
+ */
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::measured_boot::MeasurementReportId;

@@ -22,3 +22,11 @@ pub struct Args {
     #[clap(help = "Job ID to check status for (from apply output)")]
     pub job_id: String,
 }
+
+impl From<Args> for rpc::forge::RackFirmwareJobStatusRequest {
+    fn from(args: Args) -> Self {
+        Self {
+            job_id: args.job_id,
+        }
+    }
+}

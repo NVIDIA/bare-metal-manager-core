@@ -26,6 +26,7 @@ use libredfish::model::service_root::RedfishVendor;
     Copy,
     Debug,
     Default,
+    Hash,
     Eq,
     PartialEq,
     clap::ValueEnum,

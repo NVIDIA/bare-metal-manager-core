@@ -47,6 +47,7 @@ url = { workspace = true }
 # [local-dependencies]
 carbide-health-report = { path = "../health-report" }
 carbide-rpc = { path = "../rpc" }
+carbide-secrets = { path = "../secrets" }
 carbide-uuid = { path = "../uuid" }
 carbide-tls = { path = "../tls" }
 carbide-version = { path = "../version" }

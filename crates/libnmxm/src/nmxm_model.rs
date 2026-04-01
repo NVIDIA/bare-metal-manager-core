@@ -20,7 +20,6 @@ use serde_derive::{Deserialize, Serialize};
 /// Use Option<type> to avoid breaking serde deserialize ops on receiving json responses with
 /// some struct fields missing.
 /// only id (_id) and uuid fields are safe to keep non-optional.
-///
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AsyncResponse {

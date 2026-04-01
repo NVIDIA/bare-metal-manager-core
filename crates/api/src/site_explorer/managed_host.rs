@@ -18,8 +18,8 @@ use std::net::IpAddr;
 
 use carbide_uuid::machine::MachineId;
 use db::DatabaseError;
+use db::db_read::DbReader;
 use model::site_explorer::ExploredManagedHost;
-use sqlx::PgConnection;
 
 /// ManagedHost wraps an ExploredManagedHost along with a machine id.
 /// This helper structure is used by the create_managed_host to create a managed host
@@ -57,7 +57,7 @@ impl<'a> ManagedHost<'a> {
 /// BMC temporarily stops reporting DPUs in its PCIe device list.
 pub async fn is_endpoint_in_managed_host(
     bmc_ip_address: IpAddr,
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
 ) -> Result<bool, DatabaseError> {
     let machine_id =
         db::machine_topology::find_machine_id_by_bmc_ip(txn, &bmc_ip_address.to_string()).await?;

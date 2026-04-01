@@ -16,9 +16,8 @@
  */
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::dpu_reprovisioning_request::Mode;
-use ::rpc::forge::{DpuReprovisioningRequest, UpdateInitiator};
-use carbide_uuid::machine::{MachineId, MachineType};
+use ::rpc::forge::DpuReprovisioningRequest;
+use carbide_uuid::machine::MachineType;
 use prettytable::{Table, row};
 
 use super::args::Args;
@@ -28,106 +27,85 @@ use crate::rpc::ApiClient;
 pub async fn reprovision(api_client: &ApiClient, reprov: Args) -> CarbideCliResult<()> {
     match reprov {
         Args::Set(data) => {
-            trigger_reprovisioning(
-                data.id,
-                Mode::Set,
-                data.update_firmware,
-                api_client,
-                data.update_message,
-            )
-            .await
+            if let Some(update_message) = &data.update_message {
+                apply_health_override(api_client, data.id, update_message.clone()).await?;
+            }
+            let req: DpuReprovisioningRequest = (&data).into();
+            api_client.0.trigger_dpu_reprovisioning(req).await?;
+            Ok(())
         }
         Args::Clear(data) => {
-            trigger_reprovisioning(data.id, Mode::Clear, data.update_firmware, api_client, None)
-                .await
+            let req: DpuReprovisioningRequest = (&data).into();
+            api_client.0.trigger_dpu_reprovisioning(req).await?;
+            Ok(())
         }
         Args::List => list_dpus_pending(api_client).await,
         Args::Restart(data) => {
-            trigger_reprovisioning(
-                data.id,
-                Mode::Restart,
-                data.update_firmware,
-                api_client,
-                None,
-            )
-            .await
+            let req: DpuReprovisioningRequest = (&data).into();
+            api_client.0.trigger_dpu_reprovisioning(req).await?;
+            Ok(())
         }
     }
 }
 
-pub async fn trigger_reprovisioning(
-    id: MachineId,
-    mode: Mode,
-    update_firmware: bool,
+async fn apply_health_override(
     api_client: &ApiClient,
-    update_message: Option<String>,
+    id: carbide_uuid::machine::MachineId,
+    update_message: String,
 ) -> CarbideCliResult<()> {
-    if let (Mode::Set, Some(update_message)) = (mode, update_message) {
-        // Set a HostUpdateInProgress health override on the Host
-        let host_id = match id.machine_type() {
-            MachineType::Host => Some(id),
-            MachineType::Dpu => {
-                let machine = api_client
-                    .get_machines_by_ids(&[id])
-                    .await?
-                    .machines
-                    .into_iter()
-                    .next();
-
-                if let Some(host_id) = machine.map(|x| x.associated_host_machine_id) {
-                    host_id
-                } else {
-                    return Err(CarbideCliError::GenericError(format!(
-                        "Could not find host attached with dpu {id}",
-                    )));
-                }
-            }
-            _ => {
-                return Err(CarbideCliError::GenericError(format!(
-                    "Invalid machine ID for reprevisioning, only Hosts and DPUs are supported: {update_message}"
-                )));
-            }
-        };
-
-        // Check host must not have host-update override
-        if let Some(host_machine_id) = &host_id {
-            let host_machine = api_client
-                .get_machines_by_ids(&[*host_machine_id])
+    // Set a HostUpdateInProgress health override on the Host
+    let host_id = match id.machine_type() {
+        MachineType::Host => Some(id),
+        MachineType::Dpu => {
+            let machine = api_client
+                .get_machines_by_ids(&[id])
                 .await?
                 .machines
                 .into_iter()
                 .next();
 
-            if let Some(host_machine) = host_machine
-                && host_machine
-                    .health_overrides
-                    .iter()
-                    .any(|or| or.source == "host-update")
-            {
+            if let Some(host_id) = machine.map(|x| x.associated_host_machine_id) {
+                host_id
+            } else {
                 return Err(CarbideCliError::GenericError(format!(
-                    "Host machine: {:?} already has a \"host-update\" override.",
-                    host_machine.id,
+                    "Could not find host attached with dpu {id}",
                 )));
             }
-
-            let report =
-                get_health_report(HealthOverrideTemplates::HostUpdate, Some(update_message));
-
-            api_client
-                .machine_insert_health_report_override(*host_machine_id, report.into(), false)
-                .await?;
         }
+        _ => {
+            return Err(CarbideCliError::GenericError(format!(
+                "Invalid machine ID for reprevisioning, only Hosts and DPUs are supported: {update_message}"
+            )));
+        }
+    };
+
+    // Check host must not have host-update override
+    if let Some(host_machine_id) = &host_id {
+        let host_machine = api_client
+            .get_machines_by_ids(&[*host_machine_id])
+            .await?
+            .machines
+            .into_iter()
+            .next();
+
+        if let Some(host_machine) = host_machine
+            && host_machine
+                .health_overrides
+                .iter()
+                .any(|or| or.source == "host-update")
+        {
+            return Err(CarbideCliError::GenericError(format!(
+                "Host machine: {:?} already has a \"host-update\" override.",
+                host_machine.id,
+            )));
+        }
+
+        let report = get_health_report(HealthOverrideTemplates::HostUpdate, Some(update_message));
+
+        api_client
+            .machine_insert_health_report_override(*host_machine_id, report.into(), false)
+            .await?;
     }
-    api_client
-        .0
-        .trigger_dpu_reprovisioning(DpuReprovisioningRequest {
-            dpu_id: Some(id),
-            machine_id: Some(id),
-            mode: mode as i32,
-            initiator: UpdateInitiator::AdminCli as i32,
-            update_firmware,
-        })
-        .await?;
 
     Ok(())
 }

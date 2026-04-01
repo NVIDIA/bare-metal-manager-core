@@ -31,11 +31,14 @@ pub async fn show(
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
-    if args.id.is_empty() {
+    let identifier: Option<forgerpc::TenantKeysetIdentifier> = (&args).try_into()?;
+
+    if let Some(identifier) = identifier {
+        show_keyset_details(identifier, is_json, api_client).await?;
+    } else {
         show_keysets(is_json, api_client, page_size, args.tenant_org_id).await?;
-        return Ok(());
     }
-    show_keyset_details(args.id, is_json, api_client).await?;
+
     Ok(())
 }
 
@@ -58,24 +61,11 @@ async fn show_keysets(
 }
 
 async fn show_keyset_details(
-    id: String,
+    identifier: forgerpc::TenantKeysetIdentifier,
     json: bool,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let split_id = id.split('/').collect::<Vec<&str>>();
-    if split_id.len() != 2 {
-        return Err(CarbideCliError::GenericError(
-            "Invalid format for Tenant KeySet ID".to_string(),
-        ));
-    }
-    let identifier = forgerpc::TenantKeysetIdentifier {
-        organization_id: split_id[0].to_string(),
-        keyset_id: split_id[1].to_string(),
-    };
-    let keysets = match api_client.get_one_keyset(identifier).await {
-        Ok(keysets) => keysets,
-        Err(e) => return Err(e),
-    };
+    let keysets = api_client.get_one_keyset(identifier).await?;
 
     if keysets.keyset.len() != 1 {
         return Err(CarbideCliError::GenericError(

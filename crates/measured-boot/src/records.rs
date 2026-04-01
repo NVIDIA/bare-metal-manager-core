@@ -25,7 +25,7 @@
  *
  *  There are type-specific primary/foreign key IDs to make it more explicit
  *  what type of key is being passed around. A bunch of uuid::Uuid is meh.
-*/
+ */
 
 use std::convert::Into;
 use std::error::Error;

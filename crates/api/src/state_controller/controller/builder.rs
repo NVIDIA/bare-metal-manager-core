@@ -20,14 +20,15 @@ use std::sync::Arc;
 
 use db::work_lock_manager::WorkLockManagerHandle;
 use opentelemetry::metrics::Meter;
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::state_controller::config::IterationConfig;
+use crate::state_controller::controller::StateController;
 use crate::state_controller::controller::periodic_enqueuer::{
     EnqueuerMetricsEmitter, PeriodicEnqueuer,
 };
 use crate::state_controller::controller::processor::{ProcessorMetricsEmitter, StateProcessor};
-use crate::state_controller::controller::{StateController, StateControllerHandle};
 use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::metrics::MetricHolder;
 use crate::state_controller::state_change_emitter::StateChangeEmitter;
@@ -37,8 +38,6 @@ use crate::state_controller::state_handler::{
 
 /// The return value of `[Builder::build_internal]`
 struct BuildOrSpawn<IO: StateControllerIO> {
-    /// Instructs the processor and enqueuer to stop.
-    stop_token: CancellationToken,
     controller_name: String,
     controller: StateController<IO>,
 }
@@ -102,8 +101,9 @@ impl<IO: StateControllerIO> Builder<IO> {
     #[cfg(test)]
     pub fn build_for_manual_iterations(
         self,
+        cancel_token: CancellationToken,
     ) -> Result<StateController<IO>, StateControllerBuildError> {
-        let build_or_spawn = self.build_internal()?;
+        let build_or_spawn = self.build_internal(cancel_token)?;
         Ok(build_or_spawn.controller)
     }
 
@@ -112,30 +112,36 @@ impl<IO: StateControllerIO> Builder<IO> {
     ///
     /// The state controller will continue to run as long as the returned `StateControllerHandle`
     /// is kept alive.
-    pub fn build_and_spawn(self) -> Result<StateControllerHandle, StateControllerBuildError> {
-        let build_or_spawn = self.build_internal()?;
+    pub fn build_and_spawn(
+        self,
+        join_set: &mut JoinSet<()>,
+        cancel_token: CancellationToken,
+    ) -> Result<(), StateControllerBuildError> {
+        let build_or_spawn = self.build_internal(cancel_token)?;
 
-        tokio::task::Builder::new()
+        join_set
+            .build_task()
             .name(&format!(
                 "state_controller_periodic_enqueuer {}",
                 build_or_spawn.controller_name
             ))
             .spawn(async move { build_or_spawn.controller.enqueuer.run().await })?;
 
-        tokio::task::Builder::new()
+        join_set
+            .build_task()
             .name(&format!(
                 "state_processor {}",
                 build_or_spawn.controller_name
             ))
             .spawn(async move { build_or_spawn.controller.processor.run().await })?;
-
-        Ok(StateControllerHandle {
-            stop_token: build_or_spawn.stop_token,
-        })
+        Ok(())
     }
 
     /// Builds a [`StateController`] with all configured options
-    fn build_internal(mut self) -> Result<BuildOrSpawn<IO>, StateControllerBuildError> {
+    fn build_internal(
+        mut self,
+        cancel_token: CancellationToken,
+    ) -> Result<BuildOrSpawn<IO>, StateControllerBuildError> {
         let database = self
             .database
             .take()
@@ -148,8 +154,6 @@ impl<IO: StateControllerIO> Builder<IO> {
 
         let object_type_for_metrics = self.object_type_for_metrics.take();
         let meter = self.meter.take();
-
-        let stop_token = CancellationToken::new();
 
         if self.iteration_config.max_concurrency == 0 {
             return Err(StateControllerBuildError::MissingArgument(
@@ -165,7 +169,11 @@ impl<IO: StateControllerIO> Builder<IO> {
 
         // This defines the shared storage location for metrics between the state handler
         // and the OTEL framework
-        let metric_holder = Arc::new(MetricHolder::new(meter.clone(), &controller_name));
+        let metric_holder = Arc::new(MetricHolder::new(
+            meter.clone(),
+            &controller_name,
+            self.iteration_config.metric_hold_time,
+        ));
 
         let work_lock_manager_handle = self.work_lock_manager_handle.take().ok_or(
             StateControllerBuildError::MissingArgument("work_lock_manager_handle"),
@@ -178,7 +186,7 @@ impl<IO: StateControllerIO> Builder<IO> {
         let enqueuer = PeriodicEnqueuer::<IO> {
             pool: database.clone(),
             work_lock_manager_handle,
-            stop_token: stop_token.clone(),
+            cancel_token: cancel_token.clone(),
             metric_emitter: period_enqueuer_metric_emitter,
             iteration_config: self.iteration_config,
             io: self.io.clone().unwrap_or_default(),
@@ -199,7 +207,7 @@ impl<IO: StateControllerIO> Builder<IO> {
 
         let processor = StateProcessor::<IO> {
             pool: database,
-            stop_token: stop_token.clone(),
+            cancel_token,
             iteration_config: self.iteration_config,
             handler_services: services,
             io: self.io.unwrap_or_default(),
@@ -207,16 +215,15 @@ impl<IO: StateControllerIO> Builder<IO> {
             metric_emitter: processor_metric_emitter,
             metric_holder,
             state_change_emitter: self.state_change_emitter,
-            published_metrics_iteration_id: None,
             in_flight: HashSet::new(),
             completed_objects: HashSet::new(),
             requeue_objects: HashSet::new(),
             task_sender,
             task_receiver,
-            data_since_iteration_start: Default::default(),
             object_metrics: Default::default(),
             last_log_time: std::time::Instant::now(),
             stats_since_last_log: Default::default(),
+            last_metric_emission_time: std::time::Instant::now(),
             processor_span,
             processor_id,
         };
@@ -229,7 +236,6 @@ impl<IO: StateControllerIO> Builder<IO> {
         Ok(BuildOrSpawn {
             controller,
             controller_name,
-            stop_token,
         })
     }
 

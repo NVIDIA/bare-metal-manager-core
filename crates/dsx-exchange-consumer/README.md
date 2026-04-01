@@ -1,6 +1,6 @@
 # carbide-dsx-exchange-consumer
 
-Microservice that consumes BMS leak detection events from the Cronus MQTT event bus and updates rack-level health overrides in the Carbide API.
+Microservice that consumes BMS leak detection events from the BMS MQTT event bus and updates rack-level health overrides in the Carbide API.
 
 ## Overview
 
@@ -21,8 +21,8 @@ This service bridges the DSX Exchange Event Bus with Carbide's health reporting 
 
 ## MQTT Topics
 
-- **Metadata**: `cronus/v1/{pointPath}/Metadata`
-- **Value**: `cronus/v1/{pointPath}/Value`
+- **Metadata**: `BMS/v1/{pointPath}/Metadata`
+- **Value**: `BMS/v1/{pointPath}/Value`
 
 The `pointPath` is vendor-defined and may contain multiple `/` segments.
 
@@ -46,7 +46,7 @@ CARBIDE_DSX_CONSUMER__CACHE__METADATA_TTL=1h
 |--------|---------|-------------|
 | `mqtt.endpoint` | `mqtt.forge` | MQTT broker hostname |
 | `mqtt.port` | `1884` | MQTT broker port |
-| `mqtt.topic_prefix` | `cronus/v1` | Topic prefix for subscriptions |
+| `mqtt.topic_prefix` | `BMS/v1` | Topic prefix for subscriptions |
 | `mqtt.queue_capacity` | `1024` | Internal message queue size |
 | `cache.metadata_ttl` | `1h` | TTL for metadata cache |
 | `cache.value_state_ttl` | `1h` | TTL for deduplication cache |

@@ -19,3 +19,12 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 pub struct Args;
+
+impl From<Args> for ::rpc::forge::PowerShelfQuery {
+    fn from(_args: Args) -> Self {
+        Self {
+            name: None,
+            power_shelf_id: None,
+        }
+    }
+}

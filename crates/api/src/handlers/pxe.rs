@@ -51,12 +51,12 @@ pub(crate) async fn get_cloud_init_instructions(
     let cloud_name = "nvidia".to_string();
     let platform = "forge".to_string();
 
-    let mut txn = api.txn_begin().await?;
+    let db = &api.database_connection;
 
     let ip_str = &request.into_inner().ip;
     let ip: IpAddr = ip_str
         .parse()
-        .map_err(|e| Status::invalid_argument(format!("Failed parsing IP '{ip_str}': {e}")))?;
+        .map_err(|e| CarbideError::InvalidArgument(format!("Failed parsing IP '{ip_str}': {e}")))?;
 
     // Note that this code path supports IPv6 at the *API layer*, but won't be
     // able to be exercised until DHCPv6 is working, which is a whole other thing
@@ -65,10 +65,10 @@ pub(crate) async fn get_cloud_init_instructions(
     // prefix, network segment, and IP allocators behind the scenes for supporting
     // dual stacking interfaces, none of that means much until DHCPv6 is working
     // to actually hand those addresses out.
-    let instructions = match db::instance_address::find_by_address(&mut txn, ip).await? {
+    let instructions = match db::instance_address::find_by_address(db, ip).await? {
         None => {
             // assume there is no instance associated with this IP and check if there is an interface associated with it
-            let machine_interface = db::machine_interface::find_by_ip(&mut txn, ip)
+            let machine_interface = db::machine_interface::find_by_ip(db, ip)
                 .await?
                 .ok_or_else(|| {
                     CarbideError::internal(format!("No machine interface with IP {ip} was found"))
@@ -81,7 +81,7 @@ pub(crate) async fn get_cloud_init_instructions(
                 ))
             })?;
 
-            let domain = db::dns::domain::find_by_uuid(&mut txn, domain_id)
+            let domain = db::dns::domain::find_by_uuid(db, domain_id)
                 .await
                 .map_err(CarbideError::from)?
                 .ok_or_else(|| {
@@ -94,9 +94,7 @@ pub(crate) async fn get_cloud_init_instructions(
             // It is possible for the user data to be null if we are only trying to test the pxe, and this will
             // follow the same code path and retrieve the non custom user data
             let custom_cloud_init =
-                match db::machine_boot_override::find_optional(&mut txn, machine_interface.id)
-                    .await?
-                {
+                match db::machine_boot_override::find_optional(db, machine_interface.id).await? {
                     Some(machine_boot_override) => machine_boot_override.custom_user_data,
                     None => None,
                 };
@@ -168,7 +166,7 @@ pub(crate) async fn get_cloud_init_instructions(
         }
 
         Some(instance_address) => {
-            let instance = db::instance::find_by_id(&mut txn, instance_address.instance_id)
+            let instance = db::instance::find_by_id(db, instance_address.instance_id)
                 .await?
                 .ok_or_else(|| {
                     // Note that this isn't a NotFound error since it indicates an
@@ -190,8 +188,6 @@ pub(crate) async fn get_cloud_init_instructions(
             }
         }
     };
-
-    txn.commit().await?;
 
     Ok(Response::new(instructions))
 }

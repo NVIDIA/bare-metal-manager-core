@@ -29,9 +29,7 @@ fn make_test_app(env: &TestEnv) -> Router {
     Router::new().nest_service("/admin", r)
 }
 
-fn authenticated_request_builder() -> Builder {
-    // admin:Welcome123
-    Request::builder()
-        .header("Host", "with.the.most")
-        .header("Authorization", "Basic YWRtaW46V2VsY29tZTEyMw==")
+/// Builder for admin UI requests (in-process auth defaults to none in tests).
+fn web_request_builder() -> Builder {
+    Request::builder().header("Host", "with.the.most")
 }

@@ -25,4 +25,11 @@ pub struct Args {
         help = "Optional, instance type ID to restrict the search"
     )]
     pub id: Option<String>,
+
+    #[clap(
+        short = 's',
+        long,
+        help = "Optional, show counts for allocations of instance types"
+    )]
+    pub show_stats: Option<bool>,
 }

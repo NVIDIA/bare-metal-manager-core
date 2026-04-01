@@ -21,9 +21,6 @@ use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn delete_rack(api_client: &ApiClient, delete_opts: Args) -> Result<()> {
-    let query = rpc::forge::DeleteRackRequest {
-        id: delete_opts.identifier,
-    };
-    api_client.0.delete_rack(query).await?;
+    api_client.0.delete_rack(delete_opts).await?;
     Ok(())
 }

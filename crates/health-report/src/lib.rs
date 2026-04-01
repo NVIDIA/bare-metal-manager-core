@@ -28,6 +28,13 @@ pub struct HealthReport {
     /// This could e.g. be `forge-dpu-agent`, `forge-host-validation`,
     /// or an override (e.g. `overrides.sre-team`)
     pub source: String,
+    /// The person or system (service) that triggered this health report.
+    ///
+    /// For manually triggered reports (e.g. via web UI), this should identify
+    /// the user (e.g. a username or email). For automated reports, this field
+    /// is typically `None`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub triggered_by: Option<String>,
     /// The time when this health status was observed.
     ///
     /// Clients submitting a health report can leave this field empty in order
@@ -50,6 +57,7 @@ impl Default for HealthReport {
 
 impl HealthReport {
     pub const SKU_VALIDATION_SOURCE: &str = "sku-validation";
+    pub const QUARANTINE_SOURCE: &str = "quarantine";
 
     /// Returns a health report with no successes or errors reported
     pub fn empty(source: String) -> Self {
@@ -58,6 +66,7 @@ impl HealthReport {
             observed_at: Some(chrono::Utc::now()),
             successes: vec![],
             alerts: vec![],
+            triggered_by: None,
         }
     }
 
@@ -116,6 +125,7 @@ impl HealthReport {
             observed_at: Some(chrono::Utc::now()),
             successes: vec![],
             alerts: vec![HealthProbeAlert::missing_report()],
+            triggered_by: None,
         }
     }
 
@@ -126,17 +136,30 @@ impl HealthReport {
             observed_at: Some(chrono::Utc::now()),
             successes: vec![],
             alerts: vec![HealthProbeAlert::malformed_report(error.to_string())],
+            triggered_by: None,
         }
     }
 
     /// Returns a health report that indicates that no fresh data health data
     /// has been received from a certain subsystem
-    pub fn heartbeat_timeout(source: String, target: String, message: String) -> Self {
+    pub fn heartbeat_timeout(
+        source: String,
+        target: String,
+        message: String,
+        prevent_allocations: bool,
+        suppress_external_alerting: bool,
+    ) -> Self {
         Self {
             source,
             observed_at: Some(chrono::Utc::now()),
             successes: vec![],
-            alerts: vec![HealthProbeAlert::heartbeat_timeout(target, message)],
+            alerts: vec![HealthProbeAlert::heartbeat_timeout(
+                target,
+                message,
+                prevent_allocations,
+                suppress_external_alerting,
+            )],
+            triggered_by: None,
         }
     }
 
@@ -157,6 +180,7 @@ impl HealthReport {
                 message,
                 prevent_allocations,
             )],
+            triggered_by: None,
         }
     }
 
@@ -167,6 +191,7 @@ impl HealthReport {
             observed_at: Some(chrono::Utc::now()),
             successes: vec![],
             alerts: vec![HealthProbeAlert::sku_mismatch(mismatches)],
+            triggered_by: None,
         }
     }
 
@@ -180,6 +205,7 @@ impl HealthReport {
                 target: None,
             }],
             alerts: vec![],
+            triggered_by: None,
         }
     }
 
@@ -190,6 +216,7 @@ impl HealthReport {
             observed_at: Some(chrono::Utc::now()),
             successes: vec![],
             alerts: vec![HealthProbeAlert::sku_missing(sku_id)],
+            triggered_by: None,
         }
     }
 
@@ -270,6 +297,23 @@ impl HealthReport {
             .map(|(id, target)| HealthProbeSuccess { id, target })
             .collect();
         self.alerts = alerts.into_values().collect();
+    }
+
+    pub fn quarantine_report(message: String) -> Self {
+        Self {
+            source: Self::QUARANTINE_SOURCE.to_string(),
+            triggered_by: None,
+            observed_at: Some(chrono::Utc::now()),
+            successes: Vec::new(),
+            alerts: vec![HealthProbeAlert {
+                id: HealthProbeId("Quarantine".to_string()),
+                target: None,
+                in_alert_since: Some(chrono::Utc::now()),
+                message,
+                tenant_message: None,
+                classifications: vec![HealthAlertClassification::prevent_allocations()],
+            }],
+        }
     }
 
     /// Check if reboot from state machine is blocked.
@@ -355,17 +399,27 @@ impl HealthProbeAlert {
     }
 
     /// Creates a HeartbeatTimeout alert
-    pub fn heartbeat_timeout(target: String, message: String) -> Self {
+    pub fn heartbeat_timeout(
+        target: String,
+        message: String,
+        prevent_allocations: bool,
+        suppress_external_alerting: bool,
+    ) -> Self {
+        let mut classifications = Vec::new();
+        if prevent_allocations {
+            classifications.push(HealthAlertClassification::prevent_allocations());
+        }
+        classifications.push(HealthAlertClassification::prevent_host_state_changes());
+        if suppress_external_alerting {
+            classifications.push(HealthAlertClassification::suppress_external_alerting());
+        }
         Self {
             id: HealthProbeId::heartbeat_timeout(),
             target: Some(target),
             in_alert_since: Some(chrono::Utc::now()),
             message,
             tenant_message: None,
-            classifications: vec![
-                HealthAlertClassification::prevent_allocations(),
-                HealthAlertClassification::prevent_host_state_changes(),
-            ],
+            classifications,
         }
     }
 
@@ -628,6 +682,15 @@ impl HealthAlertClassification {
     pub fn sensor_critical() -> Self {
         Self("SensorCritical".to_string())
     }
+
+    /// Excludes the host from state machine SLA tracking.
+    /// When this classification is present on any alert in the aggregate health report,
+    /// the host will not be counted as violating its state machine SLA.
+    /// Intended for manual operations (e.g. hands-on maintenance, repair) where the
+    /// operator needs the state machine running but SLA alerts would be spurious.
+    pub fn exclude_from_state_machine_sla() -> Self {
+        Self("ExcludeFromStateMachineSla".to_string())
+    }
 }
 
 /// A health report could not be converted from an external format
@@ -693,6 +756,7 @@ mod tests {
                     ],
                 },
             ],
+            triggered_by: None,
         };
 
         assert!(r1.has_classification(&HealthAlertClassification::prevent_allocations()));
@@ -756,6 +820,7 @@ mod tests {
                     classifications: vec![],
                 },
             ],
+            triggered_by: None,
         };
 
         let serialized = serde_json::to_string(&report).unwrap();
@@ -810,6 +875,7 @@ mod tests {
                     classifications: vec![],
                 },
             ],
+            triggered_by: None,
         };
 
         let mut new = HealthReport {
@@ -858,6 +924,7 @@ mod tests {
                     classifications: vec![],
                 },
             ],
+            triggered_by: None,
         };
 
         new.update_in_alert_since(Some(&old));
@@ -889,6 +956,7 @@ mod tests {
                 tenant_message: Some("Internal Error".to_string()),
                 classifications: vec![],
             }],
+            triggered_by: None,
         };
         new2.update_in_alert_since(None);
         assert!(new.alerts[0].in_alert_since.is_some());
@@ -975,6 +1043,7 @@ mod tests {
                     classifications: vec![],
                 },
             ],
+            triggered_by: None,
         };
 
         let r2 = HealthReport {
@@ -1052,6 +1121,7 @@ mod tests {
                     classifications: vec![],
                 },
             ],
+            triggered_by: None,
         };
 
         let expected = HealthReport {
@@ -1157,6 +1227,7 @@ mod tests {
                     classifications: vec![],
                 },
             ],
+            triggered_by: None,
         };
 
         let mut merged = r1.clone();
@@ -1216,6 +1287,7 @@ mod tests {
                     classifications: vec![],
                 },
             ],
+            triggered_by: None,
         };
 
         let r2 = HealthReport {
@@ -1253,6 +1325,7 @@ mod tests {
                     classifications: vec![],
                 },
             ],
+            triggered_by: None,
         };
 
         let expected = HealthReport {
@@ -1301,6 +1374,7 @@ mod tests {
                     classifications: vec![],
                 },
             ],
+            triggered_by: None,
         };
 
         let mut merged = r1.clone();

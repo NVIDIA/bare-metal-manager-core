@@ -32,15 +32,12 @@ use crate::{
     IMAGE_LIST_FILE, MACHINE_VALIDATION_IMAGE_FILE, MACHINE_VALIDATION_IMAGE_PATH,
     MACHINE_VALIDATION_RUNNER_BASE_PATH, MACHINE_VALIDATION_RUNNER_TAG, MACHINE_VALIDATION_SERVER,
     MachineValidation, MachineValidationError, MachineValidationFilter, MachineValidationManager,
-    MachineValidationOptions, SCHME,
+    SCHME,
 };
 pub const MAX_STRING_STD_SIZE: usize = 1024 * 1024; // 1MB in bytes;
 pub const DEFAULT_TIMEOUT: u64 = 3600;
 
 impl MachineValidation {
-    pub fn new(options: MachineValidationOptions) -> Self {
-        MachineValidation { options }
-    }
     pub(crate) async fn get_container_auth_config(self) -> Result<(), MachineValidationError> {
         let file_name = "/root/.docker/config.json".to_string();
         match self
@@ -423,7 +420,8 @@ impl MachineValidation {
                 if !machine_validation_filter.allowed_tests.is_empty()
                     && !machine_validation_filter
                         .allowed_tests
-                        .contains(&test.test_id)
+                        .iter()
+                        .any(|t| t.eq_ignore_ascii_case(&test.test_id))
                 {
                     continue;
                 }

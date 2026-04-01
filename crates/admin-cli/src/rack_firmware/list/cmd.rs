@@ -26,11 +26,7 @@ pub async fn list(
     format: OutputFormat,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
-    let request = rpc::forge::RackFirmwareListRequest {
-        only_available: opts.only_available,
-    };
-
-    let result = api_client.0.list_rack_firmware(request).await?;
+    let result = api_client.0.list_rack_firmware(opts).await?;
 
     if format == OutputFormat::Json {
         println!("{}", serde_json::to_string_pretty(&result.configs)?);

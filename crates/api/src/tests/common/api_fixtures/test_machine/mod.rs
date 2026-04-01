@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -63,7 +63,7 @@ impl TestMachine {
     }
 
     pub async fn db_machine(&self, txn: &mut Txn<'_>) -> Machine {
-        db::machine::find_one(txn, &self.id, Default::default())
+        db::machine::find_one(txn.as_mut(), &self.id, Default::default())
             .await
             .unwrap()
             .unwrap()
@@ -132,12 +132,9 @@ impl TestMachine {
             .unwrap();
     }
 
-    pub async fn bmc_ip(&self, txn: &mut Txn<'_>) -> String {
+    pub async fn bmc_ip(&self, txn: &mut Txn<'_>) -> Option<IpAddr> {
         let machine = self.db_machine(txn).await;
-        machine
-            .bmc_addr()
-            .map(|addr| addr.ip().to_string())
-            .unwrap_or_else(|| "".to_string())
+        machine.bmc_addr().map(|addr| addr.ip())
     }
 
     pub async fn json_history(&self, limit: Option<usize>) -> Vec<serde_json::Value> {

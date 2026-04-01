@@ -110,6 +110,8 @@ extern "C" {
 
 		handle->registerCallout("pkt4_receive", pkt4_receive);
 		handle->registerCallout("pkt4_send", pkt4_send);
+		handle->registerCallout("lease4_expire", lease4_expire);
+		handle->registerCallout("lease6_expire", lease6_expire);
 
 		return 0;
 	}

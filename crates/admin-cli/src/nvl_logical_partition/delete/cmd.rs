@@ -15,26 +15,13 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge as forgerpc;
-use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
+use ::rpc::admin_cli::CarbideCliResult;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn handle_delete(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    delete_logical_partition(args, api_client).await?;
-    Ok(())
-}
-
-pub async fn delete_logical_partition(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let uuid: NvLinkLogicalPartitionId = uuid::Uuid::parse_str(&args.name)
-        .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
-        .into();
-    let request = forgerpc::NvLinkLogicalPartitionDeletionRequest { id: Some(uuid) };
-    let _partition = api_client
-        .0
-        .delete_nv_link_logical_partition(request)
-        .await?;
+    let req: ::rpc::forge::NvLinkLogicalPartitionDeletionRequest = args.try_into()?;
+    api_client.0.delete_nv_link_logical_partition(req).await?;
     Ok(())
 }

@@ -43,6 +43,50 @@ impl Default for Config {
     }
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum MqttAuthMode {
+    #[default]
+    None,
+    BasicAuth,
+    Oauth2,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct MqttOAuth2Config {
+    pub token_url: String,
+
+    #[serde(default)]
+    pub scopes: Vec<String>,
+
+    #[serde(
+        default = "MqttOAuth2Config::default_http_timeout",
+        with = "humantime_serde"
+    )]
+    pub http_timeout: Duration,
+
+    #[serde(default = "MqttOAuth2Config::default_username")]
+    pub username: String,
+}
+
+impl MqttOAuth2Config {
+    fn default_http_timeout() -> Duration {
+        Duration::from_secs(30)
+    }
+
+    fn default_username() -> String {
+        "oauth2token".to_string()
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct MqttAuthConfig {
+    #[serde(default)]
+    pub auth_mode: MqttAuthMode,
+
+    pub oauth2: Option<MqttOAuth2Config>,
+}
+
 /// MQTT configuration for connecting to the DSX Exchange Event Bus.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -56,12 +100,15 @@ pub struct MqttConfig {
     /// Client ID for this MQTT connection.
     pub client_id: String,
 
-    /// Topic prefix for Cronus events.
+    /// Topic prefix for BMS events.
     pub topic_prefix: String,
 
     /// Maximum number of messages to buffer in the processing queue.
     /// Messages are dropped when this limit is exceeded.
     pub queue_capacity: usize,
+
+    #[serde(default)]
+    pub auth: MqttAuthConfig,
 }
 
 impl Default for MqttConfig {
@@ -70,8 +117,9 @@ impl Default for MqttConfig {
             endpoint: "mqtt.forge".to_string(),
             port: 1884,
             client_id: "carbide-dsx-exchange-consumer".to_string(),
-            topic_prefix: "cronus/v1".to_string(),
+            topic_prefix: "BMS/v1".to_string(),
             queue_capacity: 1024,
+            auth: MqttAuthConfig::default(),
         }
     }
 }
@@ -192,7 +240,7 @@ mod tests {
         assert_eq!(config.mqtt.endpoint, "mqtt.forge");
         assert_eq!(config.mqtt.port, 1884);
         assert_eq!(config.mqtt.client_id, "carbide-dsx-exchange-consumer");
-        assert_eq!(config.mqtt.topic_prefix, "cronus/v1");
+        assert_eq!(config.mqtt.topic_prefix, "BMS/v1");
 
         if let Some(ref carbide_api) = config.carbide_api {
             assert_eq!(carbide_api.root_ca, "/var/run/secrets/spiffe.io/ca.crt");

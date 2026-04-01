@@ -20,7 +20,9 @@
 		{% endif %}
 		</td>
 	</tr>
-			<tr><th>State</th><td>
+	<tr><th>Rack ID</th><td>{{ rack_id|rack_id_link|safe }}</td></tr>
+	<tr><th>State</th>
+		<td>
 			{% if state.to_lowercase().contains("failed") %}
 				<span class="bubble error">{{ state }}{% if time_in_state_above_sla %} ⏱️{% endif %}</span>
 			{% else if time_in_state_above_sla %}
@@ -30,7 +32,8 @@
 			{% else %}
 				<span class="bubble">{{ state }}</span>
 			{% endif %}
-		</td></tr>
+		</td>
+	</tr>
 	<tr><th>State Version</th><td>{{ state_version|config_version|safe }}</td></tr>
 	<tr><th>Time in state</th><td>{{ time_in_state }}</td></tr>
 	<tr><th>Last Reboot</th><td>{{ last_reboot }}</td></tr>
@@ -212,6 +215,15 @@
 			<div>
 				{% include "power_control.html" %}
 			</div>
+			<span class="action-spinner"></span>
+			{% if let Some(status) = action_status %}
+			{% if status.action == action_status::Type::Power %}
+			<div id="action-cell-status">
+				<span class="bubble {{ status.class.as_str() }}">{{ status.message }}</span>
+			</div>
+			{{ ActionStatus::url_cleanup_script()|safe }}
+			{% endif %}
+			{% endif %}
 		</td>
 	</tr>
 	<tr>
@@ -221,6 +233,15 @@
 			<div>
 				{% include "bmc_reset.html" %}
 			</div>
+			<span class="action-spinner"></span>
+			{% if let Some(status) = action_status %}
+			{% if status.action == action_status::Type::ResetBmc %}
+			<div id="action-cell-status">
+				<span class="bubble {{ status.class.as_str() }}">{{ status.message }}</span>
+			</div>
+			{{ ActionStatus::url_cleanup_script()|safe }}
+			{% endif %}
+			{% endif %}
 		</td>
 	</tr>
 	{% if is_host %}
@@ -228,8 +249,8 @@
 		<th>Boot Order</th>
 		<td class="action-cell">
 			<div></div>
-			<div style="display: flex; align-items: center; gap: 8px;">
-				<form id="set_dpu_first_boot_order" method="POST" action="/admin/machine/{{ id }}/set-dpu-first-boot-order" onsubmit="reminder(event)">
+			<div>
+				<form id="set_dpu_first_boot_order" method="POST" action="/admin/machine/{{ id }}/set-dpu-first-boot-order" onsubmit="action_reminder(event)">
 					<input type="hidden" name="bmc_ip" value="{{ bmc_info.ip|option_fmt }}">
 					{% for interface in interfaces %}
 						{% if interface.primary == "true" %}
@@ -238,8 +259,18 @@
 					{% endfor %}
 					<input type="submit" value="Set DPU first">
 				</form>
-				{% include "restart_reminder.html" %}
+				{{ action_status::action_spinner_script("set_dpu_first_boot_order")|safe }}
 			</div>
+			<span class="action-spinner"></span>
+			{% include "restart_reminder.html" %}
+			{% if let Some(status) = action_status %}
+			{% if status.action == action_status::Type::SetDpuFirstBootOrder %}
+			<div id="action-cell-status">
+				<span class="bubble {{ status.class.as_str() }}">{{ status.message }}</span>
+			</div>
+			{{ ActionStatus::url_cleanup_script()|safe }}
+			{% endif %}
+			{% endif %}
 		</td>
 	</tr>
 	{% endif %}

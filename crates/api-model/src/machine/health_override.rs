@@ -29,6 +29,8 @@ pub struct HealthReportOverrides {
     pub merges: BTreeMap<String, HealthReport>,
 }
 
+pub const HARDWARE_HEALTH_OVERRIDE_PREFIX: &str = "hardware-health.";
+
 pub struct MaintenanceOverride {
     pub maintenance_reference: String,
     pub maintenance_start_time: Option<rpc::Timestamp>,
@@ -57,5 +59,9 @@ impl HealthReportOverrides {
             maintenance_reference: alert.message.clone(),
             maintenance_start_time: alert.in_alert_since.map(rpc::Timestamp::from),
         })
+    }
+
+    pub fn is_hardware_health_override_source(source: &str) -> bool {
+        source.starts_with(HARDWARE_HEALTH_OVERRIDE_PREFIX)
     }
 }

@@ -217,10 +217,15 @@ update_discovery_parameters(DiscoveryBuilderFFI *discovery, int option,
 
 DiscoveryBuilderResult
 update_discovery_parameters(DiscoveryBuilderFFI *discovery, int option,
-                            boost::shared_ptr<OptionUint16> option_val) {
+                            boost::shared_ptr<OptionUint16Array> option_val) {
   switch (option) {
-  case DHO_SYSTEM:
-    return discovery_set_client_system(discovery, option_val->getValue());
+  case DHO_SYSTEM: {
+    const auto &architectures = option_val->getValues();
+    if (!architectures.empty()) {
+      return discovery_set_client_system(discovery, architectures.front());
+    }
+    break;
+  }
   }
 
   return DiscoveryBuilderResult::Success;
@@ -418,7 +423,7 @@ int pkt4_receive(CalloutHandle &handle) {
    * in order to figure out which filname to give back
    */
   if (builder_result == DiscoveryBuilderResult::Success) {
-    builder_result = update_discovery_parameters<OptionUint16>(
+    builder_result = update_discovery_parameters<OptionUint16Array>(
         query4_ptr, discovery.get(), DHO_SYSTEM);
   }
 
@@ -513,6 +518,48 @@ int pkt4_send(CalloutHandle &handle) {
 
   LOG_INFO(logger, isc::log::LOG_CARBIDE_PKT4_SEND)
       .arg(response4_ptr->toText());
+
+  return 0;
+}
+
+int lease4_expire(CalloutHandle &handle) {
+  Lease4Ptr lease4;
+  handle.getArgument("lease4", lease4);
+
+  if (!lease4) {
+    LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE_ERROR)
+        .arg("missing lease4 argument");
+    return 0;
+  }
+
+  std::string ip_str = lease4->addr_.toText();
+  LOG_INFO(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE).arg(ip_str);
+
+  auto result = carbide_expire_lease(ip_str.c_str());
+  if (result != LeaseExpirationResult::Success) {
+    LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE_ERROR).arg(ip_str);
+  }
+
+  return 0;
+}
+
+int lease6_expire(CalloutHandle &handle) {
+  Lease6Ptr lease6;
+  handle.getArgument("lease6", lease6);
+
+  if (!lease6) {
+    LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE_ERROR)
+        .arg("missing lease6 argument");
+    return 0;
+  }
+
+  std::string ip_str = lease6->addr_.toText();
+  LOG_INFO(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE).arg(ip_str);
+
+  auto result = carbide_expire_lease(ip_str.c_str());
+  if (result != LeaseExpirationResult::Success) {
+    LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE_ERROR).arg(ip_str);
+  }
 
   return 0;
 }

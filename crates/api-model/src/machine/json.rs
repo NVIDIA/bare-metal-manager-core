@@ -18,6 +18,7 @@ use std::collections::HashMap;
 
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::rack::RackId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use health_report::HealthReport;
@@ -48,6 +49,7 @@ use crate::sku::SkuStatus;
 #[derive(Serialize, Deserialize)]
 pub struct MachineSnapshotPgJson {
     pub id: MachineId,
+    pub rack_id: Option<RackId>,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub deployed: Option<DateTime<Utc>>,
@@ -77,7 +79,6 @@ pub struct MachineSnapshotPgJson {
     pub machine_validation_health_report: HealthReport,
     pub site_explorer_health_report: Option<HealthReport>,
     pub firmware_autoupdate: Option<bool>,
-    pub hardware_health_report: Option<HealthReport>,
     pub health_report_overrides: Option<HealthReportOverrides>,
     pub on_demand_machine_validation_id: Option<uuid::Uuid>,
     pub on_demand_machine_validation_request: Option<bool>,
@@ -88,7 +89,6 @@ pub struct MachineSnapshotPgJson {
     pub instance_type_id: Option<InstanceTypeId>,
     pub interfaces: Vec<MachineInterfaceSnapshot>,
     pub topology: Vec<MachineTopology>,
-    pub log_parser_health_report: Option<HealthReport>,
     pub labels: HashMap<String, String>,
     pub name: String,
     pub description: String,
@@ -151,6 +151,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
 
         Ok(Self {
             id: value.id,
+            rack_id: value.rack_id,
             state: Versioned {
                 value: value.controller_state,
                 version: value.controller_state_version.parse().map_err(|e| {
@@ -186,7 +187,6 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             manual_firmware_upgrade_completed: value.manual_firmware_upgrade_completed,
             dpu_agent_upgrade_requested: value.dpu_agent_upgrade_requested,
             dpu_agent_health_report: value.dpu_agent_health_report,
-            hardware_health_report: value.hardware_health_report,
             machine_validation_health_report: value.machine_validation_health_report,
             site_explorer_health_report: value.site_explorer_health_report,
             health_report_overrides: value.health_report_overrides.unwrap_or_default(),
@@ -203,7 +203,6 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             asn: value.asn,
             metadata,
             instance_type_id: value.instance_type_id,
-            log_parser_health_report: value.log_parser_health_report,
             version,
             // Columns for these exist, but are unused in rust code
             // deployed: value.deployed,

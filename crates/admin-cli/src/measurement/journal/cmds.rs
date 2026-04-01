@@ -17,15 +17,11 @@
 
 //!
 //! `measurement journal` subcommand dispatcher + backing functions.
-//!
 
 use ::rpc::admin_cli::{
     CarbideCliError, CarbideCliResult, ToTable, cli_output, just_print_summary,
 };
-use ::rpc::protos::measured_boot::{
-    DeleteMeasurementJournalRequest, ListMeasurementJournalRequest, ShowMeasurementJournalRequest,
-    list_measurement_journal_request, show_measurement_journal_request,
-};
+use ::rpc::protos::measured_boot::ShowMeasurementJournalRequest;
 use measured_boot::bundle::MeasurementBundle;
 use measured_boot::journal::MeasurementJournal;
 use measured_boot::records::MeasurementJournalRecord;
@@ -88,13 +84,7 @@ pub async fn dispatch(
 ///
 /// `journal delete <journal-id>`
 pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<MeasurementJournal> {
-    // Request.
-    let request = DeleteMeasurementJournalRequest {
-        journal_id: Some(delete.journal_id),
-    };
-
-    // Response.
-    let response = grpc_conn.0.delete_measurement_journal(request).await?;
+    let response = grpc_conn.0.delete_measurement_journal(delete).await?;
 
     MeasurementJournal::from_grpc(response.journal.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
@@ -104,27 +94,10 @@ pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<M
 ///
 /// `journal show <journal-id>`
 pub async fn show_by_id(grpc_conn: &ApiClient, show: Show) -> CarbideCliResult<MeasurementJournal> {
-    // Prepare.
-    // TODO(chet): This exists just because of how I'm dispatching
-    // commands, since &Show gets reused for showing all (where journal_id
-    // is unset, or showing a specific journal ID). Ultimately this
-    // shouldn't ever actually get hit, but it exists just incase. That
-    // said, I should look into see if I can just have clap validate this.
-    let Some(journal_id) = show.journal_id else {
-        return Err(CarbideCliError::GenericError(String::from(
-            "journal_id must be set to get a journal",
-        )));
-    };
-
-    // Request.
-    let request = ShowMeasurementJournalRequest {
-        selector: Some(show_measurement_journal_request::Selector::JournalId(
-            journal_id,
-        )),
-    };
-
-    // Response.
-    let response = grpc_conn.0.show_measurement_journal(request).await?;
+    let response = grpc_conn
+        .0
+        .show_measurement_journal(ShowMeasurementJournalRequest::try_from(show)?)
+        .await?;
 
     MeasurementJournal::from_grpc(response.journal.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
@@ -159,21 +132,10 @@ pub async fn list(
     grpc_conn: &ApiClient,
     list: List,
 ) -> CarbideCliResult<MeasurementJournalRecordList> {
-    // Request.
-    let request = match list.machine_id {
-        Some(machine_id) => ListMeasurementJournalRequest {
-            selector: Some(list_measurement_journal_request::Selector::MachineId(
-                machine_id.to_string(),
-            )),
-        },
-        None => ListMeasurementJournalRequest { selector: None },
-    };
-
-    // Response.
     Ok(MeasurementJournalRecordList(
         grpc_conn
             .0
-            .list_measurement_journal(request)
+            .list_measurement_journal(list)
             .await?
             .journals
             .drain(..)

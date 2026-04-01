@@ -15,23 +15,16 @@
  * limitations under the License.
  */
 
-use crate::endpoint::BmcAddr;
+use crate::endpoint::BmcEndpoint;
 
 pub struct ShardManager {
-    shard: usize,
-    shards_count: usize,
+    pub shard: usize,
+    pub shards_count: usize,
 }
 
 impl ShardManager {
-    pub fn new(shard: usize, shards_count: usize) -> Self {
-        Self {
-            shard,
-            shards_count,
-        }
-    }
-
     /// Check if this shard should monitor a BMC endpoint.
-    pub fn should_monitor(&self, endpoint: &BmcAddr) -> bool {
+    pub fn should_monitor(&self, endpoint: &BmcEndpoint) -> bool {
         self.should_monitor_key(&endpoint.hash_key())
     }
 
@@ -64,99 +57,125 @@ impl ShardManager {
 mod tests {
     use std::str::FromStr;
 
+    use carbide_uuid::rack::RackId;
     use mac_address::MacAddress;
 
     use super::*;
+    use crate::endpoint::{BmcAddr, BmcCredentials};
+
+    fn endpoint(mac: &str) -> BmcEndpoint {
+        BmcEndpoint::with_fixed_credentials(
+            BmcAddr {
+                ip: "10.0.0.1".parse().unwrap(),
+                port: Some(443),
+                mac: MacAddress::from_str(mac).unwrap(),
+            },
+            BmcCredentials::UsernamePassword {
+                username: "admin".into(),
+                password: None,
+            },
+            None,
+            None,
+        )
+    }
+
+    fn endpoint_with_rack(mac: &str, rack: &str) -> BmcEndpoint {
+        BmcEndpoint::with_fixed_credentials(
+            BmcAddr {
+                ip: "10.0.0.1".parse().unwrap(),
+                port: Some(443),
+                mac: MacAddress::from_str(mac).unwrap(),
+            },
+            BmcCredentials::UsernamePassword {
+                username: "admin".into(),
+                password: None,
+            },
+            None,
+            Some(RackId::new(rack)),
+        )
+    }
 
     #[test]
     fn test_single_shard() {
-        let manager = ShardManager::new(0, 1);
-        let endpoint = BmcAddr {
-            ip: "10.0.0.1".parse().unwrap(),
-            port: Some(443),
-            mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
+        let manager = ShardManager {
+            shard: 0,
+            shards_count: 1,
         };
-        assert!(manager.should_monitor(&endpoint));
+        assert!(manager.should_monitor(&endpoint("42:9e:b1:bd:9d:dd")));
     }
 
     #[test]
     fn test_consistent_hashing() {
-        let endpoint1 = BmcAddr {
-            ip: "10.0.0.1".parse().unwrap(),
-            port: Some(443),
-            mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
-        };
-        let endpoint2 = BmcAddr {
-            ip: "10.0.0.2".parse().unwrap(),
-            port: Some(443),
-            mac: MacAddress::from_str("42:9e:b2:bd:9d:dd").unwrap(),
-        };
+        let ep1 = endpoint("42:9e:b1:bd:9d:dd");
+        let ep2 = endpoint("42:9e:b2:bd:9d:dd");
 
-        let manager0 = ShardManager::new(0, 3);
-        let manager1 = ShardManager::new(1, 3);
-        let manager2 = ShardManager::new(2, 3);
+        let managers: Vec<_> = (0..3)
+            .map(|shard| ShardManager {
+                shard,
+                shards_count: 3,
+            })
+            .collect();
 
-        // Each endpoint should be assigned to exactly one pod
-        let mut count1 = 0;
-        let mut count2 = 0;
-        if manager0.should_monitor(&endpoint1) {
-            count1 += 1;
+        for (label, ep) in [("ep1", &ep1), ("ep2", &ep2)] {
+            let count = managers.iter().filter(|m| m.should_monitor(ep)).count();
+            assert_eq!(count, 1, "{label} should be monitored by exactly one shard");
         }
-        if manager1.should_monitor(&endpoint1) {
-            count1 += 1;
-        }
-        if manager2.should_monitor(&endpoint1) {
-            count1 += 1;
-        }
-        assert_eq!(
-            count1, 1,
-            "endpoint1 should be monitored by exactly one pod"
-        );
-
-        if manager0.should_monitor(&endpoint2) {
-            count2 += 1;
-        }
-        if manager1.should_monitor(&endpoint2) {
-            count2 += 1;
-        }
-        if manager2.should_monitor(&endpoint2) {
-            count2 += 1;
-        }
-        assert_eq!(
-            count2, 1,
-            "endpoint2 should be monitored by exactly one pod"
-        );
     }
 
     #[test]
     fn test_should_monitor_key_distribution() {
-        let key1 = "AA:BB:CC:DD:EE:FF";
-        let key2 = "11:22:33:44:55:66";
-
-        // Each key should be assigned to exactly one pod/shard
-        for key in [key1, key2] {
-            let mut count = 0;
-            for shard in 0..3 {
-                let manager = ShardManager::new(shard, 3);
-                if manager.should_monitor_key(key) {
-                    count += 1;
-                }
-            }
+        for key in ["AA:BB:CC:DD:EE:FF", "11:22:33:44:55:66"] {
+            let count = (0..3)
+                .map(|shard| ShardManager {
+                    shard,
+                    shards_count: 3,
+                })
+                .filter(|m| m.should_monitor_key(key))
+                .count();
             assert_eq!(
                 count, 1,
-                "Key {} should be assigned to exactly one shard",
-                key
+                "Key {key} should be assigned to exactly one shard"
             );
         }
     }
 
     #[test]
     fn test_should_monitor_key_consistency() {
-        let manager = ShardManager::new(0, 3);
+        let manager = ShardManager {
+            shard: 0,
+            shards_count: 3,
+        };
         let key = "AA:BB:CC:DD:EE:FF";
         assert_eq!(
             manager.should_monitor_key(key),
             manager.should_monitor_key(key)
+        );
+    }
+
+    #[test]
+    fn test_same_rack_id_same_shard() {
+        let ep_a = endpoint_with_rack("42:9e:b1:bd:9d:dd", "rack-7");
+        let ep_b = endpoint_with_rack("42:9e:b2:bd:9d:dd", "rack-7");
+
+        let managers: Vec<_> = (0..3)
+            .map(|shard| ShardManager {
+                shard,
+                shards_count: 3,
+            })
+            .collect();
+
+        let shard_a = managers
+            .iter()
+            .position(|m| m.should_monitor(&ep_a))
+            .expect("should be assigned");
+        let shard_b = managers
+            .iter()
+            .position(|m| m.should_monitor(&ep_b))
+            .expect("should be assigned");
+
+        assert_eq!(
+            shard_a, shard_b,
+            "endpoints with the same rack_id should land on the same shard"
         );
     }
 }

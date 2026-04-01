@@ -29,39 +29,25 @@ pub async fn get_all_inventory(rms_client: &Arc<dyn RmsApi>) -> eyre::Result<()>
 }
 
 pub async fn power_on_sequence(
-    args: &PowerOnSequence,
+    args: PowerOnSequence,
     rms_client: &Arc<dyn RmsApi>,
 ) -> eyre::Result<()> {
-    let cmd = librms::protos::rack_manager::GetRackPowerOnSequenceRequest {
-        metadata: None,
-        rack_id: args.rack_id.clone(),
-    };
-    let response = rms_client.get_rack_power_on_sequence(cmd).await?;
+    let response = rms_client.get_rack_power_on_sequence(args.into()).await?;
     println!("{}", serde_json::to_string_pretty(&response)?);
     Ok(())
 }
 
-pub async fn power_state(args: &PowerState, rms_client: &Arc<dyn RmsApi>) -> eyre::Result<()> {
-    let cmd = librms::protos::rack_manager::GetPowerStateRequest {
-        metadata: None,
-        node_id: args.node_id.clone(),
-        rack_id: args.rack_id.clone(),
-    };
-    let response = rms_client.get_power_state(cmd).await?;
+pub async fn power_state(args: PowerState, rms_client: &Arc<dyn RmsApi>) -> eyre::Result<()> {
+    let response = rms_client.get_power_state(args.into()).await?;
     println!("{}", serde_json::to_string_pretty(&response)?);
     Ok(())
 }
 
 pub async fn get_firmware_inventory(
-    args: &FirmwareInventory,
+    args: FirmwareInventory,
     rms_client: &Arc<dyn RmsApi>,
 ) -> eyre::Result<()> {
-    let cmd = librms::protos::rack_manager::GetNodeFirmwareInventoryRequest {
-        metadata: None,
-        node_id: args.node_id.clone(),
-        rack_id: args.rack_id.clone(),
-    };
-    let response = rms_client.get_node_firmware_inventory(cmd).await?;
+    let response = rms_client.get_node_firmware_inventory(args.into()).await?;
     println!("{}", serde_json::to_string_pretty(&response)?);
     Ok(())
 }

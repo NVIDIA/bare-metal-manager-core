@@ -7,7 +7,7 @@ pub static REGISTRIES: Lazy<Vec<crate::variables::registry::MlxVariableRegistry>
         crate::variables::registry::MlxVariableRegistry::new("mlx_generic")
             .with_filters(
                 crate::device::filters::DeviceFilterSet::new()
-                    .with_filter(crate::device::filters::DeviceFilter::new(crate::device::filters::DeviceField::DeviceType, vec!["BlueField2".to_string(), "BlueField3".to_string()], crate::device::filters::MatchMode::Exact))
+                    .with_filter(crate::device::filters::DeviceFilter { field: crate::device::filters::DeviceField::DeviceType, values: vec!["BlueField2".to_string(), "BlueField3".to_string()], match_mode: crate::device::filters::MatchMode::Exact })
             )
             .variables(vec![
                 crate::variables::variable::MlxConfigVariable::builder()

@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 use ::rpc::forge as rpc;
+use carbide_network::virtualization::VpcVirtualizationType;
 use db::resource_pool::ResourcePoolDatabaseError;
 use db::{AnnotatedSqlxError, DatabaseError, ObjectColumnFilter, network_segment};
-use forge_network::virtualization::VpcVirtualizationType;
 use model::network_segment::{
     NetworkSegment, NetworkSegmentControllerState, NetworkSegmentSearchConfig, NetworkSegmentType,
     NewNetworkSegment,
@@ -34,7 +34,7 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::NetworkSegmentIdList>, Status> {
     log_request_data(&request);
 
-    let filter: rpc::NetworkSegmentSearchFilter = request.into_inner();
+    let filter: model::network_segment::NetworkSegmentSearchFilter = request.into_inner().into();
 
     let network_segments_ids =
         db::network_segment::find_ids(&api.database_connection, filter).await?;
@@ -128,17 +128,31 @@ pub(crate) async fn create(
     let mut txn = api.txn_begin().await?;
 
     let allocate_svi_ip = if let Some(vpc_id) = new_network_segment.vpc_id {
+        let vpcs = db::vpc::find_by(
+            &mut txn,
+            ObjectColumnFilter::One(db::vpc::IdColumn, &vpc_id),
+        )
+        .await?;
+
+        let vpc = vpcs
+            .first()
+            .ok_or_else(|| CarbideError::internal(format!("VPC ID: {vpc_id} not found.")))?;
+
+        // IPv6 network segments are only supported for FNN VPCs.
+        if vpc.network_virtualization_type != VpcVirtualizationType::Fnn {
+            let has_ipv6_prefix = new_network_segment
+                .prefixes
+                .iter()
+                .any(|np| np.prefix.is_ipv6());
+            if has_ipv6_prefix {
+                return Err(CarbideError::InvalidArgument(
+                    "IPv6 network segments are only supported for FNN VPCs".to_string(),
+                )
+                .into());
+            }
+        }
+
         if new_network_segment.can_stretch.unwrap_or(true) {
-            let vpcs = db::vpc::find_by(
-                &mut txn,
-                ObjectColumnFilter::One(db::vpc::IdColumn, &vpc_id),
-            )
-            .await?;
-
-            let vpc = vpcs
-                .first()
-                .ok_or_else(|| CarbideError::internal(format!("VPC ID: {vpc_id} not found.")))?;
-
             vpc.network_virtualization_type == VpcVirtualizationType::Fnn
         } else {
             false

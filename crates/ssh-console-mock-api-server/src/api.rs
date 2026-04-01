@@ -133,6 +133,7 @@ impl Forge for MockApiServer {
             password: mock_host.bmc_password.clone(),
             ssh_port: mock_host.bmc_ssh_port.map(Into::into),
             ipmi_port: mock_host.ipmi_port.map(Into::into),
+            vendor: Some(mock_host.sys_vendor.to_string()),
             ..Default::default()
         }))
     }
@@ -146,26 +147,6 @@ impl Forge for MockApiServer {
                 .mock_hosts
                 .iter()
                 .map(|mock_host| mock_host.machine_id)
-                .collect(),
-        }))
-    }
-
-    async fn find_machines_by_ids(
-        &self,
-        request: Request<forge::MachinesByIdsRequest>,
-    ) -> Result<Response<forge::MachineList>, Status> {
-        Ok(Response::new(forge::MachineList {
-            machines: request
-                .into_inner()
-                .machine_ids
-                .into_iter()
-                .filter_map(|machine_id| {
-                    self.mock_hosts
-                        .iter()
-                        .find(|mock_host| mock_host.machine_id == machine_id)
-                        .cloned()
-                })
-                .map(Into::into)
                 .collect(),
         }))
     }

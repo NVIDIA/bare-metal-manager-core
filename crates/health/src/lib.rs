@@ -30,6 +30,7 @@ pub mod discovery;
 pub mod endpoint;
 pub mod limiter;
 pub mod metrics;
+pub mod processor;
 pub mod sharding;
 pub mod sink;
 
@@ -41,8 +42,15 @@ use crate::config::Configurable;
 use crate::endpoint::{CompositeEndpointSource, EndpointSource, StaticEndpointSource};
 use crate::limiter::{BucketLimiter, NoopLimiter, RateLimiter};
 use crate::metrics::{MetricsManager, run_metrics_server};
+use crate::processor::{
+    EventProcessingPipeline, EventProcessor, HealthReportProcessor, LeakEventProcessor,
+    RackLeakProcessor,
+};
 use crate::sharding::ShardManager;
-use crate::sink::{CompositeDataSink, DataSink, HealthOverrideSink, PrometheusSink, TracingSink};
+use crate::sink::{
+    CompositeDataSink, DataSink, HealthOverrideSink, PrometheusSink, RackHealthOverrideSink,
+    TracingSink,
+};
 
 #[derive(thiserror::Error, Debug)]
 pub enum HealthError {
@@ -69,6 +77,9 @@ pub enum HealthError {
 
     #[error("BMC Error: {0}")]
     BmcError(#[from] Box<dyn std::error::Error + Send + Sync>),
+
+    #[error("HTTP(S) error: {0}")]
+    HttpError(String),
 }
 
 impl From<String> for HealthError {
@@ -109,7 +120,6 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
             source_cfg.client_cert.clone(),
             source_cfg.client_key.clone(),
             &source_cfg.api_url,
-            config.collectors.nmxt.is_enabled(),
         ));
         sources.push(api_client as Arc<dyn EndpointSource>);
     }
@@ -132,6 +142,7 @@ fn build_data_sink(
     metrics_manager: Arc<MetricsManager>,
 ) -> Result<Option<Arc<dyn DataSink>>, HealthError> {
     let mut sinks: Vec<Arc<dyn DataSink>> = Vec::new();
+    let mut processors: Vec<Arc<dyn EventProcessor>> = Vec::new();
 
     if let Configurable::Enabled(_) = &config.sinks.tracing {
         sinks.push(Arc::new(TracingSink));
@@ -139,19 +150,54 @@ fn build_data_sink(
 
     if let Configurable::Enabled(_) = &config.sinks.prometheus {
         sinks.push(Arc::new(PrometheusSink::new(
-            metrics_manager,
+            metrics_manager.clone(),
             &config.metrics.prefix,
         )?));
+    }
+
+    // Enable HealthReport processor only if it has consumers
+    if config.sinks.tracing.is_enabled()
+        || config.sinks.health_override.is_enabled()
+        || config.processors.leak_detection.is_enabled()
+    {
+        processors.push(Arc::new(HealthReportProcessor::new()));
+    }
+
+    if let Configurable::Enabled(ref leak_detection_cfg) = config.processors.leak_detection {
+        processors.push(Arc::new(LeakEventProcessor::new(
+            leak_detection_cfg.minimum_alerts_per_report,
+        )));
+    }
+
+    if let Configurable::Enabled(ref rack_leak_cfg) = config.processors.rack_leak {
+        processors.push(Arc::new(RackLeakProcessor::new(
+            rack_leak_cfg.leaking_tray_threshold,
+        )));
     }
 
     if let Configurable::Enabled(ref sink_cfg) = config.sinks.health_override {
         sinks.push(Arc::new(HealthOverrideSink::new(sink_cfg)?));
     }
 
-    let data_sink = match sinks.len() {
-        0 => None,
-        1 => Some(sinks.pop().expect("len() == 1 guarantees one element")),
-        _ => Some(Arc::new(CompositeDataSink::new(sinks)) as Arc<dyn DataSink>),
+    if let Configurable::Enabled(ref sink_cfg) = config.sinks.rack_health_override {
+        sinks.push(Arc::new(RackHealthOverrideSink::new(sink_cfg)?));
+    }
+
+    let data_sink = if sinks.is_empty() {
+        None
+    } else {
+        let composite_sink: Arc<dyn DataSink> =
+            Arc::new(CompositeDataSink::new(sinks, metrics_manager.clone()));
+
+        if processors.is_empty() {
+            Some(composite_sink)
+        } else {
+            Some(Arc::new(EventProcessingPipeline::new(
+                processors,
+                composite_sink,
+                metrics_manager,
+            )) as Arc<dyn DataSink>)
+        }
     };
 
     Ok(data_sink)
@@ -159,7 +205,7 @@ fn build_data_sink(
 
 pub async fn run_service(config: Config) -> Result<(), HealthError> {
     let metrics_endpoint = config.metrics_addr()?;
-    let metrics_manager = Arc::new(MetricsManager::new());
+    let metrics_manager = Arc::new(MetricsManager::new(&config.metrics.prefix)?);
 
     let join_listener = tokio::spawn(run_metrics_server(
         metrics_endpoint,
@@ -198,7 +244,10 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
 
     let join_discovery: tokio::task::JoinHandle<Result<(), HealthError>> = tokio::spawn({
         let config = config_arc.clone();
-        let shard_manager = ShardManager::new(config.shard, config.shards_count);
+        let shard_manager = ShardManager {
+            shard: config.shard,
+            shards_count: config.shards_count,
+        };
         let limiter: Arc<dyn RateLimiter> =
             if let Configurable::Enabled(rate_limit) = &config.rate_limit {
                 Arc::new(BucketLimiter::new(

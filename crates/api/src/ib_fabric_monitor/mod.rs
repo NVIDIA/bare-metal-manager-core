@@ -19,12 +19,13 @@ mod metrics;
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
+use std::io;
 use std::sync::Arc;
+use std::time::Duration;
 
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::machine::MachineId;
 use chrono::Utc;
-use db::ib_partition::IBPartition;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{self, DatabaseError};
 use health_report::OverrideMode;
@@ -32,19 +33,20 @@ use metrics::{
     AppliedChange, FabricMetrics, IbFabricMonitorMetrics, UfmOperation, UfmOperationStatus,
 };
 use model::ib::{IBNetwork, IBPort, IBPortMembership, IBPortState};
-use model::ib_partition::PartitionKey;
+use model::ib_partition::{IBPartition, IbPartitionSearchFilter, PartitionKey};
 use model::machine::infiniband::{
     MachineIbInterfaceStatusObservation, MachineInfinibandStatusObservation,
 };
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
-use rpc::forge::IbPartitionSearchFilter;
 use sqlx::{PgConnection, PgPool};
-use tokio::sync::oneshot;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
 use crate::cfg::file::{CarbideConfig, IbFabricDefinition};
 use crate::ib::{GetPartitionOptions, IBFabricManager, IBFabricManagerType};
+use crate::periodic_timer::PeriodicTimer;
 use crate::{CarbideError, CarbideResult};
 
 /// `IbFabricMonitor` monitors the health of all connected InfiniBand fabrics in periodic intervals
@@ -100,42 +102,44 @@ impl IbFabricMonitor {
     }
 
     /// Start the IbFabricMonitor and return a [sending channel](tokio::sync::oneshot::Sender) that will stop the IbFabricMonitor when dropped.
-    pub fn start(self) -> eyre::Result<oneshot::Sender<i32>> {
-        let (stop_sender, stop_receiver) = oneshot::channel();
-
+    pub fn start(
+        self,
+        join_set: &mut JoinSet<()>,
+        cancel_token: CancellationToken,
+    ) -> io::Result<()> {
         if self.fabric_manager.get_config().manager_type != IBFabricManagerType::Disable {
-            tokio::task::Builder::new()
+            join_set
+                .build_task()
                 .name("ib_fabric_monitor")
-                .spawn(async move { self.run(stop_receiver).await })?;
+                .spawn(async move { self.run(cancel_token).await })?;
         }
 
-        Ok(stop_sender)
+        Ok(())
     }
 
-    async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {
+    async fn run(&self, cancel_token: CancellationToken) {
         let run_interval = self.fabric_manager.get_config().fabric_manager_run_interval;
+        let timer = PeriodicTimer::new(run_interval);
 
         loop {
-            let sleep_interval = match self.run_single_iteration().await {
+            let mut tick = timer.tick();
+            match self.run_single_iteration().await {
                 Ok(num_changes) => {
                     if num_changes > 0 {
                         // If any change has been applied to the IB fabric,
                         // the status that has been collected in the last iteration is already outdated
                         // Therefore run again as soon as possible.
-                        tokio::time::Duration::from_millis(1000)
-                    } else {
-                        run_interval
+                        tick.set_interval(Duration::from_millis(1000));
                     }
                 }
                 Err(e) => {
                     tracing::warn!("IbFabricMonitor error: {}", e);
-                    run_interval
                 }
-            };
+            }
 
             tokio::select! {
-                _ = tokio::time::sleep(sleep_interval) => {},
-                _ = &mut stop_receiver => {
+                _ = tick.sleep() => {},
+                _ = cancel_token.cancelled() => {
                     tracing::info!("IbFabricMonitor stop was requested");
                     return;
                 }

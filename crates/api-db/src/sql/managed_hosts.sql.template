@@ -15,7 +15,8 @@ SELECT m.* FROM (
     SELECT
     m.id,
     json_agg(host_snapshot.*)->0 AS host_snapshot,
-    COALESCE(json_agg(dpu_snapshots.*), '[]') AS dpu_snapshots
+    COALESCE(json_agg(dpu_snapshots.*), '[]') AS dpu_snapshots,
+    COALESCE(json_agg(rack_health_overrides.*), '[]') AS rack_health_overrides
     FROM machines m
 
     -- (1) Join in a host snapshot as JSON
@@ -156,6 +157,25 @@ SELECT m.* FROM (
         WHERE mi_parent.machine_id = m.id
         AND mi_parent.attached_dpu_machine_id != mi_parent.machine_id
     ) AS dpu_snapshots ON true
+
+    -- (3) Join rack-level health report overrides
+    LEFT JOIN LATERAL (
+        SELECT x.json
+        FROM (
+            SELECT
+            rack.id,
+            rack.health_report_overrides AS json,
+            row_number() OVER (
+                PARTITION BY rack.id
+            ) AS rn
+            FROM racks rack
+            WHERE rack.health_report_overrides IS NOT NULL
+            AND rack.deleted IS NULL
+            AND rack.config->'compute_trays' ? m.id
+            GROUP BY rack.id
+        ) x
+        WHERE x.rn = 1
+    ) AS rack_health_overrides ON true
 
     GROUP BY m.id
 ) m

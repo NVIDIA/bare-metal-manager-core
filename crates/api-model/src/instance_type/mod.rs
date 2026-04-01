@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::{common as rpc_common, forge as rpc};
 use carbide_uuid::instance_type::InstanceTypeId;
+use carbide_uuid::machine::MachineId;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
@@ -30,6 +31,21 @@ use super::machine::capabilities::{
     MachineCapabilityType,
 };
 use crate::metadata::Metadata;
+
+/* **************************************** */
+/*      InstanceTypeAssociationDetails      */
+/* **************************************** */
+
+/// InstanceTypeAssociationDetails holds the counts and ids
+/// of machines and and counts of instances associated with
+/// an InstanceType.
+#[derive(Debug, Clone)]
+pub struct InstanceTypeAssociationDetails {
+    pub instance_type_id: InstanceTypeId,
+    pub total_machines: u32,
+    pub machine_ids: Vec<MachineId>,
+    pub total_instances: u32,
+}
 
 /* **************************************** */
 /*    InstanceTypeMachineCapabilityFilter   */
@@ -273,6 +289,26 @@ pub struct InstanceType {
     pub created: DateTime<Utc>,
     pub deleted: Option<DateTime<Utc>>,
     pub metadata: Metadata,
+}
+
+impl<'r> sqlx::FromRow<'r, PgRow> for InstanceTypeAssociationDetails {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let machine_ids: sqlx::types::Json<Vec<MachineId>> = row.try_get("machine_ids")?;
+
+        let total_instances: i32 = row.try_get("total_instances")?;
+        let total_machines: i32 = row.try_get("total_machines")?;
+
+        Ok(InstanceTypeAssociationDetails {
+            instance_type_id: row.try_get("instance_type_id")?,
+            total_machines: total_machines
+                .try_into()
+                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+            machine_ids: machine_ids.0,
+            total_instances: total_instances
+                .try_into()
+                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+        })
+    }
 }
 
 impl<'r> sqlx::FromRow<'r, PgRow> for InstanceType {
@@ -538,6 +574,7 @@ impl TryFrom<InstanceType> for rpc::InstanceType {
                     })
                     .collect(),
             }),
+            allocation_stats: None,
         })
     }
 }
@@ -569,6 +606,7 @@ mod tests {
                 description: "".to_string(),
                 labels: vec![],
             }),
+            allocation_stats: None,
             attributes: Some(rpc::InstanceTypeAttributes {
                 desired_capabilities: vec![rpc::InstanceTypeMachineCapabilityFilterAttributes {
                     capability_type: rpc::MachineCapabilityType::CapTypeCpu.into(),

@@ -20,6 +20,8 @@ use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 use utils::HostPortPair;
 
 use super::logging::level_filter::ActiveLevel;
@@ -43,22 +45,32 @@ pub(crate) const RESET_PERIOD: Duration = Duration::from_secs(15 * 60); // 1/4 h
 
 impl DynamicSettings {
     /// The background task that resets dynamic features to their startup values when the override expires
-    pub(crate) fn start_reset_task(&self, period: Duration) {
+    pub(crate) fn start_reset_task(
+        &self,
+        join_set: &mut JoinSet<()>,
+        period: Duration,
+        cancel_token: CancellationToken,
+    ) {
         let log_filter = self.log_filter.clone();
-        let _ = tokio::task::Builder::new()
+        join_set
+            .build_task()
             .name("dynamic_feature_reset")
             .spawn(async move {
                 loop {
-                    tokio::time::sleep(period).await;
+                    tokio::select! {
+                        _ = tokio::time::sleep(period) => {}
+                        _ = cancel_token.cancelled() => {
+                            break;
+                        }
+                    }
 
                     if let Err(err) = log_filter.reset_if_expired() {
                         tracing::error!("Failed resetting log level: {err}");
                     }
                 }
             })
-            .map_err(|err| {
-                tracing::error!("dynamic_feature_reset task aborted: {err}");
-            });
+            // Safety: spawn only fails if outside the tokio runtime.
+            .expect("Could not spawn dynamic_feature_reset task");
     }
 }
 

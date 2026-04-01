@@ -26,7 +26,7 @@ use crate::cfg::runtime::RuntimeContext;
 
 impl Run for Args {
     async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
-        cmd::list_racks(&ctx.api_client).await?;
+        cmd::list_racks(&ctx.api_client, &ctx.config).await?;
         Ok(())
     }
 }

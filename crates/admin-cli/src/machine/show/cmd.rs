@@ -43,6 +43,10 @@ fn convert_machine_to_nice_format(
             "ID",
             machine.id.map(|id| id.to_string()).unwrap_or_default(),
         ),
+        (
+            "RACK_ID",
+            machine.rack_id.map(|id| id.to_string()).unwrap_or_default(),
+        ),
         ("STATE", machine.state.to_uppercase()),
         ("STATE_VERSION", machine.state_version),
         ("MACHINE TYPE", get_machine_type(machine.id)),

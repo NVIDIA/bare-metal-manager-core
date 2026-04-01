@@ -21,12 +21,12 @@ use crate::DatabaseError;
 
 pub async fn trim_table(
     txn: &mut PgConnection,
-    target: rpc::forge::TrimTableTarget,
+    target: model::trim_table::TrimTableTarget,
     keep_entries: u32,
 ) -> Result<i32, DatabaseError> {
     // choose a target and call an appropriate stored procedure/function
     match target {
-        rpc::forge::TrimTableTarget::MeasuredBoot => {
+        model::trim_table::TrimTableTarget::MeasuredBoot => {
             let query = "SELECT * FROM measured_boot_reports_keep_limit($1)";
 
             let val: (i32,) = sqlx::query_as(query)

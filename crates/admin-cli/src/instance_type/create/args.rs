@@ -16,6 +16,8 @@
  */
 
 use clap::Parser;
+use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use rpc::forge::{self as forgerpc, CreateInstanceTypeRequest, InstanceTypeAttributes};
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -45,4 +47,37 @@ pub struct Args {
         help = "Optional, JSON array containing a set of instance type capability filters"
     )]
     pub desired_capabilities: Option<String>,
+}
+
+impl TryFrom<Args> for CreateInstanceTypeRequest {
+    type Error = CarbideCliError;
+
+    fn try_from(args: Args) -> CarbideCliResult<Self> {
+        let labels = if let Some(l) = args.labels {
+            serde_json::from_str(&l)?
+        } else {
+            vec![]
+        };
+
+        let metadata = forgerpc::Metadata {
+            name: args.name.unwrap_or_default(),
+            description: args.description.unwrap_or_default(),
+            labels,
+        };
+
+        let instance_type_attributes = args
+            .desired_capabilities
+            .map(|d| {
+                serde_json::from_str(&d).map(|desired_capabilities| InstanceTypeAttributes {
+                    desired_capabilities,
+                })
+            })
+            .transpose()?;
+
+        Ok(CreateInstanceTypeRequest {
+            id: args.id,
+            metadata: Some(metadata),
+            instance_type_attributes,
+        })
+    }
 }

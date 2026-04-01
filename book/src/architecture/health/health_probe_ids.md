@@ -1,6 +1,6 @@
 # Health probe IDs
 
-This page provides a list of health probes provided by NVIDIA Bare Metal Manager (BMM), along with their IDs.
+This page provides a list of health probes provided by NCX Infra Controller (NICo), along with their IDs.
 Health reports will contain these IDs in the `alerts` section in case the associated check or validation has failed.
 
 ## Machine validation health probe identifiers
@@ -144,13 +144,13 @@ The alert indicates that no health report was received, where health report
 was expected. It is different from `HeartbeatTimeout` in the following sense
 - `HeartbeatTimeout` alerts can be emitted if data is available, but stale.
   `MissingReport` is only emitted if data has never been received.
-- `MissingReport` is mainly used on the BMM client side. It has no impact on
+- `MissingReport` is mainly used on the NICo client side. It has no impact on
   state changes.
 
 ### `MalformedReport`
 
 An alert which can be generated if a HealthReport can not be parsed
-This alert is only be used the BMM client side if failing to render the health
+This alert is only be used the NICo client side if failing to render the health
 report is preferrable to failing the workflow.
 
 ### `Maintenance`

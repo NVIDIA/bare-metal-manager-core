@@ -370,7 +370,6 @@ impl TryFrom<rpc::NetworkSecurityGroupRuleAction> for NetworkSecurityGroupRuleAc
 /// destination network to look for when matching
 /// network traffic. It can be either an explicit prefix
 /// or defined by an object ID.
-///
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub enum NetworkSecurityGroupRuleNet {
     Prefix(ipnetwork::IpNetwork),
@@ -470,7 +469,6 @@ impl TryFrom<NetworkSecurityGroupRuleNet>
 /// NetworkSecurityGroupRule holds the details of a
 /// single rule that will be applied on a DPU to restrict
 /// traffic.
-///
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct NetworkSecurityGroupRule {
     pub id: Option<String>,
@@ -646,7 +644,6 @@ impl TryFrom<NetworkSecurityGroupRule> for rpc::NetworkSecurityGroupRuleAttribut
 /// NetworkSecurityGroup represents a collection of L4 traffic
 /// ACLs to permit or deny network traffic based on a set of
 /// matching properties.
-///
 #[derive(Clone, Debug, PartialEq)]
 pub struct NetworkSecurityGroup {
     pub id: NetworkSecurityGroupId,
@@ -711,7 +708,6 @@ impl TryFrom<NetworkSecurityGroup> for rpc::NetworkSecurityGroup {
 
 /// NetworkSecurityGroupAttachments holds lists of objects that have
 /// the NetworkSecurityGroup attached.
-///
 #[derive(Clone, Debug, PartialEq)]
 pub struct NetworkSecurityGroupAttachments {
     pub id: NetworkSecurityGroupId,
@@ -749,7 +745,6 @@ impl From<NetworkSecurityGroupAttachments> for rpc::NetworkSecurityGroupAttachme
 /// underlying objects that do not have a more specific NSG applied.
 /// For example, for a VPC to be fully propagated, all interfaces
 /// of all instances under that VPC must be fully propagated.
-///
 #[derive(Clone, Debug, PartialEq)]
 pub struct NetworkSecurityGroupPropagationObjectStatus {
     pub id: String,

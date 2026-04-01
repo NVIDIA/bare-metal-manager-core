@@ -17,21 +17,15 @@
 
 //!
 //! `measurement bundle` subcommand dispatcher + backing functions.
-//!
 
 use std::str::FromStr;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
 use ::rpc::protos::measured_boot::{
-    CreateMeasurementBundleRequest, DeleteMeasurementBundleRequest, FindClosestBundleMatchRequest,
-    ListMeasurementBundleMachinesRequest, MeasurementBundleStatePb, RenameMeasurementBundleRequest,
+    ListMeasurementBundleMachinesRequest, RenameMeasurementBundleRequest,
     ShowMeasurementBundleRequest, UpdateMeasurementBundleRequest,
-    delete_measurement_bundle_request, list_measurement_bundle_machines_request,
-    rename_measurement_bundle_request, show_measurement_bundle_request,
-    update_measurement_bundle_request,
 };
 use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::MeasurementBundleId;
 use measured_boot::bundle::MeasurementBundle;
 use measured_boot::records::MeasurementBundleRecord;
 use serde::Serialize;
@@ -39,7 +33,6 @@ use serde::Serialize;
 use crate::measurement::bundle::args::{
     CmdBundle, Create, Delete, FindClosestMatch, List, ListMachines, Rename, SetState, Show,
 };
-use crate::measurement::global::cmds::{IdentifierType, get_identifier};
 use crate::measurement::{MachineIdList, global};
 use crate::rpc::ApiClient;
 
@@ -129,22 +122,7 @@ pub async fn create_for_id(
     grpc_conn: &ApiClient,
     create: Create,
 ) -> CarbideCliResult<MeasurementBundle> {
-    // Prepare.
-    let state: MeasurementBundleStatePb = match create.state {
-        Some(input_state) => input_state.into(),
-        None => MeasurementBundleStatePb::Active,
-    };
-
-    // Request.
-    let request = CreateMeasurementBundleRequest {
-        name: Some(create.name),
-        profile_id: Some(create.profile_id),
-        pcr_values: create.values.into_iter().map(Into::into).collect(),
-        state: state.into(),
-    };
-
-    // Response.
-    let response = grpc_conn.0.create_measurement_bundle(request).await?;
+    let response = grpc_conn.0.create_measurement_bundle(create).await?;
 
     MeasurementBundle::from_grpc(response.bundle.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
@@ -152,15 +130,7 @@ pub async fn create_for_id(
 
 /// delete deletes a measurement bundle with the provided ID.
 pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<MeasurementBundle> {
-    // Request.
-    let request = DeleteMeasurementBundleRequest {
-        selector: Some(delete_measurement_bundle_request::Selector::BundleId(
-            delete.bundle_id,
-        )),
-    };
-
-    // Response.
-    let response = grpc_conn.0.delete_measurement_bundle(request).await?;
+    let response = grpc_conn.0.delete_measurement_bundle(delete).await?;
 
     MeasurementBundle::from_grpc(response.bundle.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
@@ -168,36 +138,10 @@ pub async fn delete(grpc_conn: &ApiClient, delete: Delete) -> CarbideCliResult<M
 
 /// rename renames a measurement bundle with the provided name or ID.
 pub async fn rename(grpc_conn: &ApiClient, rename: Rename) -> CarbideCliResult<MeasurementBundle> {
-    // Prepare.
-    let selector = match get_identifier(&rename)? {
-        IdentifierType::ForId => {
-            let bundle_id = MeasurementBundleId::from_str(&rename.identifier)
-                .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))?;
-            Some(rename_measurement_bundle_request::Selector::BundleId(
-                bundle_id,
-            ))
-        }
-        IdentifierType::ForName => Some(rename_measurement_bundle_request::Selector::BundleName(
-            rename.identifier,
-        )),
-        IdentifierType::Detect => match MeasurementBundleId::from_str(&rename.identifier) {
-            Ok(bundle_id) => Some(rename_measurement_bundle_request::Selector::BundleId(
-                bundle_id,
-            )),
-            Err(_) => Some(rename_measurement_bundle_request::Selector::BundleName(
-                rename.identifier,
-            )),
-        },
-    };
-
-    // Request.
-    let request = RenameMeasurementBundleRequest {
-        new_bundle_name: rename.new_bundle_name,
-        selector,
-    };
-
-    // Response.
-    let response = grpc_conn.0.rename_measurement_bundle(request).await?;
+    let response = grpc_conn
+        .0
+        .rename_measurement_bundle(RenameMeasurementBundleRequest::try_from(rename)?)
+        .await?;
 
     MeasurementBundle::from_grpc(response.bundle.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
@@ -208,38 +152,10 @@ pub async fn set_state(
     grpc_conn: &ApiClient,
     set_state: SetState,
 ) -> CarbideCliResult<MeasurementBundle> {
-    // Prepare.
-    let state: MeasurementBundleStatePb = set_state.state.into();
-
-    let selector = match get_identifier(&set_state)? {
-        IdentifierType::ForId => {
-            let bundle_id = MeasurementBundleId::from_str(&set_state.identifier)
-                .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))?;
-            Some(update_measurement_bundle_request::Selector::BundleId(
-                bundle_id,
-            ))
-        }
-        IdentifierType::ForName => Some(update_measurement_bundle_request::Selector::BundleName(
-            set_state.identifier,
-        )),
-        IdentifierType::Detect => match MeasurementBundleId::from_str(&set_state.identifier) {
-            Ok(bundle_id) => Some(update_measurement_bundle_request::Selector::BundleId(
-                bundle_id,
-            )),
-            Err(_) => Some(update_measurement_bundle_request::Selector::BundleName(
-                set_state.identifier,
-            )),
-        },
-    };
-
-    // Request.
-    let request = UpdateMeasurementBundleRequest {
-        state: state.into(),
-        selector,
-    };
-
-    // Response.
-    let response = grpc_conn.0.update_measurement_bundle(request).await?;
+    let response = grpc_conn
+        .0
+        .update_measurement_bundle(UpdateMeasurementBundleRequest::try_from(set_state)?)
+        .await?;
 
     MeasurementBundle::from_grpc(response.bundle.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
@@ -250,40 +166,10 @@ pub async fn show_by_id_or_name(
     grpc_conn: &ApiClient,
     show: Show,
 ) -> CarbideCliResult<MeasurementBundle> {
-    let identifier_type = get_identifier(&show)?;
-    // Prepare.
-    let identifier = show
-        .identifier
-        .ok_or(CarbideCliError::GenericError(String::from(
-            "identifier expected to be set here",
-        )))?;
-
-    let selector = match identifier_type {
-        IdentifierType::ForId => {
-            let bundle_id = MeasurementBundleId::from_str(&identifier)
-                .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))?;
-            Some(show_measurement_bundle_request::Selector::BundleId(
-                bundle_id,
-            ))
-        }
-        IdentifierType::ForName => Some(show_measurement_bundle_request::Selector::BundleName(
-            identifier,
-        )),
-        IdentifierType::Detect => match MeasurementBundleId::from_str(&identifier) {
-            Ok(bundle_id) => Some(show_measurement_bundle_request::Selector::BundleId(
-                bundle_id,
-            )),
-            Err(_) => Some(show_measurement_bundle_request::Selector::BundleName(
-                identifier,
-            )),
-        },
-    };
-
-    // Request.
-    let request = ShowMeasurementBundleRequest { selector };
-
-    // Response.
-    let response = grpc_conn.0.show_measurement_bundle(request).await?;
+    let response = grpc_conn
+        .0
+        .show_measurement_bundle(ShowMeasurementBundleRequest::try_from(show)?)
+        .await?;
 
     MeasurementBundle::from_grpc(response.bundle.as_ref())
         .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))
@@ -332,38 +218,12 @@ pub async fn list_machines(
     grpc_conn: &ApiClient,
     list_machines: ListMachines,
 ) -> CarbideCliResult<MachineIdList> {
-    // Prepare.
-    let selector = match get_identifier(&list_machines)? {
-        IdentifierType::ForId => {
-            let bundle_id = MeasurementBundleId::from_str(&list_machines.identifier)
-                .map_err(|e| crate::CarbideCliError::GenericError(e.to_string()))?;
-            Some(list_measurement_bundle_machines_request::Selector::BundleId(bundle_id))
-        }
-        IdentifierType::ForName => Some(
-            list_measurement_bundle_machines_request::Selector::BundleName(
-                list_machines.identifier,
-            ),
-        ),
-        IdentifierType::Detect => match MeasurementBundleId::from_str(&list_machines.identifier) {
-            Ok(bundle_id) => {
-                Some(list_measurement_bundle_machines_request::Selector::BundleId(bundle_id))
-            }
-            Err(_) => Some(
-                list_measurement_bundle_machines_request::Selector::BundleName(
-                    list_machines.identifier,
-                ),
-            ),
-        },
-    };
-
-    // Request.
-    let request = ListMeasurementBundleMachinesRequest { selector };
-
-    // Response.
     Ok(MachineIdList(
         grpc_conn
             .0
-            .list_measurement_bundle_machines(request)
+            .list_measurement_bundle_machines(ListMeasurementBundleMachinesRequest::try_from(
+                list_machines,
+            )?)
             .await?
             .machine_ids
             .iter()
@@ -379,16 +239,7 @@ pub async fn find_closest_match(
     grpc_conn: &ApiClient,
     args: FindClosestMatch,
 ) -> CarbideCliResult<Option<MeasurementBundle>> {
-    // At the moment, the request only contains report id
-    // but this can be expanded to contain journal id also
-    let request = match args {
-        FindClosestMatch::Report(report_id) => FindClosestBundleMatchRequest {
-            report_id: Some(report_id.id),
-        },
-    };
-
-    // Response.
-    let response = grpc_conn.0.find_closest_bundle_match(request).await?;
+    let response = grpc_conn.0.find_closest_bundle_match(args).await?;
 
     if response.bundle.is_none() {
         return Ok(None);

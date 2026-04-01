@@ -1,0 +1,34 @@
+name: Stale Issues and PRs
+
+on:
+  schedule:
+    - cron: "0 6 * * *"  # Daily at 6am UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  stale:
+    name: Mark stale issues and PRs
+    runs-on: linux-amd64-cpu4
+    permissions:
+      issues: write
+      pull-requests: write
+    timeout-minutes: 10
+    steps:
+      - uses: NVIDIA/dsx-github-actions/.github/actions/stale-check@d064e8779c341b8966dc811b2ae375c14b378738
+        # Refer to https://github.com/NVIDIA/dsx-github-actions/blob/main/docs/actions/stale-check.md for more details
+        with:
+          days-before-issue-stale: '60'
+          days-before-pr-stale: '30'
+          days-before-close: '7'
+          stale-issue-message: |
+            This issue has been inactive for 60 days and will be closed soon.
+            Please comment to keep it open.
+          stale-pr-message: |
+            This PR has been inactive for 30 days and will be closed soon.
+            Please push commits or comment to keep it open.
+          # Those labels are used to exempt issues and PRs from being marked or closed by the stale check
+          exempt-issue-labels: 'lifecycle/frozen,priority/critical,epic'
+          exempt-pr-labels: 'lifecycle/frozen,do-not-merge,wip'

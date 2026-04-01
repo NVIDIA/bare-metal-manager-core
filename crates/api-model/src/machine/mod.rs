@@ -27,6 +27,7 @@ use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
@@ -79,6 +80,21 @@ pub mod nvlink;
 pub mod topology;
 pub mod upgrade_policy;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DpuInfo {
+    pub id: String,
+    pub loopback_ip: String,
+}
+
+impl From<DpuInfo> for rpc::forge::DpuInfo {
+    fn from(info: DpuInfo) -> Self {
+        rpc::forge::DpuInfo {
+            id: info.id,
+            loopback_ip: info.loopback_ip,
+        }
+    }
+}
+
 type DpuDeviceMappings = (HashMap<MachineId, String>, HashMap<String, Vec<MachineId>>);
 
 pub fn get_display_ids(machines: &[Machine]) -> String {
@@ -105,14 +121,24 @@ pub struct ManagedHostStateSnapshot {
     pub managed_state: ManagedHostState,
     /// Aggregated health. This is calculated based on the health of Hosts and DPUs
     pub aggregate_health: health_report::HealthReport,
+    /// Health overrides inherited from the rack this host belongs to (if any).
+    /// Populated at read time; not stored on the machines table.
+    pub rack_health_overrides: Option<HealthReportOverrides>,
 }
 
 impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
     fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        #[derive(Deserialize)]
+        struct RackHealthOverrides {
+            json: HealthReportOverrides,
+        }
+
         let host_snapshot: sqlx::types::Json<MachineSnapshotPgJson> =
             row.try_get("host_snapshot")?;
         let dpu_snapshots: sqlx::types::Json<Vec<Option<MachineSnapshotPgJson>>> =
             row.try_get("dpu_snapshots")?;
+        let rack_health_overrides: sqlx::types::Json<Vec<Option<RackHealthOverrides>>> =
+            row.try_get("rack_health_overrides")?;
         // We are setting dpa_interface_snapshots to an emtpy vector here.
         // This will be filled by load_object_state later.
         let dpa_interface_snapshots: Vec<DpaInterface> = Vec::new();
@@ -135,6 +161,20 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()?;
 
+        let rack_health_overrides = rack_health_overrides
+            .0
+            .into_iter()
+            .next()
+            .flatten()
+            .and_then(|overrides| {
+                let overrides = overrides.json;
+                if overrides.replace.is_some() || !overrides.merges.is_empty() {
+                    Some(overrides)
+                } else {
+                    None
+                }
+            });
+
         // Instance network observation is fetched from dpu_snapshots.
         if let Some(instance) = &mut instance {
             instance.observations.network =
@@ -154,6 +194,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
             dpa_interface_snapshots,
             managed_state,
             instance,
+            rack_health_overrides,
             // This will need to be modified by callers, as its value depends on a
             // HardwareHealthReportsConfig being specified.
             aggregate_health: health_report::HealthReport::empty("".to_string()),
@@ -198,6 +239,31 @@ impl From<ManagedHostStateSnapshotError> for sqlx::Error {
 }
 
 impl ManagedHostStateSnapshot {
+    /// Returns `true` if override report is hw_health, `false` otherwise
+    fn merge_override_report_with_hw_health(
+        output: &mut HealthReport,
+        source: &str,
+        report: &mut HealthReport,
+        hardware_health_config: HardwareHealthReportsConfig,
+    ) -> bool {
+        if HealthReportOverrides::is_hardware_health_override_source(source) {
+            match hardware_health_config {
+                HardwareHealthReportsConfig::Disabled => {}
+                HardwareHealthReportsConfig::MonitorOnly => {
+                    for alert in &mut report.alerts {
+                        alert.classifications.clear();
+                    }
+                    output.merge(report)
+                }
+                HardwareHealthReportsConfig::Enabled => output.merge(report),
+            }
+            true
+        } else {
+            output.merge(report);
+            false
+        }
+    }
+
     /// Returns `Ok` if the Host can be used as an instance
     ///
     /// This requires
@@ -246,7 +312,8 @@ impl ManagedHostStateSnapshot {
         let observed_at = Some(chrono::Utc::now());
 
         // If there is an [`OverrideMode::Replace`] health report override on
-        // the host, then use that.
+        // the host, then use that. A host-level Replace takes full precedence,
+        // including over any rack-level overrides.
         if let Some(mut over) = self.host_snapshot.health_report_overrides.replace.clone() {
             over.source = source;
             over.observed_at = observed_at;
@@ -263,11 +330,6 @@ impl ManagedHostStateSnapshot {
             output.merge(sku_validation_health_report);
         }
 
-        // log parser reports are only merged if available, heartbeat timeout is not applicable
-        if let Some(input) = &self.host_snapshot.log_parser_health_report {
-            output.merge(input);
-        }
-
         if let Some(report) = self.host_snapshot.site_explorer_health_report.as_ref() {
             output.merge(report);
         }
@@ -281,33 +343,13 @@ impl ManagedHostStateSnapshot {
                         "".to_string(),
                         target,
                         "".to_string(),
+                        true,
+                        false,
                     ));
                 }
             };
 
-        // Merge hardware health if configured.
-        use HardwareHealthReportsConfig as HWConf;
-        match host_health_config.hardware_health_reports {
-            HWConf::Disabled => {}
-            HWConf::MonitorOnly => {
-                // If MonitorOnly, clear all alert classifications.
-                if let Some(h) = &mut self.host_snapshot.hardware_health_report {
-                    for alert in &mut h.alerts {
-                        alert.classifications.clear();
-                    }
-                    output.merge(h)
-                }
-            }
-            HWConf::Enabled => {
-                // If hw_health_reports are enabled, then add a heartbeat timeout
-                // if the report is missing.
-                merge_or_timeout(
-                    &mut output,
-                    &self.host_snapshot.hardware_health_report,
-                    "hardware-health".to_string(),
-                );
-            }
-        }
+        let mut has_hardware_health = false;
 
         // Merge DPU's alerts.  If DPU alerts should be suppressed, than remove the classification from the
         // alert so that metrics won't show a critical issue.
@@ -342,13 +384,40 @@ impl ManagedHostStateSnapshot {
                 output.merge(report);
             }
 
-            for over in snapshot.health_report_overrides.merges.values() {
-                output.merge(over);
+            for (source, over) in snapshot.health_report_overrides.merges.iter_mut() {
+                let merged_hardware = Self::merge_override_report_with_hw_health(
+                    &mut output,
+                    source,
+                    over,
+                    host_health_config.hardware_health_reports,
+                );
+                has_hardware_health |= merged_hardware;
             }
         }
 
-        for over in self.host_snapshot.health_report_overrides.merges.values() {
-            output.merge(over);
+        for (source, over) in self.host_snapshot.health_report_overrides.merges.iter_mut() {
+            let merged_hardware = Self::merge_override_report_with_hw_health(
+                &mut output,
+                source,
+                over,
+                host_health_config.hardware_health_reports,
+            );
+            has_hardware_health |= merged_hardware;
+        }
+
+        if host_health_config.hardware_health_reports == HardwareHealthReportsConfig::Enabled
+            && !has_hardware_health
+        {
+            merge_or_timeout(&mut output, &None, "hardware-health".to_string());
+        }
+
+        if let Some(rack_overrides) = &self.rack_health_overrides {
+            if let Some(rack_replace) = &rack_overrides.replace {
+                output.merge(rack_replace);
+            }
+            for rack_merge in rack_overrides.merges.values() {
+                output.merge(rack_merge);
+            }
         }
 
         output.source = source;
@@ -364,7 +433,18 @@ impl ManagedHostStateSnapshot {
         match dpu_machine_id {
             None => {
                 let mut rpc_machine: rpc::forge::Machine = self.host_snapshot.clone().into();
+                let state = &self.host_snapshot.state.value;
+                let version = &self.host_snapshot.state.version;
                 rpc_machine.health = Some(self.aggregate_health.clone().into());
+                rpc_machine.state_sla = Some(
+                    state_sla(
+                        &self.host_snapshot.id,
+                        state,
+                        version,
+                        &self.aggregate_health,
+                    )
+                    .into(),
+                );
                 Some(rpc_machine)
             }
             Some(dpu_machine_id) => {
@@ -588,7 +668,6 @@ impl Default for MachineLastRebootRequested {
 
 ///
 /// A machine is a standalone system that performs network booting via normal DHCP processes.
-///
 #[derive(Debug, Clone)]
 pub struct Machine {
     /// The ID of the machine, this is an internal identifier in the database that's unique for
@@ -650,12 +729,6 @@ pub struct Machine {
 
     /// Latest health report received by forge-dpu-agent
     pub dpu_agent_health_report: Option<HealthReport>,
-
-    /// Latest health report received by hardware-health
-    pub hardware_health_report: Option<HealthReport>,
-
-    /// Latest log parser health report received from the log parser
-    pub log_parser_health_report: Option<HealthReport>,
 
     /// Latest health report generated by validation tests
     pub machine_validation_health_report: HealthReport,
@@ -738,6 +811,9 @@ pub struct Machine {
     /// TEMPORARY: Used for workflow where manual upgrades are required before automatic ones
     /// TODO: Remove after upgrade-through-scout is complete
     pub manual_firmware_upgrade_completed: Option<DateTime<Utc>>,
+
+    /// The rack that this machine is associated with
+    pub rack_id: Option<RackId>,
 }
 
 // Dpf status field.
@@ -804,6 +880,16 @@ impl Machine {
     /// Return the current version of state of the machine.
     pub fn current_version(&self) -> ConfigVersion {
         self.state.version
+    }
+
+    /// K8s-safe identifier derived from the BMC MAC address, used as both the
+    /// DPF node and device component in CR names.
+    /// e.g. `9C:63:C0:E6:B4:3D` -> `9c-63-c0-e6-b4-3d`.
+    /// Not using Machine ID because it's too long, and not using IP because it's not stable.
+    pub fn dpf_id(&self) -> Option<String> {
+        self.bmc_info
+            .mac
+            .map(|mac| mac.to_string().to_lowercase().replace(':', "-"))
     }
 
     pub fn loopback_ip(&self) -> Option<IpAddr> {
@@ -992,6 +1078,8 @@ impl From<Machine> for rpc::forge::Machine {
                         "forge-dpu-agent".to_string(),
                         "forge-dpu-agent".to_string(),
                         "No health data was received from DPU".to_string(),
+                        true,
+                        false,
                     )
                 });
                 if let Some(hr) = machine.site_explorer_health_report.as_ref() {
@@ -1021,11 +1109,11 @@ impl From<Machine> for rpc::forge::Machine {
         };
 
         let associated_dpu_machine_ids = machine.associated_dpu_machine_ids();
-        let associated_dpu_machine_id = associated_dpu_machine_ids.first().copied();
         let instance_network_restrictions = Some(machine.instance_network_restrictions());
 
         rpc::Machine {
             id: Some(machine.id),
+            rack_id: machine.rack_id.clone(),
             state: if machine.is_dpu() {
                 machine.state.value.dpu_state_string(&machine.id)
             } else {
@@ -1037,7 +1125,15 @@ impl From<Machine> for rpc::forge::Machine {
             }),
             instance_type_id: machine.instance_type_id.map(|i| i.to_string()),
             state_version: machine.state.version.version_string(),
-            state_sla: Some(state_sla(&machine.state.value, &machine.state.version).into()),
+            state_sla: Some(
+                state_sla(
+                    &machine.id,
+                    &machine.state.value,
+                    &machine.state.version,
+                    &health,
+                )
+                .into(),
+            ),
             machine_type: *RpcMachineTypeWrapper::from(machine.id.machine_type()) as _,
             metadata: Some(machine.metadata.into()),
             version: machine.version.version_string(),
@@ -1077,7 +1173,6 @@ impl From<Machine> for rpc::forge::Machine {
             maintenance_start_time,
             associated_host_machine_id: None, // Gets filled in the `ManagedHostStateSnapshot` conversion
             associated_dpu_machine_ids,
-            associated_dpu_machine_id,
             inventory: Some(machine.inventory.unwrap_or_default().into()),
             last_reboot_requested_time: machine
                 .last_reboot_requested
@@ -1370,9 +1465,7 @@ impl NextStateBFBSupport<ReprovisionState> for ReprovisionState {
             dpf_based_dpu_provisioning_possible(state, dpf_enabled_at_site, true);
         if is_dpf_based_provisioning_possible {
             ReprovisionState::DpfStates {
-                substate: DpfState::TriggerReprovisioning {
-                    phase: ReprovisioningPhase::UpdateDpuStatusToError,
-                },
+                substate: DpfState::Reprovisioning,
             }
         } else if enable_secure_boot && bfb_support {
             tracing::info!("All DPUs support BFB install via Redfish");
@@ -1539,6 +1632,8 @@ pub enum FailureCause {
     MeasurementsRevoked { err: String },
 
     MeasurementsCAValidationFailed { err: String },
+
+    DpfProvisioning { err: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -1641,28 +1736,32 @@ pub enum DpuInitState {
     WaitingForNetworkInstall, // Deprecated now, not used
 }
 
+/// DPF operator integration states.
+///
+/// The DPF operator manages all internal provisioning logic. Carbide only
+/// declares the setup, waits for completion, and handles cleanup.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(tag = "dpfstate", rename_all = "lowercase")]
 pub enum DpfState {
-    CreateDpuDevice,
-    WaitForDpuDeviceToReady,
-    DpuDeviceCreated,
-    CreateDpuNode,
-    DpuDeviceReady,
-    TriggerReprovisioning { phase: ReprovisioningPhase }, // This is way to trigger re-provisioning of a DPU.
-    UpdateNodeEffectAnnotation,
-    WaitingForOsInstallToComplete,
-    WaitForNetworkConfigAndRemoveAnnotation,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
-#[serde(tag = "reprovisioningphase", rename_all = "lowercase")]
-pub enum ReprovisioningPhase {
-    // Only DPUs which needs reprovisioning will be updated to error phase and deleted.
-    UpdateDpuStatusToError,
-    DeleteDpu,
-    // Following is a sync state.
-    WaitingForAllDpusUnderReprovisioningToBeDeleted,
+    /// Registering DPU devices and node with DPF operator.
+    Provisioning,
+    /// Waiting for DPF operator to complete provisioning.
+    /// Watcher callbacks drive transitions (DPU ready, reboot required).
+    WaitingForReady {
+        /// Current DPU phase detail from DPF SDK while Provisioning (for debugging/observability only).
+        /// Carbide should not care about non actionable DPF internal phases.
+        #[serde(default)]
+        phase_detail: Option<String>,
+    },
+    /// DPU device reported ready by the DPF operator. Carbide
+    /// waits for all DPUs to reach this state before proceeding.
+    DeviceReady,
+    /// Triggering reprovisioning via DPF operator.
+    Reprovisioning,
+    /// Catch-all for unrecognized variant tags stored by a previous implementation.
+    /// The state handler transitions this back to `Provisioning`.
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
@@ -1889,15 +1988,30 @@ pub enum InstanceState {
 pub enum HostPlatformConfigurationState {
     PowerCycle {
         power_on: bool,
+        /// Number of times we have sent power-on and are still waiting for the host to come up.
+        #[serde(default)]
+        power_on_retry_count: u32,
+    },
+    UnlockHost {
+        #[serde(default)]
+        unlock_host_state: UnlockHostState,
     },
     CheckHostConfig,
-    UnlockHost,
     ConfigureBios,
     PollingBiosSetup,
     SetBootOrder {
         set_boot_order_info: SetBootOrderInfo,
     },
     LockHost,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum UnlockHostState {
+    #[default]
+    DisableLockdown,
+    RebootHost,
+    WaitForUefiBoot,
 }
 
 /// Struct to store information if Reprovision is requested.
@@ -2004,6 +2118,7 @@ impl Display for FailureCause {
             FailureCause::MeasurementsCAValidationFailed { .. } => {
                 write!(f, "MeasurementsCAValidationFailed")
             }
+            FailureCause::DpfProvisioning { .. } => write!(f, "DpfProvisioning"),
         }
     }
 }
@@ -2281,7 +2396,7 @@ pub fn get_action_for_dpu_state(
                 ReprovisionState::BufferTime => (Action::Retry, None),
                 ReprovisionState::WaitingForNetworkInstall
                 | ReprovisionState::DpfStates {
-                    substate: DpfState::WaitingForOsInstallToComplete,
+                    substate: DpfState::WaitingForReady { .. },
                 } => (Action::Discovery, None),
                 _ => {
                     tracing::info!(
@@ -2303,7 +2418,7 @@ pub fn get_action_for_dpu_state(
             match dpu_state {
                 DpuInitState::Init
                 | DpuInitState::DpfStates {
-                    state: DpfState::WaitingForOsInstallToComplete,
+                    state: DpfState::WaitingForReady { .. },
                 } => (Action::Discovery, None),
                 _ => {
                     tracing::info!(
@@ -2367,8 +2482,30 @@ impl From<MachineHealthHistoryRecord> for rpc::forge::MachineHealthHistoryRecord
     }
 }
 
-/// Returns the SLA for the current state
-pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> StateSla {
+/// Returns the SLA for the current state.
+///
+/// If any alert in `aggregate_health` carries the `ExcludeFromStateMachineSla` classification,
+/// no SLA applies regardless of the current state. This allows operators to suppress
+/// SLA violations during manual operations without stopping the state machine.
+pub fn state_sla(
+    machine_id: &MachineId,
+    state: &ManagedHostState,
+    state_version: &ConfigVersion,
+    aggregate_health: &health_report::HealthReport,
+) -> StateSla {
+    let exclude = health_report::HealthAlertClassification::exclude_from_state_machine_sla();
+    if aggregate_health
+        .alerts
+        .iter()
+        .any(|a| a.classifications.contains(&exclude))
+    {
+        tracing::debug!(
+            machine_id = %machine_id,
+            "Skipping state machine SLA for machine due to {exclude} classification"
+        );
+        return StateSla::no_sla();
+    }
+
     let time_in_state = chrono::Utc::now()
         .signed_duration_since(state_version.timestamp())
         .to_std()
@@ -2422,6 +2559,9 @@ pub fn state_sla(state: &ManagedHostState, state_version: &ConfigVersion) -> Sta
             InstanceState::BootingWithDiscoveryImage { retry } if retry.count > 0 => {
                 // Since retries happen after 30min, the occurence of any retry means we exhausted the SLA
                 StateSla::with_sla(std::time::Duration::ZERO, time_in_state)
+            }
+            InstanceState::HostPlatformConfiguration { .. } => {
+                StateSla::with_sla(slas::ASSIGNED_HOST_PLATFORM_CONFIGURATION, time_in_state)
             }
             _ => StateSla::with_sla(slas::ASSIGNED, time_in_state),
         },
@@ -2743,6 +2883,240 @@ mod tests {
             }
         );
     }
+
+    /// Current tags deserialize to the correct variant and round-trip.
+    #[test]
+    fn test_dpf_state_deserialize_current_tags_and_roundtrip() {
+        for (json_tag, expected) in [
+            (r#"{"dpfstate":"provisioning"}"#, DpfState::Provisioning),
+            (
+                r#"{"dpfstate":"waitingforready"}"#,
+                DpfState::WaitingForReady { phase_detail: None },
+            ),
+            (
+                r#"{"dpfstate":"waitingforready","phase_detail":"some-detail"}"#,
+                DpfState::WaitingForReady {
+                    phase_detail: Some("some-detail".to_string()),
+                },
+            ),
+            (r#"{"dpfstate":"deviceready"}"#, DpfState::DeviceReady),
+            (r#"{"dpfstate":"reprovisioning"}"#, DpfState::Reprovisioning),
+        ] {
+            let parsed: DpfState = serde_json::from_str(json_tag).unwrap();
+            assert_eq!(
+                parsed, expected,
+                "tag {} should deserialize to {:?}",
+                json_tag, expected
+            );
+            let serialized = serde_json::to_string(&parsed).unwrap();
+            let roundtrip: DpfState = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(
+                roundtrip, expected,
+                "round-trip for {:?} must preserve value",
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_dpf_state_unknown_variant_falls_back() {
+        for json in [
+            r#"{"dpfstate":"somethingold"}"#,
+            r#"{"dpfstate":"bogus","extra":"field"}"#,
+        ] {
+            let parsed: DpfState = serde_json::from_str(json).unwrap();
+            assert_eq!(parsed, DpfState::Unknown);
+        }
+    }
+
+    fn alert_with_classifications(
+        classifications: Vec<health_report::HealthAlertClassification>,
+    ) -> health_report::HealthProbeAlert {
+        health_report::HealthProbeAlert {
+            id: health_report::HealthProbeId::heartbeat_timeout(),
+            target: None,
+            in_alert_since: Some(chrono::Utc::now()),
+            message: "test alert".to_string(),
+            tenant_message: None,
+            classifications,
+        }
+    }
+
+    fn health_report_with_alerts(
+        alerts: Vec<health_report::HealthProbeAlert>,
+    ) -> health_report::HealthReport {
+        health_report::HealthReport {
+            source: "test".to_string(),
+            triggered_by: None,
+            observed_at: Some(chrono::Utc::now()),
+            successes: vec![],
+            alerts,
+        }
+    }
+
+    /// State with a non-zero SLA returns no_sla when ExcludeFromStateMachineSla
+    /// classification is present on the single alert.
+    #[test]
+    fn test_state_sla_exclude_classification_overrides_sla() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let state = ManagedHostState::Created;
+        let state_version = ConfigVersion::initial();
+        let health = health_report_with_alerts(vec![alert_with_classifications(vec![
+            health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
+        ])]);
+
+        let sla = state_sla(&machine_id, &state, &state_version, &health);
+
+        assert!(sla.sla.is_none(), "SLA should be absent when excluded");
+        assert!(
+            !sla.time_in_state_above_sla,
+            "time_in_state_above_sla should be false when excluded"
+        );
+    }
+
+    /// When there are multiple alerts and only one carries the
+    /// ExcludeFromStateMachineSla classification, the SLA is still suppressed.
+    #[test]
+    fn test_state_sla_exclude_classification_on_one_of_multiple_alerts_suppresses_sla() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let state = ManagedHostState::Created;
+        let state_version = ConfigVersion::initial();
+        let health = health_report_with_alerts(vec![
+            // Alert without the exclusion classification
+            alert_with_classifications(vec![
+                health_report::HealthAlertClassification::prevent_allocations(),
+            ]),
+            // Alert with the exclusion classification
+            alert_with_classifications(vec![
+                health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
+            ]),
+        ]);
+
+        let sla = state_sla(&machine_id, &state, &state_version, &health);
+
+        assert!(
+            sla.sla.is_none(),
+            "SLA should be absent even if only one alert carries the exclusion classification"
+        );
+        assert!(!sla.time_in_state_above_sla);
+    }
+
+    /// Without the ExcludeFromStateMachineSla classification, the normal SLA
+    /// applies to states that have one defined.
+    #[test]
+    fn test_state_sla_without_exclude_classification_normal_sla_applies() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let state = ManagedHostState::Created;
+        let state_version = ConfigVersion::initial();
+        let health = health_report_with_alerts(vec![alert_with_classifications(vec![
+            health_report::HealthAlertClassification::prevent_allocations(),
+        ])]);
+
+        let sla = state_sla(&machine_id, &state, &state_version, &health);
+
+        assert!(
+            sla.sla.is_some(),
+            "SLA should be present when exclusion classification is absent"
+        );
+    }
+
+    /// An empty health report (no alerts) does not trigger the exclusion —
+    /// normal SLA logic applies.
+    #[test]
+    fn test_state_sla_empty_health_report_normal_sla_applies() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let state = ManagedHostState::Created;
+        let state_version = ConfigVersion::initial();
+        let health = health_report_with_alerts(vec![]);
+
+        let sla = state_sla(&machine_id, &state, &state_version, &health);
+
+        assert!(
+            sla.sla.is_some(),
+            "SLA should be present when there are no alerts"
+        );
+    }
+
+    /// The ExcludeFromStateMachineSla classification suppresses the SLA even
+    /// for the Failed state, which ordinarily has an always-violated SLA (duration 0).
+    #[test]
+    fn test_state_sla_exclude_classification_overrides_failed_state_sla() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let state = ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: FailureCause::NoError,
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::NoError,
+            },
+            machine_id,
+            retry_count: 1,
+        };
+        let state_version = ConfigVersion::initial();
+        let health = health_report_with_alerts(vec![alert_with_classifications(vec![
+            health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
+        ])]);
+
+        let sla = state_sla(&machine_id, &state, &state_version, &health);
+
+        assert!(
+            sla.sla.is_none(),
+            "SLA should be suppressed for Failed state when excluded"
+        );
+        assert!(!sla.time_in_state_above_sla);
+    }
+
+    /// Without the exclusion classification on a Failed machine, the SLA is
+    /// immediately violated (duration 0).
+    #[test]
+    fn test_state_sla_failed_state_without_exclude_classification_is_above_sla() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let state = ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: FailureCause::NoError,
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::NoError,
+            },
+            machine_id,
+            retry_count: 1,
+        };
+        let state_version = ConfigVersion::initial();
+        let health = health_report_with_alerts(vec![]);
+
+        let sla = state_sla(&machine_id, &state, &state_version, &health);
+
+        assert_eq!(
+            sla.sla,
+            Some(std::time::Duration::ZERO),
+            "Failed state should have a zero-duration SLA"
+        );
+        assert!(
+            sla.time_in_state_above_sla,
+            "Failed state should always be above SLA"
+        );
+    }
+
+    #[test]
+    fn dpu_info_to_rpc() {
+        let info = DpuInfo {
+            id: "dpu-123".to_string(),
+            loopback_ip: "10.0.0.1".to_string(),
+        };
+        let rpc_info: rpc::forge::DpuInfo = info.into();
+        assert_eq!(rpc_info.id, "dpu-123");
+        assert_eq!(rpc_info.loopback_ip, "10.0.0.1");
+    }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
@@ -2762,6 +3136,14 @@ pub struct HostHealthConfig {
     /// Whether to fail health checks if a DPU agent version is stale
     #[serde(default)]
     pub prevent_allocations_on_stale_dpu_agent_version: bool,
+
+    /// Whether the scout heartbeat timeout alert should prevent allocations
+    #[serde(default)]
+    pub prevent_allocations_on_scout_heartbeat_timeout: bool,
+
+    /// Whether the scout heartbeat timeout alert should suppress external alerting
+    #[serde(default = "HostHealthConfig::default_suppress_ext_alert_on_scout_heartbeat")]
+    pub suppress_external_alerting_on_scout_heartbeat_timeout: bool,
 }
 
 /// As of now, chrono::Duration does not support Serialization, so we have to handle it manually.
@@ -2779,6 +3161,9 @@ impl Default for HostHealthConfig {
             dpu_agent_version_staleness_threshold:
                 Self::dpu_agent_version_staleness_threshold_default(),
             prevent_allocations_on_stale_dpu_agent_version: false,
+            prevent_allocations_on_scout_heartbeat_timeout: false,
+            suppress_external_alerting_on_scout_heartbeat_timeout:
+                Self::default_suppress_ext_alert_on_scout_heartbeat(),
         }
     }
 }
@@ -2786,6 +3171,10 @@ impl Default for HostHealthConfig {
 impl HostHealthConfig {
     pub fn dpu_agent_version_staleness_threshold_default() -> Duration {
         Duration::days(1)
+    }
+
+    fn default_suppress_ext_alert_on_scout_heartbeat() -> bool {
+        true
     }
 }
 

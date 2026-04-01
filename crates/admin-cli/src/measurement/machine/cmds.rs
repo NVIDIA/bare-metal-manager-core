@@ -17,12 +17,9 @@
 
 //!
 //! `measurement mock-machine` subcommand dispatcher + backing functions.
-//!
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
-use ::rpc::protos::measured_boot::{
-    AttestCandidateMachineRequest, ShowCandidateMachineRequest, show_candidate_machine_request,
-};
+use ::rpc::protos::measured_boot::ShowCandidateMachineRequest;
 use measured_boot::machine::CandidateMachine;
 use measured_boot::records::CandidateMachineSummary;
 use measured_boot::report::MeasurementReport;
@@ -75,14 +72,7 @@ pub async fn dispatch(
 /// attest sends attestation data for the given machine ID, as in, PCR
 /// register + value pairings, which results in a journal entry being made.
 pub async fn attest(grpc_conn: &ApiClient, attest: Attest) -> CarbideCliResult<MeasurementReport> {
-    // Request.
-    let request = AttestCandidateMachineRequest {
-        machine_id: attest.machine_id.to_string(),
-        pcr_values: attest.values.into_iter().map(Into::into).collect(),
-    };
-
-    // Response.
-    let response = grpc_conn.0.attest_candidate_machine(request).await?;
+    let response = grpc_conn.0.attest_candidate_machine(attest).await?;
 
     MeasurementReport::from_grpc(response.report.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
@@ -90,27 +80,10 @@ pub async fn attest(grpc_conn: &ApiClient, attest: Attest) -> CarbideCliResult<M
 
 /// show_by_id shows all info about a given machine ID.
 pub async fn show_by_id(grpc_conn: &ApiClient, show: Show) -> CarbideCliResult<CandidateMachine> {
-    // Prepare.
-    // TODO(chet): This exists just because of how I'm dispatching
-    // commands, since &Show gets reused for showing all (where machine_id
-    // is unset, or showing a specific machine ID). Ultimately this
-    // shouldn't ever actually get hit, but it exists just incase. That
-    // said, I should look into see if I can just have clap validate this.
-    let Some(machine_id) = show.machine_id else {
-        return Err(CarbideCliError::GenericError(String::from(
-            "machine_id must be set to get a machine",
-        )));
-    };
-
-    // Request.
-    let request = ShowCandidateMachineRequest {
-        selector: Some(show_candidate_machine_request::Selector::MachineId(
-            machine_id.to_string(),
-        )),
-    };
-
-    // Response.
-    let response = grpc_conn.0.show_candidate_machine(request).await?;
+    let response = grpc_conn
+        .0
+        .show_candidate_machine(ShowCandidateMachineRequest::try_from(show)?)
+        .await?;
 
     CandidateMachine::from_grpc(response.machine.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))

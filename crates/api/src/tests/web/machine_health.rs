@@ -23,7 +23,7 @@ use rpc::forge::forge_server::Forge;
 use tower::ServiceExt;
 
 use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
-use crate::tests::web::{authenticated_request_builder, make_test_app};
+use crate::tests::web::{make_test_app, web_request_builder};
 
 #[crate::sqlx_test]
 async fn test_health_of_nonexisting_machine(pool: sqlx::PgPool) {
@@ -34,7 +34,7 @@ async fn test_health_of_nonexisting_machine(pool: sqlx::PgPool) {
         let response = app
             .clone()
             .oneshot(
-                authenticated_request_builder()
+                web_request_builder()
                     .uri(format!("/admin/machine/{machine_id}/health"))
                     .body(Body::empty())
                     .unwrap(),

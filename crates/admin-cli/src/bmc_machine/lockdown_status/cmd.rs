@@ -21,7 +21,7 @@ use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn lockdown_status(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let response = api_client.lockdown_status(None, args.machine).await?;
+    let response = api_client.0.lockdown_status(args).await?;
     // Convert status enum to string
     let status_str = match response.status {
         0 => "Enabled",  // InternalLockdownStatus::ENABLED

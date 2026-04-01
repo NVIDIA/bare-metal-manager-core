@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
+use carbide_network::virtualization::{DEFAULT_NETWORK_VIRTUALIZATION_TYPE, VpcVirtualizationType};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::network_security_group::{
     NetworkSecurityGroupId, NetworkSecurityGroupIdParseError,
@@ -25,13 +26,12 @@ use carbide_uuid::vpc::VpcId;
 use carbide_uuid::vpc_peering::VpcPeeringId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
-use forge_network::virtualization::{DEFAULT_NETWORK_VIRTUALIZATION_TYPE, VpcVirtualizationType};
 use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 
-use crate::metadata::Metadata;
+use crate::metadata::{LabelFilter, Metadata};
 use crate::tenant::RoutingProfileType;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -57,6 +57,23 @@ pub struct Vpc {
     pub vni: Option<i32>,
     pub metadata: Metadata,
     pub status: Option<VpcStatus>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct VpcSearchFilter {
+    pub name: Option<String>,
+    pub tenant_org_id: Option<String>,
+    pub label: Option<LabelFilter>,
+}
+
+impl From<rpc::forge::VpcSearchFilter> for VpcSearchFilter {
+    fn from(filter: rpc::forge::VpcSearchFilter) -> Self {
+        VpcSearchFilter {
+            name: filter.name,
+            tenant_org_id: filter.tenant_org_id,
+            label: filter.label.map(LabelFilter::from),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -372,5 +389,57 @@ impl From<VpcPeering> for rpc::forge::VpcPeering {
             vpc_id,
             peer_vpc_id,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vpc_search_filter_from_rpc_all_fields() {
+        let rpc_filter = rpc::forge::VpcSearchFilter {
+            name: Some("my-vpc".to_string()),
+            tenant_org_id: Some("org-123".to_string()),
+            label: Some(rpc::forge::Label {
+                key: "env".to_string(),
+                value: Some("prod".to_string()),
+            }),
+        };
+        let filter = VpcSearchFilter::from(rpc_filter);
+        assert_eq!(filter.name, Some("my-vpc".to_string()));
+        assert_eq!(filter.tenant_org_id, Some("org-123".to_string()));
+        let label = filter.label.unwrap();
+        assert_eq!(label.key, "env");
+        assert_eq!(label.value, Some("prod".to_string()));
+    }
+
+    #[test]
+    fn vpc_search_filter_from_rpc_no_fields() {
+        let rpc_filter = rpc::forge::VpcSearchFilter {
+            name: None,
+            tenant_org_id: None,
+            label: None,
+        };
+        let filter = VpcSearchFilter::from(rpc_filter);
+        assert_eq!(filter.name, None);
+        assert_eq!(filter.tenant_org_id, None);
+        assert!(filter.label.is_none());
+    }
+
+    #[test]
+    fn vpc_search_filter_from_rpc_label_key_only() {
+        let rpc_filter = rpc::forge::VpcSearchFilter {
+            name: None,
+            tenant_org_id: None,
+            label: Some(rpc::forge::Label {
+                key: "team".to_string(),
+                value: None,
+            }),
+        };
+        let filter = VpcSearchFilter::from(rpc_filter);
+        let label = filter.label.unwrap();
+        assert_eq!(label.key, "team");
+        assert_eq!(label.value, None);
     }
 }

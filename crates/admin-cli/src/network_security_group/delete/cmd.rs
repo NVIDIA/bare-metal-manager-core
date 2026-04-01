@@ -16,20 +16,14 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge::DeleteNetworkSecurityGroupRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 /// Delete a network security group.
 pub async fn delete(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    api_client
-        .0
-        .delete_network_security_group(DeleteNetworkSecurityGroupRequest {
-            id: args.id.clone(),
-            tenant_organization_id: args.tenant_organization_id,
-        })
-        .await?;
-    println!("Deleted network security group {} successfully.", args.id);
+    let id = args.id.clone();
+    api_client.0.delete_network_security_group(args).await?;
+    println!("Deleted network security group {} successfully.", id);
     Ok(())
 }

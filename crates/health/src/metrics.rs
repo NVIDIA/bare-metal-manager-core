@@ -31,7 +31,9 @@ use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use prometheus::core::{Collector, Desc};
 use prometheus::proto::LabelPair;
-use prometheus::{Encoder, Registry, TextEncoder, proto};
+use prometheus::{
+    Encoder, HistogramOpts, HistogramVec, IntCounterVec, Registry, TextEncoder, proto,
+};
 use tokio::net::TcpListener;
 
 use crate::HealthError;
@@ -45,25 +47,95 @@ pub fn operation_duration_buckets_seconds() -> Vec<f64> {
     ]
 }
 
-pub struct MetricsManager {
-    global_registry: Registry,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ComponentKind {
+    Collector,
+    Processor,
+    Sink,
 }
 
-impl Default for MetricsManager {
-    fn default() -> Self {
-        Self::new()
+impl ComponentKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Collector => "collector",
+            Self::Processor => "processor",
+            Self::Sink => "sink",
+        }
     }
 }
 
-impl MetricsManager {
-    pub fn new() -> Self {
-        Self {
-            global_registry: Registry::new(),
+#[derive(Clone)]
+pub struct ComponentMetrics {
+    failures_total: IntCounterVec,
+    duration_seconds: HistogramVec,
+}
+
+impl ComponentMetrics {
+    pub fn new(registry: &Registry, prefix: &str) -> Result<Self, prometheus::Error> {
+        let failures_total = IntCounterVec::new(
+            prometheus::Opts::new(
+                format!("{prefix}_component_failures_total"),
+                "Count of component operation failures",
+            ),
+            &["component_kind", "component_name"],
+        )?;
+        registry.register(Box::new(failures_total.clone()))?;
+
+        let duration_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                format!("{prefix}_component_duration_seconds"),
+                "Duration of component operations",
+            )
+            .buckets(operation_duration_buckets_seconds()),
+            &["component_kind", "component_name"],
+        )?;
+        registry.register(Box::new(duration_seconds.clone()))?;
+
+        Ok(Self {
+            failures_total,
+            duration_seconds,
+        })
+    }
+
+    pub fn record_operation(
+        &self,
+        kind: ComponentKind,
+        name: &str,
+        duration: std::time::Duration,
+        success: bool,
+    ) {
+        let labels = [kind.as_str(), name];
+        self.duration_seconds
+            .with_label_values(&labels)
+            .observe(duration.as_secs_f64());
+        if !success {
+            self.failures_total.with_label_values(&labels).inc();
         }
+    }
+}
+
+pub struct MetricsManager {
+    global_registry: Registry,
+    component_metrics: Arc<ComponentMetrics>,
+}
+
+impl MetricsManager {
+    pub fn new(prefix: &str) -> Result<Self, prometheus::Error> {
+        let global_registry = Registry::new();
+        let component_metrics = Arc::new(ComponentMetrics::new(&global_registry, prefix)?);
+
+        Ok(Self {
+            global_registry,
+            component_metrics,
+        })
     }
 
     pub fn global_registry(&self) -> &Registry {
         &self.global_registry
+    }
+
+    pub fn component_metrics(&self) -> Arc<ComponentMetrics> {
+        self.component_metrics.clone()
     }
 
     pub fn create_collector_registry(

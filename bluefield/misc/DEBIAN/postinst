@@ -22,6 +22,12 @@ if [ "$1" = "configure" ]; then
 	if [ -d /etc/otelcol-contrib/fd_configs ]; then
 		rmdir --ignore-fail-on-non-empty /etc/otelcol-contrib/fd_configs
 	fi
+	if [ -f /etc/ssl/certs/forge-dpu-otel-agent.pem ]; then
+		rm -f /etc/ssl/certs/forge-dpu-otel-agent.pem
+	fi
+	if [ -f /etc/ssl/private/forge-dpu-otel-agent.key ]; then
+		rm -f /etc/ssl/private/forge-dpu-otel-agent.key
+	fi
 
 	# Do not depend on starting services now, as this package is installed early in setup
 	# and should not hang or cause out of order steps in discovery workflows. The discovery

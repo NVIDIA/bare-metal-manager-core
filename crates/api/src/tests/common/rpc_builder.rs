@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use carbide_uuid::compute_allocation::ComputeAllocationId;
+
 use crate::tests::common::api_fixtures::instance::{default_os_config, default_tenant_config};
 
 // Reflection of rpc::forge::DhcpDiscovery. It should contain exactly
@@ -84,6 +86,17 @@ pub struct InstanceAllocationRequest {
     pub allow_unhealthy_machine: bool,
 }
 
+// Reflection of rpc::forge::InstanceConfigUpdateRequest. It should contain exactly
+// the same fields as rpc::forge::InstanceAllocationRequest. Otherwise it will
+// produce error on carbide_prost_builder::Builder derivation.
+#[derive(carbide_prost_builder::Builder)]
+pub struct InstanceConfigUpdateRequest {
+    pub config: ::core::option::Option<::rpc::forge::InstanceConfig>,
+    pub instance_id: ::core::option::Option<::carbide_uuid::instance::InstanceId>,
+    pub metadata: ::core::option::Option<::rpc::forge::Metadata>,
+    pub if_version_match: ::core::option::Option<::prost::alloc::string::String>,
+}
+
 // Reflection of rpc::forge::InstanceConfig. It should contain exactly
 // the same fields as rpc::forge::InstanceConfig. Otherwise it will
 // produce error on carbide_prost_builder::Builder derivation.
@@ -105,4 +118,39 @@ impl InstanceConfig {
             .tenant(default_tenant_config())
             .os(default_os_config())
     }
+}
+
+// Reflection of rpc::forge::ComputeAllocationAttributes.
+#[derive(carbide_prost_builder::Builder)]
+pub struct ComputeAllocationAttributes {
+    pub instance_type_id: ::prost::alloc::string::String,
+    pub count: u32,
+}
+
+// Reflection of rpc::forge::CreateComputeAllocationRequest.
+#[derive(carbide_prost_builder::Builder)]
+pub struct CreateComputeAllocationRequest {
+    pub id: ::core::option::Option<ComputeAllocationId>,
+    pub tenant_organization_id: ::prost::alloc::string::String,
+    pub created_by: ::core::option::Option<::prost::alloc::string::String>,
+    pub metadata: ::core::option::Option<::rpc::forge::Metadata>,
+    pub attributes: ::core::option::Option<::rpc::forge::ComputeAllocationAttributes>,
+}
+
+// Reflection of rpc::forge::UpdateComputeAllocationRequest.
+#[derive(carbide_prost_builder::Builder)]
+pub struct UpdateComputeAllocationRequest {
+    pub id: ::core::option::Option<ComputeAllocationId>,
+    pub tenant_organization_id: ::prost::alloc::string::String,
+    pub metadata: ::core::option::Option<::rpc::forge::Metadata>,
+    pub attributes: ::core::option::Option<::rpc::forge::ComputeAllocationAttributes>,
+    pub if_version_match: ::core::option::Option<::prost::alloc::string::String>,
+    pub updated_by: ::core::option::Option<::prost::alloc::string::String>,
+}
+
+// Reflection of rpc::forge::DeleteComputeAllocationRequest.
+#[derive(carbide_prost_builder::Builder)]
+pub struct DeleteComputeAllocationRequest {
+    pub id: ::core::option::Option<ComputeAllocationId>,
+    pub tenant_organization_id: ::prost::alloc::string::String,
 }

@@ -22,3 +22,11 @@ pub struct Args {
     /// The IP address we are looking to identify
     pub ip: std::net::IpAddr,
 }
+
+impl From<Args> for ::rpc::forge::FindIpAddressRequest {
+    fn from(args: Args) -> Self {
+        Self {
+            ip: args.ip.to_string(),
+        }
+    }
+}

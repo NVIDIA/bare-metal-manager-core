@@ -64,21 +64,27 @@ pub async fn handle_import_site_measurements(
     // make sure its good).
     let site_model = match &req.model {
         Some(site_model_pb) => SiteModel::from_pb(site_model_pb).map_err(|e| {
-            Status::invalid_argument(format!("input site model failed translation: {e}"))
+            CarbideError::InvalidArgument(format!("input site model failed translation: {e}"))
         })?,
-        None => return Err(Status::invalid_argument("site model cannot be empty")),
+        None => {
+            return Err(
+                CarbideError::InvalidArgument("site model cannot be empty".to_string()).into(),
+            );
+        }
     };
 
     // And now import it!
     let result = db::measured_boot::site::import(&mut txn, &site_model)
         .await
-        .map_err(|e| Status::internal(format!("site import failed: {e}")))
+        .map_err(|e| CarbideError::Internal {
+            message: format!("site import failed: {e}"),
+        })
         .map(|_| ImportSiteMeasurementsResponse {
             result: ImportSiteResult::Success.into(),
         });
 
     txn.commit().await?;
-    result
+    Ok(result?)
 }
 
 /// handle_export_site_measurements handles the ExportSiteMeasurements
@@ -89,12 +95,15 @@ pub async fn handle_export_site_measurements(
 ) -> Result<ExportSiteMeasurementsResponse, Status> {
     let site_model = db::measured_boot::site::export(&mut api.db_reader())
         .await
-        .map_err(|e| Status::internal(format!("export failed: {e}")))?;
+        .map_err(|e| CarbideError::Internal {
+            message: format!("export failed: {e}"),
+        })?;
 
     Ok(ExportSiteMeasurementsResponse {
         model: Some(
-            SiteModel::to_pb(&site_model)
-                .map_err(|e| Status::internal(format!("model to pb failed: {e}")))?,
+            SiteModel::to_pb(&site_model).map_err(|e| CarbideError::Internal {
+                message: format!("model to pb failed: {e}"),
+            })?,
         ),
     })
 }
@@ -117,7 +126,9 @@ pub async fn handle_add_measurement_trusted_machine(
         Some(req.comments),
     )
     .await
-    .map_err(|e| Status::internal(format!("failed to insert trusted machine approval: {e}")))?;
+    .map_err(|e| CarbideError::Internal {
+        message: format!("failed to insert trusted machine approval: {e}"),
+    })?;
 
     txn.commit().await?;
     Ok(AddMeasurementTrustedMachineResponse {
@@ -138,7 +149,9 @@ pub async fn handle_remove_measurement_trusted_machine(
         Some(remove_measurement_trusted_machine_request::Selector::ApprovalId(approval_uuid)) => {
             remove_from_approved_machines_by_approval_id(&mut txn, approval_uuid)
                 .await
-                .map_err(|e| Status::internal(format!("removal failed: {e}")))?
+                .map_err(|e| CarbideError::Internal {
+                    message: format!("removal failed: {e}"),
+                })?
         }
         // Remove by machine ID.
         Some(remove_measurement_trusted_machine_request::Selector::MachineId(machine_id)) => {
@@ -149,13 +162,16 @@ pub async fn handle_remove_measurement_trusted_machine(
                 })?,
             )
             .await
-            .map_err(|e| Status::internal(format!("removal failed: {e}")))?
+            .map_err(|e| CarbideError::Internal {
+                message: format!("removal failed: {e}"),
+            })?
         }
         // Oops, forgot to set a selector.
         None => {
-            return Err(Status::invalid_argument(
-                "approval or machine ID selector missing",
-            ));
+            return Err(CarbideError::InvalidArgument(
+                "approval or machine ID selector missing".into(),
+            )
+            .into());
         }
     };
 
@@ -174,7 +190,9 @@ pub async fn handle_list_measurement_trusted_machines(
     let approval_records: Vec<MeasurementApprovedMachineRecordPb> =
         get_approved_machines(&api.database_connection)
             .await
-            .map_err(|e| Status::internal(format!("failed to fetch machine approvals: {e}")))?
+            .map_err(|e| CarbideError::Internal {
+                message: format!("failed to fetch machine approvals: {e}"),
+            })?
             .into_iter()
             .map(|record| record.into())
             .collect();
@@ -199,7 +217,9 @@ pub async fn handle_add_measurement_trusted_profile(
         req.comments,
     )
     .await
-    .map_err(|e| Status::internal(format!("failed to insert trusted profile approval: {e}")))?;
+    .map_err(|e| CarbideError::Internal {
+        message: format!("failed to insert trusted profile approval: {e}"),
+    })?;
 
     txn.commit().await?;
     Ok(AddMeasurementTrustedProfileResponse {
@@ -219,19 +239,24 @@ pub async fn handle_remove_measurement_trusted_profile(
         Some(remove_measurement_trusted_profile_request::Selector::ApprovalId(approval_uuid)) => {
             remove_from_approved_profiles_by_approval_id(&mut txn, approval_uuid)
                 .await
-                .map_err(|e| Status::internal(format!("removal failed: {e}")))?
+                .map_err(|e| CarbideError::Internal {
+                    message: format!("removal failed: {e}"),
+                })?
         }
         // Remove by profile ID.
         Some(remove_measurement_trusted_profile_request::Selector::ProfileId(profile_id)) => {
             remove_from_approved_profiles_by_profile_id(&mut txn, profile_id)
                 .await
-                .map_err(|e| Status::internal(format!("removal failed: {e}")))?
+                .map_err(|e| CarbideError::Internal {
+                    message: format!("removal failed: {e}"),
+                })?
         }
         // Oops, forgot to set a selector.
         None => {
-            return Err(Status::invalid_argument(
-                "approval or profile ID selector missing",
-            ));
+            return Err(CarbideError::InvalidArgument(
+                "approval or profile ID selector missing".into(),
+            )
+            .into());
         }
     };
 
@@ -250,7 +275,9 @@ pub async fn handle_list_measurement_trusted_profiles(
     let approval_records: Vec<MeasurementApprovedProfileRecordPb> =
         get_approved_profiles(&api.database_connection)
             .await
-            .map_err(|e| Status::internal(format!("failed to fetch profile approvals: {e}")))?
+            .map_err(|e| CarbideError::Internal {
+                message: format!("failed to fetch profile approvals: {e}"),
+            })?
             .into_iter()
             .map(|record| record.into())
             .collect();
@@ -264,7 +291,9 @@ pub async fn handle_list_attestation_summary(
 ) -> Result<ListAttestationSummaryResponse, Status> {
     let attestation_summary = list_attestation_summary(&api.database_connection)
         .await
-        .map_err(|e| Status::internal(format!("failed to fetch attestation summary: {e}")))?;
+        .map_err(|e| CarbideError::Internal {
+            message: format!("failed to fetch attestation summary: {e}"),
+        })?;
 
     Ok(MachineAttestationSummaryList::to_grpc(&attestation_summary))
 }

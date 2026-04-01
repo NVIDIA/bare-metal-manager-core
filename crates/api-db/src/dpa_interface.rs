@@ -32,7 +32,7 @@ use model::dpa_interface::{
 use model::machine::LoadSnapshotOptions;
 use sqlx::PgConnection;
 
-use super::{DatabaseError, dpa_interface_state_history};
+use super::DatabaseError;
 use crate::db_read::DbReader;
 use crate::managed_host;
 
@@ -188,7 +188,7 @@ pub async fn find_ids(txn: impl DbReader<'_>) -> Result<Vec<DpaInterfaceId>, Dat
 // Given an IP address, find and return the DPA interface that has the given IP
 // as its underlay or overlay IP address.
 pub async fn find_by_ip(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     ipaddr: IpAddr,
 ) -> Result<Vec<DpaInterface>, DatabaseError> {
     let query = "SELECT row_to_json(m.*) from (select * from dpa_interfaces
@@ -198,7 +198,7 @@ pub async fn find_by_ip(
         sqlx::query_as(query)
             .bind(ipaddr)
             .bind(ipaddr)
-            .fetch_all(&mut *txn)
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))?
     };
@@ -243,7 +243,7 @@ pub async fn get_for_pci_name(
 // Find a DPA Interface given its mac address. When we receive messages from the MQTT broker,
 // the topic contains the mac address, and we look up the interface based on that mac address.
 pub async fn find_by_mac_addr(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     maddr: &MacAddress,
 ) -> Result<Vec<DpaInterface>, DatabaseError> {
     let query = "SELECT row_to_json(m.*) from (select * from dpa_interfaces WHERE deleted is NULL AND mac_address = $1) m";
@@ -251,7 +251,7 @@ pub async fn find_by_mac_addr(
     let results: Vec<DpaInterface> = {
         sqlx::query_as(query)
             .bind(maddr)
-            .fetch_all(&mut *txn)
+            .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::query(query, e))?
     };
@@ -395,27 +395,20 @@ pub async fn try_update_controller_state(
     txn: &mut PgConnection,
     id: DpaInterfaceId,
     expected_version: ConfigVersion,
+    new_version: ConfigVersion,
     new_state: &DpaInterfaceControllerState,
 ) -> Result<bool, DatabaseError> {
-    let next_version = expected_version.increment();
-
     let query = "UPDATE dpa_interfaces SET controller_state_version=$1, controller_state=$2::json where id=$3::uuid AND controller_state_version=$4 returning id";
-    let query_result: Result<DpaInterfaceId, _> = sqlx::query_as(query)
-        .bind(next_version)
+    let result = sqlx::query_as::<_, DpaInterfaceId>(query)
+        .bind(new_version)
         .bind(sqlx::types::Json(new_state))
         .bind(id)
         .bind(expected_version)
-        .fetch_one(&mut *txn)
-        .await;
+        .fetch_optional(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
 
-    match query_result {
-        Ok(_segment_id) => {
-            dpa_interface_state_history::persist(&mut *txn, id, new_state, next_version).await?;
-            Ok(true)
-        }
-        Err(sqlx::Error::RowNotFound) => Ok(false),
-        Err(e) => Err(DatabaseError::query(query, e)),
-    }
+    Ok(result.is_some())
 }
 
 pub async fn update_controller_state_outcome(
@@ -573,7 +566,6 @@ mod test {
     use mac_address::MacAddress;
     use model::dpa_interface::NewDpaInterface;
     use model::machine::ManagedHostState;
-    use model::metadata::Metadata;
 
     use crate::machine;
 
@@ -584,17 +576,7 @@ mod test {
         let id =
             MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
 
-        machine::create(
-            &mut txn,
-            None,
-            &id,
-            ManagedHostState::Ready,
-            &Metadata::default(),
-            None,
-            true,
-            2,
-        )
-        .await?;
+        machine::create(&mut txn, None, &id, ManagedHostState::Ready, None, 2).await?;
 
         let new_intf = NewDpaInterface {
             mac_address: MacAddress::from_str("00:11:22:33:44:55")?,
@@ -632,9 +614,7 @@ mod test {
             None,
             &machine_id,
             ManagedHostState::Ready,
-            &Metadata::default(),
             None,
-            true,
             2,
         )
         .await?;
@@ -689,9 +669,7 @@ mod test {
             None,
             &machine_id,
             ManagedHostState::Ready,
-            &Metadata::default(),
             None,
-            true,
             2,
         )
         .await?;

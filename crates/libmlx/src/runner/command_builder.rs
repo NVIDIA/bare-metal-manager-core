@@ -82,21 +82,14 @@ impl std::fmt::Display for CommandSpec {
 // for different operations (query, set) with proper argument formatting.
 pub struct CommandBuilder<'a> {
     // device is the device identifier (e.g., "01:00.0")
-    device: &'a str,
+    pub device: &'a str,
     // options contains the execution options for running
     // mlxconfig, including specific behaviors, as well
     // as logging.
-    options: &'a ExecOptions,
+    pub options: &'a ExecOptions,
 }
 
 impl<'a> CommandBuilder<'a> {
-    // new creates a new CommandBuilder for the
-    // specified device, with the given execution options
-    // as configured in the parent runner.
-    pub fn new(device: &'a str, options: &'a ExecOptions) -> Self {
-        Self { device, options }
-    }
-
     // build_query_command builds an mlxconfig query command
     // spec, with JSON output configured to specified temp file.
     pub fn build_query_command(

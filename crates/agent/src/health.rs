@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use health_report::HealthProbeId;
 use tokio::process::Command as TokioCommand;
@@ -109,16 +109,19 @@ pub fn is_up(health_report: &health_report::HealthReport) -> bool {
         && !has_failed_services
 }
 
+pub struct HealthCheckParams<'a> {
+    pub hbn_root: &'a Path,
+    pub host_routes: &'a [&'a str],
+    pub has_changed_configs: bool,
+    pub min_healthy_links: u32,
+    pub route_servers: &'a [String],
+    pub hbn_device_names: HBNDeviceNames,
+    pub include_dhcp_server: bool,
+    pub run_restricted_mode_check: bool,
+}
+
 /// Check the health of HBN
-pub async fn health_check(
-    hbn_root: &Path,
-    host_routes: &[&str],
-    _process_started_at: Instant,
-    has_changed_configs: bool,
-    min_healthy_links: u32,
-    route_servers: &[String],
-    hbn_device_names: HBNDeviceNames,
-) -> health_report::HealthReport {
+pub async fn health_check(params: HealthCheckParams<'_>) -> health_report::HealthReport {
     let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
 
     // Check whether the disk is full
@@ -140,31 +143,35 @@ pub async fn health_check(
     passed(&mut hr, probe_ids::ContainerExists.clone(), None);
     check_hbn_services_running(&mut hr, &container_id, &EXPECTED_SERVICES).await;
 
-    // We want these checks whether HBN is up or not
-    check_restricted_mode(&mut hr).await;
+    if params.run_restricted_mode_check {
+        // We want these checks whether HBN is up or not
+        check_restricted_mode(&mut hr).await;
+    }
 
     // We only want these checks if HBN is up
     if !is_up(&hr) {
         return hr;
     }
-    check_dhcp_server(&mut hr, &container_id).await;
+    if params.include_dhcp_server {
+        check_dhcp_server(&mut hr, &container_id).await;
+    }
     check_ifreload(&mut hr, &container_id).await;
-    let hbn_daemons_file = hbn_root.join(HBN_DAEMONS_FILE);
+    let hbn_daemons_file = params.hbn_root.join(HBN_DAEMONS_FILE);
     bgp::check_daemon_enabled(&mut hr, &hbn_daemons_file.to_string_lossy());
     bgp::check_bgp_stats(
         &mut hr,
         &container_id,
-        host_routes,
-        min_healthy_links,
-        route_servers,
-        hbn_device_names,
+        params.host_routes,
+        params.min_healthy_links,
+        params.route_servers,
+        params.hbn_device_names,
     )
     .await;
-    check_files(&mut hr, hbn_root, &EXPECTED_FILES);
+    check_files(&mut hr, params.hbn_root, &EXPECTED_FILES);
 
     // If we just applied a new network config report network as unhealthy.
     // This gives HBN / BGP time to act on the config.
-    if has_changed_configs {
+    if params.has_changed_configs {
         failed(
             &mut hr,
             probe_ids::PostConfigCheckWait.clone(),

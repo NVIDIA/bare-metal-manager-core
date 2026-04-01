@@ -17,26 +17,21 @@
 
 //!
 //! `measurement profile` subcommand dispatcher + backing functions.
-//!
 
 use std::str::FromStr;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
 use ::rpc::protos::measured_boot::{
-    CreateMeasurementSystemProfileRequest, DeleteMeasurementSystemProfileRequest, KvPair,
-    ListMeasurementSystemProfileBundlesRequest, ListMeasurementSystemProfileMachinesRequest,
-    RenameMeasurementSystemProfileRequest, ShowMeasurementSystemProfileRequest,
-    delete_measurement_system_profile_request, list_measurement_system_profile_bundles_request,
-    list_measurement_system_profile_machines_request, rename_measurement_system_profile_request,
-    show_measurement_system_profile_request,
+    DeleteMeasurementSystemProfileRequest, ListMeasurementSystemProfileBundlesRequest,
+    ListMeasurementSystemProfileMachinesRequest, RenameMeasurementSystemProfileRequest,
+    ShowMeasurementSystemProfileRequest,
 };
 use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
+use carbide_uuid::measured_boot::MeasurementBundleId;
 use measured_boot::profile::MeasurementSystemProfile;
 use measured_boot::records::MeasurementSystemProfileRecord;
 use serde::Serialize;
 
-use crate::measurement::global::cmds::{IdentifierType, get_identifier};
 use crate::measurement::profile::args::{
     CmdProfile, Create, Delete, List, ListBundles, ListMachines, Rename, Show,
 };
@@ -119,28 +114,9 @@ pub async fn create(
     grpc_conn: &ApiClient,
     create: Create,
 ) -> CarbideCliResult<MeasurementSystemProfile> {
-    // Prepare.
-    let extra_attrs = create
-        .extra_attrs
-        .into_iter()
-        .map(|kv_pair| KvPair {
-            key: kv_pair.key,
-            value: kv_pair.value,
-        })
-        .collect();
-
-    // Request.
-    let request = CreateMeasurementSystemProfileRequest {
-        name: Some(create.name),
-        vendor: create.vendor,
-        product: create.product,
-        extra_attrs,
-    };
-
-    // Response.
     let response = grpc_conn
         .0
-        .create_measurement_system_profile(request)
+        .create_measurement_system_profile(create)
         .await?;
 
     MeasurementSystemProfile::from_grpc(response.system_profile.as_ref())
@@ -153,34 +129,9 @@ pub async fn delete(
     grpc_conn: &ApiClient,
     delete: Delete,
 ) -> CarbideCliResult<MeasurementSystemProfile> {
-    // Prepare.
-    let selector = match get_identifier(&delete)? {
-        IdentifierType::ForId => {
-            let profile_id: MeasurementSystemProfileId =
-                MeasurementSystemProfileId::from_str(&delete.identifier)
-                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
-            Some(delete_measurement_system_profile_request::Selector::ProfileId(profile_id))
-        }
-        IdentifierType::ForName => Some(
-            delete_measurement_system_profile_request::Selector::ProfileName(delete.identifier),
-        ),
-        IdentifierType::Detect => match MeasurementSystemProfileId::from_str(&delete.identifier) {
-            Ok(profile_id) => {
-                Some(delete_measurement_system_profile_request::Selector::ProfileId(profile_id))
-            }
-            Err(_) => Some(
-                delete_measurement_system_profile_request::Selector::ProfileName(delete.identifier),
-            ),
-        },
-    };
-
-    // Request.
-    let request = DeleteMeasurementSystemProfileRequest { selector };
-
-    // Response.
     let response = grpc_conn
         .0
-        .delete_measurement_system_profile(request)
+        .delete_measurement_system_profile(DeleteMeasurementSystemProfileRequest::try_from(delete)?)
         .await?;
 
     MeasurementSystemProfile::from_grpc(response.system_profile.as_ref())
@@ -192,35 +143,9 @@ pub async fn rename(
     grpc_conn: &ApiClient,
     rename: Rename,
 ) -> CarbideCliResult<MeasurementSystemProfile> {
-    let selector = match get_identifier(&rename)? {
-        IdentifierType::ForId => {
-            let profile_id = MeasurementSystemProfileId::from_str(&rename.identifier)
-                .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
-            Some(rename_measurement_system_profile_request::Selector::ProfileId(profile_id))
-        }
-        IdentifierType::ForName => Some(
-            rename_measurement_system_profile_request::Selector::ProfileName(rename.identifier),
-        ),
-        IdentifierType::Detect => match MeasurementSystemProfileId::from_str(&rename.identifier) {
-            Ok(profile_id) => {
-                Some(rename_measurement_system_profile_request::Selector::ProfileId(profile_id))
-            }
-            Err(_) => Some(
-                rename_measurement_system_profile_request::Selector::ProfileName(rename.identifier),
-            ),
-        },
-    };
-
-    // Request.
-    let request = RenameMeasurementSystemProfileRequest {
-        new_profile_name: rename.new_profile_name,
-        selector,
-    };
-
-    // Response.
     let response = grpc_conn
         .0
-        .rename_measurement_system_profile(request)
+        .rename_measurement_system_profile(RenameMeasurementSystemProfileRequest::try_from(rename)?)
         .await?;
 
     MeasurementSystemProfile::from_grpc(response.profile.as_ref())
@@ -252,39 +177,10 @@ pub async fn show_by_id_or_name(
     grpc_conn: &ApiClient,
     show: Show,
 ) -> CarbideCliResult<MeasurementSystemProfile> {
-    let identifier_type = get_identifier(&show)?;
-    // Prepare.
-    let identifier = show
-        .identifier
-        .ok_or(CarbideCliError::GenericError(String::from(
-            "identifier expected to be set here",
-        )))?;
-
-    let selector = match identifier_type {
-        IdentifierType::ForId => {
-            let profile_id: MeasurementSystemProfileId =
-                MeasurementSystemProfileId::from_str(&identifier)
-                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
-            Some(show_measurement_system_profile_request::Selector::ProfileId(profile_id))
-        }
-        IdentifierType::ForName => {
-            Some(show_measurement_system_profile_request::Selector::ProfileName(identifier))
-        }
-        IdentifierType::Detect => match MeasurementSystemProfileId::from_str(&identifier) {
-            Ok(profile_id) => {
-                Some(show_measurement_system_profile_request::Selector::ProfileId(profile_id))
-            }
-            Err(_) => {
-                Some(show_measurement_system_profile_request::Selector::ProfileName(identifier))
-            }
-        },
-    };
-
-    // Request.
-    let request = ShowMeasurementSystemProfileRequest { selector };
-
-    // Response.
-    let response = grpc_conn.0.show_measurement_system_profile(request).await?;
+    let response = grpc_conn
+        .0
+        .show_measurement_system_profile(ShowMeasurementSystemProfileRequest::try_from(show)?)
+        .await?;
 
     MeasurementSystemProfile::from_grpc(response.system_profile.as_ref())
         .map_err(|e| CarbideCliError::GenericError(e.to_string()))
@@ -317,43 +213,12 @@ pub async fn list_bundles_for_id_or_name(
     grpc_conn: &ApiClient,
     list_bundles: ListBundles,
 ) -> CarbideCliResult<MeasurementBundleIdList> {
-    // Prepare.
-    let selector = match get_identifier(&list_bundles)? {
-        IdentifierType::ForId => {
-            let profile_id: MeasurementSystemProfileId =
-                MeasurementSystemProfileId::from_str(&list_bundles.identifier)
-                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
-            Some(list_measurement_system_profile_bundles_request::Selector::ProfileId(profile_id))
-        }
-        IdentifierType::ForName => Some(
-            list_measurement_system_profile_bundles_request::Selector::ProfileName(
-                list_bundles.identifier,
-            ),
-        ),
-        IdentifierType::Detect => {
-            match MeasurementSystemProfileId::from_str(&list_bundles.identifier) {
-                Ok(profile_id) => Some(
-                    list_measurement_system_profile_bundles_request::Selector::ProfileId(
-                        profile_id,
-                    ),
-                ),
-                Err(_) => Some(
-                    list_measurement_system_profile_bundles_request::Selector::ProfileName(
-                        list_bundles.identifier,
-                    ),
-                ),
-            }
-        }
-    };
-
-    // Request.
-    let request = ListMeasurementSystemProfileBundlesRequest { selector };
-
-    // Response.
     Ok(MeasurementBundleIdList(
         grpc_conn
             .0
-            .list_measurement_system_profile_bundles(request)
+            .list_measurement_system_profile_bundles(
+                ListMeasurementSystemProfileBundlesRequest::try_from(list_bundles)?,
+            )
             .await?
             .bundle_ids,
     ))
@@ -366,43 +231,12 @@ pub async fn list_machines_for_id_or_name(
     grpc_conn: &ApiClient,
     list_machines: ListMachines,
 ) -> CarbideCliResult<MachineIdList> {
-    // Prepare.
-    let selector = match get_identifier(&list_machines)? {
-        IdentifierType::ForId => {
-            let profile_id: MeasurementSystemProfileId =
-                MeasurementSystemProfileId::from_str(&list_machines.identifier)
-                    .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
-            Some(list_measurement_system_profile_machines_request::Selector::ProfileId(profile_id))
-        }
-        IdentifierType::ForName => Some(
-            list_measurement_system_profile_machines_request::Selector::ProfileName(
-                list_machines.identifier,
-            ),
-        ),
-        IdentifierType::Detect => {
-            match MeasurementSystemProfileId::from_str(&list_machines.identifier) {
-                Ok(profile_id) => Some(
-                    list_measurement_system_profile_machines_request::Selector::ProfileId(
-                        profile_id,
-                    ),
-                ),
-                Err(_) => Some(
-                    list_measurement_system_profile_machines_request::Selector::ProfileName(
-                        list_machines.identifier,
-                    ),
-                ),
-            }
-        }
-    };
-
-    // Request.
-    let request = ListMeasurementSystemProfileMachinesRequest { selector };
-
-    // Response.
     Ok(MachineIdList(
         grpc_conn
             .0
-            .list_measurement_system_profile_machines(request)
+            .list_measurement_system_profile_machines(
+                ListMeasurementSystemProfileMachinesRequest::try_from(list_machines)?,
+            )
             .await?
             .machine_ids
             .iter()

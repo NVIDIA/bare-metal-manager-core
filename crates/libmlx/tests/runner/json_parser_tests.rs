@@ -31,7 +31,10 @@ use super::common;
 fn test_parse_basic_json_response() {
     let registry = common::create_test_registry();
     let options = ExecOptions::default();
-    let parser = JsonResponseParser::new(&registry, &options);
+    let parser = JsonResponseParser {
+        registry: &registry,
+        options: &options,
+    };
 
     let json_data = common::create_sample_json_response("01:00.0");
 
@@ -75,7 +78,10 @@ fn test_parse_basic_json_response() {
 fn test_parse_array_variables() {
     let registry = common::create_test_registry();
     let options = ExecOptions::default();
-    let parser = JsonResponseParser::new(&registry, &options);
+    let parser = JsonResponseParser {
+        registry: &registry,
+        options: &options,
+    };
 
     let json_data = common::create_array_json_response("01:00.0");
 
@@ -150,7 +156,10 @@ fn test_parse_array_variables() {
 fn test_device_mismatch_error() {
     let registry = common::create_test_registry();
     let options = ExecOptions::default();
-    let parser = JsonResponseParser::new(&registry, &options);
+    let parser = JsonResponseParser {
+        registry: &registry,
+        options: &options,
+    };
 
     let json_data = common::create_sample_json_response("01:00.0");
 
@@ -176,7 +185,10 @@ fn test_device_mismatch_error() {
 fn test_malformed_json() {
     let registry = common::create_test_registry();
     let options = ExecOptions::default();
-    let parser = JsonResponseParser::new(&registry, &options);
+    let parser = JsonResponseParser {
+        registry: &registry,
+        options: &options,
+    };
 
     let malformed_json = r#"{"Device #1": {"invalid": "structure"#;
 
@@ -192,7 +204,10 @@ fn test_malformed_json() {
 fn test_missing_file() {
     let registry = common::create_test_registry();
     let options = ExecOptions::default();
-    let parser = JsonResponseParser::new(&registry, &options);
+    let parser = JsonResponseParser {
+        registry: &registry,
+        options: &options,
+    };
 
     let nonexistent_path = std::path::Path::new("/nonexistent/file.json");
     let result = parser.parse_json_response(nonexistent_path, "01:00.0");
@@ -204,7 +219,10 @@ fn test_missing_file() {
 fn test_boolean_parsing_variations() {
     let registry = common::create_minimal_test_registry();
     let options = ExecOptions::default();
-    let parser = JsonResponseParser::new(&registry, &options);
+    let parser = JsonResponseParser {
+        registry: &registry,
+        options: &options,
+    };
 
     // Test different boolean formats that mlxconfig might return
     let test_cases = vec![
@@ -257,7 +275,10 @@ fn test_boolean_parsing_variations() {
 fn test_enum_parsing_with_parentheses() {
     let registry = common::create_test_registry();
     let options = ExecOptions::default();
-    let parser = JsonResponseParser::new(&registry, &options);
+    let parser = JsonResponseParser {
+        registry: &registry,
+        options: &options,
+    };
 
     let json_data = json!({
         "Device #1": {
@@ -309,7 +330,10 @@ fn test_enum_parsing_with_parentheses() {
 fn test_integer_parsing() {
     let registry = common::create_minimal_test_registry();
     let options = ExecOptions::default();
-    let parser = JsonResponseParser::new(&registry, &options);
+    let parser = JsonResponseParser {
+        registry: &registry,
+        options: &options,
+    };
 
     let json_data = json!({
         "Device #1": {
@@ -352,7 +376,10 @@ fn test_integer_parsing() {
 fn test_sparse_array_with_missing_indices() {
     let registry = common::create_test_registry();
     let options = ExecOptions::default();
-    let parser = JsonResponseParser::new(&registry, &options);
+    let parser = JsonResponseParser {
+        registry: &registry,
+        options: &options,
+    };
 
     // JSON with only some array indices present (simulating sparse array from device)
     let json_data = json!({
@@ -409,7 +436,10 @@ fn test_sparse_array_with_missing_indices() {
 fn test_unknown_variable_in_json() {
     let registry = common::create_minimal_test_registry();
     let options = ExecOptions::default();
-    let parser = JsonResponseParser::new(&registry, &options);
+    let parser = JsonResponseParser {
+        registry: &registry,
+        options: &options,
+    };
 
     let json_data = json!({
         "Device #1": {
@@ -453,7 +483,10 @@ fn test_unknown_variable_in_json() {
 fn test_log_json_output_option() {
     let registry = common::create_test_registry();
     let options = ExecOptions::new().with_log_json_output(true);
-    let parser = JsonResponseParser::new(&registry, &options);
+    let parser = JsonResponseParser {
+        registry: &registry,
+        options: &options,
+    };
 
     let json_data = common::create_sample_json_response("01:00.0");
 
@@ -470,7 +503,10 @@ fn test_log_json_output_option() {
 fn test_array_size_validation() {
     let registry = common::create_test_registry();
     let options = ExecOptions::default();
-    let parser = JsonResponseParser::new(&registry, &options);
+    let parser = JsonResponseParser {
+        registry: &registry,
+        options: &options,
+    };
 
     // Create JSON with array that matches registry size exactly
     // GPIO_ENABLED should have size 4
@@ -538,7 +574,10 @@ fn test_array_size_validation() {
 fn test_read_only_flag_parsing() {
     let registry = common::create_test_registry();
     let options = ExecOptions::default();
-    let parser = JsonResponseParser::new(&registry, &options);
+    let parser = JsonResponseParser {
+        registry: &registry,
+        options: &options,
+    };
 
     let json_data = json!({
         "Device #1": {
@@ -592,7 +631,10 @@ fn test_read_only_flag_parsing() {
 fn test_modified_flag_parsing() {
     let registry = common::create_test_registry();
     let options = ExecOptions::default();
-    let parser = JsonResponseParser::new(&registry, &options);
+    let parser = JsonResponseParser {
+        registry: &registry,
+        options: &options,
+    };
 
     let json_data = json!({
         "Device #1": {

@@ -305,6 +305,7 @@ async fn create_vpc_peering(
             device: None,
             device_instance: 0,
             virtual_function_id: None,
+            ip_address: None,
         }],
     };
 

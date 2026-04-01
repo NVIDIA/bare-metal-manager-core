@@ -70,19 +70,21 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let new_machine = db::expected_machine::create(
         &mut txn,
-        machine.bmc_mac_address,
-        ExpectedMachineData {
-            bmc_username: "ADMIN3".into(),
-            bmc_password: "hmm".into(),
-            serial_number: "JFAKLJF".into(),
-            fallback_dpu_serial_numbers: vec![],
-            metadata: Metadata::new_with_default_name(),
-            sku_id: None,
-            override_id: None,
-            default_pause_ingestion_and_poweron: None,
-            host_nics: vec![],
-            rack_id: None,
-            dpf_enabled: true,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: machine.bmc_mac_address,
+            data: ExpectedMachineData {
+                bmc_username: "ADMIN3".into(),
+                bmc_password: "hmm".into(),
+                serial_number: "JFAKLJF".into(),
+                fallback_dpu_serial_numbers: vec![],
+                metadata: Metadata::new_with_default_name(),
+                sku_id: None,
+                default_pause_ingestion_and_poweron: None,
+                host_nics: vec![],
+                rack_id: None,
+                dpf_enabled: Some(true),
+            },
         },
     )
     .await;
@@ -145,7 +147,7 @@ async fn test_delete(pool: sqlx::PgPool) -> () {
 
     assert_eq!(machine.data.serial_number, "VVG121GG");
 
-    db::expected_machine::delete(machine.bmc_mac_address, &mut txn)
+    db::expected_machine::delete_by_mac(&mut txn, machine.bmc_mac_address)
         .await
         .expect("Error deleting expected_machine");
 
@@ -182,7 +184,7 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
                 value: Uuid::new_v4().to_string(),
             }),
             default_pause_ingestion_and_poweron: Some(true),
-            dpf_enabled: false,
+            is_dpf_enabled: Some(false),
             ..Default::default()
         },
         rpc::forge::ExpectedMachine {
@@ -196,6 +198,8 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
                 value: Uuid::new_v4().to_string(),
             }),
             default_pause_ingestion_and_poweron: Some(false),
+            is_dpf_enabled: Some(true),
+            #[allow(deprecated)]
             dpf_enabled: true,
             ..Default::default()
         },
@@ -223,6 +227,7 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
             }),
             sku_id: Some("sku_id".to_string()),
             default_pause_ingestion_and_poweron: None,
+            is_dpf_enabled: Some(false),
             ..Default::default()
         },
     ]
@@ -263,9 +268,17 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
         assert_eq!(retrieved_expected_machine, expected_machine.clone());
 
         if idx != 1 {
-            assert!(!retrieved_expected_machine.dpf_enabled);
+            assert!(
+                !retrieved_expected_machine
+                    .is_dpf_enabled
+                    .unwrap_or_default()
+            );
         } else {
-            assert!(retrieved_expected_machine.dpf_enabled);
+            assert!(
+                retrieved_expected_machine
+                    .is_dpf_enabled
+                    .unwrap_or_default()
+            );
         }
     }
 }
@@ -502,6 +515,7 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
         chassis_serial_number: "SERIAL_NEW".into(),
         metadata: Some(rpc::Metadata::default()),
         default_pause_ingestion_and_poweron: Some(true),
+        is_dpf_enabled: Some(false),
         ..Default::default()
     };
 
@@ -512,6 +526,7 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
         chassis_serial_number: "SERIAL_NEW".into(),
         metadata: Some(rpc::Metadata::default()),
         default_pause_ingestion_and_poweron: Some(false),
+        is_dpf_enabled: Some(false),
         ..Default::default()
     };
 
@@ -522,6 +537,7 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
         chassis_serial_number: "SERIAL_NEW".into(),
         metadata: Some(rpc::Metadata::default()),
         default_pause_ingestion_and_poweron: None,
+        is_dpf_enabled: Some(false),
         ..Default::default()
     };
 
@@ -711,6 +727,8 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         default_pause_ingestion_and_poweron: Some(true),
         host_nics: vec![],
         rack_id: None,
+        is_dpf_enabled: Some(true),
+        #[allow(deprecated)]
         dpf_enabled: true,
     };
 
@@ -753,7 +771,8 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
             default_pause_ingestion_and_poweron: None,
             host_nics: vec![],
             rack_id: None,
-            dpf_enabled: true,
+            is_dpf_enabled: Some(true),
+            ..Default::default()
         };
 
         let err = env
@@ -786,7 +805,8 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
         default_pause_ingestion_and_poweron: None,
         host_nics: vec![],
         rack_id: None,
-        dpf_enabled: true,
+        is_dpf_enabled: Some(true),
+        ..Default::default()
     };
 
     env.api
@@ -807,7 +827,8 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
             default_pause_ingestion_and_poweron: None,
             host_nics: vec![],
             rack_id: None,
-            dpf_enabled: true,
+            is_dpf_enabled: Some(true),
+            ..Default::default()
         };
 
         let err = env
@@ -882,7 +903,8 @@ async fn test_add_expected_machine_duplicate_dpu_serials(pool: sqlx::PgPool) {
         default_pause_ingestion_and_poweron: None,
         host_nics: vec![],
         rack_id: None,
-        dpf_enabled: true,
+        is_dpf_enabled: Some(true),
+        ..Default::default()
     };
 
     assert!(
@@ -1745,4 +1767,118 @@ async fn test_batch_update_expected_machines_partial_results(pool: sqlx::PgPool)
         .await
         .expect("should find machine 3");
     assert_eq!(machine3.into_inner().bmc_username, "admin3_updated");
+}
+
+// test_patch_dpf_enabled_null_stays_null verifies that when dpf_enabled is NULL
+// in the DB and an update is applied with is_dpf_enabled: None, the value remains NULL.
+#[crate::sqlx_test()]
+async fn test_patch_dpf_enabled_none_to_false(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let bmc_mac_address = "AA:BB:CC:DD:EE:F0";
+
+    // Create machine with dpf_enabled = null (is_dpf_enabled: None)
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            bmc_mac_address: bmc_mac_address.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "SN-DPF-NULL".into(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            is_dpf_enabled: None,
+            ..Default::default()
+        }))
+        .await
+        .expect("unable to add expected machine");
+
+    // Patch (update) with is_dpf_enabled: None — should keep dpf_enabled as NULL
+    let mut updated = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: bmc_mac_address.to_string(),
+            id: None,
+        }))
+        .await
+        .expect("unable to fetch expected machine")
+        .into_inner();
+
+    // default should be updated as false
+    assert_eq!(updated.is_dpf_enabled, Some(false),);
+
+    updated.id = None;
+    updated.bmc_username = "ADMIN_PATCHED".into();
+    updated.is_dpf_enabled = None;
+
+    env.api
+        .update_expected_machine(tonic::Request::new(updated))
+        .await
+        .expect("unable to update expected machine");
+
+    let retrieved = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: bmc_mac_address.to_string(),
+            id: None,
+        }))
+        .await
+        .expect("unable to fetch expected machine after update")
+        .into_inner();
+
+    assert_eq!(retrieved.is_dpf_enabled, Some(false),);
+}
+
+// test_patch_dpf_enabled_true_stays_true_when_patched_with_null verifies that when
+// dpf_enabled is true in the DB and an update is applied with is_dpf_enabled: None,
+// the value remains true (not overwritten to NULL).
+#[crate::sqlx_test()]
+async fn test_patch_dpf_enabled_true_stays_true_when_patched_with_null(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let bmc_mac_address = "AA:BB:CC:DD:EE:F1";
+
+    // Create machine with dpf_enabled = true
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            bmc_mac_address: bmc_mac_address.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "SN-DPF-TRUE".into(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            is_dpf_enabled: Some(true),
+            ..Default::default()
+        }))
+        .await
+        .expect("unable to add expected machine");
+
+    // Patch (update) with is_dpf_enabled: None — should preserve dpf_enabled = true
+    let mut updated = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: bmc_mac_address.to_string(),
+            id: None,
+        }))
+        .await
+        .expect("unable to fetch expected machine")
+        .into_inner();
+
+    assert_eq!(updated.is_dpf_enabled, Some(true),);
+
+    updated.id = None;
+    updated.bmc_username = "ADMIN_PATCHED".into();
+    updated.is_dpf_enabled = None;
+
+    env.api
+        .update_expected_machine(tonic::Request::new(updated))
+        .await
+        .expect("unable to update expected machine");
+
+    let retrieved = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: bmc_mac_address.to_string(),
+            id: None,
+        }))
+        .await
+        .expect("unable to fetch expected machine after update")
+        .into_inner();
+
+    assert_eq!(retrieved.is_dpf_enabled, Some(true),);
 }

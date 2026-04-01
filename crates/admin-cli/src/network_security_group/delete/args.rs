@@ -16,6 +16,7 @@
  */
 
 use clap::Parser;
+use rpc::forge::DeleteNetworkSecurityGroupRequest;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -28,4 +29,13 @@ pub struct Args {
         help = "Tenant organization ID of the network security group"
     )]
     pub tenant_organization_id: String,
+}
+
+impl From<Args> for DeleteNetworkSecurityGroupRequest {
+    fn from(args: Args) -> Self {
+        DeleteNetworkSecurityGroupRequest {
+            id: args.id,
+            tenant_organization_id: args.tenant_organization_id,
+        }
+    }
 }

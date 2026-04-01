@@ -65,7 +65,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let mut txn = env.pool.begin().await?;
 
         let machine = db::machine::find_one(
-            &mut txn,
+            txn.as_mut(),
             &dpu_machine_id,
             model::machine::machine_search_config::MachineSearchConfig {
                 include_history: true,
@@ -81,7 +81,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         );
 
         let machine = db::machine::find_one(
-            &mut txn,
+            txn.as_mut(),
             &dpu_machine_id,
             model::machine::machine_search_config::MachineSearchConfig::default(),
         )
@@ -143,7 +143,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let mut txn = env.pool.begin().await?;
 
     let machine = db::machine::find_one(
-        &mut txn,
+        txn.as_mut(),
         &host_machine_id,
         model::machine::machine_search_config::MachineSearchConfig {
             include_history: true,
@@ -170,7 +170,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     assert_eq!(result.len(), 250);
 
     let machine = db::machine::find_one(
-        &mut txn,
+        txn.as_mut(),
         &host_machine_id,
         model::machine::machine_search_config::MachineSearchConfig {
             include_history: true,
@@ -244,7 +244,7 @@ async fn test_old_machine_state_history(
         .await?;
 
     let machine = db::machine::find_one(
-        &mut txn,
+        txn.as_mut(),
         &host_machine_id,
         model::machine::machine_search_config::MachineSearchConfig {
             include_history: true,

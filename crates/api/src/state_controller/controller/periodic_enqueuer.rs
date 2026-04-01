@@ -16,13 +16,14 @@
  */
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use ::db::work_lock_manager::WorkLockManagerHandle;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
+use crate::periodic_timer::PeriodicTimer;
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::controller::{
     ControllerIteration, ControllerIterationId, IterationError, db,
@@ -38,7 +39,7 @@ pub(super) struct PeriodicEnqueuer<IO: StateControllerIO> {
     pub(super) work_lock_manager_handle: WorkLockManagerHandle,
     pub(super) io: Arc<IO>,
     pub(super) metric_emitter: Option<EnqueuerMetricsEmitter>,
-    pub(super) stop_token: CancellationToken,
+    pub(super) cancel_token: CancellationToken,
     pub(super) iteration_config: IterationConfig,
 }
 
@@ -58,9 +59,10 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
     pub(super) async fn run(mut self) {
         let max_jitter = (self.iteration_config.iteration_time.as_millis() / 3) as u64;
         let err_jitter = (self.iteration_config.iteration_time.as_millis() / 5) as u64;
+        let timer = PeriodicTimer::new(self.iteration_config.iteration_time);
 
         loop {
-            let start = Instant::now();
+            let tick = timer.tick();
             let iteration_result = self.run_single_iteration().await;
 
             // We add some jitter before sleeping, to give other controller instances
@@ -79,13 +81,11 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
             } else {
                 0
             };
-            let sleep_time = self
-                .iteration_config
-                .iteration_time
-                .saturating_sub(start.elapsed())
+            let sleep_time = tick
+                .remaining()
                 .saturating_add(Duration::from_millis(jitter));
 
-            let cancelled_future = self.stop_token.cancelled();
+            let cancelled_future = self.cancel_token.cancelled();
             tokio::pin!(cancelled_future);
             tokio::select! {
                 biased;

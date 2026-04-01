@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use askama::Template;
-use axum::extract::{Path as AxumPath, State as AxumState};
+use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
 use carbide_uuid::machine::{MachineId, MachineType};
@@ -34,6 +34,7 @@ use utils::managed_host_display::to_time;
 use super::filters;
 use super::machine_state_history::{MachineStateHistoryRecord, MachineStateHistoryTable};
 use crate::api::Api;
+use crate::web::action_status::{self, ActionStatus};
 
 #[derive(Template)]
 #[template(path = "machine_show.html")]
@@ -360,8 +361,11 @@ pub async fn fetch_instance_type_names(
         return Ok(HashMap::new());
     }
 
-    let request =
-        tonic::Request::new(rpc::forge::FindInstanceTypesByIdsRequest { instance_type_ids });
+    let request = tonic::Request::new(rpc::forge::FindInstanceTypesByIdsRequest {
+        instance_type_ids,
+        tenant_organization_id: None,
+        include_allocation_stats: false,
+    });
 
     let instance_types = api
         .find_instance_types_by_ids(request)
@@ -390,13 +394,8 @@ pub async fn fetch_machines(
 ) -> Result<forgerpc::MachineList, tonic::Status> {
     let request = tonic::Request::new(forgerpc::MachineSearchConfig {
         include_dpus,
-        include_history: false,
         include_predicted_host: true,
-        only_maintenance: false,
-        exclude_hosts: false,
-        only_quarantine: false,
-        instance_type_id: None,
-        mnnvl_only: false,
+        ..Default::default()
     });
 
     let machine_ids = api
@@ -411,7 +410,7 @@ pub async fn fetch_machines(
         const PAGE_SIZE: usize = 100;
         let page_size = PAGE_SIZE.min(machine_ids.len() - offset);
         let next_ids = &machine_ids[offset..offset + page_size];
-        let next_vpcs = api
+        let next_machines = api
             .find_machines_by_ids(tonic::Request::new(forgerpc::MachinesByIdsRequest {
                 machine_ids: next_ids.to_vec(),
                 include_history,
@@ -419,7 +418,7 @@ pub async fn fetch_machines(
             .await?
             .into_inner();
 
-        machines.extend(next_vpcs.machines.into_iter());
+        machines.extend(next_machines.machines.into_iter());
         offset += page_size;
     }
 
@@ -428,9 +427,10 @@ pub async fn fetch_machines(
 
 #[derive(Template)]
 #[template(path = "machine_detail.html")]
-struct MachineDetail {
+struct MachineDetail<'a> {
     id: String,
     host_id: String,
+    rack_id: String,
     state: String,
     state_version: String,
     time_in_state: String,
@@ -471,6 +471,7 @@ struct MachineDetail {
     instance_type: String,
     has_instance_type: bool,
     nvlink_gpus: Vec<MachineNvLinkGpuDisplay>,
+    action_status: Option<ActionStatus<'a>>,
 }
 
 struct MachineCapability {
@@ -523,7 +524,7 @@ pub struct ValidationRun {
     pub machine_id: String,
 }
 
-impl From<forgerpc::Machine> for MachineDetail {
+impl From<forgerpc::Machine> for MachineDetail<'_> {
     fn from(m: forgerpc::Machine) -> Self {
         let machine_id = m.id.map(|id| id.to_string()).unwrap_or_default();
 
@@ -653,6 +654,7 @@ impl From<forgerpc::Machine> for MachineDetail {
 
         MachineDetail {
             id: machine_id.clone(),
+            rack_id: m.rack_id.map(|id| id.to_string()).unwrap_or_default(),
             time_in_state: config_version::since_state_change_humanized(&m.state_version),
             state: m.state,
             state_version: m.state_version,
@@ -786,6 +788,7 @@ impl From<forgerpc::Machine> for MachineDetail {
             instance_type_id: m.instance_type_id.unwrap_or_default(),
             instance_type: "".to_string(),
             nvlink_gpus,
+            action_status: None,
         }
     }
 }
@@ -794,6 +797,7 @@ impl From<forgerpc::Machine> for MachineDetail {
 pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Response {
     let (show_json, machine_id) = match machine_id.strip_suffix(".json") {
         Some(machine_id) => (true, machine_id.to_string()),
@@ -862,6 +866,7 @@ pub async fn detail(
     };
 
     display.validation_runs = validation_runs;
+    display.action_status = ActionStatus::from_query(&params);
 
     if !display.is_host {
         let request = tonic::Request::new(forgerpc::ManagedHostNetworkConfigRequest {
@@ -1005,9 +1010,9 @@ pub async fn set_dpu_first_boot_order(
     AxumPath(machine_id): AxumPath<String>,
     Form(form): Form<SetDpuFirstBootOrderAction>,
 ) -> Response {
-    let view_url = format!("/admin/machine/{machine_id}");
+    let view_url = format!("/admin/machine/{machine_id}#bmc_info_view");
 
-    if let Err(err) = state
+    let redirect_url = match state
         .set_dpu_first_boot_order(tonic::Request::new(
             rpc::forge::SetDpuFirstBootOrderRequest {
                 machine_id: None,
@@ -1020,9 +1025,22 @@ pub async fn set_dpu_first_boot_order(
         ))
         .await
     {
-        tracing::error!(%err, "set_dpu_first_boot_order failed");
-        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
-    }
+        Ok(_) => ActionStatus {
+            action: action_status::Type::SetDpuFirstBootOrder,
+            class: action_status::Class::Success,
+            message: "Boot order set successfully".into(),
+        }
+        .update_redirect_url(&view_url),
+        Err(err) => {
+            tracing::error!(%err, "set_dpu_first_boot_order failed");
+            ActionStatus {
+                action: action_status::Type::SetDpuFirstBootOrder,
+                class: action_status::Class::Error,
+                message: err.message().into(),
+            }
+            .update_redirect_url(&view_url)
+        }
+    };
 
-    Redirect::to(&view_url).into_response()
+    Redirect::to(&redirect_url).into_response()
 }

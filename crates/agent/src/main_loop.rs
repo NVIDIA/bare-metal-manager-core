@@ -28,12 +28,12 @@ use ::rpc::forge::ManagedHostNetworkConfigResponse;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::{forge as rpc, forge_tls_client};
 use carbide_host_support::agent_config::AgentConfig;
+use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_systemd::systemd;
 use carbide_uuid::machine::MachineId;
 use eyre::WrapErr;
 use forge_certs::cert_renewal::ClientCertRenewer;
 use forge_dpu_remediation::remediation::{MachineInfo, RemediationExecutor};
-use forge_network::virtualization::{DEFAULT_NETWORK_VIRTUALIZATION_TYPE, VpcVirtualizationType};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use tokio::signal::unix::{SignalKind, signal};
@@ -48,7 +48,9 @@ use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::duppet::{SummaryFormat, SyncOptions};
 use crate::ethernet_virtualization::ServiceAddresses;
-use crate::instance_metadata_endpoint::InstanceMetadataRouterStateImpl;
+use crate::fmds_client::FmdsUpdater;
+use crate::health::HealthCheckParams;
+use crate::host_machine_id::get_host_machine_id_retry;
 use crate::instrumentation::{create_metrics, get_dpu_agent_meter};
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::network_monitor::{self, NetworkPingerType};
@@ -119,17 +121,34 @@ pub async fn setup_and_run(
     let agent_meter = get_dpu_agent_meter();
     let metrics = create_metrics(agent_meter);
 
-    if options.enable_metadata_service {
-        crate::metadata_service::spawn_metadata_service(
-            agent_config.metadata_service.address.clone(),
-            agent_config.telemetry.metrics_address.clone(),
-            metrics.clone(),
-            instance_metadata_state.clone(),
-        )
-        .unwrap_or_else(|e| {
-            tracing::warn!("Failed to run metadata service: {:#}", e);
-        });
-    }
+    // And now set up our FMDS updater, which will either be our original
+    // embedded server (which spins up a local listener within the DPU agent)
+    // or will talk to an external FMDS server via gRPC (which is colocated
+    // with the agent on the DPU).
+    let fmds_updater = if let Some(ref fmds_addr) = options.fmds_grpc_server {
+        tracing::info!(
+            fmds_address = fmds_addr,
+            "Using FmdsUpdater::External FMDS service"
+        );
+        let fmds_client = crate::fmds_client::FmdsGrpcClient::connect(fmds_addr)
+            .await
+            .wrap_err("Failed to connect to external FMDS service")?;
+        FmdsUpdater::External(fmds_client)
+    } else {
+        if options.enable_metadata_service {
+            crate::metadata_service::spawn_metadata_service(
+                agent_config.metadata_service.address.clone(),
+                agent_config.telemetry.metrics_address.clone(),
+                metrics.clone(),
+                instance_metadata_state.clone(),
+            )
+            .unwrap_or_else(|e| {
+                tracing::warn!("Failed to run metadata service: {:#}", e);
+            });
+        }
+        tracing::info!("Using FmdsUpdater::Embedded FMDS service");
+        FmdsUpdater::Embedded(instance_metadata_state.clone())
+    };
 
     // Some of these metrics only need to be set once, let's take care of them
     // now.
@@ -188,6 +207,21 @@ pub async fn setup_and_run(
     )
     .await;
 
+    let host_machine_id = match get_host_machine_id_retry(
+        &agent_config,
+        &periodic_config_fetcher,
+        Arc::clone(&forge_client_config),
+        &forge_api_server,
+    )
+    .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!("get_host_machine_id_retry() failed: {:?}", e);
+            return Err(e);
+        }
+    };
+
     let duppet_options = SyncOptions {
         dry_run: false,
         quiet: false,
@@ -195,7 +229,7 @@ pub async fn setup_and_run(
         summary_format: SummaryFormat::PlainText,
     };
 
-    managed_files::main_sync(duppet_options, &machine_id, &periodic_config_fetcher);
+    managed_files::main_sync(duppet_options, &machine_id, &host_machine_id);
 
     if let Err(e) = lldp::set_lldp_system_description(&machine_id) {
         tracing::warn!("Couldn't update LLDP system description: {e}")
@@ -302,7 +336,7 @@ pub async fn setup_and_run(
         build_version,
         machine_id,
         periodic_config_reader,
-        instance_metadata_state,
+        fmds_updater,
         client_cert_renewer,
         hbn_device_names,
         is_hbn_up: false,
@@ -322,7 +356,6 @@ pub async fn setup_and_run(
         service_addrs,
         close_sender,
         network_monitor_handle,
-        interface_state: None,
         extension_service_manager: extension_services::ExtensionServiceManager::default(),
     };
 
@@ -335,7 +368,7 @@ struct MainLoop {
     factory_mac_address: MacAddress,
     build_version: String,
     periodic_config_reader: Box<periodic_config_fetcher::PeriodicConfigFetcherReader>,
-    instance_metadata_state: Arc<InstanceMetadataRouterStateImpl>,
+    fmds_updater: FmdsUpdater,
     client_cert_renewer: ClientCertRenewer,
     hbn_device_names: HBNDeviceNames,
     is_hbn_up: bool,
@@ -354,13 +387,51 @@ struct MainLoop {
     service_addrs: ServiceAddresses,
     network_monitor_handle: Option<JoinHandle<()>>,
     close_sender: watch::Sender<bool>,
-    interface_state: Option<ethernet_virtualization::InterfaceState>,
     extension_service_manager: extension_services::ExtensionServiceManager,
 }
 
 struct IterationResult {
     stop_agent: bool,
     loop_period: std::time::Duration,
+}
+
+/// Returns the last DHCP request timestamps for all known host interfaces.
+///
+/// When `dhcp_grpc_server` is `Some`, fetches timestamps from the dhcp-server
+/// control service via gRPC.  This is required when the DHCP server runs in a
+/// separate container where the timestamps file on the DPU filesystem is not
+/// accessible.
+///
+/// When `dhcp_grpc_server` is `None`, reads the timestamps file directly from
+/// the DPU filesystem (`DhcpTimestampsFilePath::Dpu`).
+///
+/// Errors on either path are logged as warnings and an empty list is returned
+/// so the caller can degrade gracefully.
+async fn fetch_last_dhcp_requests(dhcp_grpc_server: Option<&str>) -> Vec<rpc::LastDhcpRequest> {
+    if let Some(addr) = dhcp_grpc_server {
+        return match crate::dhcp_server_grpc_client::get_dhcp_timestamps(addr).await {
+            Ok(requests) => requests,
+            Err(e) => {
+                tracing::warn!("Failed to fetch DHCP timestamps via gRPC: {e:#}");
+                vec![]
+            }
+        };
+    }
+
+    let mut dhcp_timestamps = DhcpTimestamps::new(DhcpTimestampsFilePath::Dpu);
+    if let Err(e) = dhcp_timestamps.read() {
+        tracing::warn!(
+            "Failed to read from {}: {e}",
+            DhcpTimestampsFilePath::Dpu.path_str()
+        );
+    }
+    dhcp_timestamps
+        .into_iter()
+        .map(|(host_interface_id, timestamp)| rpc::LastDhcpRequest {
+            host_interface_id: Some(host_interface_id),
+            timestamp,
+        })
+        .collect()
 }
 
 impl MainLoop {
@@ -443,25 +514,15 @@ impl MainLoop {
             dpu_extension_services: vec![],
         };
 
-        let mut last_dhcp_requests = vec![];
-        let mut dhcp_timestamps = DhcpTimestamps::new(DhcpTimestampsFilePath::Dpu);
-        if let Err(e) = dhcp_timestamps.read() {
-            tracing::warn!(
-                "Failed to read from {}: {e}",
-                DhcpTimestampsFilePath::Dpu.path_str()
-            );
-        }
-        for (host_interface_id, timestamp) in dhcp_timestamps.into_iter() {
-            last_dhcp_requests.push(rpc::LastDhcpRequest {
-                host_interface_id: Some(host_interface_id),
-                timestamp: timestamp.to_string(),
-            });
-        }
-        status_out.last_dhcp_requests = last_dhcp_requests;
-
         // `read` does not block
         match self.periodic_config_reader.net_conf_read() {
             Some(conf) => {
+                // DHCP server only runs on the primary dpu or when using the tenant network
+                if !conf.use_admin_network || conf.is_primary_dpu {
+                    status_out.last_dhcp_requests =
+                        fetch_last_dhcp_requests(self.options.dhcp_grpc_server.as_deref()).await;
+                }
+
                 let instance_data = self.periodic_config_reader.meta_data_conf_reader();
 
                 let proposed_routes: Vec<_> = conf
@@ -480,6 +541,15 @@ impl MainLoop {
                     // HBN changed their naming scheme in HBN 2.3 from _sf to _if so we will pass that little bit around
                     // after doing an initial version check instead of assuming _sf
                     self.hbn_device_names = HBNDeviceNames::new(hbn_version.clone());
+
+                    // NVUE is the only supported configuration path. If the DPU's
+                    // HBN/DOCA is too old to support NVUE, we cannot configure it.
+                    if hbn_version < self.nvue_minimum_hbn_version {
+                        return Err(eyre::eyre!(
+                            "HBN version {hbn_version} is older than the minimum required for NVUE ({NVUE_MINIMUM_HBN_VERSION})."
+                        ));
+                    }
+
                     // Now issue a one time per container runtime hack in the event the hack is needed for new DPU hardware
                     if let Err(err) = nvue::hack_platform_config_for_nvue().await {
                         tracing::error!(
@@ -514,12 +584,7 @@ impl MainLoop {
                     // Get the actual virtualization type to use for configuring
                     // an interface, where we'll default to reading the one provided
                     // by the Carbide API, with the ability to override via RunOptions.
-                    let virtualization_type = effective_virtualization_type(
-                        &conf,
-                        &self.options,
-                        &hbn_version,
-                        &self.nvue_minimum_hbn_version,
-                    )?;
+                    let virtualization_type = effective_virtualization_type(&conf, &self.options)?;
 
                     let dhcp_result = ethernet_virtualization::update_dhcp(
                         &self.agent_config.hbn.root_dir,
@@ -527,70 +592,59 @@ impl MainLoop {
                         self.agent_config.hbn.skip_reload,
                         &self.service_addrs,
                         self.hbn_device_names.clone(),
+                        self.options.dhcp_grpc_server.clone(),
                     )
                     .await;
 
-                    let update_result = match virtualization_type {
-                        VpcVirtualizationType::EthernetVirtualizer => {
-                            ethernet_virtualization::update_files(
+                    let update_result = {
+                        if hbn_version >= self.fmds_minimum_hbn_version {
+                            // Apply the interface plan. This is where we actually configure
+                            // the FMDS phone home interface on the DPU.
+                            Interface::apply(fmds_interface_plan).await?;
+
+                            // If there are routes, apply the route plan. This is where we
+                            // actually add and remove FMDS phone home routes.
+                            //
+                            // When a DPU has recently booted, there may not be a pf0dpu1
+                            // interface configured yet, so routes may not be applied on the
+                            // first tick of the loop. Once the interface is configured, routes
+                            // can be added and removed.
+
+                            // This means that routes will be added last and might take a few seconds
+                            // to appear
+                            if let Some(route_plan) = route_plan {
+                                Route::apply(route_plan).await?;
+                            }
+                        }
+
+                        // We'll update some internal bridging config if bridging config
+                        // for traffic_intercept was sent in.
+                        let bridging_result = if conf
+                            .traffic_intercept_config
+                            .as_ref()
+                            .map(|vc| vc.bridging.is_some())
+                            .unwrap_or_default()
+                        {
+                            ethernet_virtualization::update_traffic_intercept_bridging(
+                                &conf,
+                                self.agent_config.hbn.skip_reload,
+                            )
+                            .await
+                        } else {
+                            Ok(false) // No errors and no change.
+                        };
+
+                        if bridging_result.is_ok() {
+                            ethernet_virtualization::update_nvue(
+                                virtualization_type,
                                 &self.agent_config.hbn.root_dir,
                                 &conf,
                                 self.agent_config.hbn.skip_reload,
                                 self.hbn_device_names.clone(),
                             )
                             .await
-                        }
-                        VpcVirtualizationType::EthernetVirtualizerWithNvue
-                        | VpcVirtualizationType::Fnn => {
-                            if hbn_version >= self.fmds_minimum_hbn_version {
-                                // Apply the interface plan. This is where we actually configure
-                                // the FMDS phone home interface on the DPU.
-                                Interface::apply(fmds_interface_plan).await?;
-
-                                // If there are routes, apply the route plan. This is where we
-                                // actually add and remove FMDS phone home routes.
-                                //
-                                // When a DPU has recently booted, there may not be a pf0dpu1
-                                // interface configured yet, so routes may not be applied on the
-                                // first tick of the loop. Once the interface is configured, routes
-                                // can be added and removed.
-
-                                // This means that routes will be added last and might take a few seconds
-                                // to appear
-                                if let Some(route_plan) = route_plan {
-                                    Route::apply(route_plan).await?;
-                                }
-                            }
-
-                            // We'll update some internal bridging config if bridging config
-                            // for traffic_intercept was sent in.
-                            let bridging_result = if conf
-                                .traffic_intercept_config
-                                .as_ref()
-                                .map(|vc| vc.bridging.is_some())
-                                .unwrap_or_default()
-                            {
-                                ethernet_virtualization::update_traffic_intercept_bridging(
-                                    &conf,
-                                    self.agent_config.hbn.skip_reload,
-                                )
-                                .await
-                            } else {
-                                Ok(false) // No errors and no change.
-                            };
-
-                            if bridging_result.is_ok() {
-                                ethernet_virtualization::update_nvue(
-                                    virtualization_type,
-                                    &self.agent_config.hbn.root_dir,
-                                    &conf,
-                                    self.agent_config.hbn.skip_reload,
-                                    self.hbn_device_names.clone(),
-                                )
-                                .await
-                            } else {
-                                bridging_result
-                            }
+                        } else {
+                            bridging_result
                         }
                     };
 
@@ -689,26 +743,11 @@ impl MainLoop {
                         }
                     }
 
-                    // In case of secondary DPU, physical interface must be disabled if on admin
-                    // network, else enabled.
-                    match ethernet_virtualization::update_interface_state(
-                        &conf,
-                        self.agent_config.hbn.skip_reload,
-                        &self.hbn_device_names,
-                        &self.interface_state,
-                    )
-                    .await
-                    {
-                        Ok(new_state) => {
-                            self.interface_state = new_state;
-                        }
-                        Err(err) => {
-                            tracing::error!(
-                                error = format!("{err:#}"),
-                                "Updating interface state."
-                            );
-                        }
-                    };
+                    // In case of secondary DPU, the interface must be disabled if on admin network, else enabled.
+                    // Note that the nvue config handles the blocking of traffic on the interface.  This is only so that the host link reflects the correct state.
+                    if let Err(err) = ethernet_virtualization::update_interface_state(&conf).await {
+                        tracing::error!(error = format!("{err:#}"), "Updating interface state.");
+                    }
                 }
 
                 // Feed the latest instance metadata to FMDS and acknowledge it
@@ -718,25 +757,25 @@ impl MainLoop {
                 // It will guarantee that the Instance Config that is acknowledged to
                 // carbide via the status message is actually visible to the tenant via
                 // FMDS
-                self.instance_metadata_state
-                    .update_instance_data(instance_data.clone());
-                self.instance_metadata_state
-                    .update_network_configuration(Some(conf.clone()));
+                self.fmds_updater
+                    .update(instance_data.clone(), Some(conf.clone()))
+                    .await;
                 status_out.instance_config_version = instance_data
                     .as_ref()
                     .map(|instance| instance.config_version.version_string());
                 current_instance_config_version = status_out.instance_config_version.clone();
                 current_instance_id = status_out.instance_id.as_ref().map(|id| id.to_string());
 
-                let health_report = health::health_check(
-                    &self.agent_config.hbn.root_dir,
-                    &tenant_peers,
-                    self.started_at,
+                let health_report = health::health_check(HealthCheckParams {
+                    hbn_root: &self.agent_config.hbn.root_dir,
+                    host_routes: &tenant_peers,
                     has_changed_configs,
-                    conf.min_dpu_functioning_links.unwrap_or(2),
-                    &conf.route_servers,
-                    self.hbn_device_names.clone(),
-                )
+                    min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(2),
+                    route_servers: &conf.route_servers,
+                    hbn_device_names: self.hbn_device_names.clone(),
+                    include_dhcp_server: !conf.use_admin_network || conf.is_primary_dpu,
+                    run_restricted_mode_check: false,
+                })
                 .await;
                 is_healthy = !health_report.successes.is_empty() && health_report.alerts.is_empty();
                 self.is_hbn_up = health::is_up(&health_report);
@@ -940,21 +979,17 @@ impl MainLoop {
 /// to use for generating configuration. This defaults to whatever
 /// comes from Carbide API, with the ability to override with runtime
 /// options.
-///
-/// It will fall back to ETV if all else fails.
 fn effective_virtualization_type(
     conf: &ManagedHostNetworkConfigResponse,
     options: &RunOptions,
-    hbn_version: &Version,
-    nvue_minimum_hbn_version: &Version,
 ) -> eyre::Result<VpcVirtualizationType> {
     // First, grab the VpcVirtualizationType returned to us
     // from the Carbide API (which *should* be what comes from
     // the `network_virtualization_type` column from the `vpcs`
     // table for the VPC this DPU is in).
     //
-    // This may be unset, which historically has just meant
-    // to use ETV (EthernetVirtualizer), the pre-nvue one.
+    // This may be unset, which means to just use
+    // EthernetVirtualizerWithNvue.
     let virtualization_type_from_remote = conf
         .network_virtualization_type
         .map(rpc::VpcVirtualizationType::try_from)
@@ -963,47 +998,25 @@ fn effective_virtualization_type(
 
     // And now see if the remote virtualization type should be overwritten
     // by runtime options. If it's not, and the remote value was also unset,
-    // then just use ETV, which has historically been the "default" when
-    // no virtualization type is configured.
+    // then just use EthernetVirtualizerWithNvue.
     let virtualization_type = options
         .override_network_virtualization_type // dev
         .or(virtualization_type_from_remote)
         .unwrap_or_else(|| {
             tracing::warn!(
                 "Missing network_virtualization_type, defaulting to {}",
-                DEFAULT_NETWORK_VIRTUALIZATION_TYPE
+                VpcVirtualizationType::EthernetVirtualizerWithNvue
             );
-            DEFAULT_NETWORK_VIRTUALIZATION_TYPE
+            VpcVirtualizationType::EthernetVirtualizerWithNvue
         });
 
-    // If the HBN version is older than the minimum required HBN version to
-    // support NVUE, there are a couple of options here:
-    // - If we're doing ETV-NVUE, we can just fall back to ETV safely.
-    // - If we're doing an FNN-based config, we can't, so return an error.
-    if hbn_version < nvue_minimum_hbn_version {
-        match virtualization_type {
-            VpcVirtualizationType::Fnn => {
-                return Err(eyre::eyre!(
-                    "{virtualization_type} virtualization requested, but site does not support NVUE. Cannot configure."
-                ));
-            }
-            VpcVirtualizationType::EthernetVirtualizerWithNvue => {
-                tracing::warn!(
-                    "{virtualization_type} virtualization requested, but site does not support NVUE (HBN version {hbn_version} is too old). Using ETV."
-                );
-                return Ok(VpcVirtualizationType::EthernetVirtualizer);
-            }
-            // If it's already set to ETV, things are good. Log a debug
-            // message just incase.
-            VpcVirtualizationType::EthernetVirtualizer => {
-                tracing::debug!(
-                    "HBN version is below the NVUE minimum HBN version, but already set to non-NVUE virtualization. No changes needed."
-                );
-            }
-        }
+    match virtualization_type {
+        VpcVirtualizationType::Fnn => Ok(virtualization_type),
+        VpcVirtualizationType::EthernetVirtualizerWithNvue => Ok(virtualization_type),
+        VpcVirtualizationType::EthernetVirtualizer => Err(eyre::eyre!(
+            "EthernetVirtualizer unsupported. This shouldn't have made its way to here at this point."
+        )),
     }
-
-    Ok(virtualization_type)
 }
 
 // TODO(chet): We'll eventually want a documented IPv6 address we can

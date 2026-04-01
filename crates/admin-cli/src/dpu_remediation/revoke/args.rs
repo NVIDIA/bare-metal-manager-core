@@ -17,9 +17,18 @@
 
 use carbide_uuid::dpu_remediations::RemediationId;
 use clap::Parser;
+use rpc::forge::RevokeRemediationRequest;
 
 #[derive(Parser, Debug)]
 pub struct Args {
     #[clap(help = "The id of the remediation to revoke", long)]
     pub id: RemediationId,
+}
+
+impl From<Args> for RevokeRemediationRequest {
+    fn from(args: Args) -> Self {
+        Self {
+            remediation_id: Some(args.id),
+        }
+    }
 }

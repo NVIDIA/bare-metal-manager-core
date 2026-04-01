@@ -17,15 +17,11 @@
 
 use color_eyre::Result;
 
+use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn list_power_shelves(api_client: &ApiClient) -> Result<()> {
-    let query = rpc::forge::PowerShelfQuery {
-        name: None,
-        power_shelf_id: None,
-    };
-
-    let response = api_client.0.find_power_shelves(query).await?;
+pub async fn list_power_shelves(data: Args, api_client: &ApiClient) -> Result<()> {
+    let response = api_client.0.find_power_shelves(data).await?;
 
     let power_shelves = response.power_shelves;
 

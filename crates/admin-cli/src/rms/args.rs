@@ -54,6 +54,15 @@ pub struct PowerOnSequence {
     pub rack_id: String,
 }
 
+impl From<PowerOnSequence> for librms::protos::rack_manager::GetRackPowerOnSequenceRequest {
+    fn from(args: PowerOnSequence) -> Self {
+        Self {
+            metadata: None,
+            rack_id: args.rack_id,
+        }
+    }
+}
+
 #[derive(Parser, Debug, Clone)]
 pub struct PowerState {
     #[clap(help = "Rack ID to get power sequence for")]
@@ -62,10 +71,30 @@ pub struct PowerState {
     pub node_id: String,
 }
 
+impl From<PowerState> for librms::protos::rack_manager::GetPowerStateRequest {
+    fn from(args: PowerState) -> Self {
+        Self {
+            metadata: None,
+            node_id: args.node_id,
+            rack_id: args.rack_id,
+        }
+    }
+}
+
 #[derive(Parser, Debug, Clone)]
 pub struct FirmwareInventory {
     #[clap(help = "Rack ID to get power sequence for")]
     pub rack_id: String,
     #[clap(help = "Node ID to get firmware inventory for")]
     pub node_id: String,
+}
+
+impl From<FirmwareInventory> for librms::protos::rack_manager::GetNodeFirmwareInventoryRequest {
+    fn from(args: FirmwareInventory) -> Self {
+        Self {
+            metadata: None,
+            node_id: args.node_id,
+            rack_id: args.rack_id,
+        }
+    }
 }

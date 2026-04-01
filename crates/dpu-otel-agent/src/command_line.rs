@@ -37,13 +37,7 @@ pub enum AgentCommand {
 }
 
 #[derive(Parser, Debug)]
-pub struct RunOptions {
-    #[clap(long, help = "Copy initial TLS cert file from this path")]
-    pub source_tls_cert_path: Option<PathBuf>,
-
-    #[clap(long, help = "Copy initial TLS key file from this path")]
-    pub source_tls_key_path: Option<PathBuf>,
-}
+pub struct RunOptions {}
 
 impl Options {
     pub fn load() -> Self {

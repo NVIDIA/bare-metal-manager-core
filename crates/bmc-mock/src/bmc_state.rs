@@ -26,12 +26,15 @@ use crate::redfish::update_service::UpdateServiceState;
 #[derive(Clone)]
 pub struct BmcState {
     pub bmc_vendor: redfish::oem::BmcVendor,
+    pub bmc_product: Option<&'static str>,
+    pub bmc_redfish_version: &'static str,
     pub oem_state: redfish::oem::State,
     pub manager: Arc<ManagerState>,
     pub system_state: Arc<SystemState>,
     pub chassis_state: Arc<ChassisState>,
     pub update_service_state: Arc<UpdateServiceState>,
     pub injected_bugs: Arc<InjectedBugs>,
+    pub power_control: Option<Arc<dyn crate::PowerControl>>,
 }
 
 impl BmcState {

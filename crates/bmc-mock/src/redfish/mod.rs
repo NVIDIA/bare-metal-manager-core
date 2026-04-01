@@ -23,6 +23,7 @@ pub mod chassis;
 pub mod collection;
 pub mod computer_system;
 pub mod ethernet_interface;
+pub mod host_interface;
 pub mod log_service;
 pub mod manager;
 pub mod manager_network_protocol;
@@ -35,6 +36,7 @@ pub mod secure_boot;
 pub mod sensor;
 pub mod service_root;
 pub mod software_inventory;
+pub mod storage;
 pub mod task_service;
 pub mod update_service;
 

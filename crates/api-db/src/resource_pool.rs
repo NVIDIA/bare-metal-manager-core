@@ -36,6 +36,7 @@ use tokio::sync::oneshot;
 
 use super::BIND_LIMIT;
 use crate::DatabaseError;
+use crate::db_read::DbReader;
 
 /// Put some resources into the pool, so they can be allocated later.
 /// This needs to be called before `allocate` can return anything.
@@ -252,7 +253,7 @@ pub async fn all(txn: &mut PgConnection) -> Result<Vec<ResourcePoolSnapshot>, Da
                 (auto_assign_free + non_auto_assign_free) AS free
             FROM
             (
-                SELECT name, CAST(min(value::bigint) AS text), CAST(max(value::bigint) AS text),
+                SELECT name, host(min(value::inet)) AS min, host(max(value::inet)) AS max,
                     count(*) FILTER (WHERE state = '{\"state\": \"free\"}' AND auto_assign) AS auto_assign_free,
                     count(*) FILTER (WHERE state != '{\"state\": \"free\"}' AND auto_assign) AS auto_assign_used,
                     count(*) FILTER (WHERE state = '{\"state\": \"free\"}' AND NOT auto_assign) AS non_auto_assign_free,
@@ -274,7 +275,7 @@ pub async fn all(txn: &mut PgConnection) -> Result<Vec<ResourcePoolSnapshot>, Da
 
 /// All the resource pool entries for the given value
 pub async fn find_value(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     value: &str,
 ) -> Result<Vec<ResourcePoolEntry>, DatabaseError> {
     let query =
@@ -879,6 +880,46 @@ pub async fn create_common_pools(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[crate::sqlx_test]
+    async fn test_ipv4_pool_all_snapshots(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use model::resource_pool::define::{Range, ResourcePoolDef, ResourcePoolType};
+
+        let mut txn = pool.begin().await?;
+
+        // Define an IPv4 pool from a small range.
+        define(
+            &mut txn,
+            "test-ipv4-pool",
+            &ResourcePoolDef {
+                prefix: None,
+                ranges: vec![Range {
+                    start: "10.0.0.1".to_string(),
+                    end: "10.0.0.5".to_string(),
+                    auto_assign: true,
+                }],
+                pool_type: ResourcePoolType::Ipv4,
+                delegate_prefix_len: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        // Call `all()` and make sure types are correct.
+        let snapshots = all(txn.as_mut()).await?;
+        let ipv4_snap = snapshots
+            .iter()
+            .find(|s| s.name == "test-ipv4-pool")
+            .unwrap();
+        assert_eq!(ipv4_snap.min, "10.0.0.1");
+        assert_eq!(ipv4_snap.max, "10.0.0.4");
+        assert_eq!(ipv4_snap.stats.free, 4);
+
+        txn.rollback().await?;
+        Ok(())
+    }
 
     #[crate::sqlx_test]
     async fn test_ipv6_pool_define_allocate_release(

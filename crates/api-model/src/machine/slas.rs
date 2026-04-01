@@ -46,4 +46,7 @@ pub const BOM_VALIDATION: Duration = Duration::from_secs(5 * 60);
 // ASSIGNED state, any substate other than Ready and BootingWithDiscoveryImage
 // Init WaitingForNetworkConfig WaitingForStorageConfig WaitingForRebootToReady SwitchToAdminNetwork WaitingForNetworkReconfig DPUReprovision Failed
 pub const ASSIGNED: Duration = Duration::from_secs(30 * 60);
+
+// ASSIGNED state, HostPlatformConfiguration substate
+pub const ASSIGNED_HOST_PLATFORM_CONFIGURATION: Duration = Duration::from_secs(90 * 60);
 pub const VALIDATION: Duration = Duration::from_secs(30 * 60);

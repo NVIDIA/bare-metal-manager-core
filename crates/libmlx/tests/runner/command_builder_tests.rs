@@ -28,7 +28,10 @@ use super::common;
 #[test]
 fn test_build_query_command_spec_basic() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let temp_file = Path::new("/tmp/test.json");
     let variables = vec!["SRIOV_EN".to_string(), "NUM_OF_VFS".to_string()];
@@ -54,7 +57,10 @@ fn test_build_query_command_spec_basic() {
 #[test]
 fn test_build_query_command_spec_empty_variables() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("02:00.0", &options);
+    let builder = CommandBuilder {
+        device: "02:00.0",
+        options: &options,
+    };
 
     let temp_file = Path::new("/tmp/test_empty.json");
     let variables: Vec<String> = vec![];
@@ -73,7 +79,10 @@ fn test_build_query_command_spec_empty_variables() {
 #[test]
 fn test_build_query_command_spec_many_variables() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let temp_file = Path::new("/tmp/test_many.json");
     let variables = vec![
@@ -94,7 +103,10 @@ fn test_build_query_command_spec_many_variables() {
 #[test]
 fn test_build_set_command_spec_basic() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let assignments = vec!["SRIOV_EN=true".to_string(), "NUM_OF_VFS=16".to_string()];
 
@@ -112,7 +124,10 @@ fn test_build_set_command_spec_basic() {
 #[test]
 fn test_build_set_command_spec_empty_assignments() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let assignments: Vec<String> = vec![];
 
@@ -168,7 +183,10 @@ fn test_build_set_assignments_boolean() {
     let config_value = sriov_var.with(true).unwrap();
 
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let assignments = builder.build_set_assignments(&[config_value]).unwrap();
 
@@ -183,7 +201,10 @@ fn test_build_set_assignments_integer() {
     let config_value = vfs_var.with(32i64).unwrap();
 
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let assignments = builder.build_set_assignments(&[config_value]).unwrap();
 
@@ -198,7 +219,10 @@ fn test_build_set_assignments_enum() {
     let config_value = power_var.with("HIGH").unwrap();
 
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let assignments = builder.build_set_assignments(&[config_value]).unwrap();
 
@@ -213,7 +237,10 @@ fn test_build_set_assignments_preset() {
     let config_value = preset_var.with(7u8).unwrap();
 
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let assignments = builder.build_set_assignments(&[config_value]).unwrap();
 
@@ -228,7 +255,10 @@ fn test_build_set_assignments_boolean_array_dense() {
     let config_value = gpio_var.with(vec![true, false, true, false]).unwrap();
 
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let assignments = builder.build_set_assignments(&[config_value]).unwrap();
 
@@ -247,7 +277,10 @@ fn test_build_set_assignments_boolean_array_sparse() {
     let config_value = gpio_var.with(sparse_values).unwrap();
 
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let assignments = builder.build_set_assignments(&[config_value]).unwrap();
 
@@ -267,7 +300,10 @@ fn test_build_set_assignments_integer_array_sparse() {
     let config_value = thermal_var.with(sparse_values).unwrap();
 
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let assignments = builder.build_set_assignments(&[config_value]).unwrap();
 
@@ -295,7 +331,10 @@ fn test_build_set_assignments_enum_array_sparse() {
     let config_value = gpio_modes_var.with(sparse_values).unwrap();
 
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let assignments = builder.build_set_assignments(&[config_value]).unwrap();
 
@@ -314,7 +353,10 @@ fn test_build_set_assignments_binary_hex() {
     let config_value = uuid_var.with(binary_data).unwrap();
 
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let assignments = builder.build_set_assignments(&[config_value]).unwrap();
 
@@ -337,7 +379,10 @@ fn test_build_set_assignments_multiple_variables() {
     ];
 
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let assignments = builder.build_set_assignments(&config_values).unwrap();
 
@@ -350,7 +395,10 @@ fn test_build_set_assignments_multiple_variables() {
 #[test]
 fn test_build_set_assignments_empty() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let assignments = builder.build_set_assignments(&[]).unwrap();
 
@@ -365,7 +413,10 @@ fn test_different_devices() {
     let devices = ["01:00.0", "02:00.0", "03:00.1", "0000:01:00.0"];
 
     for device in &devices {
-        let builder = CommandBuilder::new(device, &options);
+        let builder = CommandBuilder {
+            device,
+            options: &options,
+        };
         let temp_file = Path::new("/tmp/test.json");
         let variables = vec!["TEST_VAR".to_string()];
 
@@ -377,7 +428,10 @@ fn test_different_devices() {
 #[test]
 fn test_verbose_logging() {
     let options = ExecOptions::new().with_verbose(true);
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let temp_file = Path::new("/tmp/test.json");
     let variables = vec!["TEST_VAR".to_string()];
@@ -404,7 +458,10 @@ fn test_command_spec_to_command_conversion() {
 #[test]
 fn test_realistic_mlxconfig_query_spec() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let variables = vec![
         "SRIOV_EN".to_string(),
@@ -424,7 +481,10 @@ fn test_realistic_mlxconfig_query_spec() {
 #[test]
 fn test_realistic_mlxconfig_set_spec() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let assignments = vec!["SRIOV_EN=true".to_string(), "NUM_OF_VFS=16".to_string()];
 
@@ -437,7 +497,10 @@ fn test_realistic_mlxconfig_set_spec() {
 #[test]
 fn test_command_spec_args_order() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let variables = vec!["VAR1".to_string(), "VAR2".to_string()];
     let temp_file = Path::new("/tmp/test.json");
@@ -460,7 +523,10 @@ fn test_command_spec_args_order() {
 #[test]
 fn test_command_spec_complex_path() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder::new("01:00.0", &options);
+    let builder = CommandBuilder {
+        device: "01:00.0",
+        options: &options,
+    };
 
     let temp_file = Path::new("/tmp/very/deep/directory/structure/test.json");
     let variables = vec!["TEST_VAR".to_string()];

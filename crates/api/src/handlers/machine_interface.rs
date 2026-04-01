@@ -72,11 +72,12 @@ pub(crate) async fn find_interfaces(
         let maybe_a_bmc_interface = interface.primary_interface && interface.address.len() == 1;
         if not_linked_yet && maybe_a_bmc_interface {
             let Some(ip) = interface.address.first() else {
-                return Err(Status::internal(
-                    "Impossible interface.address array length",
-                ));
+                return Err(CarbideError::Internal {
+                    message: "Impossible interface.address array length".into(),
+                }
+                .into());
             };
-            match db::machine_topology::find_machine_id_by_bmc_ip(&mut txn, ip).await {
+            match db::machine_topology::find_machine_id_by_bmc_ip(txn.as_pgconn(), ip).await {
                 Ok(Some(machine_id)) => {
                     let rpc_machine_id = Some(machine_id);
                     interface.is_bmc = Some(true);
@@ -117,20 +118,23 @@ pub(crate) async fn delete_interface(
 
     // There should not be any machine associated with this interface.
     if let Some(machine_id) = interface.machine_id {
-        return Err(Status::invalid_argument(format!(
+        return Err(CarbideError::InvalidArgument(format!(
             "Already a machine {machine_id} is attached to this interface. Delete that first."
-        )));
+        ))
+        .into());
     }
 
     // There should not be any BMC information associated with any machine.
     for address in interface.addresses.iter() {
         let machine_id =
-            db::machine_topology::find_machine_id_by_bmc_ip(&mut txn, &address.to_string()).await?;
+            db::machine_topology::find_machine_id_by_bmc_ip(txn.as_pgconn(), &address.to_string())
+                .await?;
 
         if let Some(machine_id) = machine_id {
-            return Err(Status::invalid_argument(format!(
+            return Err(CarbideError::InvalidArgument(format!(
                 "This looks like a BMC interface and attached with machine: {machine_id}. Delete that first."
-            )));
+            ))
+            .into());
         }
     }
 
@@ -154,7 +158,7 @@ pub(crate) async fn find_mac_address_by_bmc_ip(
         &api.database_connection,
         bmc_ip
             .parse()
-            .map_err(|e| tonic::Status::invalid_argument(format!("Invalid IP address: {e}")))?,
+            .map_err(|e| CarbideError::InvalidArgument(format!("Invalid IP address: {e}")))?,
     )
     .await?
     .ok_or_else(|| CarbideError::NotFoundError {

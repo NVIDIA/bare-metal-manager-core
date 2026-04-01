@@ -49,7 +49,9 @@ pub async fn handle_attest_candidate_machine(
         &PcrRegisterValue::from_pb_vec(req.pcr_values),
     )
     .await
-    .map_err(|e| Status::internal(format!("failed saving measurements: {e}")))?;
+    .map_err(|e| CarbideError::Internal {
+        message: format!("failed saving measurements: {e}"),
+    })?;
 
     txn.commit().await?;
     Ok(AttestCandidateMachineResponse {
@@ -73,10 +75,12 @@ pub async fn handle_show_candidate_machine(
                 })?,
             )
             .await
-            .map_err(|e| Status::internal(format!("{e}")))?
+            .map_err(|e| CarbideError::Internal {
+                message: format!("{e}"),
+            })?
         }
         // Show all system profiles.
-        None => return Err(Status::invalid_argument("selector required")),
+        None => return Err(CarbideError::InvalidArgument("selector required".to_string()).into()),
     };
 
     txn.commit().await?;
@@ -94,7 +98,9 @@ pub async fn handle_show_candidate_machines(
     Ok(ShowCandidateMachinesResponse {
         machines: db::measured_boot::machine::get_all(&mut api.db_reader())
             .await
-            .map_err(|e| Status::internal(format!("{e}")))?
+            .map_err(|e| CarbideError::Internal {
+                message: format!("{e}"),
+            })?
             .into_iter()
             .map(|machine| machine.into())
             .collect(),
@@ -109,9 +115,16 @@ pub async fn handle_list_candidate_machines(
     Ok(ListCandidateMachinesResponse {
         machines: get_candidate_machine_records(&api.database_connection)
             .await
-            .map_err(|e| Status::internal(format!("failed to read records: {e}")))?
+            .map_err(|e| CarbideError::Internal {
+                message: format!("failed to read records: {e}"),
+            })?
             .into_iter()
-            .map(|record| record.into())
+            .map(
+                |record| rpc::protos::measured_boot::CandidateMachineSummaryPb {
+                    machine_id: record.machine_id.to_string(),
+                    ts: Some(record.created.into()),
+                },
+            )
             .collect(),
     })
 }

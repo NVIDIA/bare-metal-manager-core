@@ -24,7 +24,7 @@ use db::redfish_actions::{
     approve_request, delete_request, fetch_request, find_serials, insert_request, list_requests,
     set_applied, update_response,
 };
-use forge_secrets::credentials::CredentialProvider;
+use forge_secrets::credentials::CredentialReader;
 use http::header::CONTENT_TYPE;
 use http::{HeaderMap, HeaderValue, Uri};
 use model::redfish::BMCResponse;
@@ -57,7 +57,7 @@ pub async fn redfish_browse(
     let (metadata, new_uri, headers, http_client) = create_client(
         uri,
         &api.database_connection,
-        api.credential_provider.as_ref(),
+        api.credential_manager.as_ref(),
         &api.dynamic_settings.bmc_proxy,
     )
     .await?;
@@ -104,9 +104,9 @@ pub async fn redfish_list_actions(
 ) -> Result<tonic::Response<::rpc::forge::RedfishListActionsResponse>, tonic::Status> {
     log_request_data(&request);
 
-    let request = request.into_inner();
+    let filter: model::redfish::RedfishListActionsFilter = request.into_inner().into();
 
-    let result = list_requests(request, &api.database_connection).await?;
+    let result = list_requests(filter, &api.database_connection).await?;
 
     Ok(tonic::Response::new(
         rpc::forge::RedfishListActionsResponse {
@@ -125,11 +125,13 @@ pub async fn redfish_create_action(
         CarbideError::ClientCertificateMissingInformation("external user name".to_string()),
     )?;
 
-    let request = request.into_inner();
+    let rpc_request = request.into_inner();
+    let ips = rpc_request.ips.clone();
+    let create_action: model::redfish::RedfishCreateAction = rpc_request.into();
 
     let mut txn = api.txn_begin().await?;
 
-    let ip_to_serial = find_serials(&request.ips, &mut txn).await?;
+    let ip_to_serial = find_serials(&ips, &mut txn).await?;
     let machine_ips: Vec<_> = ip_to_serial.keys().cloned().collect();
     // this is the neatest way I could think of splitting the iterator/map into two vecs
     // explicitly in the same order. could be a for loop instead.
@@ -138,7 +140,8 @@ pub async fn redfish_create_action(
         .map(|ip| ip_to_serial.get(ip).unwrap())
         .collect();
 
-    let request_id = insert_request(authored_by, request, &mut txn, machine_ips, serials).await?;
+    let request_id =
+        insert_request(authored_by, create_action, &mut txn, machine_ips, serials).await?;
 
     txn.commit().await?;
 
@@ -157,7 +160,7 @@ pub async fn redfish_approve_action(
         CarbideError::ClientCertificateMissingInformation("external user name".to_string()),
     )?;
 
-    let request = request.into_inner();
+    let request: model::redfish::RedfishActionId = request.into_inner().into();
 
     let mut txn = api.txn_begin().await?;
     let action_request = fetch_request(request, &mut txn).await?;
@@ -190,7 +193,7 @@ pub async fn redfish_apply_action(
         CarbideError::ClientCertificateMissingInformation("external user name".to_string()),
     )?;
 
-    let request = request.into_inner();
+    let request: model::redfish::RedfishActionId = request.into_inner().into();
 
     let mut txn = api.txn_begin().await?;
 
@@ -247,7 +250,7 @@ pub async fn redfish_apply_action(
         // Spawn off the task to send the request, open a transaction, and store the result.
         tokio::spawn({
             let pool = api.database_connection.clone();
-            let credential_provider = api.credential_provider.clone();
+            let credential_reader = api.credential_manager.clone();
             let bmc_proxy = api.dynamic_settings.bmc_proxy.clone();
             let mut parameters = action_request.parameters.clone();
             async move {
@@ -259,7 +262,7 @@ pub async fn redfish_apply_action(
                     parameters,
                     uri,
                     &pool,
-                    credential_provider.as_ref(),
+                    credential_reader.as_ref(),
                     bmc_proxy.as_ref(),
                     test_behavior,
                 )
@@ -283,7 +286,7 @@ pub async fn redfish_apply_action(
 
 async fn update_response_in_tx(
     pool: &PgPool,
-    request: rpc::forge::RedfishActionId,
+    request: model::redfish::RedfishActionId,
     index: usize,
     response: BMCResponse,
 ) -> Result<(), tonic::Status> {
@@ -297,13 +300,13 @@ async fn handle_request(
     parameters: String,
     uri: Uri,
     pool: &PgPool,
-    credential_provider: &dyn CredentialProvider,
+    credential_reader: &dyn CredentialReader,
     bmc_proxy: &ArcSwap<Option<HostPortPair>>,
     test_behavior: Option<TestBehavior>,
 ) -> BMCResponse {
     // Allow test mocks for returning errors at defined points
     let (metadata, new_uri, mut headers, http_client) = match (
-        create_client(uri, pool, credential_provider, bmc_proxy).await,
+        create_client(uri, pool, credential_reader, bmc_proxy).await,
         test_behavior.and_then(TestBehavior::into_client_creation_error),
     ) {
         (Ok(tuple), None) => tuple,
@@ -383,7 +386,7 @@ async fn handle_request(
 async fn create_client(
     uri: http::Uri,
     pool: &PgPool,
-    credential_provider: &dyn CredentialProvider,
+    credential_reader: &dyn CredentialReader,
     bmc_proxy: &ArcSwap<Option<HostPortPair>>,
 ) -> Result<
     (
@@ -405,7 +408,7 @@ async fn create_client(
     };
 
     let metadata =
-        crate::handlers::bmc_metadata::get_inner(bmc_metadata_request, pool, credential_provider)
+        crate::handlers::bmc_metadata::get_inner(bmc_metadata_request, pool, credential_reader)
             .await?;
 
     let proxy_address = bmc_proxy.load();
@@ -466,7 +469,7 @@ pub async fn redfish_cancel_action(
 ) -> Result<tonic::Response<::rpc::forge::RedfishCancelActionResponse>, tonic::Status> {
     log_request_data(&request);
 
-    let request = request.into_inner();
+    let request: model::redfish::RedfishActionId = request.into_inner().into();
 
     let mut txn = api.txn_begin().await?;
 

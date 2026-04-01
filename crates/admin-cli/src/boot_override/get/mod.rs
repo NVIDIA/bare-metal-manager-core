@@ -26,6 +26,6 @@ use crate::cfg::runtime::RuntimeContext;
 
 impl Run for Args {
     async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
-        cmd::get(self.inner, &ctx.api_client).await
+        cmd::get(self, &ctx.api_client).await
     }
 }

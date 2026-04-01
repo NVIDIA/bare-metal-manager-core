@@ -16,22 +16,17 @@
  */
 
 use ::rpc::admin_cli::CarbideCliError;
-use rpc::forge::DisableRemediationRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn disable_dpu_remediation(
-    disable_remediation: Args,
+    data: Args,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
-    api_client
-        .0
-        .disable_remediation(DisableRemediationRequest {
-            remediation_id: Some(disable_remediation.id),
-        })
-        .await?;
+    let id = data.id;
+    api_client.0.disable_remediation(data).await?;
 
-    tracing::info!("Disabled remediation with id: {:?}", disable_remediation.id);
+    tracing::info!("Disabled remediation with id: {:?}", id);
     Ok(())
 }

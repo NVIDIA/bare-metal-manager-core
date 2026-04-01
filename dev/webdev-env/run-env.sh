@@ -80,7 +80,7 @@ export DISABLE_TLS_ENFORCEMENT=1
 export VAULT_KV_MOUNT_LOCATION="secrets"
 export VAULT_PKI_MOUNT_LOCATION="certs"
 export VAULT_PKI_ROLE_NAME="role"
-export CARBIDE_WEB_AUTH_TYPE="basic"
+export CARBIDE_WEB_AUTH_TYPE="none"
 
 # Run SQL migrations
 echo "Running database migrations..."
@@ -92,7 +92,8 @@ menu() {
 
   ┌─────────────────────────────────────────┐
   │  http://localhost:1079/admin/           │
-  │  Login: admin / Welcome123              │
+  │  No in-process auth                     │
+  │  (recommended to set oauth2)            │
   │                                         │
   │  Templates: crates/api/templates/       │
   │                                         │

@@ -16,25 +16,23 @@
  */
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::host_reprovisioning_request::Mode;
-use ::rpc::forge::{HostReprovisioningRequest, UpdateInitiator};
+use ::rpc::forge::HostReprovisioningRequest;
 use carbide_uuid::machine::MachineId;
 use prettytable::{Table, row};
 
+use super::args::{ReprovisionClear, ReprovisionSet};
 use crate::machine::{HealthOverrideTemplates, get_health_report};
 use crate::rpc::ApiClient;
 
-pub async fn trigger_reprovisioning(
-    host_id: MachineId,
-    mode: Mode,
+pub async fn trigger_reprovisioning_set(
+    data: ReprovisionSet,
     api_client: &ApiClient,
-    update_message: Option<String>,
 ) -> CarbideCliResult<()> {
-    if let (Mode::Set, Some(update_message)) = (mode, update_message) {
+    if let Some(update_message) = data.update_message.clone() {
         // Set a HostUpdateInProgress health override on the Host
 
         let host_machine = api_client
-            .get_machines_by_ids(&[host_id])
+            .get_machines_by_ids(&[data.id])
             .await?
             .machines
             .into_iter()
@@ -55,18 +53,21 @@ pub async fn trigger_reprovisioning(
         let report = get_health_report(HealthOverrideTemplates::HostUpdate, Some(update_message));
 
         api_client
-            .machine_insert_health_report_override(host_id, report.into(), false)
+            .machine_insert_health_report_override(data.id, report.into(), false)
             .await?;
     }
-    api_client
-        .0
-        .trigger_host_reprovisioning(HostReprovisioningRequest {
-            machine_id: Some(host_id),
-            mode: mode as i32,
-            initiator: UpdateInitiator::AdminCli as i32,
-        })
-        .await?;
 
+    let req: HostReprovisioningRequest = (&data).into();
+    api_client.0.trigger_host_reprovisioning(req).await?;
+
+    Ok(())
+}
+
+pub async fn trigger_reprovisioning_clear(
+    data: ReprovisionClear,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    api_client.0.trigger_host_reprovisioning(data).await?;
     Ok(())
 }
 

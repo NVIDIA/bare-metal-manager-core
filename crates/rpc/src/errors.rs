@@ -38,6 +38,8 @@ pub enum RpcDataConversionError {
     InvalidNetworkSecurityGroupId(String),
     #[error("Instance Type ID {0} is not valid")]
     InvalidInstanceTypeId(String),
+    #[error("Compute Allocation ID {0} is not valid")]
+    InvalidComputeAllocationId(String),
     #[error("Timestamp {0} is not valid")]
     InvalidTimestamp(String),
     #[error("Tenant Org {0} is not valid")]
@@ -66,6 +68,8 @@ pub enum RpcDataConversionError {
     InvalidVpcVirtualizationType(i32),
     #[error("Invalid enum value received for critical error type: {0}")]
     InvalidCriticalErrorType(i32),
+    #[error("PowerState {0} is not valid")]
+    InvalidPowerState(i32),
     #[error("Instance ID {0} is not valid")]
     InvalidInstanceId(String),
     #[error("Remediation ID {0} is not valid")]

@@ -22,3 +22,11 @@ pub struct Args {
     #[clap(long, help = "Show only available configurations")]
     pub only_available: bool,
 }
+
+impl From<Args> for rpc::forge::RackFirmwareListRequest {
+    fn from(args: Args) -> Self {
+        Self {
+            only_available: args.only_available,
+        }
+    }
+}

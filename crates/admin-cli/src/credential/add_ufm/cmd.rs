@@ -16,22 +16,15 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::{CredentialType, forge as forgerpc};
+use ::rpc::forge as forgerpc;
 
 use super::args::Args;
-use crate::credential::common::url_validator;
 use crate::rpc::ApiClient;
 
-pub async fn add_ufm(c: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let username = url_validator(c.url)?;
-    let password = c.token;
-    let req = forgerpc::CredentialCreationRequest {
-        credential_type: CredentialType::Ufm.into(),
-        username: Some(username),
-        password,
-        mac_address: None,
-        vendor: None,
-    };
-    api_client.0.create_credential(req).await?;
+pub async fn add_ufm(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+    api_client
+        .0
+        .create_credential(forgerpc::CredentialCreationRequest::try_from(data)?)
+        .await?;
     Ok(())
 }

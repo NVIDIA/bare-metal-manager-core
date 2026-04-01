@@ -99,21 +99,6 @@ fn parse_show_with_hosts() {
     }
 }
 
-// parse_dpu_ssh_credentials ensures dpu-ssh-credentials
-// parses with query.
-#[test]
-fn parse_dpu_ssh_credentials() {
-    let cmd = Cmd::try_parse_from(["machine", "dpu-ssh-credentials", "--query", "machine-123"])
-        .expect("should parse dpu-ssh-credentials");
-
-    match cmd {
-        Cmd::DpuSshCredentials(args) => {
-            assert_eq!(args.inner.query, "machine-123");
-        }
-        _ => panic!("expected DpuSshCredentials variant"),
-    }
-}
-
 // parse_network_status ensures network status
 // parses.
 #[test]

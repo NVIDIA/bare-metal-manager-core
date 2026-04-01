@@ -64,66 +64,76 @@ static BF3_BMC: &str = "BF-25.10-9";
 static BF3_CEC: &str = "00.02.0195.0000_n02";
 static BF3_UEFI: &str = "4.13.0-26-g337fea6bfd";
 
-/// carbide-api configuration file content
+/// nico-api configuration file content
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CarbideConfig {
-    /// The socket address that is used for the gRPC API server
+    /// Socket address for the gRPC API server, used by
+    /// clients and nico-admin-cli to connect.
+    /// Default is `[::]:1079`.
     #[serde(default = "default_listen")]
     pub listen: SocketAddr,
 
-    /// Set to true to run this instance "passively", ie. don't start any background services and
-    /// just listen for rpc/web connections. This is used in development mode when you want to run
-    /// an additional carbide instance, against a cluster that is already running a "full" carbide
-    /// instance.
+    /// Run this instance passively: no background services,
+    /// just listen for RPC/web connections. Used in dev mode
+    /// when running a second nico instance against a
+    /// cluster that already has a "full" instance.
     #[serde(default)]
     pub listen_only: bool,
 
-    /// The socket address that is used for the HTTP server which serves
-    /// prometheus metrics under /metrics
+    /// Socket address for the HTTP server that serves
+    /// Prometheus metrics under `/metrics`.
     pub metrics_endpoint: Option<SocketAddr>,
 
-    /// An alternative prefix under which metrics will be emitted besides `carbide_`.
-    /// Setting this flag will allow to dual emit metrics to migrate dashboards and alerts.
-    /// Note that seting the flag will load to increased load on the observability system.
+    /// Alternative metric prefix emitted alongside `carbide_`,
+    /// used for dual-emitting while migrating dashboards and
+    /// alerts. Increases observability system load.
     pub alt_metric_prefix: Option<String>,
 
-    /// A connection string for the utilized postgres database
+    /// Postgres connection string used by the API server
+    /// for all persistent state.
     pub database_url: String,
 
-    /// The maximum size of the database connection pool
+    /// Maximum size of the database connection pool.
+    /// Default is 1000.
     #[serde(default = "default_max_database_connections")]
     pub max_database_connections: u32,
 
-    /// IB fabric related configuration
+    /// InfiniBand fabric configuration, used by the IB
+    /// fabric manager for partition and UFM management.
     pub ib_config: Option<IBFabricConfig>,
 
-    /// ASN: Autonomous System Number
-    /// Fixed per environment. Used by forge-dpu-agent to write frr.conf (routing).
+    /// Autonomous System Number, fixed per environment.
+    /// Used by nico-dpu-agent to write `frr.conf` for
+    /// BGP routing.
     pub asn: u32,
 
-    /// List of DHCP servers that should be announced
+    /// DHCP server addresses announced to DPUs during
+    /// network provisioning.
     #[serde(default)]
     pub dhcp_servers: Vec<String>,
 
-    /// Comma-separated list of route server IP addresses. Optional, only for L2VPN (Eth Virt).
+    /// Route server IP addresses for L2VPN (Ethernet
+    /// Virtual) network support on DPUs.
     #[serde(default)]
     pub route_servers: Vec<String>,
 
+    /// Enables route server injection into DPU FRR
+    /// configs for L2VPN Ethernet Virtual networks.
     #[serde(default)]
     pub enable_route_servers: bool,
 
     /// List of IPv4 prefixes (in CIDR notation) that tenant instances are not allowed to talk to.
-    ///
-    /// TODO(chet): For now, this remains `Vec<Ipv4Network>`, because the dpu-agent consumers
-    /// that process deny prefixes are IPv4-only (and I'll do it in another PR):
-    /// - `crates/agent/src/acl_rules.rs` parses rules into `Ipv4Network` and generates
-    ///   iptables DROP rules via `make_deny_prefix_rules(&[Ipv4Network], ...)`
-    /// - nvue templates (in `nvue_startup_fnn.conf` and `nvue_startup_etv.conf`) render these
-    ///   prefixes under a "p0000_deny_prefixes_ipv4" ACL policy with `type: ipv4`.
-    ///
-    /// Updating to support `Vec<IpNetwork>` requires the agent to generate parallel IPv6 deny
-    /// rules (I think via ip6tables / `type: ipv6` ACL policy), similar to how NSG rules already
-    /// handle the `ipv6: bool` split.
+    //
+    // TODO(chet): For now, this remains `Vec<Ipv4Network>`, because the dpu-agent consumers
+    // that process deny prefixes are IPv4-only (and I'll do it in another PR):
+    // - `crates/agent/src/acl_rules.rs` parses rules into `Ipv4Network` and generates
+    //   iptables DROP rules via `make_deny_prefix_rules(&[Ipv4Network], ...)`
+    // - nvue templates (in `nvue_startup_fnn.conf` and `nvue_startup_etv.conf`) render these
+    //   prefixes under a "p0000_deny_prefixes_ipv4" ACL policy with `type: ipv4`.
+    //
+    // Updating to support `Vec<IpNetwork>` requires the agent to generate parallel IPv6 deny
+    // rules (I think via ip6tables / `type: ipv6` ACL policy), similar to how NSG rules already
+    // handle the `ipv6: bool` split.
     #[serde(default)]
     pub deny_prefixes: Vec<Ipv4Network>,
 
@@ -145,33 +155,46 @@ pub struct CarbideConfig {
     /// any ASN.
     pub common_tenant_host_asn: Option<u32>,
 
+    /// VPC isolation policy enforced on tenant traffic.
+    /// Controls whether VPCs are mutually isolated or open.
     #[serde(default)]
     pub vpc_isolation_behavior: VpcIsolationBehaviorType,
 
+    /// Pinger implementation type (e.g., "OobNetBind") used
+    /// by the DPU network monitor to health-check DPU links.
     #[serde(default)]
     pub dpu_network_monitor_pinger_type: Option<String>,
 
-    /// TLS related configuration
+    /// TLS certificate and key paths for securing gRPC and
+    /// HTTP connections.
     pub tls: Option<TlsConfig>,
 
+    /// Transport mode for the gRPC API server.
+    /// Default is `Tls`.
     #[serde(default)]
     pub listen_mode: ListenMode,
 
-    /// Authentication related configuration
+    /// Authentication and authorization configuration
+    /// including Casbin policies and client certificate
+    /// trust settings.
     pub auth: Option<AuthConfig>,
 
-    // Resource pools to allocate IPs, VNIs, etc.
-    // Required.
-    // Option so that we can de-serialize partial configs (and then merge them).
+    /// Resource pools that allocate IPs, VNIs, etc.
+    /// Required, but wrapped in `Option` so partial configs
+    /// can be deserialized and merged.
     pub pools: Option<HashMap<String, ResourcePoolDef>>,
 
-    // Networks to create. Otherwise use grpcurl CreateNetworkSegment to create them later.
+    /// Networks to create at startup. Use the
+    /// `CreateNetworkSegment` gRPC to create them later
+    /// instead.
     pub networks: Option<HashMap<String, NetworkDefinition>>,
 
-    // The type of ipmitool to user (prod or fake)
+    /// IPMI tool implementation for DPU power control
+    /// (e.g., "prod" or "fake").
     pub dpu_ipmi_tool_impl: Option<String>,
 
-    // The number of retries to perform if ipmi returns an error
+    /// Number of retries when IPMI returns an error during
+    /// DPU reboot.
     pub dpu_ipmi_reboot_attempts: Option<u32>,
 
     /// Infiniband fabrics managed by the site
@@ -185,8 +208,10 @@ pub struct CarbideConfig {
     /// The alternative is to create it via `CreateDomain` grpc endpoint.
     pub initial_domain_name: Option<String>,
 
-    /// The policy we use to decide whether a specific forge-dpu-agent should be upgraded
-    /// Also settable via a `forge-admin-cli` command.
+    /// The policy we use to decide whether a specific nico-dpu-agent
+    /// should be upgraded.
+    ///
+    /// Also settable via a `nico-admin-cli` command.
     pub initial_dpu_agent_upgrade_policy: Option<AgentUpgradePolicyChoice>,
 
     /// Deprecated, use machine_updater
@@ -198,11 +223,6 @@ pub struct CarbideConfig {
     /// SiteExplorer related configuration
     #[serde(default)]
     pub site_explorer: SiteExplorerConfig,
-
-    /// DPU agent to use NVUE instead of writing files directly.
-    /// Once we are comfortable with this and all DPUs are HBN 2+ it will become the only option.
-    #[serde(default = "default_to_true")]
-    pub nvue_enabled: bool,
 
     /// The policy to decide whether two VPCs are allowed to peer with each other based on their
     /// network virtualization type during creation
@@ -260,66 +280,111 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub spdm_state_controller: SpdmStateControllerConfig,
 
+    /// Maps host model identifiers to firmware definitions,
+    /// used by the firmware manager to determine BMC, UEFI,
+    /// and NIC upgrade targets for each host type.
     #[serde(default)]
     pub host_models: HashMap<String, Firmware>,
 
+    /// Global firmware update settings: upload concurrency,
+    /// retry intervals, autoupdate policies, and firmware
+    /// binary storage paths.
     #[serde(default)]
     pub firmware_global: FirmwareGlobal,
 
+    /// Machine update policies: auto-reboot windows and
+    /// concurrent update limits used by the machine update
+    /// manager.
     #[serde(default)]
     pub machine_updater: MachineUpdater,
 
-    /// The maximum number of IDs allowed for find_(something)_by_ids APIs
+    /// Maximum number of IDs accepted by
+    /// `find_*_by_ids` APIs to prevent oversized queries.
+    /// Default is 100.
     #[serde(default = "default_max_find_by_ids")]
     pub max_find_by_ids: u32,
 
+    /// Network security group settings: max expanded rule
+    /// count, stateful ACL enforcement, and policy overrides
+    /// injected before user-defined rules.
     #[serde(default)]
     pub network_security_group: NetworkSecurityGroupConfig,
 
-    /// The minimum number of functioning links on a dpu for it to be considered healthy
-    /// if not present, all links must be functional.
+    /// Minimum functioning DPU links required for the DPU
+    /// to be considered healthy. If unset, all links must
+    /// be functional.
     #[serde(default)]
     pub min_dpu_functioning_links: Option<u32>,
 
+    /// Host health monitoring thresholds, used by the
+    /// machine state controller to determine hardware health
+    /// and DPU agent version compliance.
     #[serde(default)]
     pub host_health: HostHealthConfig,
 
-    // internet_l3_vni is a GNI-provided L3VNI to use for
-    // FNN VPCs to have Internet connectivity. If it's
-    // not set, VPCs in this site will not have the ability
-    // to get out to the Internet.
+    /// Network infrastructure-provided L3 VNI for FNN VPC Internet
+    /// connectivity. Combined with `datacenter_asn` to form
+    /// a route-target. If unset, VPCs cannot reach the
+    /// Internet.
+    /// Default is 100001.
     //
-    // TODO(chet): This might be interesting to be able
-    // to toggle on a per-VPC basis (e.g. if a customer
-    // wants to create a VPC that is guaranteed not to
-    // be able to access the Internet).
+    // TODO(chet): This might be interesting to toggle on
+    // a per-VPC basis (e.g. a VPC guaranteed not to access
+    // the Internet).
     #[serde(default = "default_internet_l3_vni")]
     pub internet_l3_vni: u32,
 
-    /// MeasuredBootMetricsCollector related configuration
+    /// Measured boot metrics collector configuration.
+    /// Exports TPM-based boot measurement data as
+    /// Prometheus metrics for attestation monitoring.
     #[serde(default)]
     pub measured_boot_collector: MeasuredBootMetricsCollectorConfig,
 
-    /// Machine Validation config to api server
+    /// Machine validation test configuration. Runs
+    /// hardware tests (memory latency, SSD I/O, etc.)
+    /// after ingestion to verify machine health.
     #[serde(default)]
     pub machine_validation_config: MachineValidationConfig,
 
+    /// Machine identity (SPIFFE JWT-SVID) settings,
+    /// used by `SignMachineIdentity` to issue short-lived
+    /// identity tokens to tenant workloads.
+    /// Section `[machine_identity]`.
+    #[serde(default)]
+    pub machine_identity: MachineIdentityConfig,
+
+    /// Disables role-based access control enforcement.
+    /// Intended for testing and development only.
     #[serde(default)]
     pub bypass_rbac: bool,
 
-    /// DPU specific configs including DPU orand DPU BMC firmware
+    /// DPU-specific firmware and provisioning config,
+    /// including DPU model definitions, NIC firmware
+    /// versions, and secure boot settings.
     #[serde(default)]
     pub dpu_config: DpuConfig,
 
+    /// Fabric Nearest Neighbor (FNN) configuration for
+    /// L3 VNI-based overlay networking, including routing
+    /// profiles and route target import/export policies.
     #[serde(default)]
     pub fnn: Option<FnnConfig>,
 
+    /// Bill-of-materials (BOM) validation settings.
+    /// Ensures machines match expected SKU configurations
+    /// before being marked as Ready.
     #[serde(default)]
     pub bom_validation: BomValidationConfig,
 
+    /// BIOS profile definitions organized by vendor and
+    /// model, used by SiteExplorer to apply Redfish BIOS
+    /// settings during ingestion.
     #[serde(default)]
     pub bios_profiles: libredfish::BiosProfileVendor,
 
+    /// Default BIOS profile type (e.g., Performance,
+    /// PowerEfficiency) applied to machines when no
+    /// per-model override exists.
     #[serde(default)]
     pub selected_profile: libredfish::BiosProfileType,
 
@@ -328,35 +393,47 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub dpa_config: Option<DpaConfig>,
 
-    /// DSX Exchange Event Bus configuration for publishing state change events via MQTT.
+    /// DSX Exchange Event Bus configuration. Publishes
+    /// `ManagedHostState` transitions to MQTT topics for
+    /// external consumers.
     #[serde(default)]
     pub dsx_exchange_event_bus: Option<DsxExchangeEventBusConfig>,
 
-    /// FNN depends on various route-targets that
-    /// are DC-specific.  This value is used to
-    /// build those targets for import and,
-    ///  eventually, export
+    /// Datacenter ASN used by FNN to build DC-specific
+    /// route targets for VRF import and export.
+    /// Default is 11414.
     #[serde(default = "default_datacenter_asn")]
     pub datacenter_asn: u32,
 
-    /// NvLink related configuration
+    /// NvLink partitioning configuration, used by the
+    /// NvLink monitor to manage GPU mesh partitions
+    /// via NMX-M.
     #[serde(default)]
     pub nvlink_config: Option<NvLinkConfig>,
 
+    /// Power management settings: retry intervals after
+    /// success/failure and host reboot wait time.
     #[serde(default = "default_power_options")]
     pub power_manager_options: PowerManagerOptions,
 
-    /// sitename is made visible to customers running
-    /// tenant OS via an FMDS endpoint.
+    /// Human-readable site name, exposed to customers
+    /// running tenant OS via the FMDS endpoint.
     pub sitename: Option<String>,
 
-    /// Auto machine repair plugin configuration
+    /// Auto machine repair plugin. When enabled,
+    /// automatically transitions failed machines into
+    /// repair workflows.
     #[serde(default)]
     pub auto_machine_repair_plugin: AutoMachineRepairPluginConfig,
 
-    /// configuration for using forge with a VM system
+    /// VMaaS (VM-as-a-Service) configuration for using
+    /// NICo with a VM system, including VF settings and
+    /// traffic-intercept bridging.
     pub vmaas_config: Option<VmaasConfig>,
 
+    /// Named Mellanox NIC firmware configuration profiles,
+    /// used by superNIC firmware flashing to apply
+    /// device-specific register settings.
     #[serde(
         default,
         rename = "mlx-config-profiles",
@@ -366,9 +443,9 @@ pub struct CarbideConfig {
     )]
     pub mlxconfig_profiles: Option<HashMap<String, MlxConfigProfile>>,
 
-    /// The intent of this config option is to use the forge site controller as a standalone
+    /// The intent of this config option is to use the NICo site controller as a standalone
     /// (disconnected / air-gapped) infrastructure manager for racks of GB200/GB300/VR144.
-    /// Only set this if using Forge site controller with Rack Manager to manage GB200/300/VR144.
+    /// Only set this if using NICo site controller with Rack Manager to manage GB200/300/VR144.
     /// It will change site controller behavior significantly in the following ways, etc.:
     /// 1. skip dpu management and use dpus in nic mode (optional, can set force_dpu_nic_mode=false)
     ///    a. no dpu bfb upgrade and host power cycle
@@ -400,25 +477,28 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub rack_management_enabled: bool,
 
+    /// URL of the Rack Manager Service API for rack-level firmware upgrades and power sequencing.
+    pub rms_api_url: Option<String>,
+
+    /// rack_types contains the rack type definitions. When expected racks
+    /// are created, they are given a rack_type name to reference. This maps
+    /// those names to the actual RackTypeConfig. This may eventually change,
+    /// and/or co-exist with a DCIM providing us an entire config as part of
+    /// the ingestion call.
     #[serde(default)]
+    pub rack_types: model::rack_type::RackTypeConfig,
+
     /// Treat any dpu found as a regular NIC and skip configuring it as a managed dpu.
     /// This is specifically for dev labs to allow using GB200/300 and VR compute
     /// trays with bluefield dpus as NICs.
-    pub force_dpu_nic_mode: bool,
-
-    // rms_api_url is the URL to the Rack Manager Service API.
-    pub rms_api_url: Option<String>,
-
-    /// Whether to use the host NIC instead of the DPUs on the compute trays.
-    /// This is used to test the host NIC functionality.
     #[serde(
-        default = "SiteExplorerConfig::default_use_onboard_nic",
+        default = "SiteExplorerConfig::default_force_dpu_nic_mode",
         deserialize_with = "deserialize_arc_atomic_bool",
         serialize_with = "serialize_arc_atomic_bool"
     )]
-    pub use_onboard_nic: Arc<AtomicBool>,
+    pub force_dpu_nic_mode: Arc<AtomicBool>,
 
-    // SPDM Config
+    /// SPDM (Security Protocol and Data Model) configuration for hardware attestation.
     #[serde(default)]
     pub spdm: SpdmConfig,
 
@@ -431,7 +511,7 @@ pub struct CarbideConfig {
     /// DPU to a single VRF.
     pub site_global_vpc_vni: Option<u32>,
 
-    // DPF Config
+    /// DPF (DPU Platform Framework) configuration for DPU fabric deployment as a Kubernetes service.
     #[serde(default)]
     pub dpf: DpfConfig,
 
@@ -443,11 +523,16 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub arm_pxe_boot_url_override: Option<String>,
 
+    /// Controls enforcement of compute allocations when a new instance is
+    /// requested.
+    #[serde(default)]
+    pub compute_allocation_enforcement: ComputeAllocationEnforcement,
+
     /// supernic_firmware_profiles is a nested map of FirmwareFlasherProfiles
     /// keyed by part_number and PSID. Each profile specifies the firmware to
     /// flash and optional lifecycle flags (reset, verify_image, verify_version).
     ///
-    /// Configured in `carbide-api-config.toml`:
+    /// Configured in `nico-api-config.toml`:
     ///
     /// ```toml
     /// [supernic_firmware_profiles.900-9D3B4-00CV-TA0.MT_0000000884]
@@ -465,39 +550,197 @@ pub struct CarbideConfig {
     /// ```
     #[serde(default)]
     pub supernic_firmware_profiles: HashMap<String, HashMap<String, FirmwareFlasherProfile>>,
+
+    /// Component manager configuration for managing
+    /// NvLink switches and power shelves via rack
+    /// manager integration.
+    #[serde(default)]
+    pub component_manager: Option<component_manager::config::ComponentManagerConfig>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ComputeAllocationEnforcement {
+    #[default]
+    /// If an allocation exists, don't enforce, but log what would have happened.
+    WarnOnly,
+    /// Only enforce if allocations exist.
+    EnforceIfPresent,
+    /// Always enforce, and zero allocations for the tenant means
+    /// the new instance request will be rejected.
+    Always,
+}
+
+/// DPF (DPU Platform Framework) configuration for
+/// deploying DPU fabric as a Kubernetes service.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DpfConfig {
+    /// Enables DPF deployment.
     #[serde(default)]
     pub enabled: bool,
+    /// Kubernetes deployment name for the DPF service.
+    #[serde(default = "default_dpf_deployment_name")]
+    pub deployment_name: String,
+    /// Kubernetes DPUFlavor CR name.
+    #[serde(default = "default_dpf_flavor_name")]
+    pub flavor_name: String,
+    /// Label key applied to DPUNode CRs for deployment matching.
+    #[serde(default = "default_dpf_node_label_key")]
+    pub node_label_key: String,
+    /// URL to the BlueField firmware bundle (BFB) for
+    /// DPU provisioning.
+    #[serde(default)]
+    pub bfb_url: String,
+    /// Additional Helm services to deploy alongside DPF.
+    #[serde(default)]
+    pub services: Option<Vec<DpfServiceConfig>>,
+    /// Whether to create the bf.cfg ConfigMap during initialization.
+    #[serde(default = "default_to_true")]
+    pub bfcfg_enabled: bool,
 }
 
+impl Default for DpfConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            deployment_name: default_dpf_deployment_name(),
+            flavor_name: default_dpf_flavor_name(),
+            node_label_key: default_dpf_node_label_key(),
+            bfb_url: String::new(),
+            services: None,
+            bfcfg_enabled: true,
+        }
+    }
+}
+
+// TODO change to -v2 when we're ready to enable v2 by default
+fn default_dpf_deployment_name() -> String {
+    "carbide-deployment".to_string()
+}
+
+// TODO change to -v2 when we're ready to enable v2 by default
+fn default_dpf_flavor_name() -> String {
+    "carbide-dpu-flavor".to_string()
+}
+
+// TODO change to .v2 when we're ready to enable v2 by default
+fn default_dpf_node_label_key() -> String {
+    "carbide.nvidia.com/controlled.node.v1".to_string()
+}
+
+/// Configuration for a single Helm-based DPF service.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DpfServiceConfig {
+    /// Name of the Helm service.
+    pub name: String,
+    /// URL of the Helm chart repository.
+    pub helm_repo_url: String,
+    /// Name of the Helm chart.
+    pub helm_chart: String,
+    /// Version of the Helm chart.
+    pub helm_version: String,
+}
+
+/// Machine identity (SPIFFE JWT-SVID) configuration.
+/// Loaded from `[machine_identity]` section in config.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MachineIdentityConfig {
+    /// Master switch. If false, SetIdentityConfiguration and SignMachineIdentity return 503.
+    #[serde(default = "machine_identity_default_enabled")]
+    pub enabled: bool,
+    /// Signing algorithm for per-org keys (e.g. ES256).
+    #[serde(default = "machine_identity_default_algorithm")]
+    pub algorithm: String,
+    /// Min token TTL permitted in seconds.
+    #[serde(default = "machine_identity_default_token_ttl_min_sec")]
+    pub token_ttl_min_sec: u32,
+    /// Max token TTL permitted in seconds.
+    #[serde(default = "machine_identity_default_token_ttl_max_sec")]
+    pub token_ttl_max_sec: u32,
+    /// Optional HTTP proxy for token endpoint calls (SSRF mitigation).
+    #[serde(default)]
+    pub token_endpoint_http_proxy: Option<String>,
+}
+
+fn machine_identity_default_enabled() -> bool {
+    true
+}
+fn machine_identity_default_algorithm() -> String {
+    "ES256".to_string()
+}
+fn machine_identity_default_token_ttl_min_sec() -> u32 {
+    60
+}
+fn machine_identity_default_token_ttl_max_sec() -> u32 {
+    86400
+}
+
+impl Default for MachineIdentityConfig {
+    fn default() -> Self {
+        Self {
+            enabled: machine_identity_default_enabled(),
+            algorithm: machine_identity_default_algorithm(),
+            token_ttl_min_sec: machine_identity_default_token_ttl_min_sec(),
+            token_ttl_max_sec: machine_identity_default_token_ttl_max_sec(),
+            token_endpoint_http_proxy: None,
+        }
+    }
+}
+
+impl From<MachineIdentityConfig> for model::tenant::IdentityConfigValidationBounds {
+    fn from(mi: MachineIdentityConfig) -> Self {
+        Self {
+            token_ttl_min_sec: mi.token_ttl_min_sec,
+            token_ttl_max_sec: mi.token_ttl_max_sec,
+            algorithm: mi.algorithm,
+            encryption_key_id: "placeholder-encryption-key".to_string(),
+        }
+    }
+}
+
+/// SPDM (Security Protocol and Data Model) configuration
+/// for hardware attestation of DPU components.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SpdmConfig {
+    /// Enables SPDM-based hardware attestation.
     #[serde(default)]
     pub enabled: bool,
+    /// NRAS (Network Root of trust for Attestation
+    /// Service) configuration for secure boot
+    /// verification.
     #[serde(default)]
     pub nras_config: Option<nras::Config>,
 }
 
-/// Parameters used by the Power config.
+/// Power management configuration controlling retry
+/// intervals and reboot timing.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PowerManagerOptions {
+    /// Master switch to enable or disable power
+    /// management.
     #[serde(default)]
     pub enabled: bool,
+    /// Interval before retrying power operations after
+    /// a successful attempt.
+    /// Default is 5 minutes.
     #[serde(
         default = "default_next_duration_success",
         deserialize_with = "deserialize_duration_chrono",
         serialize_with = "as_duration"
     )]
     pub next_try_duration_on_success: chrono::TimeDelta,
+    /// Interval before retrying power operations after
+    /// a failed attempt.
+    /// Default is 2 minutes.
     #[serde(
         default = "default_next_duration_failure",
         deserialize_with = "deserialize_duration_chrono",
         serialize_with = "as_duration"
     )]
     pub next_try_duration_on_failure: chrono::TimeDelta,
+    /// Time to wait after power-down before powering on
+    /// the host.
+    /// Default is 15 minutes.
     #[serde(
         default = "default_wait_duration_next_reboot",
         deserialize_with = "deserialize_duration_chrono",
@@ -506,29 +749,36 @@ pub struct PowerManagerOptions {
     pub wait_duration_until_host_reboot: chrono::TimeDelta,
 }
 
+/// A BGP route target used in FNN VRF import/export policies.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct RouteTargetConfig {
+    /// Autonomous System Number component of the route target.
     #[serde(default)]
     pub asn: u32,
+    /// Virtual Network Identifier component of the route target.
     #[serde(default)]
     pub vni: u32,
 }
 
+/// Fabric Nearest Neighbor (FNN) configuration for L3 VNI-based overlay networking.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct FnnConfig {
+    /// Optional FNN configuration for the admin network VPC.
     #[serde(default)]
     pub admin_vpc: Option<AdminFnnConfig>,
 
     /// We'll double-tag our internal tenant routes with this tag.
-    /// Original consumer is GNI, who will import a common
-    /// route-target for internal tenant routes, reducing
-    /// the coordination needed between forge and GNI,
-    /// but who knows what the future holds.
+    /// Original consumer is a Network Infrastructure team, who will
+    /// import a common route-target for internal tenant routes,
+    /// reducing the coordination needed between NICo and the Network
+    /// Infrastructure, but who knows what the future holds.
     #[serde(default)]
     pub common_internal_route_target: Option<RouteTargetConfig>,
+    /// Additional route targets to import on DPU VRFs beyond the per-VPC defaults.
     #[serde(default)]
     pub additional_route_target_imports: Vec<RouteTargetConfig>,
 
+    /// Named routing profiles that define per-VPC route target import/export policies.
     #[serde(default)]
     pub routing_profiles: HashMap<String, FnnRoutingProfileConfig>,
 }
@@ -547,19 +797,27 @@ pub struct FnnRoutingProfileConfig {
     /// Is this an internal or external tenant/VPC profile
     #[serde(default)]
     pub internal: bool,
+
+    /// Should DPUs leak the default route from the
+    /// underlay into the tenant VRF?
+    #[serde(default)]
+    pub leak_default_route_from_underlay: bool,
+
+    /// Should DPUs leak the routes for the host IPs into
+    /// into the underlay?
+    #[serde(default)]
+    pub leak_tenant_host_routes_to_underlay: bool,
 }
 
+/// FNN configuration specific to the admin network.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct AdminFnnConfig {
-    // if FNN should be applicable on admin network as well.
+    /// Whether FNN should be applied to the admin network as well.
     pub enabled: bool,
 
+    /// VNI for the admin network VPC. When enabled, will create a VPC with this VNI
+    /// and attach it to the admin network segment. Panics if a conflicting VPC/segment exists.
     #[serde(default)]
-    // if enabled_on_admin_network is true, carbide will try to
-    //   1. Create a VPC with the given vni.
-    //   2. Attach this VPC to network_segment table with segment type `admin`.
-    // if a vpc with exiting vni exists and network_segment table has this vpc attached to admin
-    // segment, do nothing else throw a error and panic.
     pub vpc_vni: Option<u32>,
 
     /// The inline definition for the routing config to use for the admin network.
@@ -637,13 +895,14 @@ impl CarbideConfig {
         self.supernic_firmware_profiles.get(part_number)?.get(psid)
     }
 
-    // Given a device_type, return the profile that needs to be applied
-    // to configure the DPA.
-    pub fn get_dpa_profile(&self, _device_type: String) -> String {
-        // XXX TODO XXX
-        // Figure out profile that needs to be applied to the given device type
-        // XXX TODO XXX
-        "bf3-spx-enabled".to_string()
+    // get_mlxconfig_profile looks up an MlxConfigProfile by name from
+    // the mlx-config-profiles config map. Returns None if the map is
+    // not configured or the name is not found.
+    pub fn get_mlxconfig_profile(
+        &self,
+        name: &str,
+    ) -> Option<&libmlx::profile::profile::MlxConfigProfile> {
+        self.mlxconfig_profiles.as_ref()?.get(name)
     }
 
     pub fn max_concurrent_machine_updates(&self) -> MaxConcurrentUpdates {
@@ -805,6 +1064,13 @@ pub struct MachineStateControllerConfig {
         serialize_with = "as_duration"
     )]
     pub scout_reporting_timeout: Duration,
+    /// How long to wait for UEFI boot to complete after rebooting a host
+    #[serde(
+        default = "MachineStateControllerConfig::uefi_boot_wait_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub uefi_boot_wait: Duration,
 }
 
 impl MachineStateControllerConfig {
@@ -827,6 +1093,10 @@ impl MachineStateControllerConfig {
     fn scout_reporting_timeout_default() -> Duration {
         Duration::minutes(5)
     }
+
+    pub fn uefi_boot_wait_default() -> Duration {
+        Duration::minutes(5)
+    }
 }
 
 impl Default for MachineStateControllerConfig {
@@ -839,6 +1109,7 @@ impl Default for MachineStateControllerConfig {
             dpu_up_threshold: MachineStateControllerConfig::dpu_up_threshold_default(),
             scout_reporting_timeout: MachineStateControllerConfig::scout_reporting_timeout_default(
             ),
+            uefi_boot_wait: MachineStateControllerConfig::uefi_boot_wait_default(),
         }
     }
 }
@@ -979,6 +1250,28 @@ pub struct StateControllerConfig {
         serialize_with = "as_std_duration"
     )]
     pub processor_log_interval: std::time::Duration,
+
+    /// Configures how often the state handling processor will reassess metrics and emit them.
+    /// Calculating aggregate metrics is expensive (all object metrics need to be traversed).
+    /// Therefore this should not happen much more frequently than the observabilty system
+    /// will access them.
+    #[serde(
+        default = "StateControllerConfig::metric_emission_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub metric_emission_interval: std::time::Duration,
+
+    /// Configures for how long metrics for each object managed by the state controller
+    /// will show up before they get evicted.
+    /// The duration of this needs to be longer than the time between state handler
+    /// invocations for the object
+    #[serde(
+        default = "StateControllerConfig::metric_hold_time",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub metric_hold_time: std::time::Duration,
 }
 
 impl StateControllerConfig {
@@ -998,6 +1291,14 @@ impl StateControllerConfig {
         std::time::Duration::from_secs(60)
     }
 
+    pub const fn metric_emission_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(60)
+    }
+
+    pub const fn metric_hold_time() -> std::time::Duration {
+        std::time::Duration::from_secs(5 * 60)
+    }
+
     pub const fn max_concurrency_default() -> usize {
         10
     }
@@ -1011,6 +1312,8 @@ impl Default for StateControllerConfig {
             processor_dispatch_interval: Self::processor_dispatch_interval_default(),
             processor_log_interval: Self::processor_log_interval_default(),
             max_concurrency: Self::max_concurrency_default(),
+            metric_emission_interval: Self::metric_emission_interval(),
+            metric_hold_time: Self::metric_hold_time(),
         }
     }
 }
@@ -1023,40 +1326,50 @@ impl From<&StateControllerConfig> for IterationConfig {
             max_concurrency: config.max_concurrency,
             processor_dispatch_interval: config.processor_dispatch_interval,
             processor_log_interval: config.processor_log_interval,
+            metric_emission_interval: config.metric_emission_interval,
+            metric_hold_time: config.metric_hold_time,
         }
     }
 }
 
-/// IBFabricManager related configuration
+/// InfiniBand fabric manager configuration.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct IBFabricConfig {
+    /// Maximum InfiniBand partitions per tenant (1-31).
     #[serde(
         default = "IBFabricConfig::default_max_partition_per_tenant",
         deserialize_with = "IBFabricConfig::deserialize_max_partition"
     )]
     pub max_partition_per_tenant: i32,
 
+    /// Enables InfiniBand fabric management.
     #[serde(default)]
-    /// Enable IB fabric
     pub enabled: bool,
 
-    /// Whether a fabric configuration that does not adhere to security requirements
-    /// for tenant isolation and infrastructure protection is allowed
+    /// Whether a fabric configuration that does not
+    /// adhere to security requirements for tenant
+    /// isolation and infrastructure protection is
+    /// allowed.
     #[serde(default)]
     pub allow_insecure: bool,
 
+    /// Maximum transmission unit for InfiniBand fabric
+    /// traffic.
     #[serde(
         default = "IBMtu::default",
         deserialize_with = "IBFabricConfig::deserialize_mtu"
     )]
     pub mtu: IBMtu,
 
+    /// Rate limit for InfiniBand fabric traffic.
     #[serde(
         default = "IBRateLimit::default",
         deserialize_with = "IBFabricConfig::deserialize_rate_limit"
     )]
     pub rate_limit: IBRateLimit,
 
+    /// Quality of service level for InfiniBand
+    /// packets.
     #[serde(
         default = "IBServiceLevel::default",
         deserialize_with = "IBFabricConfig::deserialize_service_level"
@@ -1136,11 +1449,11 @@ impl IBFabricConfig {
     }
 }
 
-/// NvLink related configuration
+/// NvLink related configuration.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct NvLinkConfig {
+    /// Enables NvLink partitioning.
     #[serde(default)]
-    /// Enable NvLink Partitioning
     pub enabled: bool,
 
     /// Defaults to 1 Minute if not specified.
@@ -1192,11 +1505,11 @@ impl NvLinkConfig {
     }
 }
 
-/// SiteExplorer related configuration
+/// SiteExplorer related configuration for hardware discovery and ingestion.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SiteExplorerConfig {
+    /// Whether SiteExplorer is enabled.
     #[serde(default = "default_to_true")]
-    /// Whether SiteExplorer is enabled
     pub enabled: bool,
     /// The interval at which site explorer runs.
     /// Defaults to 5 Minutes if not specified.
@@ -1229,9 +1542,8 @@ pub struct SiteExplorerConfig {
     )]
     pub create_machines: Arc<AtomicBool>,
 
+    /// How many ManagedHosts should be created in a single run. Default is 4.
     #[serde(default = "SiteExplorerConfig::default_machines_created_per_run")]
-    /// How many ManagedHosts should be created in a single run.
-    /// Default is 1.
     pub machines_created_per_run: u64,
 
     /// Whether SiteExplorer should rotate/update Switch NVOS admin credentials
@@ -1252,46 +1564,39 @@ pub struct SiteExplorerConfig {
     /// This is a debug override and should not be used in production.
     pub override_target_port: Option<u16>,
 
-    #[serde(default)]
     /// Whether to allow hosts with zero DPUs in site-explorer. This should typically be set to
     /// false in production environments where we expect all hosts to have DPUs. When false, if we
     /// encounter a host with no DPUs, site-explorer will throw an error for that host (because it
-    /// should be assumed that there's a bug in detecting the DPUs.)
+    /// should be assumed that there's a bug in detecting the DPUs).
+    #[serde(default)]
     pub allow_zero_dpu_hosts: bool,
 
+    /// The host:port to use as a proxy when making BMC calls to all hosts in NICo. This is used
+    /// for integration testing, and for local development with machine-a-tron/bmc-mock. Should not
+    /// be used in production.
     #[serde(
         default,
         deserialize_with = "deserialize_bmc_proxy",
         serialize_with = "serialize_bmc_proxy"
     )]
-    /// The host:port to use as a proxy when making BMC calls to all hosts in carbide. This is used
-    /// for integration testing, and for local development with machine-a-tron/bmc-mock. Should not
-    /// be used in production.
     pub bmc_proxy: Arc<ArcSwap<Option<HostPortPair>>>,
 
+    /// If set to `true`, the server will allow changes to the `bmc_proxy` setting at runtime.
+    /// Defaults to true if the server is launched with `bmc_proxy` set, false otherwise.
+    /// If explicitly set to true or false, that value is respected for the lifetime of the process.
     #[serde(default)]
-    /// If set to `true`, the server will allow changes to the `bmc_proxy` setting at runtime. This
-    /// will be default to true if the server is launched with bmc_proxy set:
-    /// - If the value is not set, but the server is launched with bmc_proxy, override_target_ip, or
-    ///   override_target_port set, it will be assumed true (ie. if bmc_proxy can be reconfigured if
-    ///   it was initially configured)
-    /// - If the value is not set, and the server is launched without bmc_proxy, override_target_ip,
-    ///   or override_target_port set, it will be assumed false (ie. changes to bmc_proxy will not
-    ///   be allowed if the config has not opted in)
-    /// - If the value is set to true or false, it will be respected through the lifetime of the
-    ///   process.
     pub allow_changing_bmc_proxy: Option<bool>,
 
+    /// Minimum time between consecutive force-restarts or BMC resets initiated by SiteExplorer.
+    /// Default is 1 hour.
     #[serde(
         default = "SiteExplorerConfig::default_reset_rate_limit",
         deserialize_with = "deserialize_duration_chrono",
         serialize_with = "as_duration"
     )]
-    /// Represents the minimum amount of time in between consecutive force-restarts or bmc-resets
-    /// initiated by SiteExplorer.
-    /// Default is 1 hour.
     pub reset_rate_limit: Duration,
 
+    /// When true, non-DPU hosts use the `HostInband` admin network segment type instead of `Admin`.
     #[serde(
         default = "SiteExplorerConfig::default_admin_segment_type_non_dpu",
         deserialize_with = "deserialize_arc_atomic_bool",
@@ -1324,9 +1629,9 @@ pub struct SiteExplorerConfig {
     )]
     pub explore_power_shelves_from_static_ip: Arc<AtomicBool>,
 
-    #[serde(default = "SiteExplorerConfig::default_power_shelves_created_per_run")]
     /// How many Power Shelves should be created in a single run.
     /// Default is 1.
+    #[serde(default = "SiteExplorerConfig::default_power_shelves_created_per_run")]
     pub power_shelves_created_per_run: u64,
 
     /// Whether SiteExplorer should create Switch state machine
@@ -1337,17 +1642,23 @@ pub struct SiteExplorerConfig {
     )]
     pub create_switches: Arc<AtomicBool>,
 
-    #[serde(default = "SiteExplorerConfig::default_switches_created_per_run")]
     /// How many Switches should be created in a single run.
     /// Default is 9.
+    #[serde(default = "SiteExplorerConfig::default_switches_created_per_run")]
     pub switches_created_per_run: u64,
 
+    /// Use onboard NIC for host networking instead of DPU NICs.
     #[serde(
-        default = "SiteExplorerConfig::default_use_onboard_nic",
+        default = "SiteExplorerConfig::default_force_dpu_nic_mode",
         deserialize_with = "deserialize_arc_atomic_bool",
         serialize_with = "serialize_arc_atomic_bool"
     )]
-    pub use_onboard_nic: Arc<AtomicBool>,
+    pub force_dpu_nic_mode: Arc<AtomicBool>,
+    /// Controls which Redfish client implementation is used
+    /// for hardware discovery (LibRedfish, NvRedfish, or
+    /// CompareResult for side-by-side validation).
+    #[serde(default = "SiteExplorerConfig::default_explore_mode")]
+    pub explore_mode: SiteExplorerExploreMode,
 }
 
 impl Default for SiteExplorerConfig {
@@ -1373,7 +1684,8 @@ impl Default for SiteExplorerConfig {
             create_switches: Arc::new(true.into()),
             switches_created_per_run: Self::default_switches_created_per_run(),
             rotate_switch_nvos_credentials: Self::default_rotate_switch_nvos_credentials(),
-            use_onboard_nic: Arc::new(false.into()),
+            force_dpu_nic_mode: Arc::new(false.into()),
+            explore_mode: Self::default_explore_mode(),
         }
     }
 }
@@ -1444,9 +1756,28 @@ impl SiteExplorerConfig {
         9
     }
 
-    pub fn default_use_onboard_nic() -> Arc<AtomicBool> {
+    pub fn default_force_dpu_nic_mode() -> Arc<AtomicBool> {
         Arc::new(false.into())
     }
+
+    pub const fn default_explore_mode() -> SiteExplorerExploreMode {
+        SiteExplorerExploreMode::LibRedfish
+    }
+}
+
+/// Selects the Redfish client backend used by SiteExplorer
+/// for BMC discovery.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub enum SiteExplorerExploreMode {
+    /// Use the libredfish Rust client.
+    #[serde(rename = "libredfish")]
+    LibRedfish,
+    /// Use the NVIDIA-specific Redfish client.
+    #[serde(rename = "nv-redfish")]
+    NvRedfish,
+    /// Run both clients and compare results for validation.
+    #[serde(rename = "compare-result")]
+    CompareResult,
 }
 
 impl DpaConfig {
@@ -1468,6 +1799,7 @@ impl Default for DpaConfig {
             subnet_ip: Self::default_subnet_ip(),
             subnet_mask: 0,
             hb_interval: Self::default_hb_interval(),
+            auth: MqttAuthConfig::default(),
         }
     }
 }
@@ -1511,27 +1843,39 @@ where
     }
 }
 
-/// TLS related configuration
+/// TLS certificate and key configuration for securing
+/// gRPC and HTTP connections.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TlsConfig {
+    /// Path to the root CA certificate file for
+    /// validating client certificates.
     #[serde(default)]
     pub root_cafile_path: String,
 
+    /// Path to the server identity certificate PEM
+    /// file.
     #[serde(default)]
     pub identity_pemfile_path: String,
 
+    /// Path to the server identity private key file.
     #[serde(default)]
     pub identity_keyfile_path: String,
 
+    /// Path to the admin root CA certificate file for
+    /// admin client validation.
     #[serde(default)]
     pub admin_root_cafile_path: String,
 }
 
+/// The transport protocol mode for the gRPC API server.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ListenMode {
+    /// Plaintext HTTP/1.1 (no TLS).
     PlaintextHttp1,
+    /// Plaintext HTTP/2 (no TLS).
     PlaintextHttp2,
+    /// TLS-encrypted connections (default).
     #[serde(other)]
     #[default]
     Tls,
@@ -1546,7 +1890,7 @@ pub struct AuthConfig {
     /// The Casbin policy file (in CSV format).
     pub casbin_policy_file: Option<PathBuf>,
 
-    /// Additional forge-admin-cli certs allowed.  This does not include actually allowing the cert to connect, just that certs that can be verified which match these criteria can do GRPC requests.
+    /// Additional nico-admin-cli certs allowed.  This does not include actually allowing the cert to connect, just that certs that can be verified which match these criteria can do GRPC requests.
     pub cli_certs: Option<AllowedCertCriteria>,
 
     /// Configuration for the root of trust for client cert auth
@@ -1828,42 +2172,72 @@ impl Default for NetworkSecurityGroupConfig {
     }
 }
 
+/// Global firmware management settings controlling
+/// update policies, concurrency, and retry behavior.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct FirmwareGlobal {
+    /// Enables automatic host firmware updates via the
+    /// background firmware manager.
     #[serde(default)]
     pub autoupdate: bool,
+    /// Host model names to force-enable autoupdate on,
+    /// regardless of the global `autoupdate` setting.
     #[serde(default)]
     pub host_enable_autoupdate: Vec<String>,
+    /// Host model names to force-disable autoupdate on,
+    /// regardless of the global `autoupdate` setting.
     #[serde(default)]
     pub host_disable_autoupdate: Vec<String>,
+    /// Frequency at which the firmware manager checks for
+    /// and applies updates.
+    /// Default is 30 seconds.
     #[serde(
         default = "FirmwareGlobal::run_interval_default",
         deserialize_with = "deserialize_duration_chrono",
         serialize_with = "as_duration"
     )]
     pub run_interval: Duration,
+    /// Maximum concurrent firmware uploads allowed.
+    /// Default is 4.
     #[serde(default = "FirmwareGlobal::max_uploads_default")]
     pub max_uploads: usize,
+    /// Maximum concurrent firmware flashing operations
+    /// across all machines.
+    /// Default is 16.
     #[serde(default = "FirmwareGlobal::concurrency_limit_default")]
     pub concurrency_limit: usize,
+    /// Local directory where firmware binaries are stored.
+    /// Default is `/opt/carbide/firmware`.
     #[serde(default = "FirmwareGlobal::firmware_directory_default")]
     pub firmware_directory: PathBuf,
+    /// Delay before retrying a failed host firmware
+    /// upgrade.
+    /// Default is 60 minutes.
     #[serde(
         default = "FirmwareGlobal::host_firmware_upgrade_retry_interval_default",
         deserialize_with = "deserialize_duration_chrono",
         serialize_with = "as_duration"
     )]
     pub host_firmware_upgrade_retry_interval: Duration,
+    /// Requires manual tagging of instances before
+    /// firmware updates are applied.
     #[serde(default = "FirmwareGlobal::instance_updates_manual_tagging_default")]
     pub instance_updates_manual_tagging: bool,
+    /// Disables retry logic after BMC resets during
+    /// firmware operations.
     #[serde(default)]
     pub no_reset_retries: bool,
+    /// Delay after GPU reboot before the HGX BMC can be
+    /// accessed again.
+    /// Default is 30 seconds.
     #[serde(
         default = "FirmwareGlobal::hgx_bmc_gpu_reboot_delay_default",
         deserialize_with = "deserialize_duration_chrono",
         serialize_with = "as_duration"
     )]
     pub hgx_bmc_gpu_reboot_delay: Duration,
+    /// Forces all firmware upgrades to require explicit
+    /// administrator approval.
     #[serde(default)]
     pub requires_manual_upgrade: bool,
 }
@@ -1893,8 +2267,12 @@ impl FirmwareGlobal {
     }
 }
 
+/// Configuration for rolling machine updates and
+/// maintenance windows.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct MachineUpdater {
+    /// Time window during which machines may automatically
+    /// reboot for updates.
     #[serde(default)]
     pub instance_autoreboot_period: Option<TimePeriod>,
     /// The maximum number of machines that have in-progress updates running.  This prevents
@@ -1905,9 +2283,12 @@ pub struct MachineUpdater {
     pub max_concurrent_machine_updates_percent: Option<i32>,
 }
 
+/// A UTC time window defined by a start and end timestamp.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct TimePeriod {
+    /// Start of the time window (UTC).
     pub start: chrono::DateTime<chrono::Utc>,
+    /// End of the time window (UTC).
     pub end: chrono::DateTime<chrono::Utc>,
 }
 
@@ -2136,15 +2517,19 @@ pub fn default_max_network_security_group_size() -> u32 {
 }
 
 pub fn default_internet_l3_vni() -> u32 {
-    // This is a number agreed upon between GNI and Forge
-    // that they will use to tag the default route.
+    // This is a number agreed upon between the Network
+    // Infrastructure team and NICo that they will use to
+    // tag the default route.
+    //
     // It will be combined with datacenter_asn to form
     // a route-target of <DC_ASN>:<INTERNET_VNI>.
     100001
 }
 
 pub fn default_datacenter_asn() -> u32 {
-    // This is a number previously provided by GNI.
+    // This is a number previously provided by the Network
+    // Infrastructure team.
+    //
     // It represents a "global" (i.e., non-DC-specific)
     // identifier.  It's used in pre-FNN sites and in FNN
     // on DPU routes, but we'll transition away from that.
@@ -2176,17 +2561,18 @@ pub fn default_to_true() -> bool {
     true
 }
 
-/// MeasuredBootMetricsCollectorConfig related configuration
+/// Configuration for the measured boot metrics collector,
+/// which exports TPM-based boot measurement data as
+/// Prometheus metrics.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct MeasuredBootMetricsCollectorConfig {
+    /// Enables the measured boot metrics monitor. When
+    /// disabled, measured boot metrics are not exported.
     #[serde(default)]
-    /// enabled controls whether the measured boot metrics
-    /// monitor is enabled. When disabled, measured boot metrics
-    /// won't be exported.
     pub enabled: bool,
-    /// run_interval is the interval at which the monitor polls
-    /// for the latest data, in seconds.
-    /// Defaults to 60 if not specified.
+    /// Interval at which the monitor polls for the latest
+    /// measured boot data.
+    /// Default is 60 seconds.
     #[serde(
         default = "MeasuredBootMetricsCollectorConfig::default_run_interval",
         deserialize_with = "deserialize_duration",
@@ -2225,22 +2611,33 @@ pub struct IbFabricDefinition {
     pub pkeys: Vec<model::resource_pool::define::Range>,
 }
 
+/// Controls which machine validation tests are active.
 #[derive(Default, Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum MachineValidationTestSelectionMode {
+    /// Only update tests in DB that are specified in the
+    /// `tests` config list.
     #[default]
-    Default, // only update tests in DB that are specified in tests config
-    EnableAll, // Enables all tests in DB, but allows config overrides specified in tests config
-    DisableAll, // Disables all tests in DB, but allows config overrides specified in tests config
+    Default,
+    /// Enable all tests in DB, but allow per-test overrides
+    /// from the `tests` config list.
+    EnableAll,
+    /// Disable all tests in DB, but allow per-test overrides
+    /// from the `tests` config list.
+    DisableAll,
 }
 
+/// Configuration for machine validation tests (memory
+/// latency, SSD I/O, etc.) run after ingestion to verify
+/// hardware health.
 #[derive(Default, Clone, Debug, Deserialize, Serialize)]
 pub struct MachineValidationConfig {
+    /// Enables machine validation testing.
     #[serde(default)]
-    /// Whether MachineValidation is enabled
     pub enabled: bool,
 
+    /// Controls whether to run all tests, no tests, or use
+    /// per-test configuration.
     #[serde(default)]
-    /// Controls whether to run all tests, no tests, or use per-test configuration
     pub test_selection_mode: MachineValidationTestSelectionMode,
 
     #[serde(
@@ -2250,20 +2647,25 @@ pub struct MachineValidationConfig {
     )]
     pub run_interval: std::time::Duration,
 
+    /// Per-test enable/disable overrides.
     #[serde(default)]
-    /// Test specific config
     pub tests: Vec<MachineValidationTestConfig>,
 }
 
-/// Test specific config.
+/// Per-test override for machine validation.
+///
 /// Example:
+/// ```toml
 /// tests = [
-///    { id = "forge_MmMemLatency", enable = true },
-///    { id = "forge_FioSSD", enable = true }
+///    { id = "MmMemLatency", enable = true },
+///    { id = "FioSSD", enable = true }
 /// ]
+/// ```
 #[derive(Default, Clone, Debug, Deserialize, Serialize)]
 pub struct MachineValidationTestConfig {
+    /// Unique test identifier (e.g., "MmMemLatency").
     pub id: String,
+    /// Whether this test is enabled.
     pub enable: bool,
 }
 
@@ -2314,6 +2716,7 @@ impl From<VpcIsolationBehaviorType> for rpc::forge::VpcIsolationBehaviorType {
     }
 }
 
+#[allow(deprecated)] // nvue_enabled proto field is deprecated but still set for backwards compat
 impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
     fn from(value: CarbideConfig) -> Self {
         Self {
@@ -2364,7 +2767,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .max_concurrent_machine_updates_absolute
                 .unwrap_or_default(),
             machine_update_runtime_interval: value.machine_update_run_interval.unwrap_or_default(),
-            nvue_enabled: value.nvue_enabled,
+            nvue_enabled: true,
             attestation_enabled: value.attestation_enabled,
             auto_host_firmware_update: value.firmware_global.autoupdate,
             host_enable_autoupdate: value.firmware_global.host_enable_autoupdate,
@@ -2449,6 +2852,69 @@ fn default_mqtt_broker_port() -> u16 {
     1884
 }
 
+/// MQTT authentication mode.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum MqttAuthMode {
+    /// No authentication.
+    #[default]
+    None,
+    /// Username/password basic authentication.
+    BasicAuth,
+    /// OAuth2 token-based authentication.
+    Oauth2,
+}
+
+/// OAuth2 configuration for MQTT broker authentication.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct MqttOAuth2Config {
+    /// OAuth2 token endpoint URL.
+    pub token_url: String,
+
+    /// OAuth2 scopes to request when obtaining a token.
+    #[serde(default)]
+    pub scopes: Vec<String>,
+
+    /// HTTP timeout for token endpoint requests.
+    /// Default is 30 seconds.
+    #[serde(
+        default = "MqttOAuth2Config::default_http_timeout",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub http_timeout: std::time::Duration,
+
+    /// Username sent with the MQTT CONNECT packet when using
+    /// OAuth2.
+    /// Default is "oauth2token".
+    #[serde(default = "MqttOAuth2Config::default_username")]
+    pub username: String,
+}
+
+impl MqttOAuth2Config {
+    fn default_http_timeout() -> std::time::Duration {
+        std::time::Duration::from_secs(30)
+    }
+
+    fn default_username() -> String {
+        "oauth2token".to_string()
+    }
+}
+
+/// MQTT authentication configuration shared by DPA and
+/// DSX event bus.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct MqttAuthConfig {
+    /// Authentication mechanism to use for MQTT
+    /// connections.
+    #[serde(default)]
+    pub auth_mode: MqttAuthMode,
+
+    /// OAuth2 settings, required when `auth_mode` is
+    /// `Oauth2`.
+    pub oauth2: Option<MqttOAuth2Config>,
+}
+
 /// DPA (aka Cluster Interconnect Network) related configuration
 /// Enabled DPA, and specifies basic network settings.
 /// The VNI to be used by DPA will be the same as the parent VPC.
@@ -2466,9 +2932,12 @@ pub struct DpaConfig {
     #[serde(default = "default_mqtt_broker_port")]
     pub mqtt_broker_port: u16,
 
+    /// Base IPv4 address of the DPA/Cluster Interconnect
+    /// subnet.
     #[serde(default = "DpaConfig::default_subnet_ip")]
     pub subnet_ip: Ipv4Addr,
 
+    /// CIDR prefix length for the DPA subnet.
     #[serde(default)]
     pub subnet_mask: i32,
 
@@ -2481,6 +2950,9 @@ pub struct DpaConfig {
         serialize_with = "as_duration"
     )]
     pub hb_interval: chrono::TimeDelta,
+
+    #[serde(default)]
+    pub auth: MqttAuthConfig,
 }
 
 /// DSX Exchange Event Bus configuration for publishing state change events via MQTT 3.1.1.
@@ -2513,6 +2985,9 @@ pub struct DsxExchangeEventBusConfig {
     /// Events are dropped if the queue is full. Defaults to 1024.
     #[serde(default = "DsxExchangeEventBusConfig::default_queue_capacity")]
     pub queue_capacity: usize,
+
+    #[serde(default)]
+    pub auth: MqttAuthConfig,
 }
 
 impl DsxExchangeEventBusConfig {
@@ -2694,12 +3169,15 @@ mod tests {
                 max_concurrency: 10,
                 processor_dispatch_interval: std::time::Duration::from_secs(2),
                 processor_log_interval: std::time::Duration::from_secs(60),
+                metric_emission_interval: std::time::Duration::from_secs(60),
+                metric_hold_time: std::time::Duration::from_secs(5 * 60),
             },
             dpu_wait_time: Duration::minutes(20),
             power_down_wait: Duration::seconds(10),
             failure_retry_time: Duration::minutes(90),
             dpu_up_threshold: Duration::weeks(1),
             scout_reporting_timeout: Duration::minutes(5),
+            uefi_boot_wait: Duration::minutes(5),
         };
 
         let config_str = serde_json::to_string(&input).unwrap();
@@ -2733,6 +3211,8 @@ mod tests {
                         max_concurrency: 13,
                         processor_dispatch_interval: std::time::Duration::from_secs(2),
                         processor_log_interval: std::time::Duration::from_secs(60),
+                        metric_emission_interval: std::time::Duration::from_secs(60),
+                        metric_hold_time: std::time::Duration::from_secs(5 * 60),
                     }
                 },
                 dpu_wait_time: Duration::minutes(20),
@@ -2740,6 +3220,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(90),
                 dpu_up_threshold: Duration::weeks(1),
                 scout_reporting_timeout: Duration::minutes(5),
+                uefi_boot_wait: Duration::minutes(5),
             }
         );
     }
@@ -2759,6 +3240,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(90),
                 dpu_up_threshold: Duration::weeks(1),
                 scout_reporting_timeout: Duration::minutes(5),
+                uefi_boot_wait: Duration::minutes(5),
             }
         );
     }
@@ -2779,6 +3261,8 @@ mod tests {
                         max_concurrency: 13,
                         processor_dispatch_interval: std::time::Duration::from_secs(2),
                         processor_log_interval: std::time::Duration::from_secs(60),
+                        metric_emission_interval: std::time::Duration::from_secs(60),
+                        metric_hold_time: std::time::Duration::from_secs(5 * 60),
                     }
                 },
                 network_segment_drain_time: Duration::minutes(21),
@@ -2800,7 +3284,7 @@ mod tests {
         let config_str = serde_json::to_string(&input).unwrap();
         assert_eq!(
             config_str,
-            r#"{"iteration_time":"30s","max_object_handling_time":"180s","max_concurrency":10,"processor_dispatch_interval":"2s","processor_log_interval":"60s"}"#
+            r#"{"iteration_time":"30s","max_object_handling_time":"180s","max_concurrency":10,"processor_dispatch_interval":"2s","processor_log_interval":"60s","metric_emission_interval":"60s","metric_hold_time":"300s"}"#
         );
         let config: StateControllerConfig = serde_json::from_str(&config_str).unwrap();
         assert_eq!(config, input);
@@ -2814,11 +3298,13 @@ mod tests {
             max_concurrency: 33,
             processor_dispatch_interval: std::time::Duration::from_secs(2),
             processor_log_interval: std::time::Duration::from_secs(60),
+            metric_emission_interval: std::time::Duration::from_secs(60),
+            metric_hold_time: std::time::Duration::from_secs(5 * 60),
         };
         let config_str = serde_json::to_string(&input).unwrap();
         assert_eq!(
             config_str,
-            r#"{"iteration_time":"11s","max_object_handling_time":"22s","max_concurrency":33,"processor_dispatch_interval":"2s","processor_log_interval":"60s"}"#
+            r#"{"iteration_time":"11s","max_object_handling_time":"22s","max_concurrency":33,"processor_dispatch_interval":"2s","processor_log_interval":"60s","metric_emission_interval":"60s","metric_hold_time":"300s"}"#
         );
         let config: StateControllerConfig = serde_json::from_str(&config_str).unwrap();
         assert_eq!(config, input);
@@ -2861,7 +3347,6 @@ mod tests {
         assert!(config.pools.is_none());
         assert!(config.ib_config.is_none());
         assert!(config.ib_fabrics.is_empty());
-        assert!(config.nvue_enabled);
         assert!(config.vpc_peering_policy.is_none());
         assert!(config.site_explorer.enabled);
         assert!(
@@ -2909,7 +3394,6 @@ mod tests {
         assert_eq!(config.asn, 777);
         assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
         assert!(config.route_servers.is_empty());
-        assert!(!config.nvue_enabled);
         assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
         assert_eq!(config.vpc_peering_policy_on_existing, None);
         assert_eq!(
@@ -2978,7 +3462,8 @@ mod tests {
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
-                use_onboard_nic: Arc::new(false.into()),
+                force_dpu_nic_mode: Arc::new(false.into()),
+                explore_mode: SiteExplorerExploreMode::LibRedfish,
             }
         );
         assert_eq!(
@@ -2990,12 +3475,15 @@ mod tests {
                     max_concurrency: 22,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
                 },
                 dpu_wait_time: Duration::minutes(7),
                 power_down_wait: Duration::seconds(17),
                 failure_retry_time: Duration::minutes(70),
                 dpu_up_threshold: Duration::minutes(77),
                 scout_reporting_timeout: Duration::minutes(5),
+                uefi_boot_wait: Duration::minutes(5),
             }
         );
         assert_eq!(
@@ -3008,6 +3496,8 @@ mod tests {
                     max_concurrency: 1888,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
                 },
             }
         );
@@ -3020,6 +3510,8 @@ mod tests {
                     max_concurrency: 1777,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
                 },
             }
         );
@@ -3045,7 +3537,6 @@ mod tests {
             config.dhcp_servers,
             vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()]
         );
-        assert!(config.nvue_enabled);
         assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
         assert_eq!(
             config.vpc_peering_policy_on_existing,
@@ -3144,10 +3635,21 @@ mod tests {
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
-                use_onboard_nic: Arc::new(false.into()),
+                force_dpu_nic_mode: Arc::new(false.into()),
+                explore_mode: SiteExplorerExploreMode::LibRedfish,
             }
         );
 
+        assert_eq!(
+            config.host_health,
+            HostHealthConfig {
+                hardware_health_reports: model::machine::HardwareHealthReportsConfig::Disabled,
+                dpu_agent_version_staleness_threshold: Duration::days(1),
+                prevent_allocations_on_stale_dpu_agent_version: true,
+                prevent_allocations_on_scout_heartbeat_timeout: true,
+                suppress_external_alerting_on_scout_heartbeat_timeout: false,
+            }
+        );
         assert_eq!(
             config.machine_state_controller,
             MachineStateControllerConfig {
@@ -3157,12 +3659,15 @@ mod tests {
                     max_concurrency: 999,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
                 },
                 dpu_wait_time: Duration::minutes(3),
                 power_down_wait: Duration::seconds(13),
                 failure_retry_time: Duration::minutes(31),
                 dpu_up_threshold: Duration::minutes(33),
                 scout_reporting_timeout: Duration::minutes(20),
+                uefi_boot_wait: Duration::minutes(5),
             }
         );
         assert_eq!(
@@ -3175,6 +3680,8 @@ mod tests {
                     max_concurrency: 888,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
                 },
             }
         );
@@ -3187,6 +3694,8 @@ mod tests {
                     max_concurrency: 777,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
                 },
             }
         );
@@ -3304,6 +3813,18 @@ mod tests {
             MlxValueType::Integer(4)
         );
         assert!(mlxconfig_profile.get_variable("NONEXISTENT_GOO").is_none());
+
+        assert_eq!(config.rack_types.rack_types.len(), 2);
+        let nvl72 = config.rack_types.get("NVL72").unwrap();
+        assert_eq!(nvl72.compute.count, 18);
+        assert_eq!(nvl72.compute.name.as_deref(), Some("GB200"));
+        assert_eq!(nvl72.compute.vendor.as_deref(), Some("NVIDIA"));
+        assert_eq!(nvl72.switch.count, 9);
+        assert_eq!(nvl72.power_shelf.count, 8);
+        let nvl36 = config.rack_types.get("NVL36").unwrap();
+        assert_eq!(nvl36.compute.count, 9);
+        assert_eq!(nvl36.switch.count, 9);
+        assert_eq!(nvl36.power_shelf.count, 2);
     }
 
     #[test]
@@ -3416,10 +3937,21 @@ mod tests {
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
-                use_onboard_nic: Arc::new(false.into()),
+                force_dpu_nic_mode: Arc::new(false.into()),
+                explore_mode: SiteExplorerExploreMode::LibRedfish,
             }
         );
 
+        assert_eq!(
+            config.host_health,
+            HostHealthConfig {
+                hardware_health_reports: model::machine::HardwareHealthReportsConfig::Disabled,
+                dpu_agent_version_staleness_threshold: Duration::days(1),
+                prevent_allocations_on_stale_dpu_agent_version: true,
+                prevent_allocations_on_scout_heartbeat_timeout: true,
+                suppress_external_alerting_on_scout_heartbeat_timeout: false,
+            }
+        );
         assert_eq!(
             config.machine_state_controller,
             MachineStateControllerConfig {
@@ -3429,12 +3961,15 @@ mod tests {
                     max_concurrency: 22,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
                 },
                 dpu_wait_time: Duration::minutes(7),
                 power_down_wait: Duration::seconds(17),
                 failure_retry_time: Duration::minutes(70),
                 dpu_up_threshold: Duration::minutes(77),
                 scout_reporting_timeout: Duration::minutes(20),
+                uefi_boot_wait: Duration::minutes(5),
             }
         );
         assert_eq!(
@@ -3447,6 +3982,8 @@ mod tests {
                     max_concurrency: 1888,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
                 },
             }
         );
@@ -3459,6 +3996,8 @@ mod tests {
                     max_concurrency: 1777,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
                 },
             }
         );
@@ -3768,6 +4307,7 @@ mqtt_endpoint = "mqtt.forge"
                 hb_interval: Duration::minutes(2),
                 subnet_ip: Ipv4Addr::UNSPECIFIED,
                 subnet_mask: 0_i32,
+                auth: MqttAuthConfig::default(),
             }
         );
     }
@@ -3945,6 +4485,42 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             .get_supernic_firmware_profile("900-9D3B4-00CV-TA0", "MT_0000000999")
             .unwrap();
         assert_eq!(p2.firmware_spec.version, "32.44.0000");
+    }
+
+    #[test]
+    fn get_mlxconfig_profile_lookup() {
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/full_config.toml")))
+            .extract()
+            .unwrap();
+
+        // Profile exists in config.
+        let profile = config
+            .get_mlxconfig_profile("test-profile")
+            .expect("should find test-profile");
+        assert_eq!(profile.name, "test-profile");
+        assert_eq!(profile.registry.name, "mlx_generic");
+
+        // Second profile also exists.
+        let profile2 = config
+            .get_mlxconfig_profile("test-profile2")
+            .expect("should find test-profile2");
+        assert_eq!(profile2.name, "test-profile2");
+
+        // Non-existent profile returns None.
+        assert!(config.get_mlxconfig_profile("nonexistent").is_none());
+    }
+
+    #[test]
+    fn get_mlxconfig_profile_none_when_unconfigured() {
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .extract()
+            .unwrap();
+
+        // No mlx-config-profiles section at all.
+        assert!(config.mlxconfig_profiles.is_none());
+        assert!(config.get_mlxconfig_profile("anything").is_none());
     }
 
     #[test]

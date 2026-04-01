@@ -25,13 +25,9 @@ pub async fn get_job_status(
     format: OutputFormat,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
-    let request = rpc::forge::RackFirmwareJobStatusRequest {
-        job_id: opts.job_id,
-    };
-
     let response = api_client
         .0
-        .get_rack_firmware_job_status(request)
+        .get_rack_firmware_job_status(opts)
         .await
         .map_err(CarbideCliError::from)?;
 

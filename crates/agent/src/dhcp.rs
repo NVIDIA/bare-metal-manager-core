@@ -41,12 +41,16 @@ pub const RELOAD_CMD: &str = "supervisorctl update";
 pub const RELOAD_DHCP_SERVER: &str =
     "supervisorctl update;supervisorctl restart forge-dhcp-server-default";
 
+pub const STOP_DHCP_SERVER: &str =
+    "supervisorctl update;supervisorctl stop forge-dhcp-server-default";
+
 /// Generate default-forge-dhcp-server.conf
 pub fn build_server_supervisord_config(
     conf: DhcpServerSupervisordConfig,
 ) -> Result<String, eyre::Report> {
     let params = TmplDHCServerConfigParameters {
         Interfaces: conf.interfaces,
+        Autostart: conf.autostart,
     };
     gtmpl::template(TMPL_SERVER, params).map_err(|e| e.into())
 }
@@ -86,6 +90,7 @@ pub fn build_server_host_config(
 
 pub struct DhcpServerSupervisordConfig {
     pub interfaces: Vec<String>,
+    pub autostart: bool,
 }
 
 //
@@ -105,4 +110,5 @@ struct TmplDHCRelayConfigParameters {
 #[derive(Clone, Gtmpl)]
 struct TmplDHCServerConfigParameters {
     Interfaces: Vec<String>,
+    Autostart: bool,
 }

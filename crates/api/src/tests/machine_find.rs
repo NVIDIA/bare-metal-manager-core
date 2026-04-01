@@ -17,6 +17,7 @@
 use std::net::IpAddr;
 
 use carbide_uuid::machine::{MACHINE_ID_PREFIX_LENGTH, MachineId, MachineType};
+use carbide_uuid::rack::RackId;
 use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::managed_host::ManagedHostConfig;
 use common::api_fixtures::{create_managed_host, create_test_env, site_explorer};
@@ -25,6 +26,7 @@ use data_encoding::BASE32_DNSSEC;
 use db::ObjectFilter;
 use itertools::Itertools;
 use mac_address::MacAddress;
+use model::expected_machine::ExpectedMachineData;
 use model::hardware_info::HardwareInfo;
 use model::machine::machine_id::host_id_from_dpu_hardware_info;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -36,7 +38,9 @@ use sha2::{Digest, Sha256};
 use tonic::Request;
 
 use crate::tests::common;
-use crate::tests::common::api_fixtures::create_managed_host_multi_dpu;
+use crate::tests::common::api_fixtures::{
+    create_managed_host_multi_dpu, create_managed_host_with_config,
+};
 use crate::tests::sku::tests::FULL_SKU_DATA;
 
 #[crate::sqlx_test]
@@ -76,11 +80,14 @@ async fn test_find_machine_by_ip(pool: sqlx::PgPool) {
     let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu_machine =
-        db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     let ip = &dpu_machine.interfaces[0].addresses[0];
 
     let machine = db::machine::find_by_query(&mut txn, &ip.to_string())
@@ -111,11 +118,14 @@ async fn test_find_machine_by_ipv6(pool: sqlx::PgPool) {
     let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu_machine =
-        db::machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     let interface_id = dpu_machine.interfaces[0].id;
 
     // Add an IPv6 address to the interface.
@@ -151,23 +161,73 @@ async fn test_find_machine_without_sku(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_find_machine_with_sku(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
-    let mh = create_managed_host(&env).await;
     let sku = serde_json::de::from_str::<rpc::forge::Sku>(FULL_SKU_DATA)
         .unwrap()
         .into();
 
     let mut txn = env.pool.begin().await.unwrap();
     db::sku::create(&mut txn, &sku).await.unwrap();
-    db::machine::assign_sku(&mut txn, &mh.id, "sku id")
-        .await
-        .unwrap();
-
     txn.commit().await.unwrap();
-    let mut txn = env.pool.begin().await.unwrap();
 
-    let machine = mh.host().db_machine(&mut txn).await;
+    let sku_id = "sku id".to_string();
+    let host_config = ManagedHostConfig::with_expected_machine_data(ExpectedMachineData {
+        sku_id: Some(sku_id.clone()),
+        ..Default::default()
+    });
+    let mh = create_managed_host_with_config(&env, host_config).await;
 
-    assert_eq!(machine.hw_sku, Some("sku id".to_string()));
+    let machine = mh.host().rpc_machine().await;
+    assert_eq!(machine.hw_sku.as_ref(), Some(&sku_id));
+}
+
+#[crate::sqlx_test]
+async fn test_find_machine_without_rack_id(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    let machine = mh.host().rpc_machine().await;
+    assert!(machine.rack_id.is_none());
+
+    let machines = env
+        .api
+        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+            rack_id: Some("rack1".to_string().into()),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .machine_ids;
+    assert!(machines.is_empty());
+}
+
+#[crate::sqlx_test]
+async fn test_find_machine_by_rack_id(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let rack_id: RackId = "Rack1".parse().unwrap();
+    let host_config = ManagedHostConfig::with_expected_machine_data(ExpectedMachineData {
+        rack_id: rack_id.clone().into(),
+        ..Default::default()
+    });
+    let mh = create_managed_host_with_config(&env, host_config).await;
+
+    let machine = mh.host().rpc_machine().await;
+    let machine_id = mh.id;
+    assert_eq!(machine.rack_id.as_ref(), Some(&rack_id));
+
+    let machine_ids = env
+        .api
+        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+            rack_id: Some(rack_id),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .machine_ids;
+
+    assert_eq!(machine_ids.len(), 1);
+    assert_eq!(machine_ids[0], machine_id);
 }
 
 #[crate::sqlx_test]
@@ -178,7 +238,7 @@ async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine = db::machine::find_one(
-        &mut txn,
+        txn.as_mut(),
         &dpu_machine_id,
         MachineSearchConfig {
             include_history: true,
@@ -219,7 +279,7 @@ async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine = db::machine::find_one(
-        &mut txn,
+        txn.as_mut(),
         &dpu_machine_id,
         MachineSearchConfig {
             include_history: true,
@@ -506,15 +566,6 @@ async fn test_attached_dpu_machine_ids_multi_dpu(pool: sqlx::PgPool) {
             "host machine has an unexpected associated_dpu_machine_id {dpu_id}"
         );
     }
-
-    let deprecated_dpu_id = host_machine.associated_dpu_machine_id
-        .expect("host machine should fill in an associated_dpu_machine_id field for backwards compatibility");
-
-    let first_dpu_id = dpu_ids.into_iter().next().unwrap();
-    assert_eq!(
-        deprecated_dpu_id, first_dpu_id,
-        "deprecated DPU field should equal the first DPU ID"
-    );
 }
 
 #[crate::sqlx_test()]
@@ -640,6 +691,8 @@ async fn test_find_machine_by_instance_type(
         .find_instance_types_by_ids(tonic::Request::new(
             rpc::forge::FindInstanceTypesByIdsRequest {
                 instance_type_ids: existing_instance_type_ids,
+                include_allocation_stats: false,
+                tenant_organization_id: None,
             },
         ))
         .await

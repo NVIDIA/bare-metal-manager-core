@@ -58,7 +58,9 @@ pub async fn handle_create_measurement_report(
         &PcrRegisterValue::from_pb_vec(req.pcr_values),
     )
     .await
-    .map_err(|e| Status::internal(format!("report creation failed: {e}")))?;
+    .map_err(|e| CarbideError::Internal {
+        message: format!("report creation failed: {e}"),
+    })?;
 
     txn.commit().await?;
     Ok(CreateMeasurementReportResponse {
@@ -79,7 +81,9 @@ pub async fn handle_delete_measurement_report(
             .ok_or(CarbideError::MissingArgument("report_id"))?,
     )
     .await
-    .map_err(|e| Status::internal(format!("delete failed: {e}")))?;
+    .map_err(|e| CarbideError::Internal {
+        message: format!("delete failed: {e}"),
+    })?;
 
     txn.commit().await?;
     Ok(DeleteMeasurementReportResponse {
@@ -94,13 +98,12 @@ pub async fn handle_promote_measurement_report(
     req: PromoteMeasurementReportRequest,
 ) -> Result<PromoteMeasurementReportResponse, Status> {
     let mut txn = api.txn_begin().await?;
-    let pcr_set: Option<PcrSet> =
-        match !req.pcr_registers.is_empty() {
-            true => Some(parse_pcr_index_input(&req.pcr_registers).map_err(|e| {
-                Status::invalid_argument(format!("pcr_register parsing failed: {e}"))
-            })?),
-            false => None,
-        };
+    let pcr_set: Option<PcrSet> = match !req.pcr_registers.is_empty() {
+        true => Some(parse_pcr_index_input(&req.pcr_registers).map_err(|e| {
+            CarbideError::InvalidArgument(format!("pcr_register parsing failed: {e}"))
+        })?),
+        false => None,
+    };
 
     let report = db::measured_boot::report::from_id(
         &mut txn,
@@ -108,14 +111,14 @@ pub async fn handle_promote_measurement_report(
             .ok_or(CarbideError::MissingArgument("report_id"))?,
     )
     .await
-    .map_err(|e| Status::internal(format!("promotion failed fetching report: {e}")))?;
+    .map_err(|e| CarbideError::Internal {
+        message: format!("promotion failed fetching report: {e}"),
+    })?;
 
     let bundle = db::measured_boot::report::create_active_bundle(&mut txn, &report, &pcr_set)
         .await
-        .map_err(|e| {
-            Status::internal(format!(
-                "promotion failed promoting into active bundle: {e}"
-            ))
+        .map_err(|e| CarbideError::Internal {
+            message: format!("promotion failed promoting into active bundle: {e}"),
         })?;
 
     txn.commit().await?;
@@ -131,13 +134,12 @@ pub async fn handle_revoke_measurement_report(
     req: RevokeMeasurementReportRequest,
 ) -> Result<RevokeMeasurementReportResponse, Status> {
     let mut txn = api.txn_begin().await?;
-    let pcr_set: Option<PcrSet> =
-        match &req.pcr_registers.len() {
-            n if n < &1 => None,
-            _ => Some(parse_pcr_index_input(&req.pcr_registers).map_err(|e| {
-                Status::invalid_argument(format!("pcr_register parsing failed: {e}"))
-            })?),
-        };
+    let pcr_set: Option<PcrSet> = match &req.pcr_registers.len() {
+        n if n < &1 => None,
+        _ => Some(parse_pcr_index_input(&req.pcr_registers).map_err(|e| {
+            CarbideError::InvalidArgument(format!("pcr_register parsing failed: {e}"))
+        })?),
+    };
 
     let report = db::measured_boot::report::from_id(
         &mut txn,
@@ -145,14 +147,14 @@ pub async fn handle_revoke_measurement_report(
             .ok_or(CarbideError::MissingArgument("report_id"))?,
     )
     .await
-    .map_err(|e| Status::internal(format!("promotion failed fetching report: {e}")))?;
+    .map_err(|e| CarbideError::Internal {
+        message: format!("promotion failed fetching report: {e}"),
+    })?;
 
     let bundle = db::measured_boot::report::create_revoked_bundle(&mut txn, &report, &pcr_set)
         .await
-        .map_err(|e| {
-            Status::internal(format!(
-                "promotion failed promoting into revoked bundle: {e}"
-            ))
+        .map_err(|e| CarbideError::Internal {
+            message: format!("promotion failed promoting into revoked bundle: {e}"),
         })?;
 
     txn.commit().await?;
@@ -176,7 +178,9 @@ pub async fn handle_show_measurement_report_for_id(
                     .ok_or(CarbideError::MissingArgument("report_id"))?,
             )
             .await
-            .map_err(|e| Status::internal(format!("{e}")))?
+            .map_err(|e| CarbideError::Internal {
+                message: format!("{e}"),
+            })?
             .into(),
         ),
     });
@@ -199,7 +203,9 @@ pub async fn handle_show_measurement_reports_for_machine(
             })?,
         )
         .await
-        .map_err(|e| Status::internal(format!("{e}")))?
+        .map_err(|e| CarbideError::Internal {
+            message: format!("{e}"),
+        })?
         .into_iter()
         .map(|report| report.into())
         .collect(),
@@ -217,7 +223,9 @@ pub async fn handle_show_measurement_reports(
     Ok(ShowMeasurementReportsResponse {
         reports: db::measured_boot::report::get_all(&mut api.db_reader())
             .await
-            .map_err(|e| Status::internal(format!("{e}")))?
+            .map_err(|e| CarbideError::Internal {
+                message: format!("{e}"),
+            })?
             .into_iter()
             .map(|report| report.into())
             .collect(),
@@ -240,14 +248,18 @@ pub async fn handle_list_measurement_report(
                 })?,
             )
             .await
-            .map_err(|e| Status::internal(format!("failed loading report records: {e}")))?
+            .map_err(|e| CarbideError::Internal {
+                message: format!("failed loading report records: {e}"),
+            })?
             .into_iter()
             .map(|report| report.into())
             .collect()
         }
         None => get_all_measurement_report_records(&mut txn)
             .await
-            .map_err(|e| Status::internal(format!("failed loading report records: {e}")))?
+            .map_err(|e| CarbideError::Internal {
+                message: format!("failed loading report records: {e}"),
+            })?
             .into_iter()
             .map(|report| report.into())
             .collect(),
@@ -265,7 +277,9 @@ pub async fn handle_match_measurement_report(
     let pcr_register = PcrRegisterValue::from_pb_vec(req.pcr_values);
     let mut reports = match_latest_reports(&api.database_connection, &pcr_register)
         .await
-        .map_err(|e| Status::internal(format!("failure during report matching: {e}")))?;
+        .map_err(|e| CarbideError::Internal {
+            message: format!("failure during report matching: {e}"),
+        })?;
 
     reports.sort_by(|a, b| a.ts.cmp(&b.ts));
 

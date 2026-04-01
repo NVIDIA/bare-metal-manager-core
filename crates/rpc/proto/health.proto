@@ -12,6 +12,9 @@ message HealthReport {
   // This could e.g. be `forge-dpu-agent`, `forge-host-validation`,
   // or an override (e.g. `overrides.sre-team`)
   string source = 1;
+  // The person or system (service) that triggered this health report.
+  // For manually triggered reports (e.g. via web UI), this identifies the user.
+  optional string triggered_by = 5;
   // The time when this health status was observed.
   //
   // Clients submitting a health report can leave this field empty in order

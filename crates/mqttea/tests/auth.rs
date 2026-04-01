@@ -173,23 +173,47 @@ fn test_token_credentials_provider_debug() {
 // =============================================================================
 
 mod oauth2_tests {
+    use std::sync::Arc;
     use std::time::Duration;
 
-    use mqttea::auth::{OAuth2Config, OAuth2TokenProvider};
+    use mqttea::MqtteaClientError;
+    use mqttea::auth::{
+        ClientCredentialsProvider, ClientId, ClientSecret, OAuth2Config, OAuth2TokenProvider,
+    };
+
+    struct StaticOAuth2Creds {
+        client_id: String,
+        client_secret: String,
+    }
+
+    #[async_trait::async_trait]
+    impl ClientCredentialsProvider for StaticOAuth2Creds {
+        async fn get_client_credentials(
+            &self,
+        ) -> Result<(ClientId, ClientSecret), MqtteaClientError> {
+            Ok((
+                ClientId::new(self.client_id.clone()),
+                ClientSecret::new(self.client_secret.clone()),
+            ))
+        }
+    }
+
+    fn test_creds() -> Arc<dyn ClientCredentialsProvider> {
+        Arc::new(StaticOAuth2Creds {
+            client_id: "client123".into(),
+            client_secret: "secret456".into(),
+        })
+    }
 
     #[test]
     fn test_oauth2_config_creation() {
         let config = OAuth2Config::new(
             "https://auth.example.com/token",
-            "client123",
-            "secret456",
             vec!["mqtt:publish".into(), "mqtt:subscribe".into()],
             Duration::from_secs(60),
         );
 
         assert_eq!(config.token_url, "https://auth.example.com/token");
-        assert_eq!(config.client_id, "client123");
-        assert_eq!(config.client_secret, "secret456");
         assert_eq!(config.scopes, vec!["mqtt:publish", "mqtt:subscribe"]);
         assert_eq!(config.http_timeout, Duration::from_secs(60));
     }
@@ -198,8 +222,6 @@ mod oauth2_tests {
     fn test_oauth2_config_empty_scopes() {
         let config = OAuth2Config::new(
             "https://auth.example.com/token",
-            "client123",
-            "secret456",
             vec![],
             Duration::from_secs(30),
         );
@@ -208,31 +230,14 @@ mod oauth2_tests {
     }
 
     #[test]
-    fn test_oauth2_config_debug_redacts_secret() {
-        let config = OAuth2Config::new(
-            "https://auth.example.com/token",
-            "client123",
-            "super_secret_value",
-            vec![],
-            Duration::from_secs(30),
-        );
-
-        let debug_output = format!("{:?}", config);
-        assert!(debug_output.contains("[REDACTED]"));
-        assert!(!debug_output.contains("super_secret_value"));
-    }
-
-    #[test]
     fn test_oauth2_provider_creation() {
         let config = OAuth2Config::new(
             "https://auth.example.com/token",
-            "client123",
-            "secret456",
             vec![],
             Duration::from_secs(30),
         );
 
-        let provider = OAuth2TokenProvider::new(config);
+        let provider = OAuth2TokenProvider::new(config, test_creds());
         assert!(provider.is_ok());
     }
 
@@ -240,27 +245,19 @@ mod oauth2_tests {
     fn test_oauth2_provider_with_scopes() {
         let config = OAuth2Config::new(
             "https://auth.example.com/token",
-            "client123",
-            "secret456",
             vec!["scope1".into(), "scope2".into()],
             Duration::from_secs(30),
         );
 
-        let provider = OAuth2TokenProvider::new(config);
+        let provider = OAuth2TokenProvider::new(config, test_creds());
         assert!(provider.is_ok());
     }
 
     #[test]
     fn test_oauth2_provider_invalid_url() {
-        let config = OAuth2Config::new(
-            "not-a-valid-url",
-            "client123",
-            "secret456",
-            vec![],
-            Duration::from_secs(30),
-        );
+        let config = OAuth2Config::new("not-a-valid-url", vec![], Duration::from_secs(30));
 
-        let provider = OAuth2TokenProvider::new(config);
+        let provider = OAuth2TokenProvider::new(config, test_creds());
         assert!(provider.is_err());
     }
 
@@ -268,19 +265,14 @@ mod oauth2_tests {
     fn test_oauth2_provider_debug() {
         let config = OAuth2Config::new(
             "https://auth.example.com/token",
-            "client123",
-            "secret456",
             vec!["mqtt:publish".into()],
             Duration::from_secs(30),
         );
 
-        let provider = OAuth2TokenProvider::new(config).unwrap();
+        let provider = OAuth2TokenProvider::new(config, test_creds()).unwrap();
         let debug_output = format!("{:?}", provider);
 
         assert!(debug_output.contains("OAuth2TokenProvider"));
         assert!(debug_output.contains("auth.example.com"));
-        assert!(debug_output.contains("client123"));
-        // Should not contain the secret
-        assert!(!debug_output.contains("secret456"));
     }
 }

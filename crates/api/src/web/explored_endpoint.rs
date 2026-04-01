@@ -34,6 +34,7 @@ use serde::Deserialize;
 
 use super::filters;
 use crate::api::Api;
+use crate::web::action_status::{self, ActionStatus};
 
 #[derive(Template)]
 #[template(path = "explored_endpoints_show.html")]
@@ -366,7 +367,7 @@ async fn fetch_explored_endpoints(api: &Api) -> Result<SiteExplorationReport, to
 
 #[derive(Template)]
 #[template(path = "explored_endpoint_detail.html")]
-struct ExploredEndpointDetail {
+struct ExploredEndpointDetail<'a> {
     endpoint: ExploredEndpoint,
     has_exploration_error: bool,
     last_exploration_error: String,
@@ -379,6 +380,7 @@ struct ExploredEndpointDetail {
     report_age: String,
     pause_remediation: bool,
     bmc_action_redirect_to: Option<String>,
+    action_status: Option<ActionStatus<'a>>,
 }
 
 struct ExploredEndpointInfo {
@@ -387,7 +389,7 @@ struct ExploredEndpointInfo {
     has_machine: bool,
 }
 
-impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
+impl From<ExploredEndpointInfo> for ExploredEndpointDetail<'_> {
     fn from(endpoint_info: ExploredEndpointInfo) -> Self {
         let report_ref = endpoint_info.endpoint.report.as_ref();
 
@@ -428,6 +430,7 @@ impl From<ExploredEndpointInfo> for ExploredEndpointDetail {
             report_age,
             pause_remediation,
             bmc_action_redirect_to: None,
+            action_status: None,
         }
     }
 }
@@ -463,11 +466,11 @@ pub async fn fetch_explored_endpoint(
 
     Ok(endpoint)
 }
-
 /// View details of an explored endpoint
 pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Response {
     let (show_json, endpoint_ip) = match endpoint_ip.strip_suffix(".json") {
         Some(endpoint_ip) => (true, endpoint_ip.to_string()),
@@ -568,7 +571,10 @@ pub async fn detail(
         has_machine,
     };
 
-    let display = ExploredEndpointDetail::from(endpoint_info);
+    let mut display = ExploredEndpointDetail::from(endpoint_info);
+
+    display.action_status = ActionStatus::from_query(&params);
+
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 
@@ -676,10 +682,16 @@ pub async fn power_control(
 
     let Some(act) = admin_power_control_request::SystemPowerControl::from_str_name(&action) else {
         tracing::error!(endpoint_ip = %endpoint_ip, action = %action, "power_control_endpoint invalid action");
-        return (StatusCode::BAD_REQUEST, "invalid action requested").into_response();
+        let redirect_url = ActionStatus {
+            action: action_status::Type::Power,
+            class: action_status::Class::Error,
+            message: "invalid action requested".into(),
+        }
+        .update_redirect_url(&view_url);
+        return Redirect::to(&redirect_url).into_response();
     };
 
-    if let Err(err) = state
+    match state
         .admin_power_control(tonic::Request::new(rpc::forge::AdminPowerControlRequest {
             machine_id: None,
             bmc_endpoint_request: Some(BmcEndpointRequest {
@@ -691,11 +703,35 @@ pub async fn power_control(
         .await
         .map(|response| response.into_inner())
     {
-        tracing::error!(%err, endpoint_ip = %endpoint_ip, action = %action, "power_control_endpoint");
-        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
+        Ok(response) => {
+            let message = response
+                .msg
+                .unwrap_or_else(|| format!("Power action '{}' completed successfully", action));
+            // TODO: API should be more explicit about what is warning what is just info in message.
+            let class = if message.to_lowercase().contains("warning") {
+                action_status::Class::Warning
+            } else {
+                action_status::Class::Success
+            };
+            let redirect_url = ActionStatus {
+                action: action_status::Type::Power,
+                class,
+                message: message.into(),
+            }
+            .update_redirect_url(&view_url);
+            Redirect::to(&redirect_url).into_response()
+        }
+        Err(err) => {
+            tracing::error!(%err, endpoint_ip = %endpoint_ip, action = %action, "power_control_endpoint");
+            let redirect_url = ActionStatus {
+                action: action_status::Type::Power,
+                class: action_status::Class::Error,
+                message: err.message().into(),
+            }
+            .update_redirect_url(&view_url);
+            Redirect::to(&redirect_url).into_response()
+        }
     }
-
-    Redirect::to(&view_url).into_response()
 }
 
 #[derive(Deserialize, Debug)]
@@ -718,7 +754,7 @@ pub async fn bmc_reset(
         _ => false,
     };
 
-    if let Err(err) = state
+    match state
         .admin_bmc_reset(tonic::Request::new(rpc::forge::AdminBmcResetRequest {
             machine_id: None,
             bmc_endpoint_request: Some(BmcEndpointRequest {
@@ -730,11 +766,26 @@ pub async fn bmc_reset(
         .await
         .map(|response| response.into_inner())
     {
-        tracing::error!(%err, endpoint_ip = %endpoint_ip, use_ipmi = %use_ipmi, "bmc_reset_endpoint");
-        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
+        Ok(_response) => {
+            let redirect_url = ActionStatus {
+                action: action_status::Type::ResetBmc,
+                class: action_status::Class::Success,
+                message: "BMC reset initiated successfully".into(),
+            }
+            .update_redirect_url(&view_url);
+            Redirect::to(&redirect_url).into_response()
+        }
+        Err(err) => {
+            tracing::error!(%err, endpoint_ip = %endpoint_ip, use_ipmi = %use_ipmi, "bmc_reset_endpoint");
+            let redirect_url = ActionStatus {
+                action: action_status::Type::ResetBmc,
+                class: action_status::Class::Error,
+                message: err.message().into(),
+            }
+            .update_redirect_url(&view_url);
+            Redirect::to(&redirect_url).into_response()
+        }
     }
-
-    Redirect::to(&view_url).into_response()
 }
 
 #[derive(Deserialize, Debug)]
@@ -896,19 +947,19 @@ pub async fn machine_setup(
         .filter(|mac| !mac.trim().is_empty())
         .map(|mac| mac.trim().to_string());
 
-    // Validate MAC address format if provided
     if let Some(ref mac) = boot_interface_mac
         && mac.parse::<mac_address::MacAddress>().is_err()
     {
         tracing::error!(endpoint_ip = %endpoint_ip, mac_address = %mac, "Invalid MAC address format");
-        return (
-            StatusCode::BAD_REQUEST,
-            "Invalid MAC address format. Expected format: 00:11:22:33:44:55",
-        )
-            .into_response();
+        let status = ActionStatus {
+            action: action_status::Type::MachineSetup,
+            class: action_status::Class::Error,
+            message: "Invalid MAC address format. Expected format: 00:11:22:33:44:55".into(),
+        };
+        return Redirect::to(&status.update_redirect_url(&view_url)).into_response();
     }
 
-    if let Err(err) = state
+    let redirect_url = match state
         .machine_setup(tonic::Request::new(rpc::forge::MachineSetupRequest {
             machine_id: None,
             bmc_endpoint_request: Some(BmcEndpointRequest {
@@ -920,11 +971,24 @@ pub async fn machine_setup(
         .await
         .map(|response| response.into_inner())
     {
-        tracing::error!(%err, endpoint_ip = %endpoint_ip, "bmc_machine_setup");
-        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
-    }
+        Ok(_) => ActionStatus {
+            action: action_status::Type::MachineSetup,
+            class: action_status::Class::Success,
+            message: "Machine setup completed successfully".into(),
+        }
+        .update_redirect_url(&view_url),
+        Err(err) => {
+            tracing::error!(%err, endpoint_ip = %endpoint_ip, "bmc_machine_setup");
+            ActionStatus {
+                action: action_status::Type::MachineSetup,
+                class: action_status::Class::Error,
+                message: err.message().into(),
+            }
+            .update_redirect_url(&view_url)
+        }
+    };
 
-    Redirect::to(&view_url).into_response()
+    Redirect::to(&redirect_url).into_response()
 }
 
 pub async fn set_dpu_first_boot_order(

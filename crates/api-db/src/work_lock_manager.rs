@@ -19,6 +19,7 @@ use std::time::Duration;
 use sqlx::pool::PoolConnection;
 use sqlx::{Connection, PgConnection, PgPool, Postgres};
 use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinSet;
 use tokio::time::MissedTickBehavior;
 use tracing::Instrument;
 
@@ -81,6 +82,7 @@ impl Default for KeepaliveConfig {
 ///    call to [`WorkLockManagerHandle::try_acquire_lock`] is guaranteed to be processed after the lock is
 ///    released.
 pub async fn start(
+    join_set: &mut JoinSet<()>,
     pool: PgPool,
     keepalive_config: KeepaliveConfig,
 ) -> DatabaseResult<WorkLockManagerHandle> {
@@ -95,7 +97,8 @@ pub async fn start(
     } = keepalive_config;
 
     let (cmd_tx, cmd_rx) = mpsc::channel(COMMAND_BUFFER_SIZE);
-    tokio::task::Builder::new()
+    join_set
+        .build_task()
         .name("WorkLockManager")
         // Note: don't inherit the callers span, since child spans can't outlive their parent.
         // This prevents a crash in tracing-subscriber.
@@ -478,39 +481,53 @@ mod tests {
 
     #[crate::sqlx_test]
     async fn test_exclusivity(pool: PgPool) {
-        let manager = start(pool, Default::default()).await.unwrap();
+        let mut join_set = JoinSet::new();
+        {
+            let manager = start(&mut join_set, pool, Default::default())
+                .await
+                .unwrap();
 
-        let lock_1 = manager.try_acquire_lock("work_key_1".into()).await.unwrap();
-        assert!(
-            manager.try_acquire_lock("work_key_1".into()).await.is_err(),
-            "Should not be able to acquire another lock while one is active"
-        );
-        std::mem::drop(lock_1);
+            let lock_1 = manager.try_acquire_lock("work_key_1".into()).await.unwrap();
+            assert!(
+                manager.try_acquire_lock("work_key_1".into()).await.is_err(),
+                "Should not be able to acquire another lock while one is active"
+            );
+            std::mem::drop(lock_1);
 
-        let _lock_1 = manager
-            .try_acquire_lock("work_key_1".into())
-            .await
-            .expect("Should be able to acquire a lock again if the other has gone out of scope");
-        let _lock_2 = manager.try_acquire_lock("work_key_2".into()).await.expect(
-            "Should be able to acquire a lock with a different key while another is active",
-        );
+            let _lock_1 = manager.try_acquire_lock("work_key_1".into()).await.expect(
+                "Should be able to acquire a lock again if the other has gone out of scope",
+            );
+            let _lock_2 = manager.try_acquire_lock("work_key_2".into()).await.expect(
+                "Should be able to acquire a lock with a different key while another is active",
+            );
 
-        // Make sure drops release locks in-order, before acquires are seen, and that the command
-        // buffer doesn't become full over the course (we should be awaiting the replies, which
-        // should not cause it to grow.)
-        for i in 0..(COMMAND_BUFFER_SIZE * 2) {
-            if manager.try_acquire_lock("work_key_3".into()).await.is_err() {
-                panic!(
-                    "Lock failed to be acquired after the previous was dropped, after {i} iterations"
-                )
+            // Make sure drops release locks in-order, before acquires are seen, and that the command
+            // buffer doesn't become full over the course (we should be awaiting the replies, which
+            // should not cause it to grow.)
+            for i in 0..(COMMAND_BUFFER_SIZE * 2) {
+                if manager.try_acquire_lock("work_key_3".into()).await.is_err() {
+                    panic!(
+                        "Lock failed to be acquired after the previous was dropped, after {i} iterations"
+                    )
+                }
+                // lock is already dropped
             }
-            // lock is already dropped
+        }
+
+        // Test cooperative cancellation
+        tokio::select! {
+            _ = join_set.join_all() => {}
+            _ = tokio::time::sleep(Duration::from_secs(3)) => {
+                panic!("WorkLockManager did not shut down in a timely manner")
+            }
         }
     }
 
     #[crate::sqlx_test]
     async fn test_db_failure(pool: PgPool) {
+        let mut join_set = JoinSet::new();
         let manager = start(
+            &mut join_set,
             pool.clone(),
             KeepaliveConfig {
                 // Make the interval fast, to make sure reconnection works
@@ -556,7 +573,9 @@ WHERE datname = $1 AND pid <> pg_backend_pid()"#,
 
     #[crate::sqlx_test]
     async fn test_expiry(pool: PgPool) {
+        let mut join_set = JoinSet::new();
         let manager = start(
+            &mut join_set,
             pool.clone(),
             KeepaliveConfig {
                 // Make timeout lower than interval, to test keepalive timeouts

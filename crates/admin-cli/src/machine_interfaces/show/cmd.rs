@@ -144,7 +144,7 @@ fn convert_machines_to_nice_table(
     table.into()
 }
 
-#[doc = r"Function to print the machine interface in Table format"]
+///Function to print the machine interface in Table format
 fn convert_machine_to_nice_format(
     machine_interface: forgerpc::MachineInterface,
     domain_list: ::rpc::protos::dns::DomainList,

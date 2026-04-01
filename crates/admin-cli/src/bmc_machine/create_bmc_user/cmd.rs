@@ -21,15 +21,6 @@ use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn create_bmc_user(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    api_client
-        .create_bmc_user(
-            args.ip_address,
-            args.mac_address,
-            args.machine,
-            args.username,
-            args.password,
-            args.role_id,
-        )
-        .await?;
+    api_client.0.create_bmc_user(args).await?;
     Ok(())
 }

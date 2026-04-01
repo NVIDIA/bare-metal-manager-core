@@ -41,7 +41,11 @@ fn test_message_json_structure() {
     let state = ManagedHostState::Ready;
     let timestamp = Utc::now();
 
-    let message = ManagedHostStateChangeMessage::new(&machine_id, &state, timestamp);
+    let message = ManagedHostStateChangeMessage {
+        machine_id: &machine_id,
+        managed_host_state: &state,
+        timestamp,
+    };
     let json = message
         .to_json_bytes()
         .expect("serialization should succeed");
@@ -68,7 +72,11 @@ fn test_complex_state_has_nested_fields() {
     };
     let timestamp = Utc::now();
 
-    let message = ManagedHostStateChangeMessage::new(&machine_id, &state, timestamp);
+    let message = ManagedHostStateChangeMessage {
+        machine_id: &machine_id,
+        managed_host_state: &state,
+        timestamp,
+    };
     let json = message.to_json_bytes().unwrap();
     let parsed: serde_json::Value = serde_json::from_slice(&json).unwrap();
 
@@ -84,7 +92,11 @@ fn test_timestamp_format() {
     let state = ManagedHostState::Ready;
     let timestamp = Utc::now();
 
-    let message = ManagedHostStateChangeMessage::new(&machine_id, &state, timestamp);
+    let message = ManagedHostStateChangeMessage {
+        machine_id: &machine_id,
+        managed_host_state: &state,
+        timestamp,
+    };
     let json = message.to_json_bytes().unwrap();
     let parsed: serde_json::Value = serde_json::from_slice(&json).unwrap();
 

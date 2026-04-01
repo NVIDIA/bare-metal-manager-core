@@ -191,11 +191,11 @@ impl MlxConfigRunner {
                 // desired value, or if we need to change the next value to our desired
                 // value).
                 if &queried_var.next_value != desired_value {
-                    planned_changes.push(PlannedChange::new(
-                        desired_value.name().to_string(),
-                        queried_var.next_value.clone(),
-                        desired_value.clone(),
-                    ));
+                    planned_changes.push(PlannedChange {
+                        variable_name: desired_value.name().to_string(),
+                        current_value: queried_var.next_value.clone(),
+                        desired_value: desired_value.clone(),
+                    });
                     values_to_set.push(desired_value.clone());
                 }
             }
@@ -238,7 +238,11 @@ impl MlxConfigRunner {
             // Convert planned changes to applied changes.
             planned_changes
                 .into_iter()
-                .map(|pc| VariableChange::new(pc.variable_name, pc.current_value, pc.desired_value))
+                .map(|pc| VariableChange {
+                    variable_name: pc.variable_name,
+                    old_value: pc.current_value,
+                    new_value: pc.desired_value,
+                })
                 .collect()
         };
 
@@ -251,13 +255,13 @@ impl MlxConfigRunner {
             );
         }
 
-        Ok(SyncResult::new(
-            desired_values.len(),
-            changes_applied.len(),
+        Ok(SyncResult {
+            variables_checked: desired_values.len(),
+            variables_changed: changes_applied.len(),
             changes_applied,
             execution_time,
             query_result,
-        ))
+        })
     }
 
     // compare will compare provided values to observed values on the card.
@@ -293,21 +297,21 @@ impl MlxConfigRunner {
                 // defs should *also* match. If it ends up being a problem though,
                 // this can just become .value for each.
                 if &queried_var.next_value != desired_value {
-                    planned_changes.push(PlannedChange::new(
-                        desired_value.name().to_string(),
-                        queried_var.next_value.clone(),
-                        desired_value.clone(),
-                    ));
+                    planned_changes.push(PlannedChange {
+                        variable_name: desired_value.name().to_string(),
+                        current_value: queried_var.next_value.clone(),
+                        desired_value: desired_value.clone(),
+                    });
                 }
             }
         }
 
-        Ok(ComparisonResult::new(
-            desired_values.len(),
-            planned_changes.len(),
+        Ok(ComparisonResult {
+            variables_checked: desired_values.len(),
+            variables_needing_change: planned_changes.len(),
             planned_changes,
             query_result,
-        ))
+        })
     }
 
     // query_variables_internal is an internal method to query
@@ -317,9 +321,14 @@ impl MlxConfigRunner {
         variable_names: &[String],
     ) -> Result<QueryResult, MlxRunnerError> {
         self.validate_device_matches_registry()?;
-        let executor = CommandExecutor::new(&self.options);
+        let executor = CommandExecutor {
+            options: &self.options,
+        };
         let temp_file = executor.create_temp_file(self.get_temp_file_prefix())?;
-        let command_builder = CommandBuilder::new(&self.device, &self.options);
+        let command_builder = CommandBuilder {
+            device: &self.device,
+            options: &self.options,
+        };
         let command_spec = command_builder.build_query_command(variable_names, &temp_file)?;
 
         if self.options.verbose {
@@ -328,7 +337,10 @@ impl MlxConfigRunner {
 
         if !executor.is_dry_run() {
             executor.execute_with_retry(&command_spec)?;
-            let parser = JsonResponseParser::new(&self.registry, &self.options);
+            let parser = JsonResponseParser {
+                registry: &self.registry,
+                options: &self.options,
+            };
             let query_result = parser.parse_json_response(&temp_file, &self.device)?;
             executor.cleanup_temp_file(&temp_file)?;
             Ok(query_result)
@@ -336,7 +348,10 @@ impl MlxConfigRunner {
             executor.execute_dry_run(&command_spec, "query");
             executor.cleanup_temp_file(&temp_file)?;
             // Return empty result for dry run
-            Ok(QueryResult::new(QueriedDeviceInfo::default(), Vec::new()))
+            Ok(QueryResult {
+                device_info: QueriedDeviceInfo::default(),
+                variables: Vec::new(),
+            })
         }
     }
 
@@ -349,7 +364,9 @@ impl MlxConfigRunner {
             return Ok(());
         }
 
-        let executor = CommandExecutor::new(&self.options);
+        let executor = CommandExecutor {
+            options: &self.options,
+        };
 
         // Check for destructive variables if confirmation is enabled
         if self.options.confirm_destructive {
@@ -368,7 +385,10 @@ impl MlxConfigRunner {
             }
         }
 
-        let command_builder = CommandBuilder::new(&self.device, &self.options);
+        let command_builder = CommandBuilder {
+            device: &self.device,
+            options: &self.options,
+        };
         let assignments = command_builder.build_set_assignments(config_values)?;
         let command_spec = command_builder.build_set_command(&assignments)?;
 

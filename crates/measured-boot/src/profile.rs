@@ -18,7 +18,7 @@
 /*!
  *  Code for working the measurement_system_profiles and measurement_system_profiles_attrs
  *  tables in the database, leveraging the profile-specific record types.
-*/
+ */
 
 use std::convert::{Into, TryFrom};
 

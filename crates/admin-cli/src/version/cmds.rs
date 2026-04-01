@@ -114,7 +114,6 @@ pub async fn handle_show_version(
         r!(table, config, dpu_nic_firmware_reprovision_update_enabled);
         r!(table, config, max_concurrent_machine_updates);
         r!(table, config, machine_update_runtime_interval);
-        r!(table, config, nvue_enabled);
         r!(table, config, attestation_enabled);
         r!(table, config, max_find_by_ids);
         r!(table, config, machine_validation_enabled);

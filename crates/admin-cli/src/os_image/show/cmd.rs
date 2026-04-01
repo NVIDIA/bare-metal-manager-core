@@ -17,8 +17,7 @@
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
-use super::args::Args;
-use crate::os_image::common::str_to_rpc_uuid;
+use super::args::{Args, ShowQuery};
 use crate::rpc::ApiClient;
 
 pub async fn show(
@@ -27,15 +26,12 @@ pub async fn show(
     api_client: &ApiClient,
     _page_size: usize,
 ) -> CarbideCliResult<()> {
+    let query: ShowQuery = args.try_into()?;
     let is_json = output_format == OutputFormat::Json;
-    let mut images = Vec::new();
-    if let Some(x) = args.id {
-        let id = str_to_rpc_uuid(&x)?;
-        let image = api_client.0.get_os_image(id).await?;
-        images.push(image);
-    } else {
-        images = api_client.list_os_image(args.tenant_org_id).await?;
-    }
+    let images = match query {
+        ShowQuery::Single(id) => vec![api_client.0.get_os_image(id).await?],
+        ShowQuery::List(tenant_org_id) => api_client.list_os_image(tenant_org_id).await?,
+    };
     if is_json {
         println!(
             "{}",

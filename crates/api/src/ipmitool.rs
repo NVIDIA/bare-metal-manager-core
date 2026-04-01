@@ -18,10 +18,12 @@
 use std::net::IpAddr;
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use carbide_uuid::machine::MachineId;
 use eyre::eyre;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
+use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
+use utils::HostPortPair;
 use utils::cmd::{CmdError, CmdResult, TokioCmd};
 
 #[async_trait]
@@ -42,7 +44,7 @@ pub trait IPMITool: Send + Sync + 'static {
 }
 
 pub struct IPMIToolImpl {
-    credential_provider: Arc<dyn CredentialProvider>,
+    credential_reader: Arc<dyn CredentialReader>,
     attempts: u32,
 }
 
@@ -51,9 +53,9 @@ impl IPMIToolImpl {
     const IPMITOOL_BMC_RESET_COMMAND_ARGS: &'static str = "-I lanplus -C 17 bmc reset cold";
     const DPU_LEGACY_IPMITOOL_COMMAND_ARGS: &'static str = "-I lanplus -C 17 raw 0x32 0xA1 0x01";
 
-    pub fn new(credential_provider: Arc<dyn CredentialProvider>, attempts: &Option<u32>) -> Self {
+    pub fn new(credential_reader: Arc<dyn CredentialReader>, attempts: &Option<u32>) -> Self {
         IPMIToolImpl {
-            credential_provider,
+            credential_reader,
             attempts: attempts.unwrap_or(3),
         }
     }
@@ -67,7 +69,7 @@ impl IPMITool for IPMIToolImpl {
         credential_key: &CredentialKey,
     ) -> Result<(), eyre::Report> {
         let credentials = self
-            .credential_provider
+            .credential_reader
             .get_credentials(credential_key)
             .await
             .map_err(|e| {
@@ -92,7 +94,7 @@ impl IPMITool for IPMIToolImpl {
         credential_key: &CredentialKey,
     ) -> Result<(), eyre::Report> {
         let credentials: Credentials = self
-            .credential_provider
+            .credential_reader
             .get_credentials(credential_key)
             .await
             .map_err(|e| {
@@ -195,15 +197,117 @@ impl IPMITool for IPMIToolTestImpl {
     }
 }
 
+/// HTTP-based IPMI implementation for testing with bmc-mock.
+/// Sends JSON requests to bmc_proxy which routes to appropriate machine.
+pub struct IPMIToolHttpImpl {
+    bmc_proxy: Arc<ArcSwap<Option<HostPortPair>>>,
+}
+
+impl IPMIToolHttpImpl {
+    pub fn new(bmc_proxy: Arc<ArcSwap<Option<HostPortPair>>>) -> Self {
+        Self { bmc_proxy }
+    }
+
+    async fn execute_action(&self, action: &str, bmc_ip: IpAddr) -> Result<(), eyre::Report> {
+        let proxy = self.bmc_proxy.load();
+
+        // Determine the target URL and headers based on whether a proxy is configured
+        let (url, forwarded_header) = match proxy.as_ref() {
+            Some(proxy) => {
+                // Use proxy - send to proxy with Forwarded header containing BMC IP
+                let proxy_url = match proxy {
+                    HostPortPair::HostAndPort(h, p) => format!("https://{}:{}", h, p),
+                    HostPortPair::HostOnly(h) => format!("https://{}:443", h),
+                    HostPortPair::PortOnly(p) => format!("https://127.0.0.1:{}", p),
+                };
+                (
+                    format!("{}/ipmi", proxy_url),
+                    Some(format!("host={}", bmc_ip)),
+                )
+            }
+            None => {
+                // No proxy - send directly to BMC
+                (format!("https://{}/ipmi", bmc_ip), None)
+            }
+        };
+
+        let client = reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .map_err(|e| eyre!("failed to create HTTP client: {}", e))?;
+
+        let mut request = client
+            .post(&url)
+            .json(&serde_json::json!({"action": action}));
+
+        if let Some(header) = forwarded_header {
+            request = request.header("Forwarded", header);
+        }
+
+        let resp = request
+            .send()
+            .await
+            .map_err(|e| eyre!("HTTP request to {} failed: {}", url, e))?;
+
+        if !resp.status().is_success() {
+            return Err(eyre!("HTTP error: {}", resp.status()));
+        }
+
+        #[derive(serde::Deserialize)]
+        struct IpmiHttpResponse {
+            success: bool,
+            error: Option<String>,
+        }
+
+        let body: IpmiHttpResponse = resp
+            .json()
+            .await
+            .map_err(|e| eyre!("failed to parse response: {}", e))?;
+
+        if !body.success {
+            return Err(eyre!(
+                "IPMI action failed: {}",
+                body.error.unwrap_or_else(|| "unknown error".to_string())
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl IPMITool for IPMIToolHttpImpl {
+    async fn bmc_cold_reset(
+        &self,
+        bmc_ip: IpAddr,
+        _credential_key: &CredentialKey,
+    ) -> Result<(), eyre::Report> {
+        self.execute_action("bmc_cold_reset", bmc_ip).await
+    }
+
+    async fn restart(
+        &self,
+        _machine_id: &MachineId,
+        bmc_ip: IpAddr,
+        legacy_boot: bool,
+        _credential_key: &CredentialKey,
+    ) -> Result<(), eyre::Report> {
+        if legacy_boot && self.execute_action("dpu_legacy_boot", bmc_ip).await.is_ok() {
+            return Ok(());
+        }
+        // Fall through to chassis_power_reset if legacy_boot fails or is false
+        self.execute_action("chassis_power_reset", bmc_ip).await
+    }
+}
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
 
-    use forge_secrets::credentials::{Credentials, TestCredentialProvider};
+    use forge_secrets::credentials::{Credentials, TestCredentialManager};
 
     #[test]
     pub fn test_ipmitool_new() {
-        let cp = Arc::new(TestCredentialProvider::new(Credentials::UsernamePassword {
+        let cp = Arc::new(TestCredentialManager::new(Credentials::UsernamePassword {
             username: "user".to_string(),
             password: "password".to_string(),
         }));

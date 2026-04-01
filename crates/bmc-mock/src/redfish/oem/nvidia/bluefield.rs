@@ -21,6 +21,7 @@ use axum::Router;
 use axum::extract::State;
 use axum::response::Response;
 use axum::routing::{get, patch, post};
+use mac_address::MacAddress;
 use serde_json::json;
 
 use crate::bmc_state::BmcState;
@@ -30,11 +31,12 @@ use crate::{http, redfish};
 #[derive(Clone)]
 pub struct BluefieldState {
     nic_mode: bool,
+    base_mac: MacAddress,
 }
 
 impl BluefieldState {
-    pub fn new(nic_mode: bool) -> Self {
-        Self { nic_mode }
+    pub fn new(nic_mode: bool, base_mac: MacAddress) -> Self {
+        Self { nic_mode, base_mac }
     }
 }
 
@@ -74,7 +76,10 @@ async fn get_oem_nvidia(State(state): State<BmcState>) -> Response {
     let mode = if state.nic_mode { "NicMode" } else { "DpuMode" };
     resource()
         .json_patch()
-        .patch(json!({"Mode": mode}))
+        .patch(json!({
+            "Mode": mode,
+            "BaseMAC": state.base_mac.to_string().replace(":", ""),
+        }))
         .delete_fields(SYSTEMS_OEM_RESOURCE_DELETE_FIELDS)
         .into_ok_response()
 }

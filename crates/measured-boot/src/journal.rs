@@ -18,7 +18,7 @@
 /*!
  *  Code for working the measuremment_journal and measurement_journal_values
  *  tables in the database, leveraging the journal-specific record types.
-*/
+ */
 
 use std::str::FromStr;
 

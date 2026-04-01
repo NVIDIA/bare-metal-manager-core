@@ -20,12 +20,12 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 
-use super::{CollectorEvent, DataSink, EventContext, MetricSample};
+use super::{CollectorEvent, DataSink, EventContext, SensorHealthData};
 use crate::HealthError;
 use crate::metrics::{CollectorRegistry, GaugeMetrics, GaugeReading, MetricsManager};
 
 pub struct PrometheusSink {
-    collector_registry: Arc<CollectorRegistry>, // Hold onto the registry to ensure it lives as long as the sink
+    collector_registry: Arc<CollectorRegistry>,
     stream_metrics: DashMap<String, DashMap<&'static str, Arc<GaugeMetrics>>>,
 }
 
@@ -66,7 +66,7 @@ impl PrometheusSink {
         )
     }
 
-    fn metric_reading_key(sample: &MetricSample) -> String {
+    fn metric_reading_key(sample: &SensorHealthData) -> String {
         const KEY_SEPARATOR: &str = "::";
         let separators_len = KEY_SEPARATOR.len() * 2;
         let mut key = String::with_capacity(
@@ -136,6 +136,10 @@ impl PrometheusSink {
 }
 
 impl DataSink for PrometheusSink {
+    fn sink_type(&self) -> &'static str {
+        "prometheus_sink"
+    }
+
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         match event {
             CollectorEvent::MetricCollectionStart => {
@@ -185,7 +189,7 @@ impl DataSink for PrometheusSink {
             }
             CollectorEvent::Log(_)
             | CollectorEvent::Firmware(_)
-            | CollectorEvent::HealthOverride(_) => {}
+            | CollectorEvent::HealthReport(_) => {}
         }
     }
 }

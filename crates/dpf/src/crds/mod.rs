@@ -15,10 +15,4 @@
  * limitations under the License.
  */
 
-pub mod bfb_generated;
-pub mod dpu_device_generated;
-pub mod dpu_flavor_generated;
-pub mod dpu_generated;
-pub mod dpu_node_generated;
-pub mod dpu_node_maintenance_generated;
-pub mod dpu_set_generated;
+include!(concat!(env!("OUT_DIR"), "/crds/mod.rs"));

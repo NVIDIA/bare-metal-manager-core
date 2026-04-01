@@ -1,10 +1,10 @@
-# Bare Metal Manager DPU Configuration
+# DPU Configuration
 
-NVIDIA Bare Metal Manager (BMM) is a Bare-Metal-As-A-Service (BMaaS) solution. It manages the lifecycle of hosts, including user OS installation, host cleanup, validation tests, and automated software updates. It also provides host monitoring and virtualized private networking capabilities on ethernet and InfiniBand.
+NCX Infra Controller (NICo) is a Bare-Metal-As-A-Service (BMaaS) solution. It manages the lifecycle of hosts, including user OS installation, host cleanup, validation tests, and automated software updates. It also provides host monitoring and virtualized private networking capabilities on ethernet and InfiniBand.
 
-In order to enable virtual private networks (overlay networks), BMM utilizes DPUs as primary ethernet interfaces of hosts.
+In order to enable virtual private networks (overlay networks), NICo utilizes DPUs as primary ethernet interfaces of hosts.
 
-This document describes how BMM controls DPUs in order to achieve this behavior.
+This document describes how NICo controls DPUs in order to achieve this behavior.
 
 ## Guiding Principles
 
@@ -16,7 +16,7 @@ The following guiding principles are for DPU configuration:
 
 ## Core Configuration Flow
 
-DPUs are configured by the BMM site controller via a **declarative** and **stateless** mechanism:
+DPUs are configured by the NICo site controller via a **declarative** and **stateless** mechanism:
 
 - The agent running on DPUs (`dpu-agent`) requests the current desired configuration via the `GetManagedHostNetworkConfig` gRPC API call. Example data of the returned configuration is provided in the [Appendix](#dpu-configuration-example) below.
 - Every configuration that is received from the site controller is converted into a [NVUE](https://docs.nvidia.com/networking-ethernet-software/cumulus-linux/System-Configuration/NVIDIA-User-Experience-NVUE/) configuration file, which is then used to reconfigure HBN via the nvue CLI tool (`nv config apply`).
@@ -28,7 +28,7 @@ DPUs are configured by the BMM site controller via a **declarative** and **state
 ```mermaid
 sequenceDiagram
     box rgba(85, 102, 57, 0.2) Site Controller
-        participant BMM as BMM API
+        participant NICo as NICo API
     end
 
     box rgba(8, 143, 143, .2) DPU
@@ -38,37 +38,38 @@ sequenceDiagram
     end
 
     loop Every 30s
-        Agent->>BMM: GetManagedHostNetworkConfig()<br>Returns desired configs and versions
+        Agent->>NICo: GetManagedHostNetworkConfig()<br>Returns desired configs and versions
         Agent->>Nvue: Apply requested configuration
         Agent->>Dhcp: Reconfigure DHCP Server
-        Agent->>BMM: RecordDpuNetworkStatus()<br>Report applied config versions<br>Report DPU health
+        Agent->>Agent: Health checks
+        Agent->>NICo: RecordDpuNetworkStatus()<br>Report applied config versions<br>Report DPU health
     end
 ```
 
 ## Configuration Versioning
 
-BMM uses versioned immutable configuration data in order to detect whether any intended changes have not yet been deployed:
+NICo uses versioned immutable configuration data in order to detect whether any intended changes have not yet been deployed:
 
 - Every time a configuration for the DPU changes, an associated version number is increased.
 - The version number is sent back from the DPU to the site controller as part of the `RecordDpuNetworkStatus` call.
 - If the reported version number of the DPU does match the last desired version number and if the DPU reports itself as healthy/operational, the control plane knows that the configuration was deployed and can report that fact to tenants. If the version number does not match the desired version number, or if the DPU is not yet healthy, the instance will appear as `Provisioning`/`Configuring`/`Terminating` to the administrator.
-- BMM will never show a configuration as applied without feedback from the DPU. Doing so would cause reliability issues (e.g. double-assignment of IPs), as well as raise security concerns.
+- NICo will never show a configuration as applied without feedback from the DPU. Doing so would cause reliability issues (e.g. double-assignment of IPs), as well as raise security concerns.
 
 The DPU configuration that is applied can be understood as coming from two different sources:
 
 * **Tenant configurations**: While the host is under control of a tenant, the tenant can change the desired overlay network configuration. The tenant can e.g. control from which VPC prefix an IP address should be allocated for a given network interface. They can also decide how many Virtual Function interfaces (VFs) are utilized, and what their configuration is.
 * **Site controller and host lifecycle**: During the lifecycle of a host, certain parts of the network configuration need to be updated. For example, when the host is provisioned for a tenant, the host networking gets reconfigured from using the admin overlay network towards the tenant overlay network. When the host is released by the tenant, it is moved back onto the admin network.
 
-In order to separate these concerns, BMM internally uses two different configuration data structs and associated version numbers (`instance_network_config` versus `managedhost_network_config`). It can thereby distinguish whether a setting that is required by the tenant has not been applied, compared to whether a setting that is required by the control plane has not been applied.
+In order to separate these concerns, NICo internally uses two different configuration data structs and associated version numbers (`instance_network_config` versus `managedhost_network_config`). It can thereby distinguish whether a setting that is required by the tenant has not been applied, compared to whether a setting that is required by the control plane has not been applied.
 
 Some example workflows that lead to updating configurations are shown in the following diagram:
 
 ```mermaid
 sequenceDiagram
-    actor User as BMM User
+    actor User as NICo User
 
     box rgba(118, 185, 0, .2) Site Controller
-        participant BMM as BMM API
+        participant NICo as NICo API
     end
 
     box rgba(8, 143, 143, .2) DPU
@@ -78,38 +79,40 @@ sequenceDiagram
     end
 
     opt On Instance creation
-        User ->> BMM: Create Instance
-        BMM ->> BMM: Set Instance config and version<br>Update ManagedHost config (use_admin_network: false) and increment version
-        Agent->>BMM: GetManagedHostNetworkConfig()<br>Returns desired configs and versions
+        User ->> NICo: Create Instance
+        NICo ->> NICo: Set Instance config and version<br>Update ManagedHost config (use_admin_network: false) and increment version
+        Agent->>NICo: GetManagedHostNetworkConfig()<br>Returns desired configs and versions
         Agent->>Nvue: Apply requested configuration
         Agent->>Dhcp: Reconfigure DHCP Server
-        Agent->>BMM: RecordDpuNetworkStatus()<br>Report applied config versions<br>Report DPU health
-        Note right of BMM: Transition Host between required states
-        BMM ->> User: Report the Instance is Ready for usage
+        Agent->>Agent: Health checks
+        Agent->>NICo: RecordDpuNetworkStatus()<br>Report applied config versions<br>Report DPU health
+        Note right of NICo: Transition Host between required states
+        NICo ->> User: Report the Instance is Ready for usage
     end
 
     opt On Instance deletion
-        BMM ->> BMM: Update ManagedHost config (use_admin_network: true)<br>and increment version
-        Agent->>BMM: GetManagedHostNetworkConfig()<br>Returns desired configs and versions
+        NICo ->> NICo: Update ManagedHost config (use_admin_network: true)<br>and increment version
+        Agent->>NICo: GetManagedHostNetworkConfig()<br>Returns desired configs and versions
         Agent->>Nvue: Apply requested configuration
         Agent->>Dhcp: Reconfigure DHCP Server
-        Agent->>BMM: RecordDpuNetworkStatus()<br>Report applied config versions<br>Report DPU health
-        BMM->>BMM: Observe that expected ManagedHost network config is applied<br>Transition Host to cleanup states
-        Note right of BMM: Additional Host cleanup
-        BMM ->> User: Notify User that instance deletion succeeded
+        Agent->>Agent: Health checks
+        Agent->>NICo: RecordDpuNetworkStatus()<br>Report applied config versions<br>Report DPU health
+        NICo->>NICo: Observe that expected ManagedHost network config is applied<br>Transition Host to cleanup states
+        Note right of NICo: Additional Host cleanup
+        NICo ->> User: Notify User that instance deletion succeeded
     end
 ```
 
 ## Host isolation
 
-One important requirement for BMM is that Hosts/DPUs that are not confirmed to be part of the site are isolated from the remaining hosts on the site.
+One important requirement for NICo is that Hosts/DPUs that are not confirmed to be part of the site are isolated from the remaining hosts on the site.
 
 A DPU might get isolated from the cluster without the DPU software stack being erased (e.g. by site operators removing the knowledge of the DPU from the site database).
 
 In order to satisfy the isolation requirements and to prevent unknown DPUs on the site from using resources (e.g. IPs on overlay networks), an additional mechanism is implemented: If the `GetManagedHostNetworkConfig` gRPC API call returns a `NotFound` error, the dpu-agent will configure the DPU/Host into an isolated mode.
 The isolated configuration is only applied when the site controller is unaware of the DPU and its expected configuration. In case of any other errors (for example, intermittent communication issues), the DPU retains its last known configuration.
 
-> **Note:** This is not the only mechanism that BMM utilizes to provide security on the networking layer. In addition to this, ACLs and routing table separation are used to implement secure virtual private networks (VPCs).
+> **Note:** This is not the only mechanism that NICo utilizes to provide security on the networking layer. In addition to this, ACLs and routing table separation are used to implement secure virtual private networks (VPCs).
 
 ## Appendix
 

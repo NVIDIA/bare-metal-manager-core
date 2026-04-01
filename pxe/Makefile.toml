@@ -50,9 +50,10 @@ IPXE_BANNER_VERSION = { script = [
 BUILD_LOCATION = "/tmp/bfb-dump/initramfs-tmp"
 
 # Detect sudo/doas elevation command from env
+# Prefer doas since if both are present it is likely the intended command.
 ELEVATE = { script = ['''
-  command -v sudo >/dev/null 2>&1 && echo sudo && exit 0
   command -v doas >/dev/null 2>&1 && echo doas && exit 0
+  command -v sudo >/dev/null 2>&1 && echo sudo && exit 0
   echo ""
   '''] }
 
@@ -80,6 +81,32 @@ script = '''
   cp ${REPO_ROOT}/pxe/common_files/disk_imaging.sh ${REPO_ROOT}/pxe/mkosi.profiles/qcow-imager-aarch64/mkosi.extra/opt/forge/disk_imaging.sh
 '''
 
+[tasks.build-qcow-imager-x86]
+category = "qcow-imager"
+description = "Build qcow-imager.efi for x86_64 only (without scout/BFB); output: static/blobs/internal/x86_64/qcow-imager.efi"
+dependencies = [
+  "mkosi-remove-zypper-from-debian-tools",
+  "mkdir-static",
+  "mkosi-generate-build-tmpdir",
+  "stage-disk_imaging-script",
+  "mkosi-build-qcow-imager",
+  "mkosi-copy-qcow-imager-to-webroot-x86_64",
+  "mkosi-clean-qcow-imager",
+]
+
+[tasks.build-qcow-imager-aarch64]
+category = "qcow-imager"
+description = "Build qcow-imager.efi for aarch64 only (without scout/BFB); output: static/blobs/internal/aarch64/qcow-imager.efi"
+dependencies = [
+  "mkosi-remove-zypper-from-debian-tools",
+  "mkdir-static",
+  "mkosi-generate-build-tmpdir",
+  "stage-disk_imaging-script",
+  "mkosi-build-qcow-imager-aarch64",
+  "mkosi-copy-qcow-imager-to-webroot-aarch64",
+  "mkosi-clean-qcow-imager-aarch64",
+]
+
 [tasks.stage-scout-loader-rclocal]
 description = "Copies the rc.local script to the scout loader profile directories"
 script = '''
@@ -100,6 +127,16 @@ script = '''
   cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-x86_64/mkosi.extra/build-output/
   cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.service ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-x86_64/mkosi.extra/build-output/
   cp ${REPO_ROOT}/pxe/common_files/check-scout-updates.timer ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-x86_64/mkosi.extra/build-output/
+'''
+
+[tasks.stage-scout-module-loader]
+description = "Copies the scout module loader to build-output"
+script = '''
+  mkdir -p ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-aarch64/mkosi.extra/build-output/
+  cp ${REPO_ROOT}/pxe/common_files/load_modules.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-aarch64/mkosi.extra/build-output/
+
+  mkdir -p ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-x86_64/mkosi.extra/build-output/
+  cp ${REPO_ROOT}/pxe/common_files/load_modules.sh ${REPO_ROOT}/pxe/mkosi.profiles/scout-oss-x86_64/mkosi.extra/build-output/
 '''
 
 [tasks.build-boot-artifacts-x86-host]
@@ -201,6 +238,7 @@ dependencies = [
   "stage-disk_imaging-script",
   "stage-scout-loader-rclocal",
   "stage-scout-update-check",
+  "stage-scout-module-loader",
   "mkosi-build-scout-x86_64",
   "mkosi-build-scout-loader-x86_64",
   "mkosi-build-qcow-imager",
@@ -223,6 +261,7 @@ dependencies = [
   "stage-disk_imaging-script",
   "stage-scout-loader-rclocal",
   "stage-scout-update-check",
+  "stage-scout-module-loader",
   "mkosi-build-scout-x86_64",
   "mkosi-build-scout-loader-x86_64",
   "mkosi-build-qcow-imager",
@@ -244,6 +283,7 @@ dependencies = [
   "stage-disk_imaging-script",
   "stage-scout-loader-rclocal",
   "stage-scout-update-check",
+  "stage-scout-module-loader",
   "mkosi-build-scout-aarch64",
   "mkosi-build-scout-loader-aarch64",
   "mkosi-build-qcow-imager-aarch64",
@@ -266,6 +306,7 @@ dependencies = [
   "stage-disk_imaging-script",
   "stage-scout-loader-rclocal",
   "stage-scout-update-check",
+  "stage-scout-module-loader",
   "mkosi-build-scout-aarch64",
   "mkosi-build-scout-loader-aarch64",
   "mkosi-build-qcow-imager-aarch64",
@@ -443,7 +484,7 @@ category = "Ephemeral Image"
 script = '''
   PROFILE="scout-oss-x86_64"
   export PATH=${PATH}:/sbin
-  ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} --with-network build
+  ${REPO_ROOT}/pxe/mkosi/bin/mkosi -E PKG_VERSION="${PKG_VERSION}" --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} --with-network build
 '''
 
 [tasks.mkosi-build-scout-loader-x86_64]
@@ -459,7 +500,7 @@ category = "Ephemeral Image"
 script = '''
   PROFILE="scout-oss-aarch64"
   export PATH=${PATH}:/sbin
-  ${REPO_ROOT}/pxe/mkosi/bin/mkosi --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} build
+  ${REPO_ROOT}/pxe/mkosi/bin/mkosi -E PKG_VERSION="${PKG_VERSION}" --profile ${PROFILE} --output-dir=${MKOSI_BUILD_TMP} build
 '''
 
 [tasks.mkosi-build-scout-loader-aarch64]

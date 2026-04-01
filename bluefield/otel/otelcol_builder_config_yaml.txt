@@ -41,7 +41,9 @@ receivers:
       github.com/open-telemetry/opentelemetry-collector-contrib/receiver/journaldreceiver v${VERSION}
   - gomod:
       github.com/open-telemetry/opentelemetry-collector-contrib/receiver/prometheusreceiver v${VERSION}
+  - gomod: puntstatsreceiver v${PUNTSTATS_VERSION}
 
 replaces:
   - fileresourceprocessor => ../fileresourceprocessor
   - telemetrystatsprocessor => ../telemetrystatsprocessor
+  - puntstatsreceiver => ../puntstatsreceiver

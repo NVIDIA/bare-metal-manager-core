@@ -19,7 +19,10 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use mac_address::MacAddress;
+use rpc::machine_discovery::{BlockDevice, CpuInfo, DiscoveryInfo, DmiData, DpuData};
+use rpc::{NetworkInterface, PciDeviceProperties};
 use serde_json::json;
+use utils::models::arch::CpuArchitecture;
 
 use crate::{LogService, LogServices, PowerControl, hw, redfish};
 
@@ -33,8 +36,10 @@ pub struct Bluefield3<'a> {
 }
 
 pub enum Mode {
-    B3240ColdAisle,              // => P/N 900-9D3B6-00CN-PA0. Installed on WIWYNN GB200s.
-    SuperNIC { nic_mode: bool }, // => P/N 900-9D3B4-00CC-EA0 & 900-9D3B6-00CV-AA0
+    // P/N 900-9D3B6-00CN-PA0. Installed on WIWYNN GB200s / Lenovo GB300s.
+    B3240ColdAisle,
+    // P/N 900-9D3B4-00CC-EA0 & 900-9D3B6-00CV-AA0
+    SuperNIC { nic_mode: bool },
 }
 
 pub struct FirmwareVersions {
@@ -51,6 +56,7 @@ impl Bluefield3<'_> {
             fan: 4,
             power: 3,
             current: 3,
+            leak: 0,
         }
     }
 
@@ -188,6 +194,8 @@ impl Bluefield3<'_> {
                         entries: vec!["DPU Warm Reset".to_string()],
                     },
                 })),
+                storage: None,
+                secure_boot_available: true,
             }],
         }
     }
@@ -196,21 +204,23 @@ impl Bluefield3<'_> {
         redfish::manager::Config {
             managers: vec![redfish::manager::SingleConfig {
                 id: "Bluefield_BMC",
-                eth_interfaces: vec![
+                eth_interfaces: Some(vec![
                     redfish::ethernet_interface::builder(
                         &redfish::ethernet_interface::manager_resource("Bluefield_BMC", "eth0"),
                     )
                     .mac_address(self.bmc_mac_address)
                     .interface_enabled(true)
                     .build(),
-                ],
-                firmware_version: "BF-23.10-4",
+                ]),
+                host_interfaces: None,
+                firmware_version: Some("BF-23.10-4"),
+                oem: None,
             }],
         }
     }
 
     pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
-        let base_mac = self.host_mac_address.to_string().replace(':', "");
+        let base_mac = self.base_mac().to_string().replace(':', "");
         let sys_image = format!(
             "{}:{}00:00{}:{}",
             &base_mac[0..4],
@@ -238,12 +248,12 @@ impl Bluefield3<'_> {
         }
     }
 
-    pub fn host_nic(&self) -> hw::nic::Nic {
+    pub fn host_nic(&self) -> hw::nic::Nic<'static> {
         hw::nic::Nic {
             mac_address: self.host_mac_address,
             // This how it represented on host with number of trailing
             // whitespaces.
-            serial_number: format!("{}                 ", self.product_serial_number),
+            serial_number: Some(format!("{}                 ", self.product_serial_number).into()),
             manufacturer: Some("Mellanox Technologies".into()),
             model: Some("BlueField-3 SmartNIC Main Card".into()),
             description: Some(
@@ -252,6 +262,97 @@ impl Bluefield3<'_> {
             part_number: Some(self.part_number().into()),
             firmware_version: Some(self.firmware_versions.dpu_nic.clone().into()),
             is_mat_dpu: true,
+        }
+    }
+
+    pub fn host_nic_h100_variant(&self) -> hw::nic::Nic<'static> {
+        hw::nic::Nic {
+            mac_address: self.host_mac_address,
+            // This how it represented on host with number of trailing
+            // whitespaces.
+            serial_number: Some(format!("{}                 ", self.product_serial_number).into()),
+            manufacturer: Some("MLNX".into()),
+            model: Some("D3B6           ".into()),
+            description: None,
+            part_number: Some(format!("{}       ", self.part_number()).into()),
+            firmware_version: Some(self.firmware_versions.dpu_nic.clone().into()),
+            is_mat_dpu: true,
+        }
+    }
+
+    pub fn discovery_info(&self) -> DiscoveryInfo {
+        DiscoveryInfo {
+            network_interfaces: vec![],
+            infiniband_interfaces: vec![],
+            cpu_info: vec![CpuInfo {
+                model: "Cortex-A78AE".into(),
+                vendor: "ARM".into(),
+                sockets: 1,
+                cores: 16,
+                threads: 16,
+            }],
+            block_devices: std::iter::once(BlockDevice {
+                model: "KBG40ZPZ128G TOSHIBA MEMORY".into(),
+                revision: "AEGA0103".into(),
+                serial: "FAKESERNUM0".into(),
+                device_type: "disk".into(),
+            })
+            .chain((0..3).map(|_| BlockDevice {
+                model: "NO_MODEL".into(),
+                revision: "NO_REVISION".into(),
+                serial: "NO_SERIAL".into(),
+                device_type: "disk".into(),
+            }))
+            .collect(),
+            machine_type: CpuArchitecture::Aarch64.to_string(),
+            machine_arch: Some(CpuArchitecture::Aarch64.into()),
+            nvme_devices: vec![],
+            dmi_data: Some(DmiData {
+                board_name: "Bluefield-3 DPU".into(),
+                board_version: "AG".into(),
+                bios_version: "4.13.0-26-g337fea6bfd".into(),
+                bios_date: "Nov  3 2025".into(),
+                product_serial: self.product_serial_number.to_string(),
+                board_serial: "Unspecified Base Board Serial Number".into(),
+                chassis_serial: "Unspecified Chassis Board Serial Number".into(),
+                product_name: "BlueField-3 DPU".into(),
+                sys_vendor: "Nvidia".into(),
+            }),
+            dpu_info: Some(DpuData {
+                part_number: self.part_number().into(),
+                part_description: format!("NVIDIA Bluefield-3 {}", self.part_number()),
+                product_version: self.firmware_versions.dpu_nic.clone(),
+                factory_mac_address: self.base_mac().to_string(),
+                firmware_version: self.firmware_versions.dpu_nic.clone(),
+                firmware_date: "11.11.2025".into(),
+                switches: vec![],
+            }),
+            gpus: vec![],
+            memory_devices: vec![],
+            tpm_ek_certificate: None,
+            tpm_description: None,
+            ..Default::default()
+        }
+    }
+
+    pub fn host_nic_discovery_info(
+        &self,
+        path: &str,
+        slot: &str,
+        numa_node: i32,
+    ) -> NetworkInterface {
+        NetworkInterface {
+            mac_address: self.host_mac_address.to_string(),
+            pci_properties: Some(PciDeviceProperties {
+                vendor: "Mellanox Technologies".into(),
+                device: "MT43244 BlueField-3 integrated ConnectX-7 network controller".into(),
+                path: path.into(),
+                numa_node,
+                description: Some(
+                    "MT43244 BlueField-3 integrated ConnectX-7 network controller".into(),
+                ),
+                slot: Some(slot.into()),
+            }),
         }
     }
 
@@ -267,6 +368,10 @@ impl Bluefield3<'_> {
             Mode::SuperNIC { nic_mode: true } => "900-9D3B4-00CC-EA0",
             Mode::SuperNIC { nic_mode: false } => "900-9D3B6-00CV-AA0",
         }
+    }
+
+    fn base_mac(&self) -> MacAddress {
+        self.host_mac_address
     }
 
     fn opn(&self) -> &'static str {

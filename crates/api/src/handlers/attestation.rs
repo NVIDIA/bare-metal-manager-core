@@ -124,9 +124,10 @@ pub(crate) async fn attest_quote(
         match db::attestation::secret_ak_pub::get_by_secret(&mut txn, &request.credential).await? {
             Some(entry) => entry.ak_pub,
             None => {
-                return Err(Status::from(CarbideError::AttestQuoteError(
+                return Err(CarbideError::AttestQuoteError(
                     "Could not form SQL query to fetch AK Pub".into(),
-                )));
+                )
+                .into());
             }
         };
 
@@ -181,11 +182,11 @@ pub(crate) async fn attest_quote(
     let report =
         db::measured_boot::report::new(&mut txn, machine_id, pcr_values.into_inner().as_slice())
             .await
-            .map_err(|e| {
-                Status::internal(format!(
+            .map_err(|e| CarbideError::Internal {
+                message: format!(
                     "Failed storing measurement report: (machine_id: {}, err: {})",
                     &machine_id, e
-                ))
+                ),
             })?;
 
     // if the attestation was successful and enabled, we can now vend the certs

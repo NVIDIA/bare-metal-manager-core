@@ -1,0 +1,108 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+//! IPMI-over-HTTP mock handler for testing.
+//!
+//! Receives JSON requests from `IPMIToolHttpImpl` and translates them
+//! into `BmcCommand::SetSystemPower` calls to machine-a-tron.
+
+use axum::routing::post;
+use axum::{Json, Router};
+use serde::{Deserialize, Serialize};
+
+use crate::SystemPowerControl;
+use crate::bmc_state::BmcState;
+
+/// Request body for IPMI mock endpoint.
+#[derive(Debug, Deserialize)]
+pub struct IpmiRequest {
+    action: String,
+}
+
+/// Response body for IPMI mock endpoint.
+#[derive(Debug, Serialize)]
+pub struct IpmiResponse {
+    success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+impl IpmiResponse {
+    fn ok() -> Self {
+        Self {
+            success: true,
+            error: None,
+        }
+    }
+
+    fn err(msg: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            error: Some(msg.into()),
+        }
+    }
+}
+
+/// Add IPMI routes to the router.
+pub fn add_routes(router: Router<BmcState>) -> Router<BmcState> {
+    router.route("/ipmi", post(handle_ipmi))
+}
+
+async fn handle_ipmi(
+    axum::extract::State(state): axum::extract::State<BmcState>,
+    Json(req): Json<IpmiRequest>,
+) -> Json<IpmiResponse> {
+    tracing::debug!(action = %req.action, "IPMI mock request");
+
+    let Some(ref power_control) = state.power_control else {
+        tracing::error!("IPMI request received but power_control not configured");
+        return Json(IpmiResponse::err("power_control not configured"));
+    };
+
+    let response = match req.action.as_str() {
+        "chassis_power_reset" => {
+            tracing::info!("IPMI: chassis power reset");
+            match power_control.send_power_command(SystemPowerControl::ForceRestart) {
+                Ok(()) => IpmiResponse::ok(),
+                Err(e) => {
+                    tracing::error!(error = ?e, "chassis power reset failed");
+                    IpmiResponse::err(format!("power command failed: {:?}", e))
+                }
+            }
+        }
+        "bmc_cold_reset" => {
+            tracing::info!("IPMI: bmc cold reset (mock no-op)");
+            IpmiResponse::ok()
+        }
+        "dpu_legacy_boot" => {
+            tracing::info!("IPMI: dpu legacy boot");
+            match power_control.send_power_command(SystemPowerControl::ForceRestart) {
+                Ok(()) => IpmiResponse::ok(),
+                Err(e) => {
+                    tracing::error!(error = ?e, "dpu legacy boot failed");
+                    IpmiResponse::err(format!("power command failed: {:?}", e))
+                }
+            }
+        }
+        other => {
+            tracing::warn!(action = %other, "unknown IPMI action");
+            IpmiResponse::err(format!("unknown action: {}", other))
+        }
+    };
+
+    Json(response)
+}

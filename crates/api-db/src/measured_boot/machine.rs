@@ -18,7 +18,7 @@
 /*!
  *  Code for working the machine_topologies table in the
  *  database to match candidate machines to profiles and bundles.
-*/
+ */
 
 use std::collections::HashMap;
 
@@ -29,7 +29,6 @@ use measured_boot::journal::MeasurementJournal;
 use measured_boot::machine::CandidateMachine;
 use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
 use model::machine::topology::TopologyData;
-use rpc::protos::measured_boot::CandidateMachineSummaryPb;
 use serde::Serialize;
 use sqlx::{FromRow, PgConnection};
 
@@ -63,15 +62,6 @@ pub struct CandidateMachineRecord {
 
     // updated is the timestamp this record was updated.
     pub updated: chrono::DateTime<Utc>,
-}
-
-impl From<CandidateMachineRecord> for CandidateMachineSummaryPb {
-    fn from(val: CandidateMachineRecord) -> Self {
-        Self {
-            machine_id: val.machine_id.to_string(),
-            ts: Some(val.created.into()),
-        }
-    }
 }
 
 impl DbTable for CandidateMachineRecord {

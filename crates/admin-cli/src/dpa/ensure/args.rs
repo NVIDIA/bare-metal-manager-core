@@ -29,3 +29,14 @@ pub struct Args {
     #[clap(help = "PCI name (e.g. 5e:00.0)")]
     pub pci_name: String,
 }
+
+impl From<Args> for ::rpc::forge::DpaInterfaceCreationRequest {
+    fn from(args: Args) -> Self {
+        Self {
+            machine_id: Some(args.machine_id),
+            mac_addr: args.mac_addr,
+            device_type: args.device_type,
+            pci_name: args.pci_name,
+        }
+    }
+}

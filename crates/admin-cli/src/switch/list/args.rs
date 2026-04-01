@@ -19,3 +19,12 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 pub struct Args;
+
+impl From<Args> for ::rpc::forge::SwitchQuery {
+    fn from(_args: Args) -> Self {
+        Self {
+            name: None,
+            switch_id: None,
+        }
+    }
+}

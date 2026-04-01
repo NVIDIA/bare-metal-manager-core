@@ -25,6 +25,8 @@ pub struct ExpectedSwitchJson {
     pub bmc_username: String,
     pub bmc_password: String,
     pub switch_serial_number: String,
+    #[serde(default)]
+    pub nvos_mac_addresses: Vec<MacAddress>,
     pub nvos_username: Option<String>,
     pub nvos_password: Option<String>,
     #[serde(default)]

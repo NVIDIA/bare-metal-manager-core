@@ -39,7 +39,6 @@ pub trait UuidSubtype {
 /// impl UuidSubtype for ExampleFlavor {
 ///     const TYPE_NAME: &str = "ExampleId"
 /// }
-///
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
 pub struct TypedUuid<T: UuidSubtype> {

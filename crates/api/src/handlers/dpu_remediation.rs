@@ -318,9 +318,10 @@ pub(crate) async fn remediation_applied(
     let machine_id = request
         .dpu_machine_id
         .ok_or(CarbideError::MissingArgument("machine id"))?;
-    let status = request
+    let status: model::dpu_remediation::RemediationApplicationStatus = request
         .status
-        .ok_or(CarbideError::MissingArgument("status"))?;
+        .ok_or(CarbideError::MissingArgument("status"))?
+        .try_into()?;
 
     db::dpu_remediation::remediation_applied(&mut txn, machine_id, remediation_id, status).await?;
 

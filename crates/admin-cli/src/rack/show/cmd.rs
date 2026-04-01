@@ -16,45 +16,75 @@
  */
 
 use color_eyre::Result;
+use prettytable::{Table, row};
 
 use super::args::Args;
+use crate::cfg::runtime::RuntimeConfig;
 use crate::rpc::ApiClient;
 
-pub async fn show_rack(api_client: &ApiClient, show_opts: Args) -> Result<()> {
-    let query = rpc::forge::GetRackRequest {
-        id: show_opts.identifier,
-    };
-    let response = api_client.0.get_rack(query).await?;
-    let racks = response.rack;
+pub async fn show_rack(api_client: &ApiClient, args: Args, config: &RuntimeConfig) -> Result<()> {
+    let racks = match args.rack {
+        Some(rack_id) => api_client.get_one_rack(rack_id).await?,
+        None => api_client.get_all_racks(config.page_size).await?,
+    }
+    .racks;
+
     if racks.is_empty() {
         println!("No racks found");
         return Ok(());
     }
 
+    let mut table = Table::new();
+    table.set_titles(row![
+        "ID",
+        "State",
+        "Expected Compute Trays",
+        "Expected Power Shelves",
+        "Expected NVLink Switches",
+        "Current Compute Trays",
+        "Current Power Shelves"
+    ]);
+
     for r in racks {
-        println!("ID: {}", r.id.map(|id| id.to_string()).unwrap_or_default());
-        println!("State: {}", r.rack_state);
-        println!("Expected Compute Tray BMCs:");
-        for mac_address in r.expected_compute_trays {
-            println!("  {}", mac_address);
-        }
-        println!("Expected Power Shelves:");
-        for mac_address in r.expected_power_shelves {
-            println!("  {}", mac_address);
-        }
-        println!("Expected NVLink Switches:");
-        for mac_address in r.expected_nvlink_switches {
-            println!("  {}", mac_address);
-        }
-        println!("Current Compute Trays");
-        for machine_id in r.compute_trays {
-            println!("  {}", machine_id);
-        }
-        println!("Current Power Shelves");
-        for ps_id in r.power_shelves {
-            println!("  {}", ps_id);
-        }
-        println!("Current NVLink Switches");
+        table.add_row(row![
+            r.id.map(|id| id.to_string()).unwrap_or_default(),
+            r.rack_state,
+            if r.expected_compute_trays.is_empty() {
+                "N/A".to_string()
+            } else {
+                r.expected_compute_trays.join(", ")
+            },
+            if r.expected_power_shelves.is_empty() {
+                "N/A".to_string()
+            } else {
+                r.expected_power_shelves.join(", ")
+            },
+            if r.expected_nvlink_switches.is_empty() {
+                "N/A".to_string()
+            } else {
+                r.expected_nvlink_switches.join(", ")
+            },
+            if r.compute_trays.is_empty() {
+                "N/A".to_string()
+            } else {
+                r.compute_trays
+                    .iter()
+                    .map(|id| id.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            },
+            if r.power_shelves.is_empty() {
+                "N/A".to_string()
+            } else {
+                r.power_shelves
+                    .iter()
+                    .map(|id| id.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            },
+        ]);
     }
+
+    table.printstd();
     Ok(())
 }

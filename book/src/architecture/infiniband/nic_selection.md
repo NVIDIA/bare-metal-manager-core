@@ -1,16 +1,16 @@
 # Infiniband NIC and port selection
 
-NVIDIA Bare Metal Manager (BMM) supports multiple Infiniband enabled Network Interface Cards (NICs).
+NCX Infra Controller (NICo) supports multiple Infiniband enabled Network Interface Cards (NICs).
 Each of those NICs might feature 1-2 physical ports, where each port allows
 to connect the NIC to an Infiniband switch that is part of a certain Infiniband fabric.
 
-This document describes how BMM enumerates available NICs and how it
+This document describes how NICo enumerates available NICs and how it
 makes them available for selection by a tenant during instance creation.
 
 ## Requirements
 
-1. Hosts with the identical hardware configuration should be reported by BMM as having the exact same machine capabilities. E.g. a Machine having 2 Infiniband NICs that each have 2 ports that are connected to different Infiniband fabrics (4 fabrics in total), should be exactly reported as such.
-2. If BMM tenants configure multiple hosts of the same instance type with the same infiniband configuration and run the same operating system, they should find exactly the exact same device names on the host. This allows them to e.g. statically use certain Infiniband devices in applications and containers without a need for complex run-time enumeration on the tenant side. E.g. a tenant should be able to rely on the devices `ibp202s0f0` and `ibp202s0f1` always being available and connected their desired configuration.
+1. Hosts with the identical hardware configuration should be reported by NICo as having the exact same machine capabilities. E.g. a Machine having 2 Infiniband NICs that each have 2 ports that are connected to different Infiniband fabrics (4 fabrics in total), should be exactly reported as such.
+2. If NICo tenants configure multiple hosts of the same instance type with the same infiniband configuration and run the same operating system, they should find exactly the exact same device names on the host. This allows them to e.g. statically use certain Infiniband devices in applications and containers without a need for complex run-time enumeration on the tenant side. E.g. a tenant should be able to rely on the devices `ibp202s0f0` and `ibp202s0f1` always being available and connected their desired configuration.
 
 ## Recommendation
 
@@ -32,13 +32,13 @@ ibp202s0f0  ibp202s0f1
 ```
 
 This setup is mostly equivalent to a setup with 2 single-port Infiniband NICs.
-Therefore we seem to have 2 options for presenting multi-port NICs to BMM users:
+Therefore we seem to have 2 options for presenting multi-port NICs to NICo users:
 1. **Preferred:** Present each physical port of a NIC as a separate Infiniband NIC. The combination of a NIC & port is referred to as `device`.
 2. Present a multi-port NIC as single NIC with multiple ports.
 
-**Option 1) is preferred** because it simplifies the BMM data model and user experience: Users don't have to worry about 2 dimensions (NIC and port) when selecting an interface they want to configure - they only have to select a device. The fact that this interface is really a part of a hardware component that features 2 interfaces does not matter for the user workflows, where they want to use the infiniband device to send or receive data.
+**Option 1) is preferred** because it simplifies the NICo data model and user experience: Users don't have to worry about 2 dimensions (NIC and port) when selecting an interface they want to configure - they only have to select a device. The fact that this interface is really a part of a hardware component that features 2 interfaces does not matter for the user workflows, where they want to use the infiniband device to send or receive data.
 
-Various BMM user APIs can therefore by simplified to a point where no port information is required to be entered or shown. E.g. during Instance creation, the infiniband interface network configuration object only requires to pass a network device ID and no longer a port. In a similar fashion, the BMM internal data models for storing hardware information about infiniband devices can be simplified by dropping port data.
+Various NICo user APIs can therefore by simplified to a point where no port information is required to be entered or shown. E.g. during Instance creation, the infiniband interface network configuration object only requires to pass a network device ID and no longer a port. In a similar fashion, the NICo internal data models for storing hardware information about infiniband devices can be simplified by dropping port data.
 
 ### How are the devices still related?
 
@@ -64,26 +64,26 @@ While the devices for the 2 ports seem mostly independent, there are still a few
 
     The same applies also for settings like `NUM_OF_VFS` and `SRIOV_EN`.
 
-None of those reasons seem blockers for representing the ports as separate devices for BMM users:
-Since BMM configures the device for tenants, they do not need to worry about the physical properties and can just
+None of those reasons seem blockers for representing the ports as separate devices for NICo users:
+Since NICo configures the device for tenants, they do not need to worry about the physical properties and can just
 use the independent devices.
 
 ## Required changes
 
-### BMM machine hardware enumeration
+### NICo machine hardware enumeration
 
-When BMM discovers a machine that is intended to be managed by the BMM site controller,
-it enumerates its hardware details using the [forge-scout](https://github.com/NVIDIA/bare-metal-manager-core/tree/main/crates/scout) tool.
+When NICo discovers a machine that is intended to be managed by the NICo site controller,
+it enumerates its hardware details using the [forge-scout](https://github.com/NVIDIA/ncx-infra-controller-core/tree/main/crates/scout) tool.
 
 The tool reports all discovered hardware information (e.g. the number and type
 of CPUs, GPUs, and network interfaces), and this information gets persisted
-in the BMM database.
+in the NICo database.
 
 The reported information includes the list of Infiniband network interfaces. The
 site controller needs the information to decide whether a certain Infiniband
 configuration is valid for a Machine.
 
-The BMM DiscoveryData model for Infiniband that is defined as follows almost
+The NICo DiscoveryData model for Infiniband that is defined as follows almost
 supports the preferred model:
 
 ```protobuf
@@ -137,9 +137,9 @@ There however seem to be aspects that we can improve on:
   use those fields to directly report the stringified versions, both the hardware
   report and the interface selection become more obvious to the user. We could
   also transmit both the IDs and the names. But as long as the IDs are not referenced
-  in any other BMM APIs they do not seem too useful.
+  in any other NICo APIs they do not seem too useful.
 1. The device path is very OS and driver specific. A different path is reported
-  depending on which of the various Mellanox drivers the BMM discovery image uses.
+  depending on which of the various Mellanox drivers the NICo discovery image uses.
   We are be able to have more stable information by just persisting the PCI slot - either
   in the existing `path` field or a new `slot` field.
 1. For multi-fabric support, we would include the identifier of the fabric that the
@@ -180,17 +180,17 @@ With these changes, the submitted discovery information for the dual port NIC is
 
 ### Instance Type hardware capabilities
 
-The BMM cloud backend currently displays Machine hardware details with slightly
+The NICo cloud backend currently displays Machine hardware details with slightly
 less granularity than the site APIs. It uses a "Machine Capability" model that
 tries to model how many components of a particular type a Machine includes. This
 model reduces the amount of data that needs to be transferred between the Rest API
-backend and BMM users since it doesn't need to explain every individual component
+backend and NICo users since it doesn't need to explain every individual component
 in detail. It also has the advantage that "machine capabilities" can describe
 groups of similar machines ("instance types") instead of just a single machine.
 Each machine the that adheres to an instance type shares the same capabilities.
 
 To support Infiniband, we can extend the existing capabilities model of the
-BMM REST API backend to cover infiniband:
+NICo REST API backend to cover infiniband:
 - Each Infiniband `device` will be represented by a capability that describes
   the device.
 - The `type` field that is used for Infiniband devices would be `Infiniband`.
@@ -329,7 +329,7 @@ a VirtualFunction on top of the selected PhysicalFunction.
 The API described above fully omits the device vendor as a selection criteria.
 This would make selection ambiguous in case a Machine would feature devices with the
 same name but produced by different vendors.
-Given all known devices that BMM will support initially are produced by Mellanox/NVIDIA,
+Given all known devices that NICo will support initially are produced by Mellanox/NVIDIA,
 this is however not an issue in the foreseeable future.
 In case such a setup ever needs to be supported, an optional `device_vendor` field
 could be added for each entry of `InstanceInfinibandConfig` to disambiguate the
@@ -467,7 +467,7 @@ always affects the exact same piece of hardware.
 
 ### Forge Metadata Service (FMDS)
 
-**This will be renamed to something else (likely just BMM Metadata Service as we move from the old code name**
+**This will be renamed to something else (likely just NICo Metadata Service as we move from the old code name**
 
 The Forge Metadata Service (FMDS) provides the Tenant's software
 running on instance the capability to identify the infiniband configuration at
@@ -476,7 +476,7 @@ which configures the local Infiniband interfaces for the operating mode that the
 Tenant desired for this instance. This script needs to configure all network interfaces
 on the host. This includes
 - setting the correct number of VFs per physical device
-- writing GUIDs that BMM allocated for VF interfaces to the locations the OS
+- writing GUIDs that NICo allocated for VF interfaces to the locations the OS
   expects them it
 
 Applying these settings configure the interfaces in software in a way that
@@ -524,7 +524,7 @@ The FMDS client needs to perform the mapping from configuration
 parameters to the actual Linux devicename (in `/sys/class/infiniband`) to apply
 the necessary configuration. This requires the same knowledege about
 the unique mapping of the configuration to the actual hardware that is residing
-in BMM. A challenge here is however that the client running
+in NICo. A challenge here is however that the client running
 on a tenants host is not able to resolve the fabric per interface. Since
 the fabric is one part of the mapping in a multi-fabric context, the mapping would
 no longer be unambiguous. An alternative to this is to extend
@@ -625,7 +625,7 @@ The hardware inventory data model already provides the `slot` address. Therefore
 no additional changes are required here.
 
 However the machine capability model needs to be extended to include the `slot`
-information, since it is used by the BMM Admin UI to explain the tenant what devices
+information, since it is used by the NICo Admin UI to explain the tenant what devices
 can be configured. E.g. the reported machine capability data could be:
 
 ```json
@@ -712,7 +712,7 @@ when providing status information about running instances.
 
 #### Open questions
 
-- Should BMM documentation settle on a specific term to reference a full NIC?
+- Should NICo documentation settle on a specific term to reference a full NIC?
   E.g. `NIC` or `Adapter`? It might be necessary in order to explain workflows
   for tools which do only show the complete NIC and not individual devices (e.g. `mlxconfig`)
 

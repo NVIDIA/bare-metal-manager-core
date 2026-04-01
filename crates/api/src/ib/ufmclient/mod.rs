@@ -400,7 +400,7 @@ impl Ufm {
         }
 
         let pkey = Pkey {
-            pkey: p.pkey.clone().to_string(),
+            pkey: p.pkey.to_string(),
             ip_over_ib: p.ipoib,
             membership,
             index0,
@@ -429,7 +429,7 @@ impl Ufm {
         }
 
         let pkey = Pkey {
-            pkey: pkey.clone().to_string(),
+            pkey: pkey.to_string(),
             guids,
         };
 

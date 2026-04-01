@@ -143,36 +143,6 @@ pub async fn lookup(
         });
     };
 
-    let machines = forge_api_client
-        .find_machines_by_ids(rpc::forge::MachinesByIdsRequest {
-            machine_ids: vec![machine_id],
-            include_history: false,
-        })
-        .await
-        .map_err(|tonic_status| LookupError::MachineIdLookup {
-            machine_id: machine_id.to_string(),
-            tonic_status,
-        })?
-        .machines;
-    let machine = machines
-        .into_iter()
-        .next()
-        .ok_or_else(|| LookupError::MachineIdLookup {
-            machine_id: machine_id.to_string(),
-            tonic_status: tonic::Status::not_found("Response did not contain machine"),
-        })?;
-
-    let machine_id = machine
-        .id
-        .ok_or_else(|| LookupError::MachineMissingId { machine_id })?;
-
-    let bmc_vendor = if machine_id.machine_type().is_dpu() {
-        BmcVendor::Ssh(SshBmcVendor::Dpu)
-    } else {
-        BmcVendor::detect_from_api_machine(&machine)
-            .map_err(|error| LookupError::BmcVendorDetection { machine_id, error })?
-    };
-
     let forge::BmcMetaDataGetResponse {
         ip,
         user,
@@ -181,6 +151,7 @@ pub async fn lookup(
         port: _,
         ssh_port,
         ipmi_port,
+        vendor,
     } = forge_api_client
         .get_bmc_meta_data(forge::BmcMetaDataGetRequest {
             machine_id: Some(machine_id),
@@ -193,6 +164,10 @@ pub async fn lookup(
             machine_id: machine_id.to_string(),
             tonic_status,
         })?;
+
+    let bmc_vendor =
+        BmcVendor::detect_from_api_vendor(vendor.as_deref().unwrap_or_default(), &machine_id)
+            .map_err(|error| LookupError::BmcVendorDetection { machine_id, error })?;
 
     let ip: IpAddr = ip.parse().map_err(|e| LookupError::InvalidBmcMetadata {
         reason: format!("Error parsing IP address {ip:?}: {e:?}"),
@@ -266,13 +241,6 @@ pub enum LookupError {
     InstanceHasNoMachineId { instance_id: InstanceId },
     #[error("Could not parse {machine_or_instance_id} into a machine ID or instance ID")]
     CouldNotParseId { machine_or_instance_id: String },
-    #[error("Error getting machine {machine_id}: {tonic_status}")]
-    MachineIdLookup {
-        machine_id: String,
-        tonic_status: tonic::Status,
-    },
-    #[error("API machine has no id? (looked up via machine_id={machine_id})")]
-    MachineMissingId { machine_id: MachineId },
     #[error("Cannot detect BMC vendor for machine: {machine_id}: {error}")]
     BmcVendorDetection {
         machine_id: MachineId,

@@ -16,22 +16,17 @@
  */
 
 use ::rpc::admin_cli::CarbideCliError;
-use rpc::forge::ApproveRemediationRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn approve_dpu_remediation(
-    approve_remediation: Args,
+    data: Args,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
-    api_client
-        .0
-        .approve_remediation(ApproveRemediationRequest {
-            remediation_id: Some(approve_remediation.id),
-        })
-        .await?;
+    let id = data.id;
+    api_client.0.approve_remediation(data).await?;
 
-    tracing::info!("Approved remediation with id: {:?}", approve_remediation.id);
+    tracing::info!("Approved remediation with id: {:?}", id);
     Ok(())
 }

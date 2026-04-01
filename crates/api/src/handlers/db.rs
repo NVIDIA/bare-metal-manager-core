@@ -28,12 +28,9 @@ pub(crate) async fn trim_table(
 
     let mut txn = api.txn_begin().await?;
 
-    let total_deleted = db::trim_table::trim_table(
-        &mut txn,
-        request.get_ref().target(),
-        request.get_ref().keep_entries,
-    )
-    .await?;
+    let target: model::trim_table::TrimTableTarget = request.get_ref().target().into();
+    let total_deleted =
+        db::trim_table::trim_table(&mut txn, target, request.get_ref().keep_entries).await?;
 
     txn.commit().await?;
 

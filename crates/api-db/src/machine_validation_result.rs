@@ -19,13 +19,17 @@ use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine_validation::MachineValidationResult;
 use sqlx::PgConnection;
 
+use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult, ObjectFilter, machine_validation_suites};
 
-pub async fn find_by_machine_id(
-    txn: &mut PgConnection,
+pub async fn find_by_machine_id<DB>(
+    txn: &mut DB,
     machine_id: &MachineId,
     include_history: bool,
-) -> DatabaseResult<Vec<MachineValidationResult>> {
+) -> DatabaseResult<Vec<MachineValidationResult>>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
     if include_history {
         // Fetch all validation_id from machine_validation table
         let machine_validation = crate::machine_validation::find_by(
@@ -39,10 +43,16 @@ pub async fn find_by_machine_id(
         for item in machine_validation {
             columns.push(item.id.to_string());
         }
-        return find_by(txn, ObjectFilter::List(&columns), "machine_validation_id").await;
+        return find_by(
+            &mut *txn,
+            ObjectFilter::List(&columns),
+            "machine_validation_id",
+        )
+        .await;
     };
     let machine =
-        match crate::machine::find_one(txn, machine_id, MachineSearchConfig::default()).await {
+        match crate::machine::find_one(&mut *txn, machine_id, MachineSearchConfig::default()).await
+        {
             Err(err) => {
                 tracing::warn!(%machine_id, error = %err, "failed loading machine");
                 return Err(DatabaseError::InvalidArgument(
@@ -65,7 +75,7 @@ pub async fn find_by_machine_id(
     let on_demand_machine_validation_id =
         machine.on_demand_machine_validation_id.unwrap_or_default();
     find_by(
-        txn,
+        &mut *txn,
         ObjectFilter::List(&[
             cleanup_machine_validation_id.to_string(),
             discovery_machine_validation_id.to_string(),
@@ -77,7 +87,7 @@ pub async fn find_by_machine_id(
 }
 
 async fn find_by(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     filter: ObjectFilter<'_, String>,
     column: &str,
 ) -> Result<Vec<MachineValidationResult>, DatabaseError> {
@@ -171,7 +181,7 @@ pub async fn create(value: MachineValidationResult, txn: &mut PgConnection) -> D
 
 pub async fn validate_current_context(
     txn: &mut PgConnection,
-    id: &rpc::Uuid,
+    id: &uuid::Uuid,
 ) -> DatabaseResult<Option<String>> {
     let db_results = find_by(
         txn,
@@ -189,7 +199,7 @@ pub async fn validate_current_context(
 }
 
 pub async fn find_by_validation_id(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     id: &uuid::Uuid,
 ) -> DatabaseResult<Vec<MachineValidationResult>> {
     find_by(

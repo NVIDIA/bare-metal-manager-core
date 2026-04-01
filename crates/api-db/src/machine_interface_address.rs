@@ -21,6 +21,7 @@ use model::network_segment::NetworkSegmentType;
 use sqlx::{FromRow, PgConnection};
 
 use super::DatabaseError;
+use crate::db_read::DbReader;
 
 #[derive(Debug, FromRow, Clone)]
 pub struct MachineInterfaceAddress {
@@ -41,7 +42,7 @@ pub async fn find_ipv4_for_interface(
 }
 
 pub async fn find_by_address(
-    txn: &mut PgConnection,
+    txn: impl DbReader<'_>,
     address: IpAddr,
 ) -> Result<Option<MachineInterfaceSearchResult>, DatabaseError> {
     let query = "SELECT mi.id, mi.machine_id, ns.name, ns.network_segment_type
@@ -67,6 +68,21 @@ pub async fn delete(
         .execute(txn)
         .await
         .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Delete the IP address allocation for the given address. Returns true if
+/// an allocation was found and deleted, false if no allocation existed.
+pub async fn delete_by_address(
+    txn: &mut PgConnection,
+    address: IpAddr,
+) -> Result<bool, DatabaseError> {
+    let query = "DELETE FROM machine_interface_addresses WHERE address = $1::inet";
+    sqlx::query(query)
+        .bind(address)
+        .execute(txn)
+        .await
+        .map(|r| r.rows_affected() > 0)
         .map_err(|e| DatabaseError::query(query, e))
 }
 

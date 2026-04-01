@@ -21,7 +21,7 @@ use std::sync::{Arc, atomic};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::Response;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde_json::json;
@@ -76,8 +76,12 @@ impl Builder for ManagerBuilder {
 }
 
 impl ManagerBuilder {
-    pub fn ethernet_interfaces(self, collection: redfish::Collection<'_>) -> Self {
+    pub fn ethernet_interfaces(self, collection: &redfish::Collection<'_>) -> Self {
         self.apply_patch(collection.nav_property("EthernetInterfaces"))
+    }
+
+    pub fn host_interfaces(self, collection: &redfish::Collection<'_>) -> Self {
+        self.apply_patch(collection.nav_property("HostInterfaces"))
     }
 
     pub fn enable_reset_action(self) -> Self {
@@ -107,6 +111,30 @@ impl ManagerBuilder {
         self.apply_patch(resource.nav_property("NetworkProtocol"))
     }
 
+    pub fn oem(self, oem: &Oem) -> Self {
+        match oem {
+            Oem::Dell => self.apply_patch(json!({
+                "Oem": {
+                    "Dell": {
+                        // DelliDRACCard is required by libredfish...
+                        "DelliDRACCard": {
+                            "@odata.context": "/redfish/v1/$metadata#DelliDRACCard.DelliDRACCard",
+                            "@odata.id": "/redfish/v1/Managers/iDRAC.Embedded.1/Oem/Dell/DelliDRACCard/iDRAC.Embedded.1-1_0x23_IDRACinfo",
+                            "@odata.type": "#DelliDRACCard.v1_1_0.DelliDRACCard",
+                            "Description": "An instance of DelliDRACCard will have data specific to the Integrated Dell Remote Access Controller (iDRAC) in the managed system.",
+                            "IPMIVersion": "2.0",
+                            "Id": "iDRAC.Embedded.1-1_0x23_IDRACinfo",
+                            "LastSystemInventoryTime": "2026-02-20T04:38:38+00:00",
+                            "LastUpdateTime": "2026-03-06T04:44:21+00:00",
+                            "Name": "DelliDRACCard",
+                            "URLString": "https://10.217.157.137:443"
+                        }
+                    }
+                }
+            })),
+        }
+    }
+
     // TODO: we can use typed UUID here, but all these fields are
     // really not used it just requirements of libredfish model added
     // "just in case"...
@@ -131,6 +159,7 @@ impl ManagerBuilder {
 pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     const MGR_ID: &str = "{manager_id}";
     const ETH_ID: &str = "{ethernet_id}";
+    const HOST_IF_ID: &str = "{hostif_id}";
     r.route(&collection().odata_id, get(get_manager_collection))
         .route(&resource(MGR_ID).odata_id, get(get_manager))
         .route(
@@ -142,6 +171,15 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
             get(get_ethernet_interface),
         )
         .route(
+            &redfish::host_interface::manager_collection(MGR_ID).odata_id,
+            get(get_host_interface_collection),
+        )
+        .route(
+            &redfish::host_interface::manager_resource(MGR_ID, HOST_IF_ID).odata_id,
+            get(get_host_interface),
+        )
+        .route(&reset_target(MGR_ID), post(post_reset_manager))
+        .route(
             &redfish::manager_network_protocol::manager_resource(MGR_ID).odata_id,
             get(get_network_protocol).patch(patch_network_protocol),
         )
@@ -151,14 +189,28 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
         )
 }
 
+#[derive(Clone, Copy)]
+pub enum Oem {
+    Dell,
+}
+
+impl AsRef<Oem> for Oem {
+    fn as_ref(&self) -> &Self {
+        self
+    }
+}
+
 pub struct Config {
     pub managers: Vec<SingleConfig>,
 }
 
+#[derive(Clone)]
 pub struct SingleConfig {
     pub id: &'static str,
-    pub eth_interfaces: Vec<redfish::ethernet_interface::EthernetInterface>,
-    pub firmware_version: &'static str,
+    pub eth_interfaces: Option<Vec<redfish::ethernet_interface::EthernetInterface>>,
+    pub host_interfaces: Option<Vec<redfish::host_interface::HostInterface>>,
+    pub firmware_version: Option<&'static str>,
+    pub oem: Option<Oem>,
 }
 
 pub struct ManagerState {
@@ -183,17 +235,15 @@ impl ManagerState {
 
 pub struct SingleManagerState {
     id: &'static str,
-    eth_interfaces: Vec<redfish::ethernet_interface::EthernetInterface>,
-    firmware_version: String,
     ipmi_enabled: Arc<atomic::AtomicBool>,
+    config: SingleConfig,
 }
 
 impl SingleManagerState {
     pub fn new(config: &SingleConfig) -> Self {
         Self {
             id: config.id,
-            eth_interfaces: config.eth_interfaces.clone(),
-            firmware_version: config.firmware_version.to_string(),
+            config: config.clone(),
             ipmi_enabled: Arc::new(false.into()),
         }
     }
@@ -222,13 +272,32 @@ async fn get_manager(State(state): State<BmcState>, Path(manager_id): Path<Strin
         .network_protocol(redfish::manager_network_protocol::manager_resource(
             &manager_id,
         ))
-        .ethernet_interfaces(redfish::ethernet_interface::manager_collection(&manager_id))
+        .maybe_with(
+            ManagerBuilder::ethernet_interfaces,
+            &this
+                .config
+                .eth_interfaces
+                .as_ref()
+                .map(|_| redfish::ethernet_interface::manager_collection(&manager_id)),
+        )
+        .maybe_with(
+            ManagerBuilder::host_interfaces,
+            &this
+                .config
+                .host_interfaces
+                .as_ref()
+                .map(|_| redfish::host_interface::manager_collection(&manager_id)),
+        )
         .enable_reset_action()
-        .firmware_version(&this.firmware_version)
         .log_services(redfish::log_service::manager_collection(&manager_id))
         .status(redfish::resource::Status::Ok)
         .uuid("3347314f-c0c6-5080-3410-00354c4c4544")
         .date_time(Utc::now())
+        .maybe_with(ManagerBuilder::oem, &this.config.oem)
+        .maybe_with(
+            ManagerBuilder::firmware_version,
+            &this.config.firmware_version,
+        )
         .build()
         .into_ok_response()
 }
@@ -237,31 +306,77 @@ async fn get_ethernet_interface_collection(
     State(state): State<BmcState>,
     Path(manager_id): Path<String>,
 ) -> Response {
-    let Some(this) = state.manager.find(&manager_id) else {
-        return http::not_found();
-    };
-
-    let members = this
-        .eth_interfaces
-        .iter()
-        .map(|eth| redfish::ethernet_interface::manager_resource(&manager_id, &eth.id).entity_ref())
-        .collect::<Vec<_>>();
-    redfish::ethernet_interface::manager_collection(&manager_id)
-        .with_members(&members)
-        .into_ok_response()
+    state
+        .manager
+        .find(&manager_id)
+        .and_then(|manager| manager.config.eth_interfaces.as_ref())
+        .map(|eth_interfaces| {
+            let members = eth_interfaces
+                .iter()
+                .map(|eth| {
+                    redfish::ethernet_interface::manager_resource(&manager_id, &eth.id).entity_ref()
+                })
+                .collect::<Vec<_>>();
+            redfish::ethernet_interface::manager_collection(&manager_id)
+                .with_members(&members)
+                .into_ok_response()
+        })
+        .unwrap_or_else(http::not_found)
 }
 
 async fn get_ethernet_interface(
     State(state): State<BmcState>,
     Path((manager_id, eth_id)): Path<(String, String)>,
 ) -> Response {
-    let Some(this) = state.manager.find(&manager_id) else {
-        return http::not_found();
-    };
-    this.eth_interfaces
-        .iter()
-        .find(|eth| eth.id == eth_id)
-        .map(|eth| eth.to_json().into_ok_response())
+    state
+        .manager
+        .find(&manager_id)
+        .and_then(|manager| manager.config.eth_interfaces.as_ref())
+        .and_then(|eth_interfaces| {
+            eth_interfaces
+                .iter()
+                .find(|eth| eth.id == eth_id)
+                .map(|eth| eth.to_json().into_ok_response())
+        })
+        .unwrap_or_else(http::not_found)
+}
+
+async fn get_host_interface_collection(
+    State(state): State<BmcState>,
+    Path(manager_id): Path<String>,
+) -> Response {
+    state
+        .manager
+        .find(&manager_id)
+        .and_then(|manager| manager.config.host_interfaces.as_ref())
+        .map(|host_interfaces| {
+            let members = host_interfaces
+                .iter()
+                .map(|iface| {
+                    redfish::host_interface::manager_resource(&manager_id, &iface.id).entity_ref()
+                })
+                .collect::<Vec<_>>();
+            redfish::host_interface::manager_collection(&manager_id)
+                .with_members(&members)
+                .into_ok_response()
+        })
+        .unwrap_or_else(http::not_found)
+}
+
+async fn get_host_interface(
+    State(state): State<BmcState>,
+    Path((manager_id, iface_id)): Path<(String, String)>,
+) -> Response {
+    state
+        .manager
+        .find(&manager_id)
+        .and_then(|manager| manager.config.host_interfaces.as_ref())
+        .and_then(|host_interfaces| {
+            host_interfaces
+                .iter()
+                .find(|iface| iface.id == iface_id)
+                .map(|iface| iface.to_json().into_ok_response())
+        })
         .unwrap_or_else(http::not_found)
 }
 
@@ -295,6 +410,17 @@ async fn patch_network_protocol(
         this.ipmi_enabled.store(v, atomic::Ordering::Relaxed)
     }
     json!({}).into_ok_response()
+}
+
+async fn post_reset_manager(
+    State(state): State<BmcState>,
+    Path(manager_id): Path<String>,
+) -> Response {
+    state
+        .manager
+        .find(&manager_id)
+        .map(|_| json!({}).into_ok_response())
+        .unwrap_or_else(http::not_found)
 }
 
 async fn get_log_services() -> Response {

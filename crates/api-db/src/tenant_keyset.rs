@@ -38,7 +38,7 @@ pub async fn create(
 
 pub async fn find_ids(
     txn: impl DbReader<'_>,
-    filter: rpc::forge::TenantKeysetSearchFilter,
+    filter: model::tenant::TenantKeysetSearchFilter,
 ) -> Result<Vec<TenantKeysetId>, DatabaseError> {
     // build query
     let mut builder =
@@ -59,7 +59,7 @@ pub async fn find_ids(
 
 pub async fn find_by_ids(
     txn: impl DbReader<'_>,
-    ids: Vec<rpc::forge::TenantKeysetIdentifier>,
+    ids: Vec<model::tenant::TenantKeysetIdentifier>,
     include_key_data: bool,
 ) -> Result<Vec<TenantKeyset>, DatabaseError> {
     // build query
@@ -67,7 +67,8 @@ pub async fn find_by_ids(
         "SELECT * FROM tenant_keysets WHERE (organization_id, keyset_id) IN ",
     );
     builder.push_tuples(ids.iter(), |mut b, id| {
-        b.push_bind(&id.organization_id).push_bind(&id.keyset_id);
+        b.push_bind(id.organization_id.to_string())
+            .push_bind(&id.keyset_id);
     });
     // execute
     let query = builder.build_query_as();

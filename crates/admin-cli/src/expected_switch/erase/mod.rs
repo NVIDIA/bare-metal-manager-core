@@ -26,7 +26,7 @@ use crate::cfg::runtime::RuntimeContext;
 
 impl Run for Args {
     async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
-        ctx.api_client.0.delete_all_expected_switches().await?;
+        cmd::erase(self, &ctx.api_client).await?;
         Ok(())
     }
 }

@@ -16,6 +16,7 @@
  */
 
 use clap::Parser;
+use rpc::forge as forgerpc;
 
 use crate::bmc_machine::common::AdminPowerControlAction;
 
@@ -25,4 +26,15 @@ pub struct Args {
     pub machine: String,
     #[clap(long, help = "Power control action")]
     pub action: AdminPowerControlAction,
+}
+
+impl From<Args> for forgerpc::AdminPowerControlRequest {
+    fn from(args: Args) -> Self {
+        Self {
+            bmc_endpoint_request: None,
+            machine_id: Some(args.machine),
+            action: forgerpc::admin_power_control_request::SystemPowerControl::from(args.action)
+                .into(),
+        }
+    }
 }

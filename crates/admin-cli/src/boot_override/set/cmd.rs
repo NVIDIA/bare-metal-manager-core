@@ -15,41 +15,14 @@
  * limitations under the License.
  */
 
-use std::path::PathBuf;
-
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::admin_cli::CarbideCliResult;
 use ::rpc::forge::MachineBootOverride;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn set(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    if args.custom_pxe.is_none() && args.custom_user_data.is_none() {
-        return Err(CarbideCliError::GenericError(
-            "Either custom pxe or custom user data is required".to_owned(),
-        ));
-    }
-
-    let custom_pxe_path = args.custom_pxe.map(PathBuf::from);
-    let custom_user_data_path = args.custom_user_data.map(PathBuf::from);
-
-    let custom_pxe = match &custom_pxe_path {
-        Some(path) => Some(std::fs::read_to_string(path)?),
-        None => None,
-    };
-
-    let custom_user_data = match &custom_user_data_path {
-        Some(path) => Some(std::fs::read_to_string(path)?),
-        None => None,
-    };
-
-    api_client
-        .0
-        .set_machine_boot_override(MachineBootOverride {
-            machine_interface_id: Some(args.interface_id),
-            custom_pxe,
-            custom_user_data,
-        })
-        .await?;
+    let req: MachineBootOverride = args.try_into()?;
+    api_client.0.set_machine_boot_override(req).await?;
     Ok(())
 }

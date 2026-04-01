@@ -33,14 +33,15 @@ use measured_boot::records::MeasurementBundleState;
 use measured_boot::report::MeasurementReport;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::hardware_info::TpmEkCertificate;
+use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::{
-    DpuInitState, FailureCause, FailureDetails, FailureSource, LockdownMode, MachineState,
-    MachineValidatingState, ManagedHostState, MeasuringState, ValidationState,
+    DpuInitState, FailureCause, FailureDetails, FailureSource, InstanceState, LockdownMode,
+    MachineState, MachineValidatingState, ManagedHostState, MeasuringState, ValidationState,
 };
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{HardwareHealthReport, TpmCaCert, TpmCaCertId};
+use rpc::forge::{HealthReportOverride, InsertHealthReportOverrideRequest, TpmCaCert, TpmCaCertId};
 use rpc::forge_agent_control_response::Action;
-use tonic::Request;
+use tonic::{Code, Request};
 
 use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
@@ -53,10 +54,13 @@ use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::{
     TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION, TEST_DPU_AGENT_VERSION,
 };
+use crate::tests::common::api_fixtures::instance::{
+    default_os_config, default_tenant_config, single_interface_network_config,
+};
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host_with_ek, discovery_completed, forge_agent_control,
-    update_time_params,
+    on_demand_machine_validation, update_time_params,
 };
 
 #[crate::sqlx_test]
@@ -1233,9 +1237,14 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
     .await;
 
     env.api
-        .record_hardware_health_report(Request::new(HardwareHealthReport {
-            machine_id: host_machine_id.into(),
-            report: Some(HealthReport::empty("hardware-health".to_string()).into()),
+        .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
+            r#override: Some(HealthReportOverride {
+                report: Some(
+                    HealthReport::empty(format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health")).into(),
+                ),
+                ..Default::default()
+            }),
+            machine_id: Some(host_machine_id),
         }))
         .await
         .expect("Failed to add hardware health report to newly created machine");
@@ -1431,4 +1440,192 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
                 .time
         );
     }
+}
+
+#[crate::sqlx_test]
+async fn test_scout_heartbeat_timeout_alert_cleared_on_ready_transition(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+    let host_machine_id = mh.host().id;
+
+    // Keep scout in timed-out state so Ready does not clear this via the normal
+    // "heartbeat recovered" path before we exercise transition-out-of-Ready logic.
+    let mut txn = env.db_txn().await;
+    sqlx::query(
+        "UPDATE machines SET last_scout_contact_time = NOW() - INTERVAL '2 years' WHERE id = $1",
+    )
+    .bind(host_machine_id)
+    .execute(&mut *txn)
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+
+    on_demand_machine_validation(&env, host_machine_id, vec![], vec![], false, vec![]).await;
+
+    let mut reached_validation = false;
+    for _ in 0..5 {
+        env.run_machine_state_controller_iteration().await;
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        if matches!(
+            host.current_state(),
+            ManagedHostState::Validation {
+                validation_state: ValidationState::MachineValidation { .. }
+            }
+        ) {
+            reached_validation = true;
+            break;
+        }
+    }
+    assert!(
+        reached_validation,
+        "host never transitioned from Ready to Validation"
+    );
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert!(
+        !host.health_report_overrides.merges.contains_key("scout"),
+        "expected scout_heartbeat_timeout alert to be cleared when leaving Ready"
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_scout_heartbeat_timeout_alert_cleared_on_instance_creation_transition(
+    pool: sqlx::PgPool,
+) {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+    let host_machine_id = mh.host().id;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    let mut txn = env.db_txn().await;
+    sqlx::query(
+        "UPDATE machines SET last_scout_contact_time = NOW() - INTERVAL '2 years' WHERE id = $1",
+    )
+    .bind(host_machine_id)
+    .execute(&mut *txn)
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+
+    env.api
+        .allocate_instance(Request::new(rpc::forge::InstanceAllocationRequest {
+            instance_id: None,
+            machine_id: Some(host_machine_id),
+            instance_type_id: None,
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(single_interface_network_config(segment_id)),
+                infiniband: None,
+                network_security_group_id: None,
+                dpu_extension_services: None,
+                nvlink: None,
+            }),
+            metadata: Some(rpc::Metadata {
+                name: "test_instance".to_string(),
+                description: "tests/machine_states".to_string(),
+                labels: vec![],
+            }),
+            allow_unhealthy_machine: true,
+        }))
+        .await
+        .unwrap();
+
+    let mut reached_assigned = false;
+    for _ in 0..5 {
+        env.run_machine_state_controller_iteration().await;
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        if matches!(
+            host.current_state(),
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::DpaProvisioning
+            } | ManagedHostState::Assigned {
+                instance_state: InstanceState::WaitingForDpaToBeReady
+            }
+        ) {
+            reached_assigned = true;
+            break;
+        }
+    }
+
+    assert!(
+        reached_assigned,
+        "host never transitioned from Ready to Assigned after instance allocation"
+    );
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert!(
+        !host.health_report_overrides.merges.contains_key("scout"),
+        "expected scout_heartbeat_timeout alert to be cleared when leaving Ready via instance creation"
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_scout_heartbeat_timeout_alert_not_cleared_when_unhealthy_allocation_blocked(
+    pool: sqlx::PgPool,
+) {
+    let mut config = get_config();
+    config
+        .host_health
+        .prevent_allocations_on_scout_heartbeat_timeout = true;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+    let mh = create_managed_host(&env).await;
+    let host_machine_id = mh.host().id;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    let mut txn = env.db_txn().await;
+    sqlx::query(
+        "UPDATE machines SET last_scout_contact_time = NOW() - INTERVAL '2 years' WHERE id = $1",
+    )
+    .bind(host_machine_id)
+    .execute(&mut *txn)
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let err = env
+        .api
+        .allocate_instance(Request::new(rpc::forge::InstanceAllocationRequest {
+            instance_id: None,
+            machine_id: Some(host_machine_id),
+            instance_type_id: None,
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(single_interface_network_config(segment_id)),
+                infiniband: None,
+                network_security_group_id: None,
+                dpu_extension_services: None,
+                nvlink: None,
+            }),
+            metadata: Some(rpc::Metadata {
+                name: "test_instance".to_string(),
+                description: "tests/machine_states".to_string(),
+                labels: vec![],
+            }),
+            allow_unhealthy_machine: false,
+        }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), Code::FailedPrecondition);
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert!(matches!(host.current_state(), ManagedHostState::Ready));
+    assert!(
+        host.health_report_overrides.merges.contains_key("scout"),
+        "expected scout_heartbeat_timeout alert to remain when unhealthy allocation is blocked"
+    );
 }

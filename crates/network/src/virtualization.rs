@@ -39,18 +39,93 @@ pub const DEFAULT_NETWORK_VIRTUALIZATION_TYPE: VpcVirtualizationType =
 /// and plumb the value down to the DPU agent, which gets piped into
 /// the `update_nvue` function, which is then used to drive
 /// population of the appropriate template.
-///
-// TODO(chet): Rename
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "network_virtualization_type_t"))]
 pub enum VpcVirtualizationType {
-    #[cfg_attr(feature = "sqlx", sqlx(rename = "etv"))]
     EthernetVirtualizer,
-    #[cfg_attr(feature = "sqlx", sqlx(rename = "etv_nvue"))]
     EthernetVirtualizerWithNvue,
-    #[cfg_attr(feature = "sqlx", sqlx(rename = "fnn"))]
     Fnn,
+}
+
+// Manual sqlx impls so that legacy DB value 'etv' decodes as EthernetVirtualizerWithNvue.
+#[cfg(feature = "sqlx")]
+const PG_TYPE_NAME: &str = "network_virtualization_type_t";
+
+#[cfg(feature = "sqlx")]
+impl sqlx::Type<sqlx::Postgres> for VpcVirtualizationType {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name(PG_TYPE_NAME)
+    }
+}
+
+#[cfg(feature = "sqlx")]
+impl sqlx::Encode<'_, sqlx::Postgres> for VpcVirtualizationType {
+    fn encode_by_ref(
+        &self,
+        buf: &mut sqlx::postgres::PgArgumentBuffer,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        let s = match self {
+            Self::EthernetVirtualizer | Self::EthernetVirtualizerWithNvue => "etv",
+            Self::Fnn => "fnn",
+        };
+        <&str as sqlx::Encode<sqlx::Postgres>>::encode(s, buf)
+    }
+}
+
+#[cfg(feature = "sqlx")]
+impl sqlx::postgres::PgHasArrayType for VpcVirtualizationType {
+    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("_network_virtualization_type_t")
+    }
+}
+
+#[cfg(feature = "sqlx")]
+impl sqlx::Decode<'_, sqlx::Postgres> for VpcVirtualizationType {
+    fn decode(value: sqlx::postgres::PgValueRef<'_>) -> Result<Self, sqlx::error::BoxDynError> {
+        let s = <&str as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        match s {
+            // Legacy 'etv' rows are treated as EthernetVirtualizerWithNvue
+            "etv" | "etv_nvue" => Ok(Self::EthernetVirtualizerWithNvue),
+            "fnn" => Ok(Self::Fnn),
+            other => {
+                Err(format!("invalid value {:?} for enum VpcVirtualizationType", other).into())
+            }
+        }
+    }
+}
+
+#[cfg(all(test, feature = "sqlx"))]
+mod sqlx_tests {
+    use sqlx::Encode;
+    use sqlx::postgres::PgArgumentBuffer;
+
+    use super::VpcVirtualizationType;
+
+    fn encode_to_string(v: VpcVirtualizationType) -> String {
+        let mut buf = PgArgumentBuffer::default();
+        let _ = v.encode_by_ref(&mut buf).unwrap();
+        String::from_utf8(buf.to_vec()).unwrap()
+    }
+
+    #[test]
+    fn encode_etv_writes_etv() {
+        assert_eq!(
+            encode_to_string(VpcVirtualizationType::EthernetVirtualizer),
+            "etv"
+        );
+    }
+
+    #[test]
+    fn encode_etv_nvue_writes_etv() {
+        assert_eq!(
+            encode_to_string(VpcVirtualizationType::EthernetVirtualizerWithNvue),
+            "etv"
+        );
+    }
+
+    #[test]
+    fn encode_fnn_writes_fnn() {
+        assert_eq!(encode_to_string(VpcVirtualizationType::Fnn), "fnn");
+    }
 }
 
 impl VpcVirtualizationType {

@@ -1,7 +1,7 @@
 #!/bin/bash -p
 
-CERT_PATH=/etc/ssl/certs/forge-dpu-otel-agent.pem
-KEY_PATH=/etc/ssl/private/forge-dpu-otel-agent.key
+CERT_PATH=/etc/otelcol-contrib/certs/otel-cert.pem
+KEY_PATH=/etc/otelcol-contrib/certs/private/otel-key.pem
 MAX_INTERVAL=30
 MAX_INTERVAL_REPEATED_COUNT=5
 

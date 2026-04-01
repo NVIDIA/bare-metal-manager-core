@@ -16,6 +16,7 @@
  */
 
 use clap::Parser;
+use rpc::{CredentialType, forge as forgerpc};
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -25,4 +26,16 @@ pub struct Args {
     pub password: String,
     #[clap(long, required(true))]
     pub vendor: bmc_vendor::BMCVendor,
+}
+
+impl From<Args> for forgerpc::CredentialCreationRequest {
+    fn from(args: Args) -> Self {
+        Self {
+            credential_type: CredentialType::HostBmcFactoryDefault.into(),
+            username: Some(args.username),
+            password: args.password,
+            mac_address: None,
+            vendor: Some(args.vendor.to_string()),
+        }
+    }
 }

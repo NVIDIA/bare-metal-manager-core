@@ -173,20 +173,21 @@ pub async fn try_update_controller_state(
     txn: &mut PgConnection,
     power_shelf_id: PowerShelfId,
     expected_version: ConfigVersion,
+    new_version: ConfigVersion,
     new_state: &PowerShelfControllerState,
-) -> DatabaseResult<()> {
-    let _query_result = sqlx::query_as::<_, PowerShelfId>(
+) -> DatabaseResult<bool> {
+    let query_result = sqlx::query_as::<_, PowerShelfId>(
             "UPDATE power_shelves SET controller_state = $1, controller_state_version = $2 WHERE id = $3 AND controller_state_version = $4 RETURNING id",
         )
             .bind(sqlx::types::Json(new_state))
-            .bind(expected_version)
+            .bind(new_version)
             .bind(power_shelf_id)
             .bind(expected_version)
             .fetch_optional(txn)
             .await
             .map_err(|e| DatabaseError::new("try_update_controller_state", e))?;
 
-    Ok(())
+    Ok(query_result.is_some())
 }
 
 pub async fn update_controller_state_outcome(
@@ -249,4 +250,67 @@ pub async fn update(
         .map_err(|e| DatabaseError::new("update", e))?;
 
     Ok(power_shelf.clone())
+}
+
+use std::net::IpAddr;
+
+use mac_address::MacAddress;
+
+/// Resolve PowerShelfIds to BMC/PMC IPs via the canonical path:
+///   power_shelves.id -> power_shelves.config->>'name' (serial)
+///   -> expected_power_shelves.serial_number -> ip_address
+pub async fn find_bmc_ips_by_power_shelf_ids(
+    db: impl crate::db_read::DbReader<'_>,
+    power_shelf_ids: &[PowerShelfId],
+) -> DatabaseResult<Vec<(PowerShelfId, IpAddr)>> {
+    let sql = r#"
+        SELECT
+            ps.id,
+            eps.ip_address
+        FROM power_shelves ps
+        JOIN expected_power_shelves eps ON eps.serial_number = ps.config->>'name'
+        WHERE ps.id = ANY($1)
+          AND eps.ip_address IS NOT NULL
+    "#;
+
+    sqlx::query_as(sql)
+        .bind(power_shelf_ids)
+        .fetch_all(db)
+        .await
+        .map_err(|err| DatabaseError::new("power_shelf::find_bmc_ips_by_power_shelf_ids", err))
+}
+
+/// Full endpoint info for a power shelf: PMC MAC and PMC IP.
+#[derive(Debug, sqlx::FromRow)]
+pub struct PowerShelfEndpointRow {
+    pub power_shelf_id: PowerShelfId,
+    pub pmc_mac: MacAddress,
+    pub pmc_ip: IpAddr,
+}
+
+/// Resolve PowerShelfIds to PMC MAC + IP.
+///
+/// Path:
+///   power_shelves.id -> power_shelves.config->>'name' (serial)
+///   -> expected_power_shelves.serial_number -> bmc_mac_address (PMC MAC), ip_address (PMC IP)
+pub async fn find_power_shelf_endpoints_by_ids(
+    db: impl crate::db_read::DbReader<'_>,
+    power_shelf_ids: &[PowerShelfId],
+) -> DatabaseResult<Vec<PowerShelfEndpointRow>> {
+    let sql = r#"
+        SELECT
+            ps.id                AS power_shelf_id,
+            eps.bmc_mac_address  AS pmc_mac,
+            eps.ip_address       AS pmc_ip
+        FROM power_shelves ps
+        JOIN expected_power_shelves eps ON eps.serial_number = ps.config->>'name'
+        WHERE ps.id = ANY($1)
+          AND eps.ip_address IS NOT NULL
+    "#;
+
+    sqlx::query_as(sql)
+        .bind(power_shelf_ids)
+        .fetch_all(db)
+        .await
+        .map_err(|err| DatabaseError::new("power_shelf::find_power_shelf_endpoints_by_ids", err))
 }

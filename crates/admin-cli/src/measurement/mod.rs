@@ -18,7 +18,6 @@
 //!
 //! `measurement` subcommand module, containing other subcommands,
 //! dispatchers, args, and backing functions.
-//!
 
 pub mod bundle;
 pub mod global;

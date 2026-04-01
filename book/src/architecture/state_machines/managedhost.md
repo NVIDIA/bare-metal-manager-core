@@ -1,6 +1,6 @@
 # Managed Host State Diagrams
 
-This document contains the complete Finite State Machine (FSM) that illustrates the lifecycle of BMM managed hosts from discovery through ingestion through instance assignment and management.
+This document contains the complete Finite State Machine (FSM) that illustrates the lifecycle of NICo managed hosts from discovery through ingestion through instance assignment and management.
 
 ## High-Level Overview
 
@@ -582,8 +582,12 @@ state "NetworkConfigUpdate" as A_NetworkConfigUpdate {
 }
 state "HostPlatformConfiguration" as A_HostPlatformConfiguration {
     state "PowerCycle" as A_HPC_PowerCycle
+    state "UnlockHost" as A_HPC_UnlockHost {
+        state "DisableLockdown" as A_HPC_UH_DisableLockdown
+        state "RebootHost" as A_HPC_UH_RebootHost
+        state "WaitForUefiBoot" as A_HPC_UH_WaitForUefiBoot
+    }
     state "CheckHostConfig" as A_HPC_CheckHostConfig
-    state "UnlockHost" as A_HPC_UnlockHost
     state "ConfigureBios" as A_HPC_ConfigureBios
     state "PollingBiosSetup" as A_HPC_PollingBiosSetup
     state "SetBootOrder" as A_HPC_SetBootOrder {
@@ -647,11 +651,14 @@ A_NCU_WaitingForConfigSynced --> A_NCU_WaitingForConfigSynced : Wait for DPU syn
 A_NCU_ReleaseOldResources --> A_Ready
 
 A_HPC_PowerCycle --> A_HPC_PowerCycle : Wait Power Off
-A_HPC_PowerCycle --> A_HPC_CheckHostConfig : Power On
+A_HPC_PowerCycle --> A_HPC_UH_DisableLockdown : Power On
+A_HPC_UH_DisableLockdown --> A_HPC_UH_RebootHost : BMC lockdown disabled
+A_HPC_UH_RebootHost --> A_HPC_UH_WaitForUefiBoot : ForceRestart issued
+A_HPC_UH_WaitForUefiBoot --> A_HPC_UH_WaitForUefiBoot : Waiting for UEFI boot (5 min)
+A_HPC_UH_WaitForUefiBoot --> A_HPC_CheckHostConfig : UEFI boot wait complete
 A_HPC_CheckHostConfig --> A_HPC_CheckHostConfig : Wait DPU Up
-A_HPC_CheckHostConfig --> A_HPC_UnlockHost : Need config host boot order
-A_HPC_CheckHostConfig --> A_WaitingForDpusToUp : No need config host boot order
-A_HPC_UnlockHost --> A_HPC_ConfigureBios : BMC lockdown disabled
+A_HPC_CheckHostConfig --> A_HPC_ConfigureBios : Need config host boot order
+A_HPC_CheckHostConfig --> A_HPC_LockHost : No need config host boot order
 A_HPC_ConfigureBios --> A_HPC_PollingBiosSetup : Config BIOS
 A_HPC_PollingBiosSetup --> A_HPC_PollingBiosSetup : Wait for BIOS setup
 A_HPC_PollingBiosSetup --> A_HPC_SBO_SetBootOrder : BIOS is setup

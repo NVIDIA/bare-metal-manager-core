@@ -56,11 +56,15 @@ use sqlx::{Database, Describe, Either, Execute, PgConnection, PgExecutor, PgPool
 /// use db::db_read::DbReader;
 /// async fn two_db_calls<DB>(db: &mut DB) -> sqlx::Result<()>
 /// where
-///     for<'db> &'db mut DB: DbReader<'db>
+///     for<'db> &'db mut DB: DbReader<'db>,
 /// {
 ///     // Use `&mut *db` to avoid moving
-///     sqlx::query_scalar::<_, String>("SELECT 'test'").fetch_one(&mut *db).await?;
-///     sqlx::query_scalar::<_, String>("SELECT 'test'").fetch_one(db).await?;
+///     sqlx::query_scalar::<_, String>("SELECT 'test'")
+///         .fetch_one(&mut *db)
+///         .await?;
+///     sqlx::query_scalar::<_, String>("SELECT 'test'")
+///         .fetch_one(db)
+///         .await?;
 ///     Ok(())
 /// }
 /// ```
@@ -109,7 +113,7 @@ use sqlx::{Database, Describe, Either, Execute, PgConnection, PgExecutor, PgPool
 ///     // the downside is that you have to type out the generics and HRTB lines:
 ///     pub async fn callable_from_all_but_pgpool<DB>(db: &mut DB) -> sqlx::Result<String>
 ///     where
-///         for<'db> &'db mut DB: DbReader<'db>
+///         for<'db> &'db mut DB: DbReader<'db>,
 ///     {
 ///         sqlx::query_scalar("SELECT 'test'").fetch_one(db).await
 ///     }
@@ -118,7 +122,7 @@ use sqlx::{Database, Describe, Either, Execute, PgConnection, PgExecutor, PgPool
 ///     /// PgConnection, nor PgPoolReader.
 ///     pub async fn callable_from_pgpool_only<DB>(db: &DB) -> sqlx::Result<String>
 ///     where
-///         for<'db> &'db DB: DbReader<'db>
+///         for<'db> &'db DB: DbReader<'db>,
 ///     {
 ///         sqlx::query_scalar("SELECT 'test'").fetch_one(db).await
 ///     }

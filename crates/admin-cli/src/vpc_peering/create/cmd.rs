@@ -17,27 +17,19 @@
 
 use ::rpc::admin_cli::output::OutputFormat;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::forge::VpcPeeringCreationRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 use crate::vpc_peering::convert_vpc_peerings_to_table;
 
 pub async fn create(
-    args: &Args,
+    args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
-    let vpc_peering = api_client
-        .0
-        .create_vpc_peering(VpcPeeringCreationRequest {
-            vpc_id: Some(args.vpc1_id),
-            peer_vpc_id: Some(args.vpc2_id),
-            id: args.id,
-        })
-        .await?;
+    let vpc_peering = api_client.0.create_vpc_peering(args).await?;
 
     if is_json {
         println!(

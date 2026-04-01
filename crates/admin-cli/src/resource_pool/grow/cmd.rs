@@ -15,17 +15,13 @@
  * limitations under the License.
  */
 
-use std::fs;
-
 use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge as forgerpc;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn grow(data: &Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let defs = fs::read_to_string(&data.filename)?;
-    let rpc_req = forgerpc::GrowResourcePoolRequest { text: defs };
+pub async fn grow(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+    let rpc_req: ::rpc::forge::GrowResourcePoolRequest = data.try_into()?;
     api_client.0.admin_grow_resource_pool(rpc_req).await?;
     Ok(())
 }

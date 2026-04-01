@@ -24,8 +24,12 @@
  *  - `mock-machine attest`: Sends a measurement report for a mock machine.
  *  - `mock-machine show [id]`: Shows detailed info about mock machine(s).
  *  - `mock-machine list``: Lists all mock machines.
-*/
+ */
 
+use ::rpc::admin_cli::CarbideCliError;
+use ::rpc::protos::measured_boot::{
+    AttestCandidateMachineRequest, ShowCandidateMachineRequest, show_candidate_machine_request,
+};
 use carbide_uuid::machine::MachineId;
 use clap::Parser;
 use measured_boot::pcr::PcrRegisterValue;
@@ -75,4 +79,29 @@ pub struct List {}
 pub struct Show {
     #[clap(help = "The machine ID to show.")]
     pub machine_id: Option<MachineId>,
+}
+
+impl From<Attest> for AttestCandidateMachineRequest {
+    fn from(attest: Attest) -> Self {
+        Self {
+            machine_id: attest.machine_id.to_string(),
+            pcr_values: attest.values.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl TryFrom<Show> for ShowCandidateMachineRequest {
+    type Error = CarbideCliError;
+    fn try_from(show: Show) -> Result<Self, Self::Error> {
+        let machine_id = show
+            .machine_id
+            .ok_or(CarbideCliError::GenericError(String::from(
+                "machine_id must be set to get a machine",
+            )))?;
+        Ok(Self {
+            selector: Some(show_candidate_machine_request::Selector::MachineId(
+                machine_id.to_string(),
+            )),
+        })
+    }
 }

@@ -20,6 +20,7 @@ use std::pin::Pin;
 use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use mac_address::MacAddress;
 use prettytable::{Table, row};
+use rpc::forge::ExpectedMachineRequest;
 
 use super::args::Args;
 use crate::async_write;
@@ -31,11 +32,9 @@ pub async fn show_expected_machines(
     output_format: OutputFormat,
     output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
 ) -> CarbideCliResult<()> {
-    if let Some(bmc_mac_address) = expected_machine_query.bmc_mac_address {
-        let req = ::rpc::forge::ExpectedMachineRequest {
-            bmc_mac_address: bmc_mac_address.to_string(),
-            id: None,
-        };
+    let req: Option<ExpectedMachineRequest> = expected_machine_query.try_into()?;
+
+    if let Some(req) = req {
         let expected_machine = api_client.0.get_expected_machine(req).await?;
         if output_format == OutputFormat::Json {
             async_write!(
@@ -133,7 +132,7 @@ async fn convert_and_print_into_nice_table(
         "Labels",
         "SKU ID",
         "Pause On Ingestion",
-        "DPF State",
+        "DPF Enabled",
     ]);
 
     for expected_machine in &expected_machines.expected_machines {
@@ -189,7 +188,12 @@ async fn convert_and_print_into_nice_table(
             labels.join(", "),
             expected_machine.sku_id.as_deref().unwrap_or_default(),
             default_pause_ingestion_and_poweron,
-            expected_machine.dpf_enabled.to_string(),
+            // is_dpf_enabled will be None only for the servers where old proto file is used.
+            #[allow(deprecated)]
+            expected_machine
+                .is_dpf_enabled
+                .unwrap_or(expected_machine.dpf_enabled)
+                .to_string(),
         ]);
     }
 

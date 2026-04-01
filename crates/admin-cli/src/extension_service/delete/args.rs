@@ -30,3 +30,12 @@ pub struct Args {
     )]
     pub versions: Vec<String>,
 }
+
+impl From<Args> for ::rpc::forge::DeleteDpuExtensionServiceRequest {
+    fn from(args: Args) -> Self {
+        Self {
+            service_id: args.service_id,
+            versions: args.versions,
+        }
+    }
+}

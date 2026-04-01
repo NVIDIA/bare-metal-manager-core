@@ -16,9 +16,9 @@
  */
 use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
-use db::nvl_logical_partition::{self, NewLogicalPartition};
-use db::{self, ObjectColumnFilter, WithTransaction, nvl_partition};
+use db::{self, ObjectColumnFilter, WithTransaction, instance, nvl_logical_partition};
 use futures_util::FutureExt;
+use model::nvl_logical_partition::NewLogicalPartition;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -44,7 +44,9 @@ pub(crate) async fn create(
     let metadata = req.config.metadata.clone();
     metadata.validate(true).map_err(CarbideError::from)?;
 
-    let resp = req.create(&mut txn).await.map_err(CarbideError::from)?;
+    let resp = nvl_logical_partition::create(&req, &mut txn)
+        .await
+        .map_err(CarbideError::from)?;
     let resp = rpc::NvLinkLogicalPartition::try_from(resp).map(Response::new)?;
     txn.commit().await?;
 
@@ -57,7 +59,8 @@ pub(crate) async fn find_ids(
 ) -> Result<Response<rpc::NvLinkLogicalPartitionIdList>, Status> {
     log_request_data(&request);
 
-    let filter: rpc::NvLinkLogicalPartitionSearchFilter = request.into_inner();
+    let filter: model::nvl_logical_partition::NvLinkLogicalPartitionSearchFilter =
+        request.into_inner().into();
 
     let partition_ids =
         db::nvl_logical_partition::find_ids(&api.database_connection, filter).await?;
@@ -133,18 +136,13 @@ pub(crate) async fn delete(
         }
     };
 
-    // check if there any physical partitions already part of this logical partition
-    let db_nvl_partitions = db::nvl_partition::find_by(
-        &api.database_connection,
-        ObjectColumnFilter::<nvl_partition::IdColumn>::All,
-    )
-    .await?;
-    if db_nvl_partitions
-        .iter()
-        .any(|p| p.logical_partition_id == Some(id))
+    // check if any instance's nvlink config  has this logical partition
+    if instance::any_instance_referencing_nvlink_logical_partition(&api.database_connection, &id)
+        .await
+        .map_err(CarbideError::from)?
     {
         return Err(CarbideError::InvalidArgument(
-            "logical partition still has physical partition(s) attached to it".to_string(),
+            "logical partition is still referenced by instance(s)".to_string(),
         )
         .into());
     }

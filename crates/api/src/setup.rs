@@ -15,19 +15,20 @@
  * limitations under the License.
  */
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use db::machine::update_dpu_asns;
 use db::resource_pool::DefineResourcePoolError;
 use db::{Transaction, work_lock_manager};
 use eyre::WrapErr;
 use figment::Figment;
 use figment::providers::{Env, Format, Toml};
-use forge_secrets::ForgeVaultClient;
-use forge_secrets::credentials::CredentialProvider;
+use forge_secrets::certificates::CertificateProvider;
+use forge_secrets::credentials::{CredentialManager, CredentialReader};
 use futures_util::TryFutureExt;
 use librms::RackManagerClientPool;
 use model::attestation::spdm::VerifierImpl;
@@ -39,9 +40,12 @@ use model::route_server::RouteServerSourceType;
 use opentelemetry::metrics::Meter;
 use sqlx::postgres::PgSslMode;
 use sqlx::{ConnectOptions, PgPool};
-use tokio::sync::oneshot::{Receiver, Sender};
-use tokio::sync::{Semaphore, oneshot};
+use tokio::sync::Semaphore;
+use tokio::sync::oneshot::Sender;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 use tracing_log::AsLog as _;
+use utils::HostPortPair;
 
 use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
@@ -53,7 +57,7 @@ use crate::firmware_downloader::FirmwareDownloader;
 use crate::handlers::machine_validation::apply_config_on_startup;
 use crate::ib::{self, IBFabricManager};
 use crate::ib_fabric_monitor::IbFabricMonitor;
-use crate::ipmitool::{IPMITool, IPMIToolImpl, IPMIToolTestImpl};
+use crate::ipmitool::{IPMITool, IPMIToolHttpImpl, IPMIToolImpl, IPMIToolTestImpl};
 use crate::listener::ApiListenMode;
 use crate::logging::log_limiter::LogLimiter;
 use crate::logging::service_health_metrics::{
@@ -63,6 +67,7 @@ use crate::logging::sqlx_query_tracing::SQLX_STATEMENTS_LOG_LEVEL;
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::measured_boot::metrics_collector::MeasuredBootMetricsCollector;
 use crate::mqtt_state_change_hook::hook::MqttStateChangeHook;
+use crate::nv_redfish::NvRedfishClientPool;
 use crate::nvl_partition_monitor::NvlPartitionMonitor;
 use crate::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
 use crate::preingestion_manager::PreingestionManager;
@@ -89,25 +94,6 @@ use crate::state_controller::state_change_emitter::StateChangeEmitterBuilder;
 use crate::state_controller::switch::handler::SwitchStateHandler;
 use crate::state_controller::switch::io::SwitchStateControllerIO;
 use crate::{attestation, db_init, ethernet_virtualization, listener};
-
-const API_URL_KEY: &str = "api_url";
-const PXE_URL_KEY: &str = "pxe_url";
-const API_URL: &str = "https://carbide-api.forge";
-const PXE_URL: &str = "http://carbide-pxe.forge";
-const BMC_FW_UPDATE_KEY: &str = "bmc_fw_update";
-const SECONDS_SINCE_EPOCH_KEY: &str = "seconds_since_epoch";
-const HBN_REPS_KEY: &str = "forge_hbn_reps";
-const HBN_SFS_KEY: &str = "forge_hbn_sfs";
-const VF_INTERCEPT_BRIDGE_NAME_KEY: &str = "forge_vf_intercept_bridge_name";
-const HOST_INTERCEPT_BRIDGE_NAME_KEY: &str = "forge_host_intercept_bridge_name";
-const HOST_INTERCEPT_HBN_PORT_KEY: &str = "forge_host_intercept_hbn_port";
-const HOST_INTERCEPT_BRIDGE_PORT_KEY: &str = "forge_host_intercept_bridge_port";
-const VF_INTERCEPT_HBN_PORT_KEY: &str = "forge_vf_intercept_hbn_port";
-const VF_INTERCEPT_BRIDGE_PORT_KEY: &str = "forge_vf_intercept_bridge_port";
-const VF_INTERCEPT_BRIDGE_SF_REPRESENTOR_KEY: &str = "forge_vf_intercept_bridge_sf_representor";
-const VF_INTERCEPT_BRIDGE_SF_HBN_BRIDGE_REPRESENTOR_KEY: &str =
-    "forge_vf_intercept_bridge_sf_hbn_bridge_representor";
-const VF_INTERCEPT_BRIDGE_SF_KEY: &str = "forge_vf_intercept_bridge_sf";
 
 pub fn parse_carbide_config(
     config_str: String,
@@ -173,24 +159,28 @@ pub fn parse_carbide_config(
 }
 
 pub fn create_ipmi_tool(
-    credential_provider: Arc<dyn CredentialProvider>,
+    credential_reader: Arc<dyn CredentialReader>,
     carbide_config: &CarbideConfig,
+    bmc_proxy: Arc<ArcSwap<Option<HostPortPair>>>,
 ) -> Arc<dyn IPMITool> {
-    if carbide_config
-        .dpu_ipmi_tool_impl
-        .as_ref()
-        .is_some_and(|tool| tool == "test")
-    {
-        tracing::trace!("Disabling ipmitool");
-        Arc::new(IPMIToolTestImpl {})
-    } else {
-        Arc::new(IPMIToolImpl::new(
-            credential_provider,
-            &carbide_config.dpu_ipmi_reboot_attempts,
-        ))
+    match carbide_config.dpu_ipmi_tool_impl.as_deref() {
+        Some("test") => {
+            tracing::info!("Disabling ipmitool");
+            Arc::new(IPMIToolTestImpl {})
+        }
+        Some("bmc-mock") => {
+            tracing::info!("Using HTTP IPMI transport via bmc_proxy");
+            Arc::new(IPMIToolHttpImpl::new(bmc_proxy))
+        }
+        _ => {
+            tracing::info!("Using lanplus IPMI transport (/usr/bin/ipmitool)");
+            Arc::new(IPMIToolImpl::new(
+                credential_reader,
+                &carbide_config.dpu_ipmi_reboot_attempts,
+            ))
+        }
     }
 }
-
 /// Configure and create a postgres connection pool
 ///
 /// This connects to the database to verify settings
@@ -217,21 +207,30 @@ async fn create_and_connect_postgres_pool(config: &CarbideConfig) -> eyre::Resul
         .await?)
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tracing::instrument(skip_all)]
 pub async fn start_api(
+    join_set: &mut JoinSet<()>,
     carbide_config: Arc<CarbideConfig>,
     meter: Meter,
     dynamic_settings: DynamicSettings,
     shared_redfish_pool: Arc<dyn RedfishClientPool>,
-    vault_client: Arc<ForgeVaultClient>,
-    stop_channel: Receiver<()>,
+    shared_nv_redfish_pool: Arc<NvRedfishClientPool>,
+    credential_manager: Arc<dyn CredentialManager>,
+    certificate_provider: Arc<dyn CertificateProvider>,
+    cancel_token: CancellationToken,
     ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
-    let ipmi_tool = create_ipmi_tool(vault_client.clone(), &carbide_config);
+    let ipmi_tool = create_ipmi_tool(
+        credential_manager.clone(),
+        &carbide_config,
+        dynamic_settings.bmc_proxy.clone(),
+    );
 
     let db_pool = create_and_connect_postgres_pool(&carbide_config).await?;
 
     let work_lock_manager_handle = work_lock_manager::start(
+        join_set,
         db_pool.clone(),
         work_lock_manager::KeepaliveConfig::default(),
     )
@@ -305,7 +304,7 @@ pub async fn start_api(
         db::resource_pool::create_common_pools(db_pool.clone(), ib_fabric_ids).await?;
 
     let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
-        vault_client.clone(),
+        credential_manager.clone(),
         ib::IBFabricManagerConfig {
             endpoints: if ib_config.enabled {
                 carbide_config
@@ -360,26 +359,105 @@ pub async fn start_api(
 
     let bmc_explorer = Arc::new(BmcEndpointExplorer::new(
         shared_redfish_pool.clone(),
+        shared_nv_redfish_pool,
         ipmi_tool.clone(),
-        vault_client.clone(),
+        credential_manager.clone(),
         carbide_config
             .site_explorer
             .rotate_switch_nvos_credentials
             .clone(),
+        carbide_config.site_explorer.explore_mode,
     ));
 
     let nvlink_config = carbide_config.nvlink_config.clone().unwrap_or_default();
 
     let nmxm_client_pool =
         libnmxm::NmxmClientPool::builder(nvlink_config.allow_insecure).build()?;
-    let nmxm_pool = NmxmClientPoolImpl::new(vault_client.clone(), nmxm_client_pool);
+    let nmxm_pool = NmxmClientPoolImpl::new(credential_manager.clone(), nmxm_client_pool);
 
     let shared_nmxm_pool: Arc<dyn NmxmClientPool> = Arc::new(nmxm_pool);
 
+    // Create DPF SDK and initialize CRs if enabled
+    // If we end up having static DPUDeployments, we could move the static CRs outside of the API.
+    let dpf_sdk: Option<Arc<dyn crate::dpf::DpfOperations>> = if carbide_config.dpf.enabled {
+        tracing::info!("Initializing DPF SDK");
+        let repo = carbide_dpf::KubeRepository::new()
+            .await
+            .map_err(|e| eyre::eyre!("Failed to create DPF repository: {e}"))?;
+
+        let provider = crate::dpf::CarbideBmcPasswordProvider::new(credential_manager.clone());
+
+        let services = vec![carbide_dpf::services::dts_service(
+            &carbide_dpf::services::ServiceRegistryConfig::default(),
+        )];
+
+        let bfcfg_template = if carbide_config.dpf.bfcfg_enabled {
+            Some(crate::dpf::render_bfcfg(&carbide_config)?)
+        } else {
+            None
+        };
+
+        let bfb_url = if carbide_config.dpf.bfb_url.is_empty() {
+            crate::dpf::resolve_bfb_url().await?
+        } else {
+            carbide_config.dpf.bfb_url.clone()
+        };
+
+        let init_config = carbide_dpf::InitDpfResourcesConfig {
+            bfb_url,
+            deployment_name: carbide_config.dpf.deployment_name.clone(),
+            flavor_name: carbide_config.dpf.flavor_name.clone(),
+            services,
+            bfcfg_template,
+        };
+
+        let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
+            .with_labeler(crate::dpf::CarbideDPFLabeler::new(
+                carbide_config.dpf.node_label_key.clone(),
+            ))
+            .with_bmc_password_refresh_interval(std::time::Duration::from_secs(60))
+            .with_join_set(join_set)
+            .initialize(&init_config)
+            .await
+            .map_err(|err| eyre::eyre!("Failed to initialize DPF SDK: {err}"))?;
+
+        Some(Arc::new(crate::dpf::DpfSdkOps::new(
+            Arc::new(sdk),
+            db_pool.clone(),
+            join_set,
+        )?))
+    } else {
+        None
+    };
+
+    let component_manager = if let Some(cd_config) = &carbide_config.component_manager {
+        match component_manager::component_manager::build_component_manager(cd_config).await {
+            Ok(cm) => {
+                tracing::info!(
+                    "Component manager configured (nv_switch={}, power_shelf={})",
+                    cm.nv_switch.name(),
+                    cm.power_shelf.name()
+                );
+                Some(cm)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to build component managers, component manager RPCs will be unavailable: {e}"
+                );
+                None
+            }
+        }
+    } else {
+        tracing::info!(
+            "No [component_manager] config found; component manager RPCs will be unavailable"
+        );
+        None
+    };
+
     let api_service = Arc::new(Api {
-        certificate_provider: vault_client.clone(),
+        certificate_provider,
         common_pools,
-        credential_provider: vault_client,
+        credential_manager,
         database_connection: db_pool.clone(),
         dpu_health_log_limiter: LogLimiter::default(),
         dynamic_settings,
@@ -392,44 +470,60 @@ pub async fn start_api(
         rms_client: rms_client.clone(),
         nmxm_pool: shared_nmxm_pool,
         work_lock_manager_handle,
-        kube_client_provider: Arc::new(carbide_dpf::Production {}),
+        dpf_sdk: dpf_sdk.clone(),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool),
         metric_emitter: ApiMetricsEmitter::new(&meter),
+        component_manager,
     });
 
-    let (controllers_stop_tx, controllers_stop_rx) = oneshot::channel();
-    let controllers_handle = if carbide_config.listen_only {
+    if carbide_config.listen_only {
         tracing::info!("Not starting background services, as listen_only=true");
-        tokio::spawn(controllers_stop_rx.map_err(|_| eyre::eyre!("joining noop task")))
     } else {
-        tokio::spawn(initialize_and_start_controllers(
+        initialize_and_start_controllers(
+            join_set,
             api_service.clone(),
             meter.clone(),
             ipmi_tool.clone(),
-            controllers_stop_rx,
-        ))
+            cancel_token.clone(),
+        )
+        .await?;
     };
 
-    listener::listen_and_serve(
+    listener::start(
+        join_set,
         api_service,
         listen_mode,
         carbide_config.listen,
         &carbide_config.auth,
         meter,
-        stop_channel,
-        ready_channel,
+        cancel_token.clone(),
     )
     .await?;
 
-    controllers_stop_tx.send(()).ok();
-    controllers_handle.await?
+    ready_channel
+        .send(())
+        .inspect_err(|_e| {
+            // Note: the `_e` here is just sending us back (rejecting) the () that we sent to the ready
+            // channel. This will only happen if the other end is closed.
+            tracing::warn!(
+                "Bug: api server ready_channel is closed, could not notify readiness status"
+            )
+        })
+        .ok();
+
+    Ok(())
 }
 
+/// Initialize and spawn all controllers and background tasks.
+///
+/// All background tasks will be spawned into `join_set`, which can be awaited with
+/// [`JoinSet::join_all`] to wait for them to complete.
 pub async fn initialize_and_start_controllers(
+    join_set: &mut JoinSet<()>,
     api_service: Arc<Api>,
     meter: Meter,
     ipmi_tool: Arc<dyn IPMITool>,
-    stop_rx: oneshot::Receiver<()>,
+    cancel_token: CancellationToken,
 ) -> eyre::Result<()> {
     let Api {
         runtime_config: carbide_config,
@@ -441,6 +535,7 @@ pub async fn initialize_and_start_controllers(
         nmxm_pool: shared_nmxm_pool,
         work_lock_manager_handle,
         rms_client,
+        dpf_sdk,
         ..
     } = api_service.as_ref();
     // As soon as we get the database up, observe this version of forge so that we know when it was
@@ -570,7 +665,8 @@ pub async fn initialize_and_start_controllers(
     let mut dpa_info: Option<Arc<DpaInfo>> = None;
 
     if carbide_config.is_dpa_enabled() {
-        let mqtt_client = Some(start_dpa_handler(api_service.clone()).await?);
+        let mqtt_client =
+            Some(start_dpa_handler(join_set, api_service.clone(), cancel_token.clone()).await?);
         let subnet_ip = carbide_config.get_dpa_subnet_ip()?;
 
         let subnet_mask = carbide_config.get_dpa_subnet_mask()?;
@@ -591,11 +687,31 @@ pub async fn initialize_and_start_controllers(
         if let Some(ref config) = carbide_config.dsx_exchange_event_bus
             && config.enabled
         {
+            let options = {
+                let defaults =
+                    mqttea::client::ClientOptions::default().with_qos(mqttea::QoS::AtMostOnce);
+
+                if let Some(provider) = crate::auth::mqtt_auth::build_credentials_provider(
+                    &config.auth,
+                    forge_secrets::credentials::CredentialKey::MqttAuth {
+                        credential_type:
+                            forge_secrets::credentials::MqttCredentialType::DsxExchangeEventBus,
+                    },
+                    api_service.credential_manager.clone(),
+                )
+                .await?
+                {
+                    defaults.with_credentials_provider(provider)
+                } else {
+                    defaults
+                }
+            };
+
             let client = mqttea::MqtteaClient::new(
                 &config.mqtt_endpoint,
                 config.mqtt_broker_port,
                 "carbide-dsx-exchange-event-bus",
-                Some(mqttea::client::ClientOptions::default().with_qos(mqttea::QoS::AtMostOnce)),
+                Some(options),
             )
             .map_err(|e| eyre::eyre!("Failed to create DSX Exchange Event Bus MQTT client: {e}"))
             .await?;
@@ -611,9 +727,11 @@ pub async fn initialize_and_start_controllers(
             );
             emitter_builder = emitter_builder.hook(Box::new(MqttStateChangeHook::new(
                 client,
+                join_set,
                 config.publish_timeout,
                 config.queue_capacity,
                 &meter,
+                cancel_token.clone(),
             )));
         }
 
@@ -641,37 +759,9 @@ pub async fn initialize_and_start_controllers(
         .to_string_lossy()
         .to_string();
 
-    // Run dpf init regardless of dpf flag.
-    carbide_dpf::init()?;
-
-    // Create DPF CRDs if enabled
-    if carbide_config.dpf.enabled {
-        tracing::info!("Creating DPF CRDs");
-        let key = forge_secrets::credentials::CredentialKey::BmcCredentials {
-            credential_type: forge_secrets::credentials::BmcCredentialType::SiteWideRoot,
-        };
-        let credentials = api_service
-            .credential_provider
-            .get_credentials(&key)
-            .await?;
-        let Some(forge_secrets::credentials::Credentials::UsernamePassword {
-            username: _,
-            password,
-        }) = credentials
-        else {
-            return Err(eyre::eyre!("Site wide BMC root credentials are not set"));
-        };
-        if let Err(err) =
-            carbide_dpf::create_crds_and_secret(bfcfg_context(carbide_config), password).await
-        {
-            tracing::error!("Failed to create DPF CRDs: {err}");
-            return Err(eyre::eyre!("Failed to create DPF CRDs: {err}"));
-        }
-    }
-
     // handles need to be stored in a variable
     // If they are assigned to _ then the destructor will be immediately called
-    let _machine_state_controller_handle = StateController::<MachineStateControllerIO>::builder()
+    StateController::<MachineStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("carbide_machines", meter.clone())
         .processor_id(state_controller_id.clone())
@@ -694,6 +784,7 @@ pub async fn initialize_and_start_controllers(
                         .machine_state_controller
                         .scout_reporting_timeout,
                 )
+                .uefi_boot_wait(carbide_config.machine_state_controller.uefi_boot_wait)
                 .hardware_models(carbide_config.get_firmware_config())
                 .firmware_downloader(&downloader)
                 .attestation_enabled(carbide_config.attestation_enabled)
@@ -708,12 +799,9 @@ pub async fn initialize_and_start_controllers(
                         .instance_autoreboot_period
                         .clone(),
                 )
-                .credential_provider(api_service.credential_provider.clone())
+                .credential_reader(api_service.credential_manager.clone())
                 .power_options_config(carbide_config.power_manager_options.clone().into())
-                .dpf_config(crate::state_controller::machine::handler::DpfConfig::from(
-                    carbide_config.dpf.clone(),
-                    Arc::new(carbide_dpf::Production {}) as Arc<dyn carbide_dpf::KubeImpl>,
-                ))
+                .dpf_sdk(dpf_sdk.clone())
                 .build(),
         ))
         .io(Arc::new(MachineStateControllerIO {
@@ -725,10 +813,16 @@ pub async fn initialize_and_start_controllers(
                 prevent_allocations_on_stale_dpu_agent_version: carbide_config
                     .host_health
                     .prevent_allocations_on_stale_dpu_agent_version,
+                prevent_allocations_on_scout_heartbeat_timeout: carbide_config
+                    .host_health
+                    .prevent_allocations_on_scout_heartbeat_timeout,
+                suppress_external_alerting_on_scout_heartbeat_timeout: carbide_config
+                    .host_health
+                    .suppress_external_alerting_on_scout_heartbeat_timeout,
             },
         }))
         .state_change_emitter(state_change_emitter)
-        .build_and_spawn()
+        .build_and_spawn(join_set, cancel_token.clone())
         .expect("Unable to build MachineStateController");
 
     let sc_pool_vlan_id = common_pools.ethernet.pool_vlan_id.clone();
@@ -739,7 +833,7 @@ pub async fn initialize_and_start_controllers(
         .meter("carbide_network_segments", meter.clone())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone());
-    let _network_segment_controller_handle = ns_builder
+    ns_builder
         .iteration_config((&carbide_config.network_segment_state_controller.controller).into())
         .state_handler(Arc::new(NetworkSegmentStateHandler::new(
             carbide_config
@@ -748,28 +842,20 @@ pub async fn initialize_and_start_controllers(
             sc_pool_vlan_id,
             sc_pool_vni,
         )))
-        .build_and_spawn()
+        .build_and_spawn(join_set, cancel_token.clone())
         .expect("Unable to build NetworkSegmentController");
-
-    let mut _dpa_interface_state_controller_handle: Option<
-        crate::state_controller::controller::StateControllerHandle,
-    > = None;
 
     if carbide_config.is_dpa_enabled() {
         tracing::info!("Starting DpaInterfaceStateController as dpa is enabled");
-        _dpa_interface_state_controller_handle = Some(
-            StateController::<DpaInterfaceStateControllerIO>::builder()
-                .database(db_pool.clone(), work_lock_manager_handle.clone())
-                .meter("carbide_dpa_interfaces", meter.clone())
-                .processor_id(state_controller_id.clone())
-                .services(handler_services.clone())
-                .iteration_config(
-                    (&carbide_config.dpa_interface_state_controller.controller).into(),
-                )
-                .state_handler(Arc::new(DpaInterfaceStateHandler::new()))
-                .build_and_spawn()
-                .expect("Unable to build DpaInterfaceStateController"),
-        );
+        StateController::<DpaInterfaceStateControllerIO>::builder()
+            .database(db_pool.clone(), work_lock_manager_handle.clone())
+            .meter("carbide_dpa_interfaces", meter.clone())
+            .processor_id(state_controller_id.clone())
+            .services(handler_services.clone())
+            .iteration_config((&carbide_config.dpa_interface_state_controller.controller).into())
+            .state_handler(Arc::new(DpaInterfaceStateHandler::new()))
+            .build_and_spawn(join_set, cancel_token.clone())
+            .expect("Unable to build DpaInterfaceStateController");
     }
 
     if carbide_config.spdm.enabled {
@@ -781,7 +867,7 @@ pub async fn initialize_and_start_controllers(
 
         let verifier = Arc::new(VerifierImpl::default());
 
-        let _spdm_state_controller_handle = StateController::<SpdmStateControllerIO>::builder()
+        StateController::<SpdmStateControllerIO>::builder()
             .database(db_pool.clone(), work_lock_manager_handle.clone())
             .meter("carbide_spdm_attestation", meter.clone())
             .processor_id(state_controller_id.clone())
@@ -791,51 +877,50 @@ pub async fn initialize_and_start_controllers(
                 verifier,
                 nras_config,
             )))
-            .build_and_spawn()
+            .build_and_spawn(join_set, cancel_token.clone())
             .expect("Unable to build SpdmStateController");
     }
 
-    let _ib_partition_controller_handle =
-        StateController::<IBPartitionStateControllerIO>::builder()
-            .database(db_pool.clone(), work_lock_manager_handle.clone())
-            .meter("carbide_ib_partitions", meter.clone())
-            .processor_id(state_controller_id.clone())
-            .services(handler_services.clone())
-            .iteration_config((&carbide_config.ib_partition_state_controller.controller).into())
-            .state_handler(Arc::new(IBPartitionStateHandler::default()))
-            .build_and_spawn()
-            .expect("Unable to build IBPartitionStateController");
+    StateController::<IBPartitionStateControllerIO>::builder()
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
+        .meter("carbide_ib_partitions", meter.clone())
+        .processor_id(state_controller_id.clone())
+        .services(handler_services.clone())
+        .iteration_config((&carbide_config.ib_partition_state_controller.controller).into())
+        .state_handler(Arc::new(IBPartitionStateHandler::default()))
+        .build_and_spawn(join_set, cancel_token.clone())
+        .expect("Unable to build IBPartitionStateController");
 
-    let _power_shelf_controller_handle = StateController::<PowerShelfStateControllerIO>::builder()
+    StateController::<PowerShelfStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("carbide_power_shelves", meter.clone())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .iteration_config((&carbide_config.power_shelf_state_controller.controller).into())
         .state_handler(Arc::new(PowerShelfStateHandler::default()))
-        .build_and_spawn()
+        .build_and_spawn(join_set, cancel_token.clone())
         .expect("Unable to build PowerShelfStateController");
 
-    let _rack_controller_handle = StateController::<RackStateControllerIO>::builder()
+    StateController::<RackStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("carbide_racks", meter.clone())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .state_handler(Arc::new(RackStateHandler::default()))
-        .build_and_spawn()
+        .build_and_spawn(join_set, cancel_token.clone())
         .expect("Unable to build RackStateController");
 
-    let _switch_controller_handle = StateController::<SwitchStateControllerIO>::builder()
+    StateController::<SwitchStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("carbide_switches", meter.clone())
         .processor_id(state_controller_id.clone())
         .services(handler_services.clone())
         .iteration_config((&carbide_config.switch_state_controller.controller).into())
         .state_handler(Arc::new(SwitchStateHandler::default()))
-        .build_and_spawn()
+        .build_and_spawn(join_set, cancel_token.clone())
         .expect("Unable to build SwitchStateController");
 
-    let ib_fabric_monitor = IbFabricMonitor::new(
+    IbFabricMonitor::new(
         db_pool.clone(),
         if ib_config.enabled {
             carbide_config.ib_fabrics.clone()
@@ -846,20 +931,20 @@ pub async fn initialize_and_start_controllers(
         ib_fabric_manager.clone(),
         carbide_config.clone(),
         work_lock_manager_handle.clone(),
-    );
-    let _ib_fabric_monitor_handle = ib_fabric_monitor.start()?;
+    )
+    .start(join_set, cancel_token.clone())?;
 
-    let nvlink_partition_monitor = NvlPartitionMonitor::new(
+    NvlPartitionMonitor::new(
         db_pool.clone(),
         shared_nmxm_pool.clone(),
         meter.clone(),
         carbide_config.nvlink_config.clone().unwrap_or_default(),
         carbide_config.host_health,
         work_lock_manager_handle.clone(),
-    );
-    let _nv_link_partition_monitor_handle = nvlink_partition_monitor.start()?;
+    )
+    .start(join_set, cancel_token.clone())?;
 
-    let site_explorer = SiteExplorer::new(
+    SiteExplorer::new(
         db_pool.clone(),
         carbide_config.site_explorer.clone(),
         meter.clone(),
@@ -868,45 +953,45 @@ pub async fn initialize_and_start_controllers(
         common_pools.clone(),
         work_lock_manager_handle.clone(),
         rms_client.clone(),
-    );
-    let _site_explorer_stop_handle = site_explorer.start()?;
+    )
+    .start(join_set, cancel_token.clone())?;
 
-    let machine_update_manager = MachineUpdateManager::new(
+    MachineUpdateManager::new(
         db_pool.clone(),
         carbide_config.clone(),
         meter.clone(),
         work_lock_manager_handle.clone(),
-    );
-    let _machine_update_manager_stop_handle = machine_update_manager.start()?;
+    )
+    .start(join_set, cancel_token.clone())?;
 
-    let preingestion_manager = PreingestionManager::new(
+    PreingestionManager::new(
         db_pool.clone(),
         carbide_config.clone(),
         shared_redfish_pool.clone(),
         meter.clone(),
         Some(downloader.clone()),
         Some(upload_limiter),
-        Some(api_service.credential_provider.clone()),
+        Some(api_service.credential_manager.clone()),
         work_lock_manager_handle.clone(),
-    );
-    let _preingestion_manager_stop_handle = preingestion_manager.start()?;
+    )
+    .start(join_set, cancel_token.clone())?;
 
-    let measured_boot_collector = MeasuredBootMetricsCollector::new(
+    MeasuredBootMetricsCollector::new(
         db_pool.clone(),
         carbide_config.measured_boot_collector.clone(),
         meter.clone(),
-    );
-    let _measured_boot_collector_handle = measured_boot_collector.start()?;
+    )
+    .start(join_set, cancel_token.clone())?;
 
     // we need to create ek_cert_status entries for all existing machines
     attestation::backfill_ek_cert_status_for_existing_machines(db_pool).await?;
 
-    let machine_validation_metric = crate::machine_validation::MachineValidationManager::new(
+    crate::machine_validation::MachineValidationManager::new(
         db_pool.clone(),
         carbide_config.machine_validation_config.clone(),
         meter.clone(),
-    );
-    let _machine_validation_metric_handle = machine_validation_metric.start()?;
+    )
+    .start(join_set, cancel_token.clone())?;
 
     apply_config_on_startup(
         &api_service,
@@ -914,93 +999,5 @@ pub async fn initialize_and_start_controllers(
     )
     .await?;
 
-    // We have to sleep until the calling thread stops us, or else all the handles get dropped and
-    // the background tasks terminate.
-    stop_rx
-        .await
-        .context("error reading from stop channel, calling thread likely panicked")
-}
-
-/// Constructs a context map for bf.cfg Tera template from CarbideConfig.
-/// Used to populate deployment and runtime parameters for the DPF setup.
-fn bfcfg_context(config: &CarbideConfig) -> HashMap<String, String> {
-    let mut context = HashMap::new();
-    context.insert(API_URL_KEY.to_string(), API_URL.to_string());
-    context.insert(PXE_URL_KEY.to_string(), PXE_URL.to_string());
-    context.insert(
-        BMC_FW_UPDATE_KEY.to_string(),
-        carbide_dpf::get_fw_update_data(),
-    );
-    let start = std::time::SystemTime::now();
-    let seconds_since_epoch = start
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_secs();
-
-    context.insert(
-        SECONDS_SINCE_EPOCH_KEY.to_string(),
-        seconds_since_epoch.to_string(),
-    );
-
-    if let Some(vmaas) = config.vmaas_config.as_ref() {
-        if let Some(hbn_reps) = vmaas.hbn_reps.as_ref() {
-            context.insert(HBN_REPS_KEY.to_string(), hbn_reps.clone());
-        }
-
-        if let Some(hbn_sfs) = vmaas.hbn_sfs.as_ref() {
-            context.insert(HBN_SFS_KEY.to_string(), hbn_sfs.clone());
-        }
-
-        if let Some(bridge) = vmaas.bridging.as_ref() {
-            context.insert(
-                VF_INTERCEPT_BRIDGE_NAME_KEY.to_string(),
-                bridge.vf_intercept_bridge_name.clone(),
-            );
-
-            context.insert(
-                HOST_INTERCEPT_BRIDGE_NAME_KEY.to_string(),
-                bridge.host_intercept_bridge_name.clone(),
-            );
-
-            let host_intercept_bridge_port = bridge.host_intercept_bridge_port.clone();
-            context.insert(
-                HOST_INTERCEPT_HBN_PORT_KEY.to_string(),
-                format!("patch-hbn-{host_intercept_bridge_port}"),
-            );
-
-            context.insert(
-                HOST_INTERCEPT_BRIDGE_PORT_KEY.to_string(),
-                host_intercept_bridge_port,
-            );
-
-            let vf_intercept_bridge_port = bridge.vf_intercept_bridge_port.clone();
-            context.insert(
-                VF_INTERCEPT_HBN_PORT_KEY.to_string(),
-                format!("patch-hbn-{vf_intercept_bridge_port}"),
-            );
-
-            context.insert(
-                VF_INTERCEPT_BRIDGE_PORT_KEY.to_string(),
-                vf_intercept_bridge_port,
-            );
-
-            let vf_intercept_bridge_sf = bridge.vf_intercept_bridge_sf.clone();
-            context.insert(
-                VF_INTERCEPT_BRIDGE_SF_REPRESENTOR_KEY.to_string(),
-                format!("{vf_intercept_bridge_sf}_r"),
-            );
-
-            context.insert(
-                VF_INTERCEPT_BRIDGE_SF_HBN_BRIDGE_REPRESENTOR_KEY.to_string(),
-                format!("{vf_intercept_bridge_sf}_if_r"),
-            );
-
-            context.insert(
-                VF_INTERCEPT_BRIDGE_SF_KEY.to_string(),
-                vf_intercept_bridge_sf,
-            );
-        }
-    }
-
-    context
+    Ok(())
 }

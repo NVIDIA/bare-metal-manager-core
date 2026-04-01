@@ -26,10 +26,9 @@ pub async fn get(
     format: OutputFormat,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
-    let id = opts.id;
-    let request = rpc::forge::RackFirmwareGetRequest { id: id.clone() };
+    let id = opts.id.clone();
 
-    let result = match api_client.0.get_rack_firmware(request).await {
+    let result = match api_client.0.get_rack_firmware(opts).await {
         Ok(response) => response,
         Err(status) if status.code() == tonic::Code::NotFound => {
             return Err(CarbideCliError::GenericError(format!(

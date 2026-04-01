@@ -14,8 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use model::dpu_remediation::{ApproveRemediation, EnableRemediation, NewRemediation, Reviewer};
-use rpc::forge::{CreateRemediationRequest, RemediationApplicationStatus};
+use model::dpu_remediation::{
+    ApproveRemediation, EnableRemediation, NewRemediation, RemediationApplicationStatus, Reviewer,
+};
+use rpc::forge::CreateRemediationRequest;
 
 use crate::tests::common::api_fixtures::{create_managed_host_multi_dpu, create_test_env};
 

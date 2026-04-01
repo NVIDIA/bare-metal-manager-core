@@ -21,6 +21,7 @@ pub mod machine_update_module;
 pub mod metrics;
 
 use std::collections::{HashMap, HashSet};
+use std::io;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -35,12 +36,14 @@ use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
 use model::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE;
 use sqlx::{PgConnection, PgPool};
-use tokio::sync::oneshot;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 
 use self::dpu_nic_firmware::DpuNicFirmwareUpdate;
 use self::metrics::MachineUpdateManagerMetrics;
 use crate::CarbideResult;
 use crate::cfg::file::{CarbideConfig, MaxConcurrentUpdates};
+use crate::periodic_timer::PeriodicTimer;
 
 /// The MachineUpdateManager periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
 /// On each iteration the MachineUpdateManager will:
@@ -118,28 +121,33 @@ impl MachineUpdateManager {
     }
 
     /// Start the MachineUpdateManager and return a [sending channel](tokio::sync::oneshot::Sender) that will stop the MachineUpdateManager when dropped.
-    pub fn start(self) -> eyre::Result<oneshot::Sender<i32>> {
-        let (stop_sender, stop_receiver) = oneshot::channel();
-
+    pub fn start(
+        self,
+        join_set: &mut JoinSet<()>,
+        cancel_token: CancellationToken,
+    ) -> io::Result<()> {
         if !self.update_modules.is_empty() {
-            tokio::task::Builder::new()
+            join_set
+                .build_task()
                 .name("machine_update_manager")
-                .spawn(async move { self.run(stop_receiver).await })?;
+                .spawn(async move { self.run(cancel_token).await })?;
         } else {
             tracing::info!("No modules configured.  Machine updates disabled");
         }
-        Ok(stop_sender)
+        Ok(())
     }
 
-    async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {
+    async fn run(&self, cancel_token: CancellationToken) {
+        let timer = PeriodicTimer::new(self.run_interval);
         loop {
+            let tick = timer.tick();
             if let Err(e) = self.run_single_iteration().await {
                 tracing::warn!("MachineUpdateManager error: {}", e);
             }
 
             tokio::select! {
-                _ = tokio::time::sleep(self.run_interval) => {},
-                _ = &mut stop_receiver => {
+                _ = tick.sleep() => {},
+                _ = cancel_token.cancelled() => {
                     tracing::info!("Machine update manager stop was requested");
                     return;
                 }

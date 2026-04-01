@@ -1,6 +1,16 @@
-# Contributing to NVIDIA Bare Metal Manager
+# Contributing to NCX Infra Controller
 
-Thank you for your interest in contributing to NVIDIA Bare Metal Manager! We welcome contributions from the community.
+Thank you for your interest in contributing to NCX Infra Controller! 
+
+We welcome contributions of all sizes — from fixing a typo in the docs to adding a new API endpoint. Whether you're a first-time contributor or a seasoned open source developer, there's a place for you here.
+
+> **Project Status:** NCX Infra Controller is currently in **experimental**. This means:
+>
+> - APIs, configurations, and features may change without notice between releases.
+> - Review timelines may vary as the team focuses on stabilizing the core platform.
+> - Not all contributions will be accepted — we prioritize changes that align with the current roadmap.
+>
+> We appreciate your patience and contributions as we work toward a stable release.
 
 ## Table of Contents
 
@@ -11,7 +21,7 @@ Thank you for your interest in contributing to NVIDIA Bare Metal Manager! We wel
 
 ## Developer Certificate of Origin (DCO)
 
-NVIDIA Bare Metal Manager requires the Developer Certificate of Origin (DCO) process to be followed for all contributions.
+NCX Infra Controller requires the Developer Certificate of Origin (DCO) process to be followed for all contributions.
 
 The DCO is a lightweight way for contributors to certify that they wrote or otherwise have the right to submit the code they are contributing. The full text of the DCO can be found at [developercertificate.org](https://developercertificate.org/):
 
@@ -96,15 +106,15 @@ git rebase --signoff origin/main
 
 ### DCO Enforcement
 
-All pull requests are automatically checked for DCO complianc via DCO bot. Pull requests with unsigned commits cannot be merged until all commits are properly signed off.
+All pull requests are automatically checked for DCO compliance via DCO bot. Pull requests with unsigned commits cannot be merged until all commits are properly signed off.
 
 ## Fork and Setup
 
-Developers must first fork the upstream [NVIDIA Bare Metal Manager repository](https://github.com/NVIDIA/bare-metal-manager-core).
+Developers must first fork the upstream [NCX Infra Controller repository](https://github.com/NVIDIA/ncx-infra-controller-core).
 
 ### 1. Fork the Repository
 
-1. Navigate to the [NVIDIA Bare Metal Manager repository](https://github.com/NVIDIA/bare-metal-manager-core) on GitHub.
+1. Navigate to the [NCX Infra Controller repository](https://github.com/NVIDIA/ncx-infra-controller-core) on GitHub.
 2. Click the **Fork** button in the upper right corner.
 3. Select your GitHub account as the destination.
 

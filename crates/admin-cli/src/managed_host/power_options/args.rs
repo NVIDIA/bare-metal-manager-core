@@ -17,6 +17,7 @@
 
 use carbide_uuid::machine::MachineId;
 use clap::{Parser, ValueEnum};
+use rpc::forge::{self as forgerpc, PowerOptionUpdateRequest};
 
 #[derive(Parser, Debug)]
 pub enum Args {
@@ -40,6 +41,20 @@ pub struct UpdatePowerOptions {
     pub machine: MachineId,
     #[clap(long, short, help = "Desired Power State")]
     pub desired_power_state: DesiredPowerState,
+}
+
+impl From<UpdatePowerOptions> for PowerOptionUpdateRequest {
+    fn from(args: UpdatePowerOptions) -> Self {
+        let power_state = match args.desired_power_state {
+            DesiredPowerState::On => forgerpc::PowerState::On,
+            DesiredPowerState::Off => forgerpc::PowerState::Off,
+            DesiredPowerState::PowerManagerDisabled => forgerpc::PowerState::PowerManagerDisabled,
+        };
+        Self {
+            machine_id: Some(args.machine),
+            power_state: power_state as i32,
+        }
+    }
 }
 
 #[derive(ValueEnum, Parser, Debug, Clone, PartialEq)]

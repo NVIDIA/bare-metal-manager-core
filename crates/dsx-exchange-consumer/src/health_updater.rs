@@ -234,6 +234,7 @@ fn build_leak_alert_report(metadata: &LeakMetadata, leak_type: LeakPointType) ->
 
     HealthReport {
         source: HEALTH_REPORT_SOURCE.to_string(),
+        triggered_by: None,
         observed_at: Some(chrono::Utc::now()),
         successes: vec![],
         alerts: vec![alert],
@@ -262,7 +263,7 @@ mod tests {
     use super::*;
     use crate::DsxConsumerError;
 
-    const TEST_PREFIX: &str = "cronus/v1/";
+    const TEST_PREFIX: &str = "BMS/v1/";
 
     fn test_meter() -> Meter {
         global::meter("test")
@@ -356,7 +357,7 @@ mod tests {
 
     #[test]
     fn test_extract_point_path_metadata() {
-        let topic = "cronus/v1/some/point/path/Metadata";
+        let topic = "BMS/v1/some/point/path/Metadata";
         assert_eq!(
             extract_point_path(topic, TEST_PREFIX),
             Some("some/point/path")
@@ -365,7 +366,7 @@ mod tests {
 
     #[test]
     fn test_extract_point_path_value() {
-        let topic = "cronus/v1/some/point/path/Value";
+        let topic = "BMS/v1/some/point/path/Value";
         assert_eq!(
             extract_point_path(topic, TEST_PREFIX),
             Some("some/point/path")
@@ -374,7 +375,7 @@ mod tests {
 
     #[test]
     fn test_extract_point_path_unknown() {
-        let topic = "cronus/v1/some/point/path/Unknown";
+        let topic = "BMS/v1/some/point/path/Unknown";
         assert_eq!(extract_point_path(topic, TEST_PREFIX), None);
     }
 
@@ -389,7 +390,7 @@ mod tests {
 
     #[test]
     fn test_extract_point_path_wrong_prefix() {
-        let topic = "cronus/v1/some/point/path/Value";
+        let topic = "BMS/v1/some/point/path/Value";
         assert_eq!(extract_point_path(topic, "wrong/prefix/"), None);
     }
 
@@ -451,13 +452,13 @@ mod tests {
         // First, cache metadata
         let metadata = test_metadata("LeakDetectRack", "rack-001");
         updater
-            .handle_metadata_message("cronus/v1/site/rack/point/Metadata", metadata)
+            .handle_metadata_message("BMS/v1/site/rack/point/Metadata", metadata)
             .await;
 
         // Now send a faulting value
         let value = test_value_message(FaultValue::Faulting);
         updater
-            .handle_value_message("cronus/v1/site/rack/point/Value", value)
+            .handle_value_message("BMS/v1/site/rack/point/Value", value)
             .await;
 
         let inserts = sink.take_insert_calls();
@@ -483,13 +484,13 @@ mod tests {
         // Cache metadata
         let metadata = test_metadata("LeakDetectRack", "rack-001");
         updater
-            .handle_metadata_message("cronus/v1/site/rack/point/Metadata", metadata)
+            .handle_metadata_message("BMS/v1/site/rack/point/Metadata", metadata)
             .await;
 
         // Send a clear value
         let value = test_value_message(FaultValue::Clear);
         updater
-            .handle_value_message("cronus/v1/site/rack/point/Value", value)
+            .handle_value_message("BMS/v1/site/rack/point/Value", value)
             .await;
 
         let removes = sink.take_remove_calls();
@@ -514,7 +515,7 @@ mod tests {
         // Send value without caching metadata first
         let value = test_value_message(FaultValue::Faulting);
         updater
-            .handle_value_message("cronus/v1/site/rack/point/Value", value)
+            .handle_value_message("BMS/v1/site/rack/point/Value", value)
             .await;
 
         // No API calls should be made
@@ -536,13 +537,13 @@ mod tests {
         // Cache unsupported metadata
         let metadata = test_metadata("UnsupportedType", "rack-001");
         updater
-            .handle_metadata_message("cronus/v1/site/rack/point/Metadata", metadata)
+            .handle_metadata_message("BMS/v1/site/rack/point/Metadata", metadata)
             .await;
 
         // Send value - should be skipped because metadata wasn't cached
         let value = test_value_message(FaultValue::Faulting);
         updater
-            .handle_value_message("cronus/v1/site/rack/point/Value", value)
+            .handle_value_message("BMS/v1/site/rack/point/Value", value)
             .await;
 
         assert_eq!(sink.take_insert_calls().len(), 0);
@@ -562,18 +563,18 @@ mod tests {
         // Cache metadata
         let metadata = test_metadata("LeakDetectRack", "rack-001");
         updater
-            .handle_metadata_message("cronus/v1/site/rack/point/Metadata", metadata)
+            .handle_metadata_message("BMS/v1/site/rack/point/Metadata", metadata)
             .await;
 
         // Send faulting value twice
         let value1 = test_value_message(FaultValue::Faulting);
         updater
-            .handle_value_message("cronus/v1/site/rack/point/Value", value1)
+            .handle_value_message("BMS/v1/site/rack/point/Value", value1)
             .await;
 
         let value2 = test_value_message(FaultValue::Faulting);
         updater
-            .handle_value_message("cronus/v1/site/rack/point/Value", value2)
+            .handle_value_message("BMS/v1/site/rack/point/Value", value2)
             .await;
 
         // Only one insert should have been made
@@ -594,25 +595,25 @@ mod tests {
         // Cache metadata
         let metadata = test_metadata("LeakDetectRack", "rack-001");
         updater
-            .handle_metadata_message("cronus/v1/site/rack/point/Metadata", metadata)
+            .handle_metadata_message("BMS/v1/site/rack/point/Metadata", metadata)
             .await;
 
         // Send faulting, then clear, then faulting again
         updater
             .handle_value_message(
-                "cronus/v1/site/rack/point/Value",
+                "BMS/v1/site/rack/point/Value",
                 test_value_message(FaultValue::Faulting),
             )
             .await;
         updater
             .handle_value_message(
-                "cronus/v1/site/rack/point/Value",
+                "BMS/v1/site/rack/point/Value",
                 test_value_message(FaultValue::Clear),
             )
             .await;
         updater
             .handle_value_message(
-                "cronus/v1/site/rack/point/Value",
+                "BMS/v1/site/rack/point/Value",
                 test_value_message(FaultValue::Faulting),
             )
             .await;
@@ -635,13 +636,13 @@ mod tests {
         // Cache metadata
         let metadata = test_metadata("LeakDetectRack", "rack-001");
         updater
-            .handle_metadata_message("cronus/v1/site/rack/point/Metadata", metadata)
+            .handle_metadata_message("BMS/v1/site/rack/point/Metadata", metadata)
             .await;
 
         // Send value - will fail
         updater
             .handle_value_message(
-                "cronus/v1/site/rack/point/Value",
+                "BMS/v1/site/rack/point/Value",
                 test_value_message(FaultValue::Faulting),
             )
             .await;
@@ -670,13 +671,13 @@ mod tests {
         // Cache metadata for two racks
         updater
             .handle_metadata_message(
-                "cronus/v1/site/rack1/point/Metadata",
+                "BMS/v1/site/rack1/point/Metadata",
                 test_metadata("LeakDetectRack", "rack-001"),
             )
             .await;
         updater
             .handle_metadata_message(
-                "cronus/v1/site/rack2/point/Metadata",
+                "BMS/v1/site/rack2/point/Metadata",
                 test_metadata("LeakDetectRack", "rack-002"),
             )
             .await;
@@ -684,7 +685,7 @@ mod tests {
         // Send faulting to rack1
         updater
             .handle_value_message(
-                "cronus/v1/site/rack1/point/Value",
+                "BMS/v1/site/rack1/point/Value",
                 test_value_message(FaultValue::Faulting),
             )
             .await;
@@ -692,7 +693,7 @@ mod tests {
         // Send faulting to rack2
         updater
             .handle_value_message(
-                "cronus/v1/site/rack2/point/Value",
+                "BMS/v1/site/rack2/point/Value",
                 test_value_message(FaultValue::Faulting),
             )
             .await;
@@ -721,7 +722,7 @@ mod tests {
 
         // Send metadata
         tx.send(MqttMessage::Metadata {
-            topic: "cronus/v1/site/rack/point/Metadata".to_string(),
+            topic: "BMS/v1/site/rack/point/Metadata".to_string(),
             metadata: test_metadata("LeakDetectRack", "rack-001"),
         })
         .await
@@ -729,7 +730,7 @@ mod tests {
 
         // Send value
         tx.send(MqttMessage::Value {
-            topic: "cronus/v1/site/rack/point/Value".to_string(),
+            topic: "BMS/v1/site/rack/point/Value".to_string(),
             value: test_value_message(FaultValue::Faulting),
         })
         .await

@@ -29,7 +29,7 @@ use hyper_util::rt::TokioIo;
 use prometheus::proto::MetricFamily;
 use prometheus::{Encoder, TextEncoder};
 use tokio::net::TcpListener;
-use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 
 /// Request handler
 fn handle_metrics_request(
@@ -104,7 +104,7 @@ pub struct MetricsEndpointConfig {
 /// Start a HTTP endpoint which exposes metrics using the provided configuration
 pub async fn run_metrics_endpoint(
     config: &MetricsEndpointConfig,
-    mut stop_rx: oneshot::Receiver<()>,
+    cancel_token: CancellationToken,
 ) -> eyre::Result<()> {
     let handler_state = Arc::new(MetricsHandlerState {
         registry: config.registry.clone(),
@@ -132,7 +132,7 @@ pub async fn run_metrics_endpoint(
                     }),
                 ));
             },
-            _ = &mut stop_rx => {
+            _ = cancel_token.cancelled() => {
                 break
             }
         }

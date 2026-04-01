@@ -24,7 +24,7 @@ use ::rpc::{Instance, forge as rpc};
 use arc_swap::ArcSwapOption;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use config_version::ConfigVersion;
 use eyre::Context;
 use forge_dpu_agent_utils::utils::create_forge_client;
@@ -147,13 +147,13 @@ impl PeriodicConfigFetcher {
         })
     }
 
-    pub fn get_host_machine_id(&self) -> Option<MachineId> {
+    pub fn get_host_machine_interface_id(&self) -> Option<MachineInterfaceId> {
         self.state
             .netconf
             .load()
             .as_ref()
-            .and_then(|netconf| netconf.instance.as_ref())
-            .and_then(|instance| instance.machine_id)
+            .and_then(|netconf| netconf.host_interface_id.as_ref())
+            .and_then(|id| id.parse().ok())
     }
 }
 

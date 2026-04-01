@@ -22,6 +22,7 @@ mod dhcp_wrapper;
 mod dpu_machine;
 mod host_machine;
 mod machine_a_tron;
+mod machine_fsm;
 mod machine_state_machine;
 mod machine_utils;
 mod mock_ssh_server;

@@ -31,15 +31,9 @@ pub async fn apply(
         opts.firmware_id, opts.firmware_type, opts.rack_id
     );
 
-    let request = rpc::forge::RackFirmwareApplyRequest {
-        rack_id: Some(opts.rack_id),
-        firmware_id: opts.firmware_id,
-        firmware_type: opts.firmware_type,
-    };
-
     let response = api_client
         .0
-        .apply_rack_firmware(request)
+        .apply_rack_firmware(opts)
         .await
         .map_err(CarbideCliError::from)?;
 

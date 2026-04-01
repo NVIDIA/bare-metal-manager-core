@@ -17,7 +17,6 @@
 
 pub mod auto_update;
 pub mod common;
-pub mod dpu_ssh_credentials;
 pub mod force_delete;
 pub mod hardware_info;
 pub mod health_override;
@@ -46,8 +45,6 @@ use crate::cfg::dispatch::Dispatch;
 pub enum Cmd {
     #[clap(about = "Display Machine information")]
     Show(show::Args),
-    #[clap(about = "Print DPU admin SSH username:password")]
-    DpuSshCredentials(dpu_ssh_credentials::Args),
     #[clap(subcommand, about = "Networking information")]
     Network(network::Args),
     #[clap(

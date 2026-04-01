@@ -16,11 +16,24 @@
  */
 
 use clap::{Parser, ValueEnum};
+use rpc::forge::DpuAgentUpgradePolicyRequest;
 
 #[derive(Parser, Debug)]
 pub struct Args {
     #[clap(long)]
     pub set: Option<AgentUpgradePolicyChoice>,
+}
+
+impl From<Args> for DpuAgentUpgradePolicyRequest {
+    fn from(args: Args) -> Self {
+        Self {
+            new_policy: args.set.map(|choice| match choice {
+                AgentUpgradePolicyChoice::Off => rpc::forge::AgentUpgradePolicy::Off as i32,
+                AgentUpgradePolicyChoice::UpOnly => rpc::forge::AgentUpgradePolicy::UpOnly as i32,
+                AgentUpgradePolicyChoice::UpDown => rpc::forge::AgentUpgradePolicy::UpDown as i32,
+            }),
+        }
+    }
 }
 
 // Should match api/src/model/machine/upgrade_policy.rs AgentUpgradePolicy

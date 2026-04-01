@@ -111,6 +111,25 @@ pub async fn find_record(
 
     Ok(result)
 }
+pub async fn get_all_records_all_domains(
+    txn: impl DbReader<'_>,
+) -> Result<Vec<DbResourceRecord>, DatabaseError> {
+    let query = r#"
+        SELECT dr.q_name, dr.resource_record, dr.domain_id,
+               COALESCE(dr.ttl, 300) as ttl,
+               COALESCE(dr.q_type, CASE WHEN family(dr.resource_record) = 6 THEN 'AAAA' ELSE 'A' END) as q_type
+        FROM dns_records dr
+        JOIN domains d ON d.id = dr.domain_id
+        WHERE d.deleted IS NULL
+        ORDER BY dr.q_name
+    "#;
+
+    sqlx::query_as::<_, DbResourceRecord>(query)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 pub async fn get_all_records(
     txn: impl DbReader<'_>,
     query_name: &str,

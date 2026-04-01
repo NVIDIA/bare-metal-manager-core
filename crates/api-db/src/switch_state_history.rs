@@ -53,7 +53,6 @@ impl From<DbSwitchStateHistoryRecord> for SwitchStateHistoryRecord {
 /// Arguments:
 ///
 /// * `txn` - A reference to an open Transaction
-///
 pub async fn find_by_switch_ids(
     txn: &mut PgConnection,
     ids: &[SwitchId],

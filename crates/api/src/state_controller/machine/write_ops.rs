@@ -87,6 +87,10 @@ pub enum MachineWriteOp {
         address: IpAddr,
         version: ConfigVersion,
     },
+    UseCustomIpxeOnNextBoot {
+        machine_id: MachineId,
+        boot_with_custom_ipxe: bool,
+    },
 }
 
 #[async_trait]
@@ -182,6 +186,13 @@ impl WriteOp for MachineWriteOp {
             }
             ReExploreIfVersionMatches { address, version } => {
                 db::explored_endpoints::re_explore_if_version_matches(address, version, txn)
+                    .await?;
+            }
+            UseCustomIpxeOnNextBoot {
+                machine_id,
+                boot_with_custom_ipxe,
+            } => {
+                db::instance::use_custom_ipxe_on_next_boot(&machine_id, boot_with_custom_ipxe, txn)
                     .await?;
             }
         };

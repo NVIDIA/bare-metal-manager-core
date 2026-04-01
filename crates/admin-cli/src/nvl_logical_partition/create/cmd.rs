@@ -16,35 +16,11 @@
  */
 
 use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge as forgerpc;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn handle_create(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    create_logical_partition(args, api_client).await?;
-    Ok(())
-}
-
-pub async fn create_logical_partition(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let metadata = forgerpc::Metadata {
-        name: args.name,
-        labels: vec![forgerpc::Label {
-            key: "cloud-unsafe-op".to_string(),
-            value: Some("true".to_string()),
-        }],
-        ..Default::default()
-    };
-    let request = forgerpc::NvLinkLogicalPartitionCreationRequest {
-        config: Some(forgerpc::NvLinkLogicalPartitionConfig {
-            metadata: Some(metadata),
-            tenant_organization_id: args.tenant_organization_id,
-        }),
-        id: None,
-    };
-    let _partition = api_client
-        .0
-        .create_nv_link_logical_partition(request)
-        .await?;
+    api_client.0.create_nv_link_logical_partition(args).await?;
     Ok(())
 }
