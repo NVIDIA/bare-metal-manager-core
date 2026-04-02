@@ -141,7 +141,9 @@ impl PreingestionManager {
                 work_lock_manager_handle,
                 endpoint_explorer,
                 bfb_copy_state: Default::default(),
-                bfb_copy_limiter: Arc::new(Semaphore::new(config.firmware_global.max_concurrent_bfb_copies)),
+                bfb_copy_limiter: Arc::new(Semaphore::new(
+                    config.firmware_global.max_concurrent_bfb_copies,
+                )),
             }),
             metric_holder,
             database_connection,

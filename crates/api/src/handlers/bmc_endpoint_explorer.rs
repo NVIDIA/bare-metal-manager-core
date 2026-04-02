@@ -19,15 +19,15 @@ use std::net::SocketAddr;
 
 use ::rpc::forge as rpc;
 use carbide_uuid::machine::MachineId;
+use db::WithTransaction;
 use db::machine_interface::find_by_ip;
 use libredfish::RoleId;
 use mac_address::MacAddress;
 use model::machine::machine_id::try_parse_machine_id;
 use model::machine::{LoadSnapshotOptions, MachineInterfaceSnapshot};
+use model::site_explorer::PreingestionState;
 use sqlx::PgConnection;
 use tokio::net::lookup_host;
-use db::WithTransaction;
-use model::site_explorer::PreingestionState;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
