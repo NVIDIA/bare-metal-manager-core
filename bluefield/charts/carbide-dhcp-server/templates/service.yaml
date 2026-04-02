@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "carbide-dhcp-server.fullname" . }}
+  labels:
+    {{- include "carbide-dhcp-server.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "carbide-dhcp-server.selectorLabels" . | nindent 4 }}
+    {{- with .Values.serviceDaemonSet.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  ports:
+    - protocol: TCP
+      port: {{ include "carbide-dhcp-server.serverPort" . | int }}
+      targetPort: {{ include "carbide-dhcp-server.serverPort" . | int }}
