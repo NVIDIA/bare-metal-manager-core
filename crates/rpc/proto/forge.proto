@@ -183,7 +183,7 @@ service Forge {
   rpc FindMachineIds(MachineSearchConfig) returns (common.MachineIdList);
   rpc FindMachinesByIds(MachinesByIdsRequest) returns (MachineList);
   rpc FindMachineStateHistories(MachineStateHistoriesRequest) returns (MachineStateHistories);
-  rpc FindMachineHealthHistories(MachineHealthHistoriesRequest) returns (MachineHealthHistories);
+  rpc FindMachineHealthHistories(MachineHealthHistoriesRequest) returns (HealthHistories);
   rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (PowerShelfStateHistories);
   rpc FindRackStateHistories(RackStateHistoriesRequest) returns (RackStateHistories);
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (SwitchStateHistories);
@@ -2833,18 +2833,18 @@ message MachineHealthHistoriesRequest {
   google.protobuf.Timestamp end_time = 3;
 }
 
-message MachineHealthHistories {
+message HealthHistories {
   // The Health History for each Machine
-  map<string, MachineHealthHistoryRecords> histories = 1;
+  map<string, HealthHistoryRecords> histories = 1;
 }
 
-// A list of Machine health history records, starting by the oldest
-message MachineHealthHistoryRecords {
-  repeated MachineHealthHistoryRecord records = 1;
+// A list of health history records, starting by the oldest
+message HealthHistoryRecords {
+  repeated HealthHistoryRecord records = 1;
 }
 
-// The observed health for a Machine at a certain point in time
-message MachineHealthHistoryRecord {
+// The observed health for a resource at a certain point in time
+message HealthHistoryRecord {
   // The observed health
   health.HealthReport health = 1;
   // The time when the health was observed

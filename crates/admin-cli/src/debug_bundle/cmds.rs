@@ -1007,7 +1007,7 @@ async fn get_health_alerts(
     api_client: &ApiClient,
     host_id: &str,
     time_range: &TimeRange,
-) -> CarbideCliResult<::rpc::forge::MachineHealthHistories> {
+) -> CarbideCliResult<::rpc::forge::HealthHistories> {
     use std::str::FromStr;
 
     use carbide_uuid::machine::MachineId;
@@ -1362,7 +1362,7 @@ impl<'a> ZipBundleCreator<'a> {
         carbide_batch_links: &[(String, String, usize, String)],
         dpu_batch_links: &[(String, String, usize, String)],
         loki_uid: Option<&str>,
-        health_alerts: &::rpc::forge::MachineHealthHistories,
+        health_alerts: &::rpc::forge::HealthHistories,
         alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
         site_controller_analysis: &SiteControllerAnalysis,
         machine_analysis: &MachineAnalysis,
@@ -1450,7 +1450,7 @@ impl<'a> ZipBundleCreator<'a> {
     fn add_alerts_json(
         &self,
         zip: &mut ZipWriter<File>,
-        health_alerts: &::rpc::forge::MachineHealthHistories,
+        health_alerts: &::rpc::forge::HealthHistories,
         options: FileOptions,
     ) -> CarbideCliResult<()> {
         zip.start_file("health_alerts.json", options).map_err(|e| {
@@ -1815,7 +1815,7 @@ impl<'a> ZipBundleCreator<'a> {
         carbide_batch_links: &[(String, String, usize, String)],
         dpu_batch_links: &[(String, String, usize, String)],
         loki_uid: Option<&str>,
-        health_alerts: &::rpc::forge::MachineHealthHistories,
+        health_alerts: &::rpc::forge::HealthHistories,
         alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
         site_controller_analysis: &SiteControllerAnalysis,
         machine_analysis: &MachineAnalysis,
@@ -2070,7 +2070,7 @@ fn create_debug_bundle_zip(
     carbide_batch_links: &[(String, String, usize, String)],
     dpu_batch_links: &[(String, String, usize, String)],
     loki_uid: Option<&str>,
-    health_alerts: &::rpc::forge::MachineHealthHistories,
+    health_alerts: &::rpc::forge::HealthHistories,
     alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
     site_controller_analysis: &SiteControllerAnalysis,
     machine_analysis: &MachineAnalysis,

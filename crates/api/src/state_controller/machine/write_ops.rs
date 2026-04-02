@@ -112,7 +112,15 @@ impl WriteOp for MachineWriteOp {
             PersistMachineHealthHistory {
                 machine_id,
                 health_report,
-            } => db::machine_health_history::persist(txn, &machine_id, &health_report).await?,
+            } => {
+                db::health_history::persist(
+                    txn,
+                    db::health_history::HealthHistoryTableId::Machine,
+                    &machine_id,
+                    &health_report,
+                )
+                .await?
+            }
             ResetHostReprovisioningRequest {
                 machine_id,
                 clear_reset,

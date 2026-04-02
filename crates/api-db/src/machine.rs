@@ -1142,11 +1142,16 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
         };
     }
 
-    // Update the machine state and heatlh history to account for the rename
+    // Update the machine state and health history to account for the rename
     crate::machine_state_history::update_machine_ids(txn, current_machine_id, stable_machine_id)
         .await?;
-    crate::machine_health_history::update_machine_ids(txn, current_machine_id, stable_machine_id)
-        .await?;
+    crate::health_history::update_object_ids(
+        txn,
+        crate::health_history::HealthHistoryTableId::Machine,
+        &current_machine_id,
+        &stable_machine_id,
+    )
+    .await?;
 
     // Table machine_interfaces has a FK ON UPDATE CASCADE so machine_interfaces.machine_id will
     // also change.

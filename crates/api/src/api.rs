@@ -753,7 +753,7 @@ impl Forge for Api {
     async fn find_machine_health_histories(
         &self,
         request: Request<rpc::MachineHealthHistoriesRequest>,
-    ) -> std::result::Result<Response<rpc::MachineHealthHistories>, Status> {
+    ) -> std::result::Result<Response<rpc::HealthHistories>, Status> {
         crate::handlers::machine::find_machine_health_histories(self, request).await
     }
 
