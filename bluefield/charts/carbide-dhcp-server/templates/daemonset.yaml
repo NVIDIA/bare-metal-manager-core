@@ -31,8 +31,7 @@ spec:
           {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
+      dnsPolicy: ClusterFirst
       {{- if not (empty .Values.serviceDaemonSet.nodeSelector) }}
       affinity:
         nodeAffinity:
@@ -50,6 +49,8 @@ spec:
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          args:
+            - "--grpc-listen-addr=$(POD_IP):10079"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- with toYaml .Values.serviceDaemonSet.resources }}
           resources:
@@ -59,6 +60,10 @@ spec:
               {{- . | nindent 14 }}
           {{- end }}
           env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP  # Always resolves to cluster-internal IP
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -71,11 +76,13 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            - name: RUST_BACKTRACE
+              value: "full"
           volumeMounts:
             - name: dhcp-conf
-              mountPath: /var/lib/hbn/var/support/forge-dhcp/conf
+              mountPath: /var/support/forge-dhcp/conf
             - name: dhcp-logs
-              mountPath: /var/lib/hbn/var/support/forge-dhcp/logs
+              mountPath: /var/support/forge-dhcp/logs
       volumes:
         - name: dhcp-conf
           hostPath:
