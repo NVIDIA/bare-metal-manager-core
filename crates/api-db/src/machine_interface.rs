@@ -577,11 +577,7 @@ async fn try_create_fast_path(
     domain_id: Option<DomainId>,
     primary_interface: bool,
 ) -> DatabaseResult<MachineInterfaceId> {
-    let mut allocated_addresses = Vec::with_capacity(segment.prefixes.len());
-    for prefix in &segment.prefixes {
-        let address = allocate_next_ip_with_retry(txn, segment, prefix).await?;
-        allocated_addresses.push(address);
-    }
+    let allocated_addresses = allocate_addresses_from_segment(txn, segment).await?;
 
     create_inner(
         txn,
@@ -592,6 +588,20 @@ async fn try_create_fast_path(
         &allocated_addresses,
     )
     .await
+}
+
+/// Allocate one IP address from each prefix in the segment.
+/// For dual-stack segments this means one IPv4 and one IPv6 address.
+async fn allocate_addresses_from_segment(
+    txn: &mut PgTransaction<'_>,
+    segment: &NetworkSegment,
+) -> DatabaseResult<Vec<IpAddr>> {
+    let mut addresses = Vec::with_capacity(segment.prefixes.len());
+    for prefix in &segment.prefixes {
+        let address = allocate_next_ip_with_retry(txn, segment, prefix).await?;
+        addresses.push(address);
+    }
+    Ok(addresses)
 }
 
 /// Create the actual machine interface once we know what addresses we want.
@@ -1075,6 +1085,28 @@ pub async fn find_by_machine_and_segment(
         .await
         .map_err(|e| DatabaseError::query(&query, e))
         .map(|interfaces| interfaces.into_iter().collect())
+}
+
+/// Allocate new IP addresses for an existing interface that
+/// has lost its addresses (e.g. after a lease expiration, because
+/// maybe it was offline for a while). Uses the same allocation
+/// logic as initial interface creation.
+#[allow(txn_held_across_await)]
+pub async fn allocate_addresses(
+    txn: &mut PgConnection,
+    interface_id: MachineInterfaceId,
+    segment: &NetworkSegment,
+) -> DatabaseResult<()> {
+    let mut fast_txn = Transaction::begin_inner(txn).await?;
+    lock_network_segment_shared(&mut fast_txn, segment).await?;
+
+    let addresses = allocate_addresses_from_segment(&mut fast_txn, segment).await?;
+    for address in &addresses {
+        insert_machine_interface_address(fast_txn.as_pgconn(), &interface_id, address).await?;
+    }
+
+    fast_txn.commit().await?;
+    Ok(())
 }
 
 /// Record that this interface just DHCPed, so it must still exist

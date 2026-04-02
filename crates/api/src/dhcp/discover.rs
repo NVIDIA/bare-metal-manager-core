@@ -268,6 +268,24 @@ pub async fn discover_dhcp(
     )
     .await?;
 
+    // If the interface exists but has no addresses (e.g., after a lease
+    // expiration cleaned up the allocation), re-allocate from the segment.
+    if machine_interface.addresses.is_empty() {
+        tracing::info!(
+            interface_id = %machine_interface.id,
+            %parsed_mac,
+            "Interface has no addresses, re-allocating from segment"
+        );
+        let segment = db::network_segment::for_relay(&mut txn, parsed_relay)
+            .await?
+            .ok_or_else(|| {
+                CarbideError::internal(format!(
+                    "No network segment defined for relay address: {parsed_relay}"
+                ))
+            })?;
+        db::machine_interface::allocate_addresses(&mut txn, machine_interface.id, &segment).await?;
+    }
+
     if let Some(machine_id) = machine_interface.machine_id {
         // Can't block host's DHCP handling completely to support Zero-DPU.
         if machine_id.machine_type().is_host()

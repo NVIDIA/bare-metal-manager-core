@@ -73,6 +73,12 @@ pub async fn delete(
 
 /// Delete the IP address allocation for the given address. Returns true if
 /// an allocation was found and deleted, false if no allocation existed.
+///
+/// Note: This intentionally does NOT delete the parent machine_interface.
+/// The interface may be associated with a machine, and deleting it would
+/// break the discovered machine linkage. We leave the interface, and let
+/// the DHCP discover flow handle re-allocating an address to any existing
+/// interface that doesn't have one (due to expiration or otherwise).
 pub async fn delete_by_address(
     txn: &mut PgConnection,
     address: IpAddr,
