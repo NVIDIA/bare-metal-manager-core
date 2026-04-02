@@ -398,9 +398,8 @@ pub async fn list_switch_bmc_info(txn: &mut PgConnection) -> DatabaseResult<Vec<
         .map_err(|err| DatabaseError::new("list_switch_bmc_info", err))
 }
 
-/// Resolve SwitchIds to BMC IPs via the canonical path:
-///   switches.id -> switches.config->>'name' (serial)
-///   -> expected_switches.serial_number -> bmc_mac_address
+/// Resolve SwitchIds to BMC IPs via the FK path:
+///   switches.bmc_mac_address -> expected_switches.bmc_mac_address
 ///   -> machine_interfaces -> machine_interface_addresses (underlay) -> IP
 pub async fn find_bmc_ips_by_switch_ids(
     db: impl crate::db_read::DbReader<'_>,
@@ -411,7 +410,7 @@ pub async fn find_bmc_ips_by_switch_ids(
             s.id,
             mia.address
         FROM switches s
-        JOIN expected_switches es ON es.serial_number = s.config->>'name'
+        JOIN expected_switches es ON es.bmc_mac_address = s.bmc_mac_address
         JOIN machine_interfaces mi ON mi.mac_address = es.bmc_mac_address
         JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
         JOIN network_segments ns ON ns.id = mi.segment_id
@@ -447,8 +446,7 @@ pub struct SwitchEndpointRow {
 /// are still returned (with NULL nvos_mac / nvos_ip).
 ///
 /// Path:
-///   switches.id -> switches.config->>'name' (serial)
-///   -> expected_switches.serial_number -> bmc_mac_address (BMC MAC)
+///   switches.bmc_mac_address -> expected_switches.bmc_mac_address (BMC MAC)
 ///   -> machine_interfaces (by bmc_mac) -> machine_interface_addresses (underlay) -> BMC IP
 ///   -> expected_switches.nvos_mac_addresses (NVOS MAC, nullable)
 ///   -> machine_interfaces (by nvos_mac) -> machine_interface_addresses -> NVOS IP
@@ -465,7 +463,7 @@ pub async fn find_switch_endpoints_by_ids(
             nvos_mia.address     AS nvos_ip
         FROM switches s
         JOIN expected_switches es
-            ON es.serial_number = s.config->>'name'
+            ON es.bmc_mac_address = s.bmc_mac_address
         JOIN machine_interfaces bmc_mi
             ON bmc_mi.mac_address = es.bmc_mac_address
         JOIN machine_interface_addresses bmc_mia
