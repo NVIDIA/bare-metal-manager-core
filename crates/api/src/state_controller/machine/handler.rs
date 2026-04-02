@@ -9445,13 +9445,6 @@ async fn configure_host_bios(
     mh_snapshot: &ManagedHostStateSnapshot,
     retry_count: u32,
 ) -> Result<BiosConfigOutcome, StateHandlerError> {
-    if retry_count >= MAX_BIOS_CONFIG_RETRIES {
-        return Err(StateHandlerError::GenericError(eyre::eyre!(
-            "BIOS config retry budget exhausted ({MAX_BIOS_CONFIG_RETRIES}) for host {}",
-            mh_snapshot.host_snapshot.id
-        )));
-    }
-
     let boot_interface_mac = if !mh_snapshot.dpu_snapshots.is_empty() {
         let primary_interface = mh_snapshot
             .host_snapshot
@@ -9559,7 +9552,7 @@ fn bios_config_enter_handle_failure(
             failure,
             power_state: libredfish::PowerState::Off,
         },
-        retry_count: info.retry_count,
+        retry_count: info.retry_count + 1,
     })
 }
 
@@ -9753,20 +9746,13 @@ async fn advance_bios_config_job(
                             mh_snapshot.host_snapshot.id, failure
                         )));
                     }
-                    let next_retry = info.retry_count.saturating_add(1);
-                    if next_retry >= MAX_BIOS_CONFIG_RETRIES {
-                        return Err(StateHandlerError::GenericError(eyre::eyre!(
-                            "BIOS config retry budget exhausted ({MAX_BIOS_CONFIG_RETRIES}) for host {}: {failure}",
-                            mh_snapshot.host_snapshot.id
-                        )));
-                    }
                     tracing::info!(
                         machine_id = %mh_snapshot.host_snapshot.id,
-                        next_retry,
+                        retry_count = info.retry_count,
                         "HandleBiosJobFailure: BMC reset complete; re-running platform configuration (machine_setup) — power cycle does not apply BIOS attributes",
                     );
                     Ok(BiosConfigJobAdvanceOutcome::RetryPlatformConfiguration {
-                        retry_count: next_retry,
+                        retry_count: info.retry_count,
                     })
                 }
                 _ => Err(StateHandlerError::GenericError(eyre::eyre!(
