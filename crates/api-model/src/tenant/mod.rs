@@ -480,7 +480,7 @@ pub struct TenantIdentityConfig {
     // Token delegation (optional)
     pub token_endpoint: Option<String>,
     pub auth_method: Option<TokenDelegationAuthMethod>,
-    /// Token delegation auth method secrets, **encrypted at rest**: standard base64 envelope v1
+    /// Token delegation auth method secrets, **encrypted at rest**: standard base64 of JSON envelope v1
     /// (`key_encryption::encrypt`) over JSON (e.g. client_id and client_secret). Loaded from DB as
     /// ciphertext only; plaintext for gRPC mapping lives on [`TenantIdentityConfigDecrypted::auth_method_config`].
     pub encrypted_auth_method_config: Option<String>,

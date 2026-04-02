@@ -27,7 +27,7 @@ use ::rpc::forge::{
     token_delegation,
 };
 use db::{WithTransaction, tenant, tenant_identity_config};
-use forge_secrets::credentials::{CredentialKey, Credentials};
+use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 use forge_secrets::key_encryption;
 use model::tenant::{
     IdentityConfig, IdentityConfigValidationError, InvalidTenantOrg, SigningKeyMaterial,
@@ -40,15 +40,14 @@ use crate::CarbideError;
 use crate::api::{Api, log_request_data, log_request_data_redacted};
 use crate::handlers::machine_identity::require_machine_identity_site_enabled;
 
-async fn machine_identity_encryption_secret_b64(
-    api: &Api,
+async fn machine_identity_encryption_secret(
+    credentials: &dyn CredentialReader,
     encryption_key_id: &str,
-) -> Result<String, Status> {
+) -> Result<key_encryption::Aes256Key, Status> {
     let cred_key = CredentialKey::MachineIdentityEncryptionKey {
         key_id: encryption_key_id.to_string(),
     };
-    let creds = api
-        .credential_manager
+    let creds = credentials
         .get_credentials(&cred_key)
         .await
         .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?
@@ -57,19 +56,22 @@ async fn machine_identity_encryption_secret_b64(
                 "encryption key '{encryption_key_id}' not found in secrets (machine_identity.encryption_keys)"
             ))
         })?;
-    match &creds {
-        Credentials::UsernamePassword { password, .. } => Ok(password.clone()),
-    }
+    let stored = match &creds {
+        Credentials::UsernamePassword { password, .. } => password.as_str(),
+    };
+    key_encryption::aes256_key_from_stored_secret(stored)
+        .map_err(|e| CarbideError::InvalidArgument(e.to_string()).into())
 }
 
 /// Decrypts DB ciphertext into [`TenantIdentityConfigDecrypted`]: `row` keeps envelope in
 /// `encrypted_auth_method_config`; plaintext JSON is only in `auth_method_config`.
 async fn tenant_identity_with_decrypted_token_delegation(
-    api: &Api,
+    credentials: &dyn CredentialReader,
     cfg: TenantIdentityConfig,
 ) -> Result<TenantIdentityConfigDecrypted, Status> {
     let auth_method_config = if let Some(ref enc) = cfg.encrypted_auth_method_config {
-        let secret = machine_identity_encryption_secret_b64(api, &cfg.encryption_key_id).await?;
+        let secret =
+            machine_identity_encryption_secret(credentials, &cfg.encryption_key_id).await?;
         let plain = key_encryption::decrypt(enc, &secret).map_err(|e| {
             tracing::error!(
                 error = %e,
@@ -272,8 +274,11 @@ pub(crate) async fn set_identity_configuration(
 
     let key_material = match (&existing, config.rotate_key) {
         (None, _) | (_, true) => {
-            let encryption_key =
-                machine_identity_encryption_secret_b64(api, &config.encryption_key_id).await?;
+            let encryption_key = machine_identity_encryption_secret(
+                &api.credential_manager,
+                &config.encryption_key_id,
+            )
+            .await?;
             let (private_pem, public_pem) = key_encryption::generate_es256_key_pair()
                 .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
             let key_id = key_encryption::key_id_from_public_key(&public_pem);
@@ -374,7 +379,7 @@ pub(crate) async fn get_token_delegation(
         }));
     }
 
-    let cfg = tenant_identity_with_decrypted_token_delegation(api, cfg).await?;
+    let cfg = tenant_identity_with_decrypted_token_delegation(&api.credential_manager, cfg).await?;
     Ok(Response::new(cfg.try_into().map_err(CarbideError::from)?))
 }
 
@@ -425,7 +430,9 @@ pub(crate) async fn set_token_delegation(
         })?;
 
     let (auth_method, plaintext_json) = config.to_db_format();
-    let secret = machine_identity_encryption_secret_b64(api, &id_row.encryption_key_id).await?;
+    let secret =
+        machine_identity_encryption_secret(&api.credential_manager, &id_row.encryption_key_id)
+            .await?;
     let encrypted_blob = key_encryption::encrypt(
         plaintext_json.as_bytes(),
         &secret,
@@ -458,7 +465,7 @@ pub(crate) async fn set_token_delegation(
         })
         .await??;
 
-    let cfg = tenant_identity_with_decrypted_token_delegation(api, cfg).await?;
+    let cfg = tenant_identity_with_decrypted_token_delegation(&api.credential_manager, cfg).await?;
     Ok(Response::new(cfg.try_into().map_err(CarbideError::from)?))
 }
 

@@ -56,9 +56,9 @@ fn spiffe_jwks_uri_for_issuer(issuer: &str) -> String {
 async fn load_enabled_identity_for_well_known(
     api: &Api,
     org_id: &TenantOrganizationId,
-) -> Result<(TenantIdentityConfig, u32), Status> {
+) -> Result<TenantIdentityConfig, Status> {
     let org_id_str = org_id.as_str().to_string();
-    let (cfg, tenant) = api
+    let (cfg, _tenant) = api
         .database_connection
         .with_txn(|txn| {
             let org_id = org_id.clone();
@@ -79,10 +79,7 @@ async fn load_enabled_identity_for_well_known(
             .into());
         }
     };
-    let version = tenant
-        .map(|t| u32::try_from(t.version.version_nr()).unwrap_or(u32::MAX))
-        .unwrap_or(0);
-    Ok((cfg, version))
+    Ok(cfg)
 }
 
 /// Handles the SignMachineIdentity gRPC call: validates the request, extracts
@@ -174,7 +171,7 @@ pub(crate) async fn get_jwks(
         JwksKind::Spiffe => crate::machine_identity::JwkPublicKeyUse::SpiffeJwtSvid,
     };
 
-    let (cfg, version) = load_enabled_identity_for_well_known(api, &org_id).await?;
+    let cfg = load_enabled_identity_for_well_known(api, &org_id).await?;
 
     if cfg.signing_key_public.trim().is_empty() || cfg.key_id.trim().is_empty() {
         return Err(CarbideError::NotFoundError {
@@ -184,22 +181,20 @@ pub(crate) async fn get_jwks(
         .into());
     }
 
-    let jwk = crate::machine_identity::public_pem_to_jwk(
+    let jwk = crate::machine_identity::public_pem_to_jwk_value(
         &cfg.signing_key_public,
         &cfg.key_id,
         &cfg.algorithm,
-        cfg.updated_at,
         jwk_key_use,
     )
     .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+    let jwks = crate::machine_identity::jwks_document_string(&jwk)
+        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
 
-    Ok(Response::new(Jwks {
-        keys: vec![jwk],
-        version,
-    }))
+    Ok(Response::new(Jwks { jwks }))
 }
 
-/// OpenID Provider–shaped metadata (issuer, JWKS URIs). Signing algorithms come from GetJWKS keys (`alg`).
+/// OpenID Provider–shaped metadata (issuer, JWKS URIs). Signing algorithms come from GetJWKS `jwks` (`keys[].alg`).
 pub(crate) async fn get_open_id_configuration(
     api: &Api,
     request: Request<OpenIdConfigRequest>,
@@ -218,7 +213,7 @@ pub(crate) async fn get_open_id_configuration(
         .parse()
         .map_err(|e: InvalidTenantOrg| CarbideError::InvalidArgument(e.to_string()))?;
 
-    let (cfg, version) = load_enabled_identity_for_well_known(api, &org_id).await?;
+    let cfg = load_enabled_identity_for_well_known(api, &org_id).await?;
 
     if cfg.issuer.trim().is_empty() {
         return Err(CarbideError::NotFoundError {
@@ -235,6 +230,5 @@ pub(crate) async fn get_open_id_configuration(
         response_types_supported: vec!["token".into()],
         subject_types_supported: vec!["public".into()],
         id_token_signing_alg_values_supported: vec![],
-        version,
     }))
 }

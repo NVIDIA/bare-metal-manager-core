@@ -980,24 +980,10 @@ message TokenDelegationRequest {
   TokenDelegation config = 2;
 }
 
-// JSON Web Key (JWKS member). RSA fields (n, e) are empty for EC keys.
-message Jwk {
-  string kty = 1;
-  string use = 2;
-  string crv = 3;
-  string kid = 4;
-  string x = 5;
-  string y = 6;
-  string n = 7;
-  string e = 8;
-  string alg = 9;
-  google.protobuf.Timestamp created_at = 10;
-  google.protobuf.Timestamp expires_at = 11;
-}
-
+// Carried JWKS document for GetJWKS. Standard key fields live in `jwks` only (RFC 7517).
 message Jwks {
-  repeated Jwk keys = 1;
-  uint32 version = 2;
+  // UTF-8 JSON text: {"keys":[ ... ]} per RFC 7517.
+  string jwks = 1;
 }
 
 message OpenIdConfiguration {
@@ -1007,9 +993,8 @@ message OpenIdConfiguration {
   repeated string response_types_supported = 3;
   repeated string subject_types_supported = 4;
   // Always empty: OIDC ID tokens are not supported. Verifiers use `jwks_uri` / `spiffe_jwks_uri`
-  // and the per-key `alg` in GetJWKS for machine-identity JWT bearer signature verification.
+  // and GetJWKS `jwks` (`keys[].alg`) for machine-identity JWT bearer signature verification.
   repeated string id_token_signing_alg_values_supported = 5;
-  uint32 version = 6;
   // SPIFFE trust-domain style JWKS URL: `{issuer}/.well-known/spiffe/jwks.json` (GetJWKS with Spiffe kind).
   string spiffe_jwks_uri = 7;
 }

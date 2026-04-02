@@ -132,7 +132,7 @@ pub async fn find(
 }
 
 /// Set token delegation for an org. Identity config must exist first.
-/// `encrypted_auth_method_config` must be standard base64 envelope v1 from `key_encryption::encrypt`
+/// `encrypted_auth_method_config` must be standard base64 of JSON envelope v1 from `key_encryption::encrypt`
 /// over the UTF-8 JSON produced by [`TokenDelegation::to_db_format`].
 pub async fn set_token_delegation(
     org_id: &TenantOrganizationId,
@@ -203,7 +203,6 @@ pub async fn delete_token_delegation(
 mod tests {
     use std::collections::HashMap;
 
-    use base64::Engine;
     use forge_secrets::key_encryption;
     use model::metadata::Metadata;
     use model::tenant::{
@@ -212,11 +211,6 @@ mod tests {
 
     use super::*;
     use crate::tenant;
-
-    /// 32 zero bytes, standard base64 — matches `key_encryption` tests.
-    fn test_encryption_secret_b64() -> String {
-        base64::engine::general_purpose::STANDARD.encode([0u8; 32])
-    }
 
     fn test_org_id() -> TenantOrganizationId {
         "IdentityConfigTestOrg".parse().unwrap()
@@ -332,9 +326,9 @@ mod tests {
             },
         };
         let (auth_method, plaintext_json) = token_delegation.to_db_format();
-        let secret_b64 = test_encryption_secret_b64();
+        let enc_key: key_encryption::Aes256Key = [0u8; 32];
         let enc =
-            key_encryption::encrypt(plaintext_json.as_bytes(), &secret_b64, "test-master").unwrap();
+            key_encryption::encrypt(plaintext_json.as_bytes(), &enc_key, "test-master").unwrap();
         let cfg = set_token_delegation(&org_id, &token_delegation, auth_method, &enc, &mut txn)
             .await
             .unwrap();

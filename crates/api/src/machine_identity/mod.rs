@@ -23,10 +23,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use ::rpc::Timestamp;
-use ::rpc::forge::Jwk;
 use base64::Engine;
-use chrono::{DateTime, Utc};
 use jsonwebtoken::{EncodingKey, Header, encode};
 use model::tenant::TENANT_IDENTITY_SIGNING_JWT_ALG;
 use p256::PublicKey;
@@ -109,7 +106,7 @@ pub fn sign(payload: &Value, key: &[u8]) -> Result<String, SignError> {
     signer.sign(payload, &SignOptions::default())
 }
 
-/// Failure converting a tenant PEM public key into a protobuf `Jwk`.
+/// Failure building a RFC 7517 JWK / JWKS JSON value from a tenant public key PEM.
 #[derive(Debug)]
 pub struct JwkBuildError(pub String);
 
@@ -141,14 +138,13 @@ impl JwkPublicKeyUse {
     }
 }
 
-/// Maps `tenant_identity_config.signing_key_public` (SPKI PEM) into a single JWKS key.
-pub fn public_pem_to_jwk(
+/// Maps `tenant_identity_config.signing_key_public` (SPKI PEM) into one RFC 7517 JWK JSON object.
+pub fn public_pem_to_jwk_value(
     public_key_pem: &str,
     kid: &str,
     algorithm: &str,
-    material_updated_at: DateTime<Utc>,
     jwk_key_use: JwkPublicKeyUse,
-) -> Result<Jwk, JwkBuildError> {
+) -> Result<Value, JwkBuildError> {
     if algorithm != TENANT_IDENTITY_SIGNING_JWT_ALG {
         return Err(JwkBuildError(format!(
             "JWKS is only implemented for {TENANT_IDENTITY_SIGNING_JWT_ALG} (got {algorithm:?})"
@@ -167,19 +163,21 @@ pub fn public_pem_to_jwk(
 
     let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
-    Ok(Jwk {
-        kty: "EC".into(),
-        r#use: jwk_key_use.as_str().to_string(),
-        crv: "P-256".into(),
-        kid: kid.to_string(),
-        x: b64.encode(x),
-        y: b64.encode(y),
-        n: String::new(),
-        e: String::new(),
-        alg: algorithm.to_string(),
-        created_at: Some(Timestamp::from(material_updated_at)),
-        expires_at: None,
-    })
+    Ok(serde_json::json!({
+        "kty": "EC",
+        "use": jwk_key_use.as_str(),
+        "crv": "P-256",
+        "kid": kid,
+        "x": b64.encode(x),
+        "y": b64.encode(y),
+        "alg": algorithm,
+    }))
+}
+
+/// Serializes `{"keys":[ key ]}` as compact UTF-8 JSON for gRPC [`rpc::forge::Jwks::jwks`].
+pub fn jwks_document_string(key: &Value) -> Result<String, JwkBuildError> {
+    let doc = serde_json::json!({ "keys": [key] });
+    serde_json::to_string(&doc).map_err(|e| JwkBuildError(format!("serialize JWKS document: {e}")))
 }
 
 #[cfg(test)]
@@ -268,20 +266,22 @@ mod tests {
         let pem = pk
             .to_public_key_pem(p256::pkcs8::LineEnding::LF)
             .expect("public key PEM");
-        let jwk = public_pem_to_jwk(
+        let jwk = public_pem_to_jwk_value(
             &pem,
             "test-kid",
             TENANT_IDENTITY_SIGNING_JWT_ALG,
-            Utc::now(),
             JwkPublicKeyUse::OidcSignature,
         )
         .expect("jwk");
-        assert_eq!(jwk.kty, "EC");
-        assert_eq!(jwk.r#use, JwkPublicKeyUse::OidcSignature.as_str());
-        assert_eq!(jwk.crv, "P-256");
-        assert_eq!(jwk.kid, "test-kid");
-        assert_eq!(jwk.alg, TENANT_IDENTITY_SIGNING_JWT_ALG);
-        assert!(!jwk.x.is_empty() && !jwk.y.is_empty());
+        assert_eq!(jwk["kty"], "EC");
+        assert_eq!(jwk["use"], JwkPublicKeyUse::OidcSignature.as_str());
+        assert_eq!(jwk["crv"], "P-256");
+        assert_eq!(jwk["kid"], "test-kid");
+        assert_eq!(jwk["alg"], TENANT_IDENTITY_SIGNING_JWT_ALG);
+        assert!(
+            !jwk["x"].as_str().unwrap_or("").is_empty()
+                && !jwk["y"].as_str().unwrap_or("").is_empty()
+        );
     }
 
     #[test]
@@ -293,14 +293,13 @@ mod tests {
         let pem = pk
             .to_public_key_pem(p256::pkcs8::LineEnding::LF)
             .expect("public key PEM");
-        let jwk = public_pem_to_jwk(
+        let jwk = public_pem_to_jwk_value(
             &pem,
             "test-kid",
             TENANT_IDENTITY_SIGNING_JWT_ALG,
-            Utc::now(),
             JwkPublicKeyUse::SpiffeJwtSvid,
         )
         .expect("jwk");
-        assert_eq!(jwk.r#use, JwkPublicKeyUse::SpiffeJwtSvid.as_str());
+        assert_eq!(jwk["use"], JwkPublicKeyUse::SpiffeJwtSvid.as_str());
     }
 }
