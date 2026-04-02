@@ -20,18 +20,10 @@ use std::collections::HashMap;
 
 use itertools::Itertools;
 
-// Adds handler to submit button that:
-//  1. Schedules immediately disabling all input elements (Footgun: disabled inputs are not sent as form data).
-//  2. Hides previous error
-//  3. Shows spinner
+// Shows the full-screen overlay spinner on form submit.
 pub fn action_spinner_script(id: &str) -> String {
     const HANDLER: &str = r#"function() {
-  document.querySelectorAll('a, input, select, #json-link').forEach(el => el.classList.add('disabled'));
-  const actionCell = this.closest('.action-cell');
-  if (actionCell) {
-     actionCell.querySelector('.action-spinner')?.style.setProperty('visibility', 'visible');
-     actionCell.querySelector('#action-cell-status')?.style.setProperty('visibility', 'hidden');
-  }
+  if (typeof showOverlay === 'function') showOverlay();
 }"#;
     format!(
         "<script>document.getElementById('{id}').addEventListener('submit', {HANDLER});</script>"
@@ -44,6 +36,10 @@ pub(crate) enum Type {
     ResetBmc,
     MachineSetup,
     SetDpuFirstBootOrder,
+    SetFirstBootOrder,
+    DisableSecureBoot,
+    EnableLockdown,
+    DisableLockdown,
 }
 
 impl Type {
@@ -56,6 +52,10 @@ impl Type {
                 "reset_bmc" => Some(Type::ResetBmc),
                 "machine_setup" => Some(Type::MachineSetup),
                 "set_dpu_first_boot_order" => Some(Type::SetDpuFirstBootOrder),
+                "set_first_boot_order" => Some(Type::SetFirstBootOrder),
+                "disable_secure_boot" => Some(Type::DisableSecureBoot),
+                "enable_lockdown" => Some(Type::EnableLockdown),
+                "disable_lockdown" => Some(Type::DisableLockdown),
                 _ => None,
             })
     }
@@ -67,8 +67,23 @@ impl Type {
                 Type::ResetBmc => "reset_bmc",
                 Type::MachineSetup => "machine_setup",
                 Type::SetDpuFirstBootOrder => "set_dpu_first_boot_order",
+                Type::SetFirstBootOrder => "set_first_boot_order",
+                Type::DisableSecureBoot => "disable_secure_boot",
+                Type::EnableLockdown => "enable_lockdown",
+                Type::DisableLockdown => "disable_lockdown",
             },
         )
+    }
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Type::Power => "Power Control",
+            Type::ResetBmc => "BMC Reset",
+            Type::MachineSetup => "Machine Setup",
+            Type::SetDpuFirstBootOrder | Type::SetFirstBootOrder => "Boot Order",
+            Type::DisableSecureBoot => "Disable Secure Boot",
+            Type::EnableLockdown => "Enable Lockdown",
+            Type::DisableLockdown => "Disable Lockdown",
+        }
     }
 }
 
@@ -132,6 +147,28 @@ impl ActionStatus<'_> {
   window.history.replaceState({}, document.title, newUrl);
 })();
 </script>"#
+    }
+
+    pub fn action_result_script(&self) -> String {
+        let cleanup = Self::url_cleanup_script();
+        let name = self.action.display_name();
+        match self.class {
+            Class::Success => {
+                format!(
+                    "<script>document.addEventListener('DOMContentLoaded',function(){{showOverlaySuccess()}});</script>\n{cleanup}"
+                )
+            }
+            _ => {
+                let escaped = self
+                    .message
+                    .replace('\\', "\\\\")
+                    .replace('\'', "\\'")
+                    .replace('\n', "\\n");
+                format!(
+                    "<script>document.addEventListener('DOMContentLoaded',function(){{showOverlayError('{escaped}','{name} Failed')}});</script>\n{cleanup}"
+                )
+            }
+        }
     }
 
     pub fn update_redirect_url(&self, redirect_url: &str) -> String {

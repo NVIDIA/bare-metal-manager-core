@@ -6,7 +6,7 @@
 		<link href="/admin/static/sortable.css" rel="stylesheet" />
 		{% block head %}{% endblock %}
 	</head>
-	<body>
+	<body class="preload">
 		<nav>
 			<h3><a href="/admin" id="site-name">carbide-web</a></h3>
 			<form action="/admin/search" class="search-container">
@@ -122,8 +122,122 @@
 			</ul>
 		</nav>
 		<main>{% block content %}{% endblock %}</main>
+
+		<!-- Global action overlay -->
+		<div id="action-overlay" class="action-overlay" style="display:none" onclick="onOverlayBackdropClick(event)">
+			<div id="action-overlay-spinner" class="action-overlay-icon">
+				<div class="action-overlay-ring"></div>
+			</div>
+			<div id="action-overlay-success" class="action-overlay-icon" style="display:none">
+				<svg class="action-overlay-check" viewBox="0 0 52 52" overflow="visible">
+					<circle cx="26" cy="26" r="23.5" fill="none"/>
+					<path fill="none" d="M15 27l7 7 15.5-15.5"/>
+				</svg>
+			</div>
+			<div id="action-overlay-error" class="action-overlay-modal" style="display:none">
+				<span id="action-overlay-error-title" class="bubble error" style="margin-bottom:0.75rem">Action Failed</span>
+				<div class="action-overlay-error-body">
+					<pre id="action-overlay-error-msg" class="action-overlay-error-msg"></pre>
+				</div>
+				<div class="action-overlay-modal-footer">
+					<button class="action-overlay-copy-btn" onclick="copyOverlayError()">Copy</button>
+					<button onclick="hideOverlay(true)">Dismiss</button>
+				</div>
+			</div>
+		</div>
+
+		<script>
+			requestAnimationFrame(function() {
+				requestAnimationFrame(function() {
+					document.body.classList.remove('preload');
+				});
+			});
+		</script>
 		<script src="/admin/static/sortable.js"></script>
 		<script>
+			window.addEventListener('pageshow', function(e) {
+				if (e.persisted) hideOverlay(true);
+			});
+
+			function showOverlay() {
+				var ov = document.getElementById('action-overlay');
+				document.getElementById('action-overlay-spinner').style.display = '';
+				document.getElementById('action-overlay-success').style.display = 'none';
+				document.getElementById('action-overlay-error').style.display = 'none';
+				document.getElementById('action-overlay-error').classList.remove('active');
+				ov.style.display = '';
+				ov.classList.add('visible');
+			}
+
+			function hideOverlay(instant) {
+				var ov = document.getElementById('action-overlay');
+				ov.classList.remove('visible');
+				if (instant) {
+					ov.style.display = 'none';
+				} else {
+					setTimeout(function() { ov.style.display = 'none'; }, 450);
+				}
+			}
+
+			function showOverlaySuccess() {
+				document.getElementById('action-overlay-spinner').style.display = 'none';
+				document.getElementById('action-overlay-success').style.display = '';
+				document.getElementById('action-overlay-error').style.display = 'none';
+				document.getElementById('action-overlay-error').classList.remove('active');
+				var ov = document.getElementById('action-overlay');
+				ov.style.display = '';
+				ov.classList.add('visible');
+				setTimeout(hideOverlay, 2000);
+			}
+
+			function prettifyErrorMsg(raw) {
+				var jsonMatch = raw.match(/Some\("(.*)"\)\s*\(response code:/s);
+				if (jsonMatch) {
+					try {
+						var unescaped = jsonMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
+						var parsed = JSON.parse(unescaped);
+						var prefix = raw.substring(0, raw.indexOf('Some("'));
+						var suffix = raw.substring(raw.lastIndexOf('(response code:'));
+						return prefix.trim() + '\n\n' + JSON.stringify(parsed, null, 2) + '\n\n' + suffix;
+					} catch(e) {}
+				}
+				try {
+					var parsed = JSON.parse(raw);
+					return JSON.stringify(parsed, null, 2);
+				} catch(e) {}
+				return raw;
+			}
+
+			function showOverlayError(msg, title) {
+				document.getElementById('action-overlay-error-title').textContent = title || 'Action Failed';
+				document.getElementById('action-overlay-error-msg').textContent = prettifyErrorMsg(msg);
+				document.getElementById('action-overlay-spinner').style.display = 'none';
+				document.getElementById('action-overlay-success').style.display = 'none';
+				var error = document.getElementById('action-overlay-error');
+				error.classList.remove('active');
+				error.style.display = '';
+				var ov = document.getElementById('action-overlay');
+				ov.style.display = '';
+				void error.offsetWidth;
+				error.classList.add('active');
+				ov.classList.add('visible');
+			}
+
+			function copyOverlayError() {
+				var text = document.getElementById('action-overlay-error-msg').textContent;
+				navigator.clipboard.writeText(text).then(function() {
+					var btn = document.querySelector('.action-overlay-copy-btn');
+					btn.textContent = 'Copied';
+					setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+				});
+			}
+
+			function onOverlayBackdropClick(e) {
+				if (e.target === e.currentTarget && document.getElementById('action-overlay-error').style.display !== 'none') {
+					hideOverlay(true);
+				}
+			}
+
 
 			// Extract site name from URL (e.g., "dev3" from "api-dev3.frg.nvidia.com")
 			// If URL doesn't match the pattern, returns defaultSiteName (defaults to "dev3")

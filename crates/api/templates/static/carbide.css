@@ -51,11 +51,13 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Global transitions for interactions */
-* {
-  transition-property: background-color, border-color, color, transform, box-shadow;
-  transition-duration: 0.2s;
-  transition-timing-function: ease;
+/* Suppress all transitions until the first paint is complete.  Without this,
+   Safari (and sometimes Chrome) animates elements from browser-default styles
+   to the CSS-defined styles on initial page load, producing flashes and layout
+   wobble.  The class is removed by JS after the first animation frame. */
+body.preload,
+body.preload * {
+  transition: none !important;
 }
 
 /* ------------------------------------------------------------------------
@@ -137,6 +139,7 @@ nav {
   left: 0;
   top: 0;
   background-color: rgba(255, 255, 255, 0.95);
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   border-right: 1px solid var(--border-color);
   overflow-y: auto;
@@ -298,6 +301,7 @@ table {
   width: 100%;
   border-collapse: collapse;
   background-color: rgba(255, 255, 255, 0.9);
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   border-radius: 12px;
   overflow: hidden;
@@ -592,6 +596,7 @@ input[type="submit"] {
   transition: all 0.2s ease;
   margin: 0.5rem 0;
   box-shadow: var(--shadow-sm);
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   box-sizing: border-box;
 }
@@ -729,6 +734,7 @@ div#json a {
   font-weight: 500;
   transition: all 0.2s ease;
   box-shadow: var(--shadow-sm);
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   text-decoration: none;
   display: inline-block;
@@ -922,6 +928,7 @@ div.health_alert_classification {
   font-weight: 500;
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--warning);
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
 }
 
@@ -1010,6 +1017,7 @@ details > *:not(summary) {
 /* Card containers */
 .card {
   background-color: rgba(255, 255, 255, 0.8);
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   border-radius: 12px;
   padding: 1.5rem;
@@ -1035,6 +1043,7 @@ details > *:not(summary) {
   padding: 0.5rem 1rem;
   font-size: 0.9rem;
   min-width: 150px;
+  width: auto;
 }
 
 #powercontrol_action input[type="submit"],
@@ -1313,19 +1322,127 @@ pre:not(div[style*="overflow: auto"] > pre):not(td > div > pre) {
   overflow: auto;
 }
 
-/* Style for spinner in UI */
-.action-spinner {
-  display: inline-block;
-  visibility: hidden;
-  width: 16px;
-  height: 16px;
-  min-height: 16px;
-  min-width: 16px;
-  margin: 5px;
-  border: 2px solid #ccc;
-  border-top-color: #333;
+
+/* ------------------------------------------------------------------------
+   Full-screen Action Overlay
+   ------------------------------------------------------------------------ */
+.action-overlay {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0);
+  transition: background-color 0.4s ease;
+}
+
+.action-overlay.visible {
+  background-color: rgba(0, 0, 0, 0.45);
+}
+
+.action-overlay-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Error modal uses the same entrance animation */
+@keyframes overlay-fade-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Spinning ring */
+.action-overlay-ring {
+  width: 56px;
+  height: 56px;
+  border: 4px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
   border-radius: 50%;
-  animation: spin 1s linear infinite;
+  animation: spin 0.8s linear infinite;
+}
+
+/* Animated checkmark */
+.action-overlay-check {
+  width: 56px;
+  height: 56px;
+}
+
+.action-overlay-check circle {
+  stroke: #fff;
+  stroke-width: 3.71;
+  stroke-dasharray: 166;
+  stroke-dashoffset: 166;
+  animation: overlay-circle 0.5s ease forwards;
+}
+
+.action-overlay-check path {
+  stroke: #fff;
+  stroke-width: 3.71;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+  animation: overlay-check 0.35s 0.3s ease forwards;
+}
+
+@keyframes overlay-circle {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes overlay-check {
+  to { stroke-dashoffset: 0; }
+}
+
+/* Error modal */
+.action-overlay-modal {
+  background: var(--bg-primary);
+  border-radius: 12px;
+  padding: 1.5rem 2rem;
+  max-width: 620px;
+  width: 90%;
+  box-shadow: var(--shadow-md);
+  text-align: left;
+}
+
+.action-overlay-modal.active {
+  animation: overlay-fade-in 0.3s ease both;
+}
+
+.action-overlay-error-body {
+  max-height: 40vh;
+  overflow-y: auto;
+  margin-bottom: 1.25rem;
+}
+
+.action-overlay-error-body pre {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.action-overlay-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.action-overlay-modal button {
+  min-width: 100px;
+}
+
+.action-overlay-copy-btn {
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-secondary) !important;
+  border: 1px solid var(--border-color) !important;
+}
+
+.action-overlay-copy-btn:hover {
+  background-color: var(--bg-secondary) !important;
 }
 
 a.disabled,
