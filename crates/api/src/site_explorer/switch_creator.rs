@@ -166,6 +166,7 @@ impl SwitchCreator {
             id: switch_id,
             config,
             bmc_mac_address: Some(expected_switch.bmc_mac_address),
+            metadata: Some(expected_switch.metadata.clone()),
         };
 
         _ = db::switch::create(txn, &new_switch).await?;

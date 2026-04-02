@@ -15,8 +15,10 @@
  * limitations under the License.
  */
 
+use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use db::switch as db_switch;
+use model::metadata::Metadata;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -209,4 +211,54 @@ pub async fn delete_switch(
     })?;
 
     Ok(Response::new(rpc::SwitchDeletionResult {}))
+}
+
+pub(crate) async fn update_switch_metadata(
+    api: &Api,
+    request: Request<rpc::SwitchMetadataUpdateRequest>,
+) -> std::result::Result<tonic::Response<()>, tonic::Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+    let switch_id = request
+        .switch_id
+        .ok_or_else(|| CarbideError::from(RpcDataConversionError::MissingArgument("switch_id")))?;
+
+    let metadata = match request.metadata {
+        Some(m) => Metadata::try_from(m).map_err(CarbideError::from)?,
+        _ => {
+            return Err(
+                CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
+            );
+        }
+    };
+    metadata.validate(true).map_err(CarbideError::from)?;
+
+    let mut txn = api.txn_begin().await?;
+
+    let switches = db_switch::find_by(
+        &mut txn,
+        db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
+        db_switch::SwitchSearchConfig::default(),
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    let switch = switches
+        .into_iter()
+        .next()
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "switch",
+            id: switch_id.to_string(),
+        })?;
+
+    let expected_version: config_version::ConfigVersion = match request.if_version_match {
+        Some(version) => version.parse().map_err(CarbideError::from)?,
+        None => switch.version,
+    };
+
+    db_switch::update_metadata(&mut txn, &switch_id, expected_version, metadata).await?;
+
+    txn.commit().await?;
+
+    Ok(tonic::Response::new(()))
 }

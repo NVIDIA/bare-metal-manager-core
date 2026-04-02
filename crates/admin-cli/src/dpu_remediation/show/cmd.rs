@@ -16,7 +16,6 @@
  */
 
 use std::fmt::Write;
-use std::pin::Pin;
 
 use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use carbide_uuid::dpu_remediations::RemediationId;
@@ -30,7 +29,7 @@ use crate::{async_write, async_writeln};
 pub(crate) async fn handle_show(
     args: Args,
     output_format: OutputFormat,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     api_client: &ApiClient,
     page_size: usize,
 ) -> CarbideCliResult<()> {
@@ -108,7 +107,7 @@ fn convert_remediation_to_nice_format(
 async fn show_remediation_information(
     remediation_id: RemediationId,
     output_format: OutputFormat,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     display_script: bool,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
@@ -136,7 +135,7 @@ async fn show_remediation_information(
 
 async fn show_all_remediations(
     output_format: OutputFormat,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     api_client: &ApiClient,
     page_size: usize,
 ) -> CarbideCliResult<()> {

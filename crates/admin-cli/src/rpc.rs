@@ -38,7 +38,9 @@ use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::nvlink::{NvLinkLogicalPartitionId, NvLinkPartitionId};
+use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
+use carbide_uuid::switch::SwitchId;
 use carbide_uuid::vpc::VpcId;
 use mac_address::MacAddress;
 
@@ -1511,6 +1513,48 @@ impl ApiClient {
             metadata: Some(metadata),
         };
         Ok(self.0.update_machine_metadata(request).await?)
+    }
+
+    pub async fn update_rack_metadata(
+        &self,
+        rack_id: RackId,
+        metadata: ::rpc::forge::Metadata,
+        current_version: String,
+    ) -> CarbideCliResult<()> {
+        let request = ::rpc::forge::RackMetadataUpdateRequest {
+            rack_id: Some(rack_id),
+            if_version_match: Some(current_version),
+            metadata: Some(metadata),
+        };
+        Ok(self.0.update_rack_metadata(request).await?)
+    }
+
+    pub async fn update_switch_metadata(
+        &self,
+        switch_id: SwitchId,
+        metadata: ::rpc::forge::Metadata,
+        current_version: String,
+    ) -> CarbideCliResult<()> {
+        let request = ::rpc::forge::SwitchMetadataUpdateRequest {
+            switch_id: Some(switch_id),
+            if_version_match: Some(current_version),
+            metadata: Some(metadata),
+        };
+        Ok(self.0.update_switch_metadata(request).await?)
+    }
+
+    pub async fn update_power_shelf_metadata(
+        &self,
+        power_shelf_id: PowerShelfId,
+        metadata: ::rpc::forge::Metadata,
+        current_version: String,
+    ) -> CarbideCliResult<()> {
+        let request = ::rpc::forge::PowerShelfMetadataUpdateRequest {
+            power_shelf_id: Some(power_shelf_id),
+            if_version_match: Some(current_version),
+            metadata: Some(metadata),
+        };
+        Ok(self.0.update_power_shelf_metadata(request).await?)
     }
 
     pub async fn get_single_network_security_group(

@@ -30,6 +30,7 @@ pub fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Resu
             table.set_titles(row![
                 "ID",
                 "Name",
+                "Metadata Name",
                 "Location",
                 "Power State",
                 "Health",
@@ -47,6 +48,12 @@ pub fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Resu
                     .config
                     .as_ref()
                     .map(|config| config.name.as_str())
+                    .unwrap_or("N/A");
+
+                let metadata_name = switch
+                    .metadata
+                    .as_ref()
+                    .map(|m| m.name.as_str())
                     .unwrap_or("N/A");
 
                 let location = switch
@@ -70,6 +77,7 @@ pub fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Resu
                 table.add_row(row![
                     id,
                     name,
+                    metadata_name,
                     location,
                     power_state,
                     health,
@@ -92,6 +100,7 @@ pub fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Resu
             table.set_titles(row![
                 "ID",
                 "Name",
+                "Metadata Name",
                 "Location",
                 "Power State",
                 "Health",
@@ -109,6 +118,12 @@ pub fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Resu
                     .config
                     .as_ref()
                     .map(|config| config.name.as_str())
+                    .unwrap_or("N/A");
+
+                let metadata_name = switch
+                    .metadata
+                    .as_ref()
+                    .map(|m| m.name.as_str())
                     .unwrap_or("N/A");
 
                 let location = switch
@@ -132,6 +147,7 @@ pub fn show_switches(switches: Vec<Switch>, output_format: OutputFormat) -> Resu
                 table.add_row(row![
                     id,
                     name,
+                    metadata_name,
                     location,
                     power_state,
                     health,

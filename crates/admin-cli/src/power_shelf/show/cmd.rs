@@ -32,6 +32,7 @@ pub fn show_power_shelves(
         table.set_titles(row![
             "ID",
             "Name",
+            "Metadata Name",
             "Capacity(W)",
             "Voltage(V)",
             "Location",
@@ -41,6 +42,12 @@ pub fn show_power_shelves(
         ]);
 
         for shelf in shelves {
+            let metadata_name = shelf
+                .metadata
+                .as_ref()
+                .map(|m| m.name.as_str())
+                .unwrap_or("N/A");
+
             table.add_row(row![
                 shelf
                     .id
@@ -52,6 +59,7 @@ pub fn show_power_shelves(
                     .as_ref()
                     .map(|c| c.name.as_str())
                     .unwrap_or("N/A"),
+                metadata_name,
                 shelf
                     .config
                     .as_ref()

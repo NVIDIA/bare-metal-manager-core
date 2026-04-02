@@ -16,7 +16,6 @@
  */
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::pin::Pin;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExplorationReport};
@@ -189,7 +188,7 @@ async fn get_exploration_report_for_bmc_address(
 
 pub async fn show_discovered_managed_host(
     api_client: &ApiClient,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,
     internal_page_size: usize,
     mode: Args,
@@ -363,7 +362,7 @@ fn filter_endpoints(
 }
 
 async fn print_managed_host_info(
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     managed_host: &ExploredManagedHost,
     endpoints: HashMap<&str, &ExploredEndpoint>,
 ) -> CarbideCliResult<()> {
@@ -534,7 +533,7 @@ fn endpoint_to_row(endpoint: &ExploredEndpoint) -> Row {
 }
 
 async fn display_endpoint(
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     endpoint: ExploredEndpoint,
 ) -> CarbideCliResult<()> {
     let report = &endpoint.report;

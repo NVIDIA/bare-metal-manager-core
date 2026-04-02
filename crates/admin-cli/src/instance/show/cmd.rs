@@ -16,7 +16,6 @@
  */
 use std::borrow::Cow;
 use std::fmt::Write;
-use std::pin::Pin;
 use std::str::FromStr;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
@@ -441,7 +440,7 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
 
 async fn show_instance_details(
     id: String,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     api_client: &ApiClient,
     extrainfo: bool,
@@ -491,7 +490,7 @@ async fn show_instance_details(
 
 pub async fn handle_show(
     args: Args,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     api_client: &ApiClient,
     page_size: usize,

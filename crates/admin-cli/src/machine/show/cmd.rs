@@ -17,7 +17,6 @@
 
 use std::collections::VecDeque;
 use std::fmt::Write;
-use std::pin::Pin;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
@@ -300,7 +299,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
 }
 
 async fn show_all_machines(
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     api_client: &ApiClient,
     search_config: rpc::forge::MachineSearchConfig,
@@ -341,7 +340,7 @@ async fn show_machine_information(
     machine_id: MachineId,
     args: &Args,
     output_format: &OutputFormat,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let machine = api_client.get_machine(machine_id).await?;
@@ -372,7 +371,7 @@ async fn show_machine_information(
 pub async fn handle_show(
     args: Args,
     output_format: &OutputFormat,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     api_client: &ApiClient,
     page_size: usize,
     sort_by: &SortField,

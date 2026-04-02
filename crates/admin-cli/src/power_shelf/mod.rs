@@ -16,6 +16,7 @@
  */
 
 mod list;
+pub mod metadata;
 mod show;
 
 #[cfg(test)]
@@ -31,4 +32,6 @@ pub enum Cmd {
     Show(show::Args),
     #[clap(about = "List all power shelves")]
     List(list::Args),
+    #[clap(subcommand, about = "Manage Power Shelf Metadata")]
+    Metadata(metadata::Args),
 }

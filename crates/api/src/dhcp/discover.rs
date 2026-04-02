@@ -332,9 +332,10 @@ async fn update_rack_config_predicted_id_with_actual(
             let expected_compute_trays = vec![*parsed_mac];
             #[allow(deprecated)]
             let rack_id: RackId = RackId::default();
-            let rack = db::rack::create(txn, &rack_id, expected_compute_trays, vec![], vec![])
-                .await
-                .map_err(CarbideError::from)?;
+            let rack =
+                db::rack::create(txn, &rack_id, expected_compute_trays, vec![], vec![], None)
+                    .await
+                    .map_err(CarbideError::from)?;
             tracing::warn!(
                 "Handling DHCP response for mac {parsed_mac} but no rack was found! Create one with id {rack_id}"
             );

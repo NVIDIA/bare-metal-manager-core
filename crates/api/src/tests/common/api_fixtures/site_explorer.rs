@@ -1509,6 +1509,7 @@ pub async fn new_power_shelf(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config,
+        metadata: None,
     };
 
     let _power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf)
@@ -1615,6 +1616,7 @@ impl TestRackDbBuilder {
             self.expected_compute_trays.clone(),
             self.expected_switches.clone(),
             self.expected_power_shelves.clone(),
+            None,
         )
         .await?;
 
@@ -1677,6 +1679,7 @@ pub async fn new_switch(
         id: switch_id,
         config,
         bmc_mac_address: Some(expected_switch.bmc_mac_address),
+        metadata: None,
     };
 
     let _switch = db_switch::create(&mut txn, &new_switch)

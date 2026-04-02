@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::collections::HashMap;
 use std::fmt::Display;
 
 use carbide_uuid::machine::MachineId;
@@ -30,6 +31,7 @@ use sqlx::{FromRow, Row};
 use crate::StateSla;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::machine::health_override::HealthReportOverrides;
+use crate::metadata::Metadata;
 
 #[derive(Debug, Clone)]
 pub struct Rack {
@@ -41,6 +43,8 @@ pub struct Rack {
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub deleted: Option<DateTime<Utc>>,
+    pub metadata: Metadata,
+    pub version: ConfigVersion,
 }
 
 impl From<Rack> for rpc::forge::Rack {
@@ -84,6 +88,8 @@ impl From<Rack> for rpc::forge::Rack {
             deleted: value.deleted.map(Timestamp::from),
             health: Some(health.into()),
             health_overrides,
+            metadata: Some(value.metadata.into()),
+            version: value.version.version_string(),
         }
     }
 }
@@ -119,6 +125,12 @@ impl<'r> FromRow<'r, PgRow> for Rack {
             .try_get::<sqlx::types::Json<HealthReportOverrides>, _>("health_report_overrides")
             .map(|j| j.0)
             .unwrap_or_default();
+        let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
+        let metadata = Metadata {
+            name: row.try_get("name")?,
+            description: row.try_get("description")?,
+            labels: labels.0,
+        };
         Ok(Rack {
             id: row.try_get("id")?,
             config: config.0,
@@ -131,6 +143,8 @@ impl<'r> FromRow<'r, PgRow> for Rack {
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deleted: row.try_get("deleted")?,
+            metadata,
+            version: row.try_get("version")?,
         })
     }
 }

@@ -273,6 +273,15 @@ service Forge {
   // Update the Metadata of a Machine
   rpc UpdateMachineMetadata(MachineMetadataUpdateRequest) returns (google.protobuf.Empty);
 
+  // Update the Metadata of a Rack
+  rpc UpdateRackMetadata(RackMetadataUpdateRequest) returns (google.protobuf.Empty);
+
+  // Update the Metadata of a Switch
+  rpc UpdateSwitchMetadata(SwitchMetadataUpdateRequest) returns (google.protobuf.Empty);
+
+  // Update the Metadata of a PowerShelf
+  rpc UpdatePowerShelfMetadata(PowerShelfMetadataUpdateRequest) returns (google.protobuf.Empty);
+
   // Update the NVLink Info of a Machine
   rpc UpdateMachineNvLinkInfo(UpdateMachineNvLinkInfoRequest) returns (google.protobuf.Empty);
 
@@ -1720,6 +1729,9 @@ message PowerShelf {
   optional google.protobuf.Timestamp deleted = 4;
 
   string controller_state = 5;
+
+  Metadata metadata = 6;
+  string version = 7;
 }
 
 message PowerShelfList {
@@ -1848,6 +1860,9 @@ message Switch {
 
   // Version string for the current controller state (e.g. "V3-T1774905143273055").
   string state_version = 7;
+
+  Metadata metadata = 8;
+  string version = 9;
 }
 
 message SwitchList {
@@ -2966,6 +2981,48 @@ message MachineMetadataUpdateRequest {
   optional string if_version_match = 2;
 
   // New Metadata to be utilized by the Machine
+  Metadata metadata = 3;
+}
+
+message RackMetadataUpdateRequest {
+  // The ID of the Rack for which the Metadata update will apply
+  common.RackId rack_id = 1;
+
+  // If the field here is set, the update will only be applied if the version
+  // is equivalent to the current Rack `version` on the Forge Site.
+  // If a concurrent update changed the site configuration, the API will return
+  // a `ConcurrentModificationError`.
+  optional string if_version_match = 2;
+
+  // New Metadata to be utilized by the Rack
+  Metadata metadata = 3;
+}
+
+message SwitchMetadataUpdateRequest {
+  // The ID of the Switch for which the Metadata update will apply
+  common.SwitchId switch_id = 1;
+
+  // If the field here is set, the update will only be applied if the version
+  // is equivalent to the current Switch `version` on the Forge Site.
+  // If a concurrent update changed the site configuration, the API will return
+  // a `ConcurrentModificationError`.
+  optional string if_version_match = 2;
+
+  // New Metadata to be utilized by the Switch
+  Metadata metadata = 3;
+}
+
+message PowerShelfMetadataUpdateRequest {
+  // The ID of the PowerShelf for which the Metadata update will apply
+  common.PowerShelfId power_shelf_id = 1;
+
+  // If the field here is set, the update will only be applied if the version
+  // is equivalent to the current PowerShelf `version` on the Forge Site.
+  // If a concurrent update changed the site configuration, the API will return
+  // a `ConcurrentModificationError`.
+  optional string if_version_match = 2;
+
+  // New Metadata to be utilized by the PowerShelf
   Metadata metadata = 3;
 }
 
@@ -6057,6 +6114,8 @@ message Rack {
   google.protobuf.Timestamp deleted = 11;
   health.HealthReport health = 12;
   repeated HealthOverrideOrigin health_overrides = 13;
+  Metadata metadata = 14;
+  string version = 15;
 }
 
 message RackStateHistoryRecord {

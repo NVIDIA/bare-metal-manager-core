@@ -22,6 +22,7 @@ use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use futures::StreamExt;
 use model::controller_outcome::PersistentStateHandlerOutcome;
+use model::metadata::Metadata;
 use model::switch::{
     FirmwareUpgradeStatus, NewSwitch, Switch, SwitchControllerState, SwitchReprovisionRequest,
 };
@@ -58,18 +59,34 @@ pub struct SwitchSearchConfig {
 }
 pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseResult<Switch> {
     let state = SwitchControllerState::Created;
+    let controller_state_version = ConfigVersion::initial();
     let version = ConfigVersion::initial();
 
+    let default_metadata = Metadata::default();
+    let expected_metadata = new_switch.metadata.as_ref().unwrap_or(&default_metadata);
+    let metadata_name = match expected_metadata.name.as_str() {
+        "" => new_switch.id.to_string(),
+        name => name.to_string(),
+    };
+    let metadata = Metadata {
+        name: metadata_name,
+        description: expected_metadata.description.clone(),
+        labels: expected_metadata.labels.clone(),
+    };
+
     let query = sqlx::query_as::<_, SwitchId>(
-        "INSERT INTO switches (id, name, config, controller_state, controller_state_version, bmc_mac_address) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+        "INSERT INTO switches (id, name, config, controller_state, controller_state_version, bmc_mac_address, description, labels, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9) RETURNING id",
     );
     let id = query
         .bind(new_switch.id)
-        .bind(&new_switch.config.name)
+        .bind(&metadata.name)
         .bind(sqlx::types::Json(&new_switch.config))
         .bind(sqlx::types::Json(&state))
-        .bind(version)
+        .bind(controller_state_version)
         .bind(new_switch.bmc_mac_address)
+        .bind(&metadata.description)
+        .bind(sqlx::types::Json(&metadata.labels))
+        .bind(version)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new("create switch", e))?;
@@ -82,11 +99,13 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
         bmc_mac_address: new_switch.bmc_mac_address,
         controller_state: Versioned {
             value: state,
-            version,
+            version: controller_state_version,
         },
         controller_state_outcome: None,
         switch_reprovisioning_requested: None,
         firmware_upgrade_status: None,
+        metadata,
+        version,
     })
 }
 
@@ -427,4 +446,39 @@ pub async fn find_switch_endpoints_by_ids(
         .fetch_all(db)
         .await
         .map_err(|err| DatabaseError::new("switch::find_switch_endpoints_by_ids", err))
+}
+
+pub async fn update_metadata(
+    txn: &mut PgConnection,
+    switch_id: &SwitchId,
+    expected_version: ConfigVersion,
+    metadata: Metadata,
+) -> Result<(), DatabaseError> {
+    let next_version = expected_version.increment();
+
+    let query = "UPDATE switches SET
+            version=$1,
+            name=$2, description=$3, labels=$4::jsonb
+            WHERE id=$5 AND version=$6
+            RETURNING id";
+
+    let query_result: Result<(SwitchId,), _> = sqlx::query_as(query)
+        .bind(next_version)
+        .bind(&metadata.name)
+        .bind(&metadata.description)
+        .bind(sqlx::types::Json(&metadata.labels))
+        .bind(switch_id)
+        .bind(expected_version)
+        .fetch_one(txn)
+        .await;
+
+    match query_result {
+        Ok((_id,)) => Ok(()),
+        Err(e) => Err(match e {
+            sqlx::Error::RowNotFound => {
+                DatabaseError::ConcurrentModificationError("switch", expected_version.to_string())
+            }
+            e => DatabaseError::query(query, e),
+        }),
+    }
 }

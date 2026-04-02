@@ -7331,6 +7331,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "postgres-smoke-test"
+version = "0.0.0"
+dependencies = [
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
 name = "potential_utf"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

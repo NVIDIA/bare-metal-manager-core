@@ -50,6 +50,15 @@ use crate::api::Api;
 use crate::auth::{AuthContext, Principal};
 use crate::cfg::file::CarbideConfig;
 
+/// Reusable template for rendering metadata (name, description, labels, version)
+/// in entity detail pages. Render with `{{ metadata_detail|safe }}`.
+#[derive(Template)]
+#[template(path = "metadata_details.html")]
+pub(crate) struct MetadataDetail {
+    pub metadata: rpc::forge::Metadata,
+    pub metadata_version: String,
+}
+
 mod action_status;
 mod attestation;
 mod auth;

@@ -76,9 +76,16 @@ pub async fn add_expected_rack(
 
     // Create the rack entry with the rack_type name. Expected racks are the
     // only way rack entries get created.
-    let db_rack = db_rack::create(&mut txn, rack_id, vec![], vec![], vec![])
-        .await
-        .map_err(CarbideError::from)?;
+    let db_rack = db_rack::create(
+        &mut txn,
+        rack_id,
+        vec![],
+        vec![],
+        vec![],
+        Some(&rack.metadata),
+    )
+    .await
+    .map_err(CarbideError::from)?;
     let mut config = db_rack.config.clone();
     config.rack_type = Some(rack_type);
     db_rack::update(&mut txn, rack_id, &config)

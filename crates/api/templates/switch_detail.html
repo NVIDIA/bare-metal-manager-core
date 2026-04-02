@@ -64,7 +64,7 @@
 	{% endif %}
 </table>
 
-<h2>Metadata</h2>
+<h2>Configuration</h2>
 <table class="detailsview">
 	<tr>
 		<th>Name</th>
@@ -79,6 +79,9 @@
 		<td>{{ enable_nmxc }}</td>
 	</tr>
 </table>
+
+<h2>Metadata</h2>
+{{ metadata_detail|safe }}
 
 <h2>Health</h2>
 <table class="detailsview">

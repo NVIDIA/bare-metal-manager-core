@@ -130,6 +130,7 @@ struct SwitchDetail {
     power_state: Option<String>,
     health_status: Option<String>,
     bmc_info: Option<rpc::forge::BmcInfo>,
+    metadata_detail: super::MetadataDetail,
 }
 
 #[derive(serde::Serialize)]
@@ -157,6 +158,10 @@ impl SwitchDetail {
         let power_state = switch.status.as_ref().and_then(|s| s.power_state.clone());
         let health_status = switch.status.as_ref().and_then(|s| s.health_status.clone());
         let time_in_state = config_version::since_state_change_humanized(&switch.state_version);
+        let metadata_detail = super::MetadataDetail {
+            metadata: switch.metadata.unwrap_or_default(),
+            metadata_version: switch.version,
+        };
         Self {
             id,
             controller_state: parse_controller_state(&switch.controller_state),
@@ -169,6 +174,7 @@ impl SwitchDetail {
             power_state,
             health_status,
             bmc_info: switch.bmc_info,
+            metadata_detail,
         }
     }
 }

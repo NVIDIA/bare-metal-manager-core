@@ -15,12 +15,14 @@
  * limitations under the License.
  */
 
+use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use db::power_shelf as db_power_shelf;
+use model::metadata::Metadata;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
-use crate::api::Api;
+use crate::api::{Api, log_request_data};
 
 pub async fn find_power_shelf(
     api: &Api,
@@ -138,4 +140,55 @@ pub async fn delete_power_shelf(
     })?;
 
     Ok(Response::new(rpc::PowerShelfDeletionResult {}))
+}
+
+pub(crate) async fn update_power_shelf_metadata(
+    api: &Api,
+    request: Request<rpc::PowerShelfMetadataUpdateRequest>,
+) -> std::result::Result<tonic::Response<()>, tonic::Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+    let power_shelf_id = request.power_shelf_id.ok_or_else(|| {
+        CarbideError::from(RpcDataConversionError::MissingArgument("power_shelf_id"))
+    })?;
+
+    let metadata = match request.metadata {
+        Some(m) => Metadata::try_from(m).map_err(CarbideError::from)?,
+        _ => {
+            return Err(
+                CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
+            );
+        }
+    };
+    metadata.validate(true).map_err(CarbideError::from)?;
+
+    let mut txn = api.txn_begin().await?;
+
+    let power_shelves = db_power_shelf::find_by(
+        &mut txn,
+        db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &power_shelf_id),
+        db_power_shelf::PowerShelfSearchConfig::default(),
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    let power_shelf =
+        power_shelves
+            .into_iter()
+            .next()
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "power_shelf",
+                id: power_shelf_id.to_string(),
+            })?;
+
+    let expected_version: config_version::ConfigVersion = match request.if_version_match {
+        Some(version) => version.parse().map_err(CarbideError::from)?,
+        None => power_shelf.version,
+    };
+
+    db_power_shelf::update_metadata(&mut txn, &power_shelf_id, expected_version, metadata).await?;
+
+    txn.commit().await?;
+
+    Ok(tonic::Response::new(()))
 }

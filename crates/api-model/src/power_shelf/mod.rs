@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::collections::HashMap;
+
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use carbide_uuid::power_shelf::PowerShelfId;
@@ -26,6 +28,7 @@ use sqlx::{FromRow, Row};
 
 use crate::StateSla;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
+use crate::metadata::Metadata;
 
 pub mod power_shelf_id;
 pub mod slas;
@@ -34,6 +37,7 @@ pub mod slas;
 pub struct NewPowerShelf {
     pub id: PowerShelfId,
     pub config: PowerShelfConfig,
+    pub metadata: Option<Metadata>,
 }
 
 impl TryFrom<rpc::PowerShelfCreationRequest> for NewPowerShelf {
@@ -53,6 +57,7 @@ impl TryFrom<rpc::PowerShelfCreationRequest> for NewPowerShelf {
         Ok(NewPowerShelf {
             id,
             config: PowerShelfConfig::try_from(conf)?,
+            metadata: None,
         })
     }
 }
@@ -88,6 +93,8 @@ pub struct PowerShelf {
     // Columns for these exist, but are unused in rust code
     // pub created: DateTime<Utc>,
     // pub updated: DateTime<Utc>,
+    pub metadata: Metadata,
+    pub version: ConfigVersion,
 }
 
 impl<'r> FromRow<'r, PgRow> for PowerShelf {
@@ -99,6 +106,12 @@ impl<'r> FromRow<'r, PgRow> for PowerShelf {
         let controller_state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
             row.try_get("controller_state_outcome").ok();
 
+        let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
+        let metadata = Metadata {
+            name: row.try_get("name")?,
+            description: row.try_get("description")?,
+            labels: labels.0,
+        };
         Ok(PowerShelf {
             id: row.try_get("id")?,
             config: config.0,
@@ -109,6 +122,8 @@ impl<'r> FromRow<'r, PgRow> for PowerShelf {
                 version: row.try_get("controller_state_version")?,
             },
             controller_state_outcome: controller_state_outcome.map(|o| o.0),
+            metadata,
+            version: row.try_get("version")?,
         })
     }
 }
@@ -160,6 +175,8 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
             status,
             deleted,
             controller_state,
+            metadata: Some(src.metadata.into()),
+            version: src.version.version_string(),
         })
     }
 }

@@ -16,11 +16,13 @@
  */
 use std::str::FromStr;
 
+use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc, HealthReportOverride};
 use carbide_uuid::rack::RackId;
 use db::{ObjectColumnFilter, WithTransaction, rack as db_rack};
 use futures_util::FutureExt;
 use health_report::OverrideMode;
+use model::metadata::Metadata;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -302,4 +304,42 @@ async fn remove_rack_override_by_source(
     db_rack::remove_health_report_override(&mut *txn, &rack.id, mode, &source).await?;
 
     Ok(())
+}
+
+pub(crate) async fn update_rack_metadata(
+    api: &Api,
+    request: Request<rpc::RackMetadataUpdateRequest>,
+) -> std::result::Result<tonic::Response<()>, tonic::Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+    let rack_id = request
+        .rack_id
+        .ok_or_else(|| CarbideError::from(RpcDataConversionError::MissingArgument("rack_id")))?;
+
+    let metadata = match request.metadata {
+        Some(m) => Metadata::try_from(m).map_err(CarbideError::from)?,
+        _ => {
+            return Err(
+                CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
+            );
+        }
+    };
+    metadata.validate(true).map_err(CarbideError::from)?;
+
+    let mut txn = api.txn_begin().await?;
+
+    let rack = db_rack::get(&mut txn, &rack_id)
+        .await
+        .map_err(CarbideError::from)?;
+
+    let expected_version: config_version::ConfigVersion = match request.if_version_match {
+        Some(version) => version.parse().map_err(CarbideError::from)?,
+        None => rack.version,
+    };
+
+    db_rack::update_metadata(&mut txn, &rack_id, expected_version, metadata).await?;
+
+    txn.commit().await?;
+
+    Ok(tonic::Response::new(()))
 }

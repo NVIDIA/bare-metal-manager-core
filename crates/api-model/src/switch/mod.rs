@@ -29,6 +29,7 @@ use sqlx::{FromRow, Row};
 
 use crate::StateSla;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
+use crate::metadata::Metadata;
 
 pub mod slas;
 pub mod switch_id;
@@ -38,6 +39,7 @@ pub struct NewSwitch {
     pub id: SwitchId,
     pub config: SwitchConfig,
     pub bmc_mac_address: Option<MacAddress>,
+    pub metadata: Option<Metadata>,
 }
 
 impl TryFrom<rpc::SwitchCreationRequest> for NewSwitch {
@@ -71,6 +73,7 @@ impl TryFrom<rpc::SwitchCreationRequest> for NewSwitch {
             id,
             config: SwitchConfig::try_from(conf)?,
             bmc_mac_address: None,
+            metadata: None,
         })
     }
 }
@@ -139,6 +142,8 @@ pub struct Switch {
     // Columns for these exist, but are unused in rust code
     // pub created: DateTime<Utc>,
     // pub updated: DateTime<Utc>,
+    pub metadata: Metadata,
+    pub version: ConfigVersion,
 }
 
 impl<'r> FromRow<'r, PgRow> for Switch {
@@ -154,6 +159,12 @@ impl<'r> FromRow<'r, PgRow> for Switch {
         let firmware_upgrade_status: Option<sqlx::types::Json<FirmwareUpgradeStatus>> =
             row.try_get("firmware_upgrade_status").ok();
 
+        let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
+        let metadata = Metadata {
+            name: row.try_get("name")?,
+            description: row.try_get("description")?,
+            labels: labels.0,
+        };
         Ok(Switch {
             id: row.try_get("id")?,
             config: config.0,
@@ -167,6 +178,8 @@ impl<'r> FromRow<'r, PgRow> for Switch {
             controller_state_outcome: controller_state_outcome.map(|o| o.0),
             switch_reprovisioning_requested: switch_reprovisioning_requested.map(|j| j.0),
             firmware_upgrade_status: firmware_upgrade_status.map(|j| j.0),
+            metadata,
+            version: row.try_get("version")?,
         })
     }
 }
@@ -237,6 +250,8 @@ impl TryFrom<Switch> for rpc::Switch {
             controller_state,
             bmc_info: None,
             state_version,
+            metadata: Some(src.metadata.into()),
+            version: src.version.version_string(),
         })
     }
 }
@@ -402,6 +417,8 @@ mod tests {
             }),
             switch_reprovisioning_requested: None,
             firmware_upgrade_status: None,
+            metadata: Metadata::default(),
+            version: ConfigVersion::initial(),
         };
 
         let rpc_switch: rpc::Switch = switch.try_into().unwrap();
@@ -438,6 +455,8 @@ mod tests {
             }),
             switch_reprovisioning_requested: None,
             firmware_upgrade_status: None,
+            metadata: Metadata::default(),
+            version: ConfigVersion::initial(),
         };
 
         let rpc_switch: rpc::Switch = switch.try_into().unwrap();

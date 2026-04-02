@@ -16,7 +16,6 @@
  */
 
 use std::collections::HashMap;
-use std::pin::Pin;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::ManagedHostNetworkConfigResponse;
@@ -29,7 +28,7 @@ use crate::rpc::ApiClient;
 
 pub async fn network(
     api_client: &ApiClient,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     cmd: NetworkCommand,
     output_format: OutputFormat,
 ) -> CarbideCliResult<()> {
@@ -52,7 +51,7 @@ fn deny_prefix(config: &ManagedHostNetworkConfigResponse) -> String {
 
 pub async fn show_dpu_network_config(
     api_client: &ApiClient,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     dpu_id: MachineId,
     output_format: OutputFormat,
 ) -> CarbideCliResult<()> {
@@ -197,7 +196,7 @@ pub async fn show_dpu_network_config(
 
 pub async fn show_dpu_status(
     api_client: &ApiClient,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
 ) -> CarbideCliResult<()> {
     let all_status = api_client
         .0

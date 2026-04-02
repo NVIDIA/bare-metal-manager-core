@@ -159,6 +159,7 @@ async fn test_expected_no_definition_stays_parked(
         vec![MacAddress::new([0x00, 0x1A, 0x2B, 0x3C, 0x4D, 0x50])],
         vec![],
         vec![],
+        None,
     )
     .await?;
 
@@ -214,6 +215,7 @@ async fn test_expected_incomplete_device_counts_stays(
         vec![MacAddress::new([0x00, 0x1A, 0x2B, 0x3C, 0x4D, 0x50])],
         vec![],
         vec![],
+        None,
     )
     .await?;
 
@@ -277,6 +279,7 @@ async fn test_expected_counts_match_but_not_linked_stays(
         vec![mac1, mac2],
         vec![switch_mac],
         vec![ps_mac],
+        None,
     )
     .await?;
 
@@ -341,7 +344,7 @@ async fn test_expected_all_linked_transitions_to_discovering(
     let mut txn = pool.acquire().await?;
 
     // Create rack with a rack_type expecting 2 compute, 0 switches, 0 PS.
-    db_rack::create(&mut txn, &rack_id, vec![mac1, mac2], vec![], vec![]).await?;
+    db_rack::create(&mut txn, &rack_id, vec![mac1, mac2], vec![], vec![], None).await?;
 
     // Simulate that both compute trays are already linked by setting
     // compute_trays to have 2 entries matching expected_compute_trays.
@@ -414,7 +417,7 @@ async fn test_expected_more_discovered_than_expected_transitions(
     let mut txn = pool.acquire().await?;
 
     // Rack type "Single" expects 1 compute, 0 switches, 0 PS.
-    db_rack::create(&mut txn, &rack_id, vec![mac1], vec![], vec![]).await?;
+    db_rack::create(&mut txn, &rack_id, vec![mac1], vec![], vec![], None).await?;
 
     // Simulate more compute_trays discovered than expected_compute_trays.
     let machine_id_1 = new_machine_id(1);
@@ -488,7 +491,7 @@ async fn test_discovering_waits_for_compute_ready(
     // have a managed host record yet.
     let machine_id = new_machine_id(1);
 
-    db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![]).await?;
+    db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![], None).await?;
 
     let cfg = RackConfig {
         compute_trays: vec![machine_id],
@@ -546,7 +549,7 @@ async fn test_discovering_empty_rack_transitions_to_maintenance(
     let mut txn = pool.acquire().await?;
 
     // Create a rack with empty device lists.
-    db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![]).await?;
+    db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![], None).await?;
 
     let cfg = RackConfig {
         compute_trays: vec![],
@@ -601,7 +604,7 @@ async fn test_error_state_does_nothing(
 
     let rack_id = new_rack_id();
     let mut txn = pool.acquire().await?;
-    db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![]).await?;
+    db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![], None).await?;
 
     let mut rack = db_rack::get(&pool, &rack_id).await?;
 
@@ -640,7 +643,7 @@ async fn test_maintenance_completed_transitions_to_validation(
 
     let rack_id = new_rack_id();
     let mut txn = pool.acquire().await?;
-    db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![]).await?;
+    db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![], None).await?;
 
     let mut rack = db_rack::get(&pool, &rack_id).await?;
 
@@ -693,7 +696,7 @@ async fn test_ready_with_no_labels_stays_ready(
 
     let rack_id = new_rack_id();
     let mut txn = pool.acquire().await?;
-    db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![]).await?;
+    db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![], None).await?;
 
     let mut rack = db_rack::get(&pool, &rack_id).await?;
 
@@ -829,7 +832,7 @@ async fn test_adopt_dangling_devices_no_devices(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let rack_id = new_rack_id();
     let mut txn = pool.acquire().await?;
-    db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![]).await?;
+    db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![], None).await?;
     drop(txn);
 
     let mut config = RackConfig::default();
@@ -873,7 +876,7 @@ async fn test_expected_unknown_rack_type_stays_parked(
 
     let rack_id = new_rack_id();
     let mut txn = pool.acquire().await?;
-    db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![]).await?;
+    db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![], None).await?;
 
     // Set a rack_type that doesn't exist in the config.
     let cfg = RackConfig {
@@ -919,7 +922,7 @@ async fn test_expected_config_change_applies_retroactively(
     let mac1 = MacAddress::new([0x00, 0x1A, 0x2B, 0x3C, 0x4D, 0x50]);
 
     let mut txn = pool.acquire().await?;
-    db_rack::create(&mut txn, &rack_id, vec![mac1], vec![], vec![]).await?;
+    db_rack::create(&mut txn, &rack_id, vec![mac1], vec![], vec![], None).await?;
 
     // Register only 1 compute tray with rack_type "NVL72" (needs 2).
     let cfg = RackConfig {

@@ -933,6 +933,27 @@ impl Forge for Api {
         crate::handlers::machine::update_machine_metadata(self, request).await
     }
 
+    async fn update_rack_metadata(
+        &self,
+        request: Request<rpc::RackMetadataUpdateRequest>,
+    ) -> std::result::Result<Response<()>, Status> {
+        crate::handlers::rack::update_rack_metadata(self, request).await
+    }
+
+    async fn update_switch_metadata(
+        &self,
+        request: Request<rpc::SwitchMetadataUpdateRequest>,
+    ) -> std::result::Result<Response<()>, Status> {
+        crate::handlers::switch::update_switch_metadata(self, request).await
+    }
+
+    async fn update_power_shelf_metadata(
+        &self,
+        request: Request<rpc::PowerShelfMetadataUpdateRequest>,
+    ) -> std::result::Result<Response<()>, Status> {
+        crate::handlers::power_shelf::update_power_shelf_metadata(self, request).await
+    }
+
     async fn update_machine_nv_link_info(
         &self,
         request: Request<rpc::UpdateMachineNvLinkInfoRequest>,

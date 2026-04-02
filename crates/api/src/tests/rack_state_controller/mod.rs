@@ -478,7 +478,7 @@ async fn test_rack_controller_state_version_increment(
     // Create a rack
     let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
     let mut txn = pool.begin().await?;
-    db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![]).await?;
+    db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![], None).await?;
 
     // Verify initial state
     let rack = db_rack::get(&mut *txn, &rack_id).await?;

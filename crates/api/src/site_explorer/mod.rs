@@ -693,6 +693,7 @@ impl SiteExplorer {
         let new_power_shelf = NewPowerShelf {
             id: power_shelf_id,
             config,
+            metadata: Some(expected_shelf.metadata.clone()),
         };
 
         db_power_shelf::create(&mut txn, &new_power_shelf).await?;
@@ -726,15 +727,24 @@ impl SiteExplorer {
         if let Some(ref rack_id) = expected_shelf.rack_id {
             let rack = match db::rack::get(txn.as_mut(), rack_id).await {
                 Ok(rack) => rack,
-                Err(_) => db::rack::create(
-                    &mut txn,
-                    rack_id,
-                    vec![],
-                    vec![],
-                    vec![expected_shelf.bmc_mac_address],
-                )
-                .await
-                .map_err(CarbideError::from)?,
+                Err(_) => {
+                    let expected_rack_metadata =
+                        db::expected_rack::find_by_rack_id(txn.as_mut(), rack_id)
+                            .await
+                            .ok()
+                            .flatten()
+                            .map(|er| er.metadata);
+                    db::rack::create(
+                        &mut txn,
+                        rack_id,
+                        vec![],
+                        vec![],
+                        vec![expected_shelf.bmc_mac_address],
+                        expected_rack_metadata.as_ref(),
+                    )
+                    .await
+                    .map_err(CarbideError::from)?
+                }
             };
             let mut config = rack.config.clone();
             config.power_shelves.push(power_shelf_id);

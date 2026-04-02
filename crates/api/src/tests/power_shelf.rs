@@ -235,6 +235,7 @@ async fn test_power_shelf_database_operations(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config: config.clone(),
+        metadata: None,
     };
 
     let created_power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf).await?;
@@ -290,6 +291,7 @@ async fn test_power_shelf_status_update(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config: config.clone(),
+        metadata: None,
     };
 
     let mut power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf).await?;
@@ -333,6 +335,7 @@ async fn test_power_shelf_controller_state_transitions(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config: config.clone(),
+        metadata: None,
     };
 
     let power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf).await?;
@@ -430,6 +433,7 @@ async fn test_power_shelf_conversion_roundtrip(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config: config.clone(),
+        metadata: None,
     };
 
     let mut power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf).await?;
@@ -502,6 +506,7 @@ async fn test_power_shelf_list_segment_ids(
         let new_power_shelf = NewPowerShelf {
             id: power_shelf_id,
             config: config.clone(),
+            metadata: None,
         };
 
         let power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf).await?;
@@ -542,6 +547,7 @@ async fn test_power_shelf_controller_state_outcome(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config: config.clone(),
+        metadata: None,
     };
 
     let _power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf).await?;

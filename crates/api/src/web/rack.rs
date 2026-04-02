@@ -53,6 +53,7 @@ struct RackDetail {
     associated_machines: Vec<String>,
     associated_switches: Vec<String>,
     associated_power_shelves: Vec<String>,
+    metadata_detail: super::MetadataDetail,
 }
 
 /// Show all racks
@@ -225,6 +226,17 @@ pub async fn detail(
         }
     };
 
+    let metadata_detail = super::MetadataDetail {
+        metadata: maybe_rack
+            .as_ref()
+            .and_then(|r| r.metadata.clone())
+            .unwrap_or_default(),
+        metadata_version: maybe_rack
+            .as_ref()
+            .map(|r| r.version.clone())
+            .unwrap_or_default(),
+    };
+
     let display = RackDetail {
         id: rack_id.to_string(),
         rack: maybe_rack,
@@ -232,6 +244,7 @@ pub async fn detail(
         // TODO: Add discovered switches and powershelves
         associated_power_shelves: vec![],
         associated_switches: vec![],
+        metadata_detail,
     };
 
     (StatusCode::OK, Html(display.render().unwrap())).into_response()

@@ -37,6 +37,7 @@ pub async fn show_rack(api_client: &ApiClient, args: Args, config: &RuntimeConfi
     let mut table = Table::new();
     table.set_titles(row![
         "ID",
+        "Metadata Name",
         "State",
         "Expected Compute Trays",
         "Expected Power Shelves",
@@ -46,8 +47,15 @@ pub async fn show_rack(api_client: &ApiClient, args: Args, config: &RuntimeConfi
     ]);
 
     for r in racks {
+        let metadata_name = r
+            .metadata
+            .as_ref()
+            .map(|m| m.name.as_str())
+            .unwrap_or("N/A");
+
         table.add_row(row![
             r.id.map(|id| id.to_string()).unwrap_or_default(),
+            metadata_name,
             r.rack_state,
             if r.expected_compute_trays.is_empty() {
                 "N/A".to_string()
